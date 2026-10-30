@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Практика: Задачи A/B-тестирования</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Практика A/B</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">A/B Practise</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">11 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Практика: Задачи A/B-тестирования</h1>
+        <p class="section-shell__desc">Сборник расчетных и алгоритмических задач: расчет Z-тестов, Welch t-test, вычисление MDE и Sample Size, бутстреп доверительных интервалов и реализация CUPED на Python.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="practise_ab_z_test" data-interview="4">
+  <div class="name" id="practise_ab_z_test">
+    Практика: Расчет Z-теста для долей
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Оценка результатов A/B тестирования конверсии в заказ (Conversion Rate). Даны две независимые выборки пользователей. Требуется рассчитать наблюдаемые конверсии, точечный абсолютный и относительный аплифт, объединенную дисперсию, значение Z-статистики, двустороннее $p$-value и построить 95% доверительный интервал для разности долей.</p>
+<p>Если совсем простыми словами: <b>это пошаговый код решения задачи с реального собеседования в Яндекс или Авито</b>. Никаких теоретических общих слов — строгий математический скрипт с проверкой статзначимости от начала до конца.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический алгоритм вычисления:</p>
+<ol>
+<li>Выборочные доли: $\hat{p}_A = x_A / n_A$, $\hat{p}_B = x_B / n_B$.</li>
+<li>Объединенная доля при $H_0$: $\hat{p} = \frac{x_A + x_B}{n_A + n_B}$.</li>
+<li>Стандартная ошибка объединенной разности: $\mathrm{SE}_{\text{pool}} = \sqrt{\hat{p}(1 - \hat{p})\left(\frac{1}{n_A} + \frac{1}{n_B}\right)}$.</li>
+<li>Z-статистика: $Z = \frac{\hat{p}_B - \hat{p}_A}{\mathrm{SE}_{\text{pool}}}$.</li>
+<li>Двусторонний $p$-value: $p = 2 \cdot (1 - \Phi(|Z|))$.</li>
+<li>Непулинговая стандартная ошибка для доверительного интервала: $\mathrm{SE}_{\text{unpool}} = \sqrt{\frac{\hat{p}_A(1-\hat{p}_A)}{n_A} + \frac{\hat{p}_B(1-\hat{p}_B)}{n_B}}$.</li>
+<li>95% Доверительный интервал: $(\hat{p}_B - \hat{p}_A) \pm 1.96 \cdot \mathrm{SE}_{\text{unpool}}$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Контрольная группа $A$: $n_A = 50\,000$ пользователей, $x_A = 2\,100$ конверсий ($\hat{p}_A = 4.20\%$).
+Тестовая группа $B$: $n_B = 50\,000$ пользователей, $x_B = 2\,310$ конверсий ($\hat{p}_B = 4.62\%$).
+Уровень значимости: $\alpha = 0.05$.
+Требуется проверить гипотезу $H_0: p_B = p_A$ против двусторонней альтернативы $H_1: p_B \neq p_A$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Входные данные эксперимента
+n_a, x_a = 50000, 2100
+n_b, x_b = 50000, 2310
+
+p_a = x_a / n_a
+p_b = x_b / n_b
+abs_diff = p_b - p_a
+rel_lift = (p_b - p_a) / p_a
+
+# 1. Объединенная доля и Z-статистика
+p_pool = (x_a + x_b) / (n_a + n_b)
+se_pool = np.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b))
+z_stat = abs_diff / se_pool
+p_val = 2 * (1 - stats.norm.cdf(abs(z_stat)))
+
+# 2. Непулинговый 95% доверительный интервал для разности долей
+se_unpool = np.sqrt(p_a * (1 - p_a) / n_a + p_b * (1 - p_b) / n_b)
+z_crit = stats.norm.ppf(0.975) # 1.95996
+ci_lower = abs_diff - z_crit * se_unpool
+ci_upper = abs_diff + z_crit * se_unpool
+
+print(f"Контроль A: CR = {p_a:.4%}")
+print(f"Тест B:     CR = {p_b:.4%}")
+print(f"Абсолютный прирост: {abs_diff:+.4%} (95% CI: [{ci_lower:+.4%}, {ci_upper:+.4%}])")
+print(f"Относительный аплифт: {rel_lift:+.2%}")
+print(f"Z-статистика: {z_stat:.4f}")
+print(f"p-value:      {p_val:.6f}")
+print(f"Вердикт: {'Отвергаем H0, эффект статзначим!' if p_val < 0.05 else 'Не отвергаем H0'}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование объединенной (pooled) ошибки для доверительного интервала.</b> По теории проверки гипотез пулинговая дисперсия справедлива строго при верной $H_0$. При построении доверительного интервала для истинной разности необходимо использовать раздельные (unpooled) дисперсии.</li>
+        <li><b>Забывание умножения на 2 при расчете двустороннего p-value.</b> Односторонний хвост дает p-value ровно вдвое меньше, что ведет к ложноположительному триумфу.</li>
+        <li><b>Ошибочное округление на промежуточных шагах.</b> Округление дисперсии до 4 знаков приводит к ошибкам в вычислении Z.</li>
+        <li><b>Применение Z-теста при числе конверсий менее 10.</b> Нарушает условия центральной предельной теоремы; требует теста Фишера.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Какова связь между Z-тестом для двух долей и критерием Хи-квадрат для таблицы сопряженности 2х2?»</i> Ответ: <i>«Они дают строго идентичные результаты: статистика критерия Хи-квадрат в точности равна квадрату Z-статистики ($\chi^2 = Z^2$), а p-value для двусторонней альтернативы совпадает с точностью до машинного нуля».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какая нулевая гипотеза проверяется двухвыборочным Z-тестом для долей?</b></p><p>Гипотеза о равенстве вероятностей бинарного события в двух независимых генеральных совокупностях: $H_0: p_1 = p_2$.</p></li>
+        <li><p><b>Какое значение имеет Z_critical для двустороннего теста при альфа = 0.05?</b></p><p>Приблизительно 1.960.</p></li>
+        <li><p><b>Почему для расчета p-value берется пулинговая оценка доли p_pool?</b></p><p>Потому что вычисление статистики происходит в предположении истинности нулевой гипотезы ($p_1 = p_2$).</p></li>
+        <li><p><b>Что означает, если 95% доверительный интервал для разности долей лежит в зоне [+0.2%, +0.6%]?</b></p><p>Различие статистически значимо на уровне 0.05, а истинный прирост с вероятностью 95% составляет не менее +0.2 п.п.</p></li>
+        <li><p><b>В чем различие между абсолютным приростом и относительным аплифтом?</b></p><p>Абсолютный измеряется в процентных пунктах ($p_B - p_A$), относительный — в процентах прироста к базе ($(p_B - p_A) / p_A$).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_welch" data-interview="5">
+  <div class="name" id="practise_ab_welch">
+    Практика: t-тест Уэлча для среднего чека
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Проверка гипотезы о равенстве средних чеков (или выручки на пользователя ARPU) в A/B тесте в условиях ярко выраженной гетероскедастичности (дисперсии выборок различаются в 4 раза). Требуется рассчитать выборочные характеристики, число степеней свободы по формуле Уэлча-Саттертуэйта, t-статистику и сделать статистический вывод.</p>
+<p>Если совсем простыми словами: <b>это разбор реального кейса, когда обычный t-тест Стьюдента из учебника врал бы из-за разного разброса денег</b>. Мы пишем код теста Уэлча, который защищен от неравенства дисперсий.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математические формулы расчета:</p>
+<ol>
+<li>Выборочные средние и несмещенные дисперсии: $\bar{X}_A, s_A^2$ и $\bar{X}_B, s_B^2$.</li>
+<li>Стандартная ошибка разности средних: $\mathrm{SE} = \sqrt{\frac{s_A^2}{n_A} + \frac{s_B^2}{n_B}}$.</li>
+<li>t-статистика: $t = \frac{\bar{X}_B - \bar{X}_A}{\mathrm{SE}}$.</li>
+<li>Число степеней свободы Уэлча (Welch–Satterthwaite df):
+<p>$$\nu = \frac{\left(\frac{s_A^2}{n_A} + \frac{s_B^2}{n_B}\right)^2}{\frac{(s_A^2/n_A)^2}{n_A - 1} + \frac{(s_B^2/n_B)^2}{n_B - 1}}$$</p>
+</li>
+<li>$p$-value по распределению Стьюдента: $p = 2 \cdot (1 - F_{\text{Student}}(\nu, |t|))$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Контроль $A$: $n_A = 12\,000$, средний чек $\bar{X}_A = 1\,450$ руб., стандартное отклонение $s_A = 600$ руб.
+Тест $B$: $n_B = 14\,000$, средний чек $\bar{X}_B = 1\,485$ руб., стандартное отклонение $s_B = 1\,200$ руб. (новая фича привлекла крупных оптовиков, дисперсия выросла в 4 раза!).
+Требуется проверить $H_0: \mu_A = \mu_B$ на уровне значимости $\alpha = 0.05$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Параметры выборок
+n_a, mean_a, std_a = 12000, 1450.0, 600.0
+n_b, mean_b, std_b = 14000, 1485.0, 1200.0
+
+var_a = std_a ** 2
+var_b = std_b ** 2
+
+# 1. Стандартная ошибка разности средних
+se_diff = np.sqrt(var_a / n_a + var_b / n_b)
+diff = mean_b - mean_a
+t_stat = diff / se_diff
+
+# 2. Расчет степеней свободы по формуле Уэлча-Саттертуэйта
+num = (var_a / n_a + var_b / n_b) ** 2
+den = ((var_a / n_a) ** 2) / (n_a - 1) + ((var_b / n_b) ** 2) / (n_b - 1)
+df_welch = num / den
+
+# 3. p-value по t-распределению
+p_val = 2 * (1 - stats.t.cdf(abs(t_stat), df=df_welch))
+
+print(f"Разность средних: {diff:+.2f} руб.")
+print(f"Стандартная ошибка разности: {se_diff:.2f}")
+print(f"t-статистика: {t_stat:.4f}")
+print(f"Степени свободы (Уэлч): {df_welch:.1f} (против {n_a + n_b - 2} у Стьюдента)")
+print(f"p-value: {p_val:.5f}")
+print(f"Вердикт: {'Различие статзначимо (p < 0.05)' if p_val < 0.05 else 'Различие статистически незначимо'}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование t-теста Стьюдента (equal_var=True) по умолчанию.</b> При неравных выборках и гетероскедастичности ошибка I рода классического теста подскакивает до 15-20%.</li>
+        <li><b>Не учет нулевых чеков при анализе выручки на пользователя (ARPU).</b> Если в t-тест передаются только клиенты с покупками, это анализ ARPPU. Для ARPU нули неплатящих пользователей обязаны оставаться в выборке!</li>
+        <li><b>Ошибочное округление степеней свободы до целого вниз без понимания формулы.</b> Формула Уэлча почти всегда дает дробное число степеней свободы; в scipy.stats передается именно вещественное значение df.</li>
+        <li><b>Забывание о проверке на экстремальные выбросы.</b> Один ошибочный тестовый заказ на 1 млрд рублей способен исказить весь расчет.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему при равных размерах выборок (n_A = n_B) t-статистика Стьюдента и t-статистика Уэлча численно совпадают, но p-value всё равно различаются?»</i> Ответ: <i>«Потому что при равенстве объемов выборок формулы для стандартной ошибки совпадают алгебраически, но число степеней свободы у теста Уэлча корректируется вниз из-за неравенства дисперсий ($\nu < 2n - 2$). За счет этого хвосты распределения у Уэлча толще, что делает критерий более строгим и честным».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем t-тест Уэлча отличается от классического двухвыборочного t-теста Стьюдента?</b></p><p>Он не требует предположения об одинаковой дисперсии генеральных совокупностей и корректирует число степеней свободы.</p></li>
+        <li><p><b>Какая формула используется для вычисления эффективного числа степеней свободы в тесте Уэлча?</b></p><p>Уравнение Уэлча-Саттертуэйта (Welch–Satterthwaite equation).</p></li>
+        <li><p><b>Почему при анализе непрерывных метрик в продакшене всегда рекомендуется по умолчанию выбирать критерий Уэлча?</b></p><p>Потому что он полностью сохраняет уровень ошибки первого рода при гетероскедастичности и практически не теряет мощности при равных дисперсиях.</p></li>
+        <li><p><b>Что произойдет с t-статистикой, если в выборку попадет аномальный выброс?</b></p><p>Выборочная дисперсия s раздуется, знаменатель вырастет, t-статистика устремится к нулю, и тест потеряет мощность.</p></li>
+        <li><p><b>Применим ли t-тест Уэлча к ненормальным распределениям на выборках n > 10 000?</b></p><p>Да, в силу Центральной предельной теоремы выборочные средние сходятся к нормальному распределению.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_sample_size" data-interview="5">
+  <div class="name" id="practise_ab_sample_size">
+    Практика: Расчет объема выборки под MDE
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Проведение Power Analysis для расчета минимально необходимого размера выборки (Sample Size) на группу перед запуском A/B эксперимента для двух типов метрик: 1) Бинарная конверсия (CR); 2) Непрерывная метрика выручки (ARPU). Проверка влияния изменения мощности и MDE на объем трафика.</p>
+<p>Если совсем простыми словами: <b>это расчет того, сколько людей нужно набрать в эксперимент, чтобы точно обнаружить запланированный рост бизнеса</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математические соотношения:</p>
+<ol>
+<li><b>Для непрерывных метрик:</b>
+<p>$$n = \frac{2 \cdot (Z_{1-\alpha/2} + Z_{1-\beta})^2 \cdot \sigma^2}{\mathrm{MDE}_{\text{abs}}^2} = \frac{2 \cdot (Z_{1-\alpha/2} + Z_{1-\beta})^2 \cdot CV^2}{\mathrm{MDE}_{\text{rel}}^2}$$</p>
+</li>
+<li><b>Для долей (Z-тест):</b>
+<p>$$n = \frac{2 \cdot (Z_{1-\alpha/2} + Z_{1-\beta})^2 \cdot \bar{p}(1 - \bar{p})}{(p_B - p_A)^2}$$</p>
+где $\bar{p} = (p_A + p_B) / 2$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+1. <i>Метрика 1 (Конверсия в регистрацию):</i> Базовый уровень $p_A = 5.0\%$, целевой минимальный детектируемый аплифт $+0.5\%$ в абсолюте ($p_B = 5.5\%$, относительный MDE $= +10\%$).
+2. <i>Метрика 2 (ARPU):</i> Базовое среднее $\mu = 1\,200$ руб., стандартное отклонение $\sigma = 1\,800$ руб. Целевой относительный MDE $= +3\%$ ($\mathrm{MDE}_{\text{abs}} = 36$ руб.).
+Параметры: $\alpha = 0.05$, Power $= 80\%$ ($1 - \beta = 0.80$).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+def calc_sample_size_proportions(p1, p2, alpha=0.05, power=0.80):
+    z_alpha = stats.norm.ppf(1 - alpha / 2)
+    z_beta = stats.norm.ppf(power)
+    p_bar = (p1 + p2) / 2
+    numerator = 2 * (z_alpha + z_beta) ** 2 * p_bar * (1 - p_bar)
+    denominator = (p2 - p1) ** 2
+    return int(np.ceil(numerator / denominator))
+
+def calc_sample_size_continuous(mean, std, mde_rel, alpha=0.05, power=0.80):
+    z_alpha = stats.norm.ppf(1 - alpha / 2)
+    z_beta = stats.norm.ppf(power)
+    mde_abs = mean * mde_rel
+    numerator = 2 * (z_alpha + z_beta) ** 2 * (std ** 2)
+    denominator = mde_abs ** 2
+    return int(np.ceil(numerator / denominator))
+
+# 1. Расчет для конверсии (5.0% -> 5.5%)
+n_cr = calc_sample_size_proportions(0.05, 0.055)
+
+# 2. Расчет для ARPU (MDE = 3%)
+n_arpu = calc_sample_size_continuous(mean=1200, std=1800, mde_rel=0.03)
+
+print(f"Требуемый размер выборки для CR (на группу):   {n_cr:,} пользователей")
+print(f"Суммарно на обе группы (A+B):                 {n_cr * 2:,} пользователей\n")
+
+print(f"Требуемый размер выборки для ARPU (на группу): {n_arpu:,} пользователей")
+print(f"Суммарно на обе группы (A+B):                 {n_arpu * 2:,} пользователей")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Забывание о суммировании двух групп.</b> Аналитик рассчитывает $n = 30\,000$ и сообщает продакту, что нужно $30\,000$ пользователей суммарно, забывая, что это размер НА ОДНУ ГРУППУ (суммарно нужно $60\,000$).</li>
+        <li><b>Ошибочное задание MDE в формуле непрерывной метрики.</b> Подстановка относительного MDE (0.03) вместо абсолютного в знаменатель формулы.</li>
+        <li><b>Игнорирование сезонных потерь.</b> Расчет трафика без запаса на падение активности в выходные дни.</li>
+        <li><b>Завышенные ожидания мощности без трафика.</b> Попытка выставить Power = 99% при MDE = 1% на маленьком сайте.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как изменится требуемый размер выборки, если мы захотим обнаружить эффект в 2 раза меньший, чем планировали?»</i> Ответ: <i>«Размер выборки обратно пропорционален квадрату размера эффекта ($n \propto 1 / \Delta^2$). Поэтому при уменьшении MDE в 2 раза необходимый размер выборки вырастет ровно в 4 раза».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как связана необходимая выборка с величиной MDE?</b></p><p>Обратно пропорционально квадрату MDE: уменьшение MDE в k раз требует увеличения выборки в $k^2$ раз.</p></li>
+        <li><p><b>Чему равна сумма квантилей (Z_alpha + Z_beta)^2 при стандартных alpha=0.05 и power=0.80?</b></p><p>Приблизительно 7.85 (множитель числителя равен $pprox 15.7$ с учетом двух групп).</p></li>
+        <li><p><b>Почему расчет выборки для выручки требует знания дисперсии исторических данных?</b></p><p>Потому что ширина доверительного интервала непрерывной метрики прямо пропорциональна ее дисперсии.</p></li>
+        <li><p><b>Как дисперсия метрики влияет на размер выборки?</b></p><p>Прямо пропорционально: рост дисперсии в 2 раза требует двукратного увеличения выборки.</p></li>
+        <li><p><b>Что делать, если расчетный размер выборки превышает квартальный трафик продукта?</b></p><p>Увеличивать чувствительность метрики через CUPED, стратификацию или переход к более чувствительным прокси-метрикам.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_mde" data-interview="4">
+  <div class="name" id="practise_ab_mde">
+    Практика: Оценка MDE при фиксированном трафике
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Обратный расчет чувствительности эксперимента. В продукте доступен фиксированный объем трафика (например, 30 000 пользователей за 2 недели). Требуется определить минимальный относительный и абсолютный эффект (MDE), который тест сможет гарантированно обнаружить с мощностью 80% при $\alpha = 0.05$.</p>
+<p>Если совсем простыми словами: <b>это проверка реальности наших ожиданий</b>. Мы смотрим на доступный трафик и честно говорим бизнесу: «С такой аудиторией мы сможем заметить рост не меньше чем на +8%. Если вы ждете прирост всего +2%, этот тест запускать бессмысленно».</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математические формулы обратного вывода MDE:</p>
+<ol>
+<li><b>Для непрерывных величин:</b>
+<p>$$\mathrm{MDE}_{\text{abs}} = (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot \sqrt{\frac{2 \sigma^2}{n}}$$</p>
+<p>$$\mathrm{MDE}_{\text{rel}} = (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{n}}$$</p>
+</li>
+<li><b>Для конверсий (долей):</b>
+<p>$$\mathrm{MDE}_{\text{abs}} \approx (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot \sqrt{\frac{2 p(1 - p)}{n}}$$</p>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Стартап B2B: за 14 дней на экран подписки заходит суммарно $N = 20\,000$ пользователей ($n = 10\,000$ на группу).
+Базовая конверсия: $p = 4.0\%$.
+Параметры: $\alpha = 0.05$, Power $= 80\%$.
+Требуется определить минимальный абсолютный и относительный прирост конверсии, который мы способны статистически зафиксировать.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+def get_detectable_mde(baseline_cr, n_per_group, alpha=0.05, power=0.80):
+    z_alpha = stats.norm.ppf(1 - alpha / 2) # 1.96
+    z_beta = stats.norm.ppf(power)          # 0.842
+    
+    # Стандартная ошибка разности при baseline
+    se = np.sqrt(2 * baseline_cr * (1 - baseline_cr) / n_per_group)
+    mde_abs = (z_alpha + z_beta) * se
+    mde_rel = mde_abs / baseline_cr
+    
+    return mde_abs, mde_rel
+
+baseline = 0.04
+sample_options = [5000, 10000, 25000, 50000]
+
+print(f"Базовая конверсия: {baseline:.1%}")
+print("Выборка на группу | MDE (абс., п.п.) | MDE (относит., %)")
+print("-" * 55)
+for n in sample_options:
+    mde_a, mde_r = get_detectable_mde(baseline, n)
+    print(f"n = {n:6,d}       | {mde_a:14.4%} | {mde_r:16.2%}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск тестов вслепую без обратной оценки MDE.</b> Команды крутят тесты на 2 000 пользователей, не понимая, что тест способен заметить только прирост в +100%.</li>
+        <li><b>Сравнение MDE с желаемым результатом вместо реалистичного.</b> Ожидать от смены цвета кнопки роста конверсии на +15% при реалистичном бенчмарке в +1%.</li>
+        <li><b>Игнорирование дисперсии при смене целевой метрики.</b> Переход от конверсий к выручке резко снижает чувствительность теста при том же объеме трафика.</li>
+        <li><b>Оценка MDE без учета фильтрации аудитории.</b> Если тест таргетирован только на пользователей одного города, объем эффективного трафика падает в разы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Продакт хочет протестировать гипотезу на 5 000 пользователях и ждет рост конверсии на 1%. Базовая конверсия 5%. Что вы ему скажете?»</i> Ответ: <i>«Я рассчитаю MDE для выборки 2 500 на группу: минимальный детектируемый относительный эффект составит около $+17\%$ (абсолютный MDE $\approx +0.87$ п.п.). Тест с мощностью 80% абсолютно слеп к эффекту в 1%. Запускать эксперимент в таком виде нельзя: мы гарантированно совершим ошибку второго рода (False Negative)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что показывает обратный расчет MDE при фиксированном трафике?</b></p><p>Минимальный порог чувствительности теста при заданных ограничениях времени и аудитории.</p></li>
+        <li><p><b>Как связан MDE с числом наблюдений n?</b></p><p>MDE обратно пропорционален квадратному корню из объема выборки: $\mathrm{MDE} \propto 1 / \sqrt{n}$.</p></li>
+        <li><p><b>Какой относительный MDE считается отличным для зрелых продуктовых команд в BigTech?</b></p><p>От 0.5% до 2%.</p></li>
+        <li><p><b>Почему у продуктов на стадии стартапа MDE обычно превышает 15-20%?</b></p><p>Из-за низкого объема доступного пользовательского трафика.</p></li>
+        <li><p><b>Что делать, если расчетный MDE теста выше, чем максимальный потенциал тестируемой фичи?</b></p><p>Отказаться от A/B теста в пользу качественных исследований либо объединять фичи в более крупные пакетные релизы.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_bootstrap_ci" data-interview="5">
+  <div class="name" id="practise_ab_bootstrap_ci">
+    Практика: Расчет бутстреп-интервала
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Оценка статистической значимости изменения 95-го перцентиля времени ответа сервера ($p95$ Latency) или медианного чека с помощью метода Бутстреп (Bootstrap). Построение перцентильного 95% доверительного интервала для разности нелинейных статистик.</p>
+<p>Если совсем простыми словами: <b>это код для метрик, к которым нельзя применить t-тест</b>. Перцентили и медианы не являются средними, поэтому мы заставляем Python пересобрать выборку 2 000 раз и найти доверительный интервал экспериментально.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Алгоритм векторизованного бутстрепа:</p>
+<ol>
+<li>Фиксируем число реплик $B = 2\,000$.</li>
+<li>Для каждой группы генерируем матрицу псевдовыборок размера $(B, n)$ путем выбора случайных индексов с возвращением: <code>np.random.choice(n, size=(B, n), replace=True)</code>.</li>
+<li>Для каждой строки матрицы вычисляем целевую квантиль: $\hat{\theta}^{*b}_A = \mathrm{Quantile}(X^{*b}_A, q)$, $\hat{\theta}^{*b}_B = \mathrm{Quantile}(X^{*b}_B, q)$.</li>
+<li>Вычисляем вектор разностей квантилей: $\Delta^{*b} = \hat{\theta}^{*b}_B - \hat{\theta}^{*b}_A$.</li>
+<li>Определяем 95% перцентильный интервал через квантили эмпирического распределения: $[\Delta^*_{0.025}, \Delta^*_{0.975}]$.</li>
+<li>Если ноль не входит в доверительный интервал, $H_0$ отвергается.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Бэкенд-команда оптимизировала индексы базы данных. Метрика — 95-й перцентиль задержки API ($p95$).
+Контроль $A$: $n_A = 10\,000$ запросов (логнормальное распределение со средним $180$ мс и тяжелым хвостом тайм-аутов).
+Тест $B$: $n_B = 10\,000$ запросов (ускоренная версия).
+Требуется проверить, доказано ли ускорение $p95$ на уровне $\alpha = 0.05$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+# Симуляция данных времени ответа (тяжелые хвосты)
+np.random.seed(42)
+n_samples = 10000
+n_boot = 2000
+
+latency_a = np.random.lognormal(mean=4.8, sigma=0.8, size=n_samples) # p95 ~ 450 мс
+latency_b = np.random.lognormal(mean=4.6, sigma=0.75, size=n_samples) # p95 ~ 380 мс
+
+# Векторизованный расчет бутстреп-реплик 95-го перцентиля
+idx_a = np.random.randint(0, n_samples, size=(n_boot, n_samples))
+idx_b = np.random.randint(0, n_samples, size=(n_boot, n_samples))
+
+boot_samples_a = latency_a[idx_a]
+boot_samples_b = latency_b[idx_b]
+
+boot_p95_a = np.percentile(boot_samples_a, 95, axis=1)
+boot_p95_b = np.percentile(boot_samples_b, 95, axis=1)
+
+# Вектор разностей
+boot_diffs = boot_p95_b - boot_p95_a
+
+# Построение 95% перцентильного доверительного интервала
+ci_lower, ci_upper = np.percentile(boot_diffs, [2.5, 97.5])
+p_val = 2 * min((boot_diffs > 0).mean(), (boot_diffs < 0).mean())
+
+point_diff = np.percentile(latency_b, 95) - np.percentile(latency_a, 95)
+
+print(f"Точечная разность p95: {point_diff:.2f} мс")
+print(f"95% Бутстреп CI: [{ci_lower:.2f}, {ci_upper:.2f}] мс")
+print(f"Эмпирический p-value: {p_val:.4f}")
+print(f"Вердикт: {'Ускорение доказано статзначимо!' if ci_upper < 0 else 'Эффект незначим'}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование цикла for в Python без векторизации.</b> Наивный цикл на 10 000 итераций в чистом Python работает в 50 раз медленнее матричных операций NumPy.</li>
+        <li><b>Слишком малое количество бутстреп-итераций (B = 100).</b> Приводит к нестабильности границ доверительного интервала от запуска к запуску.</li>
+        <li><b>Попытка бутстрепить экстремальные квантили (p99.99).</b> На краях распределения данных не хватает, и бутстреп дает ложную оценку дисперсии.</li>
+        <li><b>Игнорирование кластеризации наблюдений.</b> Если пользователь отправляет по 50 запросов, ресемплить нужно пользователей целиком (кластерный бутстреп), а не отдельные запросы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как бутстрепом оценить статзначимость ratio-метрики (например, CTR = клики / показы)?»</i> Ответ: <i>«Мы выполняем кластерный бутстреп: единицей ресемплинга является пользователь со своей парой значений $(clicks_i, views_i)$. На каждом шаге репликации суммируем клики и показы псевдовыборки, делим их $\sum clicks / \sum views$ и строим доверительный интервал для разности отношений $\Delta CTR$».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Для каких типов метрик бутстреп незаменим?</b></p><p>Для нелинейных метрик: квантили, медианы, дисперсии, коэффициенты корреляции и сложные отношения.</p></li>
+        <li><p><b>В чем преимущество векторизованного бутстрепа в NumPy?</b></p><p>Матричные операции C-ядра NumPy выполняют 2000 реплик за секунды вместо минут в циклах Python.</p></li>
+        <li><p><b>Какое минимальное число реплик B рекомендуется для расчета p-value?</b></p><p>Не менее 10 000 итераций.</p></li>
+        <li><p><b>Что такое перцентильный доверительный интервал?</b></p><p>Интервал, границами которого являются квантили 2.5% и 97.5% распределения бутстреп-разностей.</p></li>
+        <li><p><b>Почему нельзя ресемплить строки заказов одного пользователя независимо?</b></p><p>Нарушается предпосылка о независимости наблюдений (i.i.d.), что занижает ширину доверительного интервала.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_srm" data-interview="5">
+  <div class="name" id="practise_ab_srm">
+    Практика: Диагностика и расчет SRM
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Разработка автоматического модуля валидации целостности выборки (SRM Check) на основе критерия согласия Хи-квадрат Пирсона ($\chi^2$). Тестирование гипотезы о соответствии наблюдаемого распределения пользователей проектному сплиту $50/50$ или $90/10$.</p>
+<p>Если совсем простыми словами: <b>это код автоматической проверки качества деления пользователей перед тем, как смотреть на выручку</b>. Если тест не проходит проверку на SRM, расчет метрик немедленно блокируется.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика расчета статистики Хи-квадрат:</p>
+<p>Для заданных пропорций сплита $(w_A, w_B)$ при общем объеме пользователей $N = n_A + n_B$ ожидаемые объемы равны: $E_A = N \cdot w_A$, $E_B = N \cdot w_B$.</p>
+<p>Статистика критерия Пирсона:</p>
+<p>$$\chi^2 = \frac{(n_A - E_A)^2}{E_A} + \frac{(n_B - E_B)^2}{E_B} \xrightarrow{d} \chi^2_1$$</p>
+<p>Критический порог отсечения индустрии: $p\text{-value} < 0.001$.</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Платформа планировала эксперимент 50/50 ($w_A = 0.5, w_B = 0.5$).
+Фактически залогировано:
+Контроль $A$: $n_A = 100\,850$ пользователей.
+Тест $B$: $n_B = 99\,150$ пользователей.
+Суммарно: $N = 200\,000$ пользователей.
+Требуется проверить наличие SRM и сделать вывод о допустимости анализа целевых метрик.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import scipy.stats as stats
+
+def evaluate_srm(n_observed_a, n_observed_b, target_ratio_a=0.5):
+    total = n_observed_a + n_observed_b
+    exp_a = total * target_ratio_a
+    exp_b = total * (1 - target_ratio_a)
+    
+    # Расчет Хи-квадрат Пирсона
+    chi2_stat = ((n_observed_a - exp_a) ** 2) / exp_a + ((n_observed_b - exp_b) ** 2) / exp_b
+    p_value = 1 - stats.chi2.cdf(chi2_stat, df=1)
+    
+    # Индустриальный порог SRM
+    is_srm = p_value < 0.001
+    
+    print(f"Наблюдаемые объемы: A = {n_observed_a:,} | B = {n_observed_b:,}")
+    print(f"Ожидаемые объемы:   A = {exp_a:,.1f} | B = {exp_b:,.1f}")
+    print(f"Статистика Chi2:    {chi2_stat:.4f}")
+    print(f"p-value теста SRM:  {p_value:.6e}")
+    
+    if is_srm:
+        print("ВЕРДИКТ: КРИТИЧЕСКИЙ SRM ОБНАРУЖЕН! Тест скомпрометирован. Анализ запрещен.")
+    else:
+        print("ВЕРДИКТ: SRM не обнаружен. Пропорции соответствуют дизайну.")
+        
+    return is_srm
+
+# Запуск расчета
+evaluate_srm(100850, 99150)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование порога p < 0.05 вместо p < 0.001.</b> На миллионных выборках случайные отклонения в доли процента могут давать $p = 0.03$. Порог 0.001 исключает ложные блокировки тестов.</li>
+        <li><b>Проверка SRM на уровне сессий вместо уникальных пользователей.</b> Если один пользователь сделал 100 сессий, это создаст видимость SRM там, где по людям сплит идеален.</li>
+        <li><b>Игнорирование SRM при 'зеленой' целевой метрике.</b> Празднование роста метрики при наличии SRM — самообман (рост вызван селективным выбыванием).</li>
+        <li><b>Попытка нормализовать группы удалением 'лишних' пользователей.</b> Удаление случайных наблюдений не устраняет систематическое смещение выживших.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В тесте 50/50 получилось 50 800 в контроле и 49 200 в тесте. Есть ли здесь SRM?»</i> Ответ: <i>«Давайте посчитаем: $N = 100\,000$, ожидаемые по $50\,000$. Отклонение $\Delta = 800$. Статистика $\chi^2 = \frac{800^2}{50000} + \frac{800^2}{50000} = \frac{640000}{50000} \times 2 = 12.8 \times 2 = 25.6$. Для одной степени свободы критическое значение при $p = 0.001$ равно $10.83$. Статистика $25.6$ колоссально превышает порог ($p \approx 4 \times 10^{-7}$). Это безусловный критический SRM, тест бракуется».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какое число степеней свободы имеет тест Хи-квадрат при проверке SRM на две группы?</b></p><p>Ровно 1 степень свободы: $df = 2 - 1 = 1$.</p></li>
+        <li><p><b>Каково критическое значение статистики Chi2 при уровне значимости 0.001 для df=1?</b></p><p>Приблизительно 10.828.</p></li>
+        <li><p><b>Почему проверка SRM является обязательным шагом перед анализом продуктовых метрик?</b></p><p>Потому что при нарушении сплита нарушается внутренняя валидность, и любые выводы о средних смещены.</p></li>
+        <li><p><b>Как проверить SRM при сплите на 3 группы (A/B/C)?</b></p><p>Критерием согласия $\chi^2$ на $3 - 1 = 2$ степени свободы с ожидаемыми частотами для трех групп.</p></li>
+        <li><p><b>Что является единицей наблюдения при расчете SRM?</b></p><p>Уникальная единица рандомизации эксперимента (обычно user_id).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_cuped" data-interview="5">
+  <div class="name" id="practise_ab_cuped">
+    Практика: Реализация CUPED на Python
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Программная реализация метода снижения дисперсии CUPED на языке Python с использованием библиотеки Pandas и SciPy. Расчет коэффициента ковариации $\theta$, трансформация целевой метрики, оценка процента снижения дисперсии и сравнение p-value до и после применения CUPED.</p>
+<p>Если совсем простыми словами: <b>это боевой скрипт, который снижает шум в метрике выручки на 40-60% и превращает сомнительный результат в уверенную победу</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Алгоритмический пайплайн CUPED:</p>
+<ol>
+<li>Объединяем данные групп A и B в один датафрейм.</li>
+<li>Рассчитываем ковариацию $\mathrm{Cov}(Y, X)$ и дисперсию $\mathrm{Var}(X)$ на <b>всех пользователях выборки</b>:
+<p>$$\theta = \frac{\mathrm{Cov}(Y, X)}{\mathrm{Var}(X)}$$</p>
+</li>
+<li>Трансформируем метрику для каждого пользователя:
+<p>$$Y_i^{\text{cuped}} = Y_i - \theta \cdot (X_i - \bar{X})$$</p>
+</li>
+<li>Оцениваем дисперсию: $\mathrm{Var}(Y_{\text{cuped}}) = \mathrm{Var}(Y) \cdot (1 - \rho^2)$.</li>
+<li>Применяем t-тест Уэлча к переменной $Y^{\text{cuped}}$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Эксперимент с рекомендациями в мобильном приложении ($N = 40\,000$ пользователей).
+$Y$ — выручка за период эксперимента (2 недели).
+$X$ — историческая выручка тех же пользователей за 2 недели до старта теста.
+Истинный аплифт фичи: $+35$ рублей на пользователя.
+Корреляция между $Y$ и $X$ составляет $\rho \approx 0.72$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+import scipy.stats as stats
+
+# 1. Симуляция данных эксперимента
+np.random.seed(42)
+n_users = 40000
+
+# Исторические траты до теста (ковариата X)
+x = np.random.exponential(scale=500.0, size=n_users)
+
+# Экспериментальный тритмент 50/50
+treatment = np.random.binomial(1, 0.5, size=n_users)
+
+# Экспериментальная выручка Y (зависит от прошлого X + эффект фичи)
+true_lift = 35.0
+y = 0.85 * x + (treatment * true_lift) + np.random.normal(loc=0, scale=350, size=n_users)
+
+df = pd.DataFrame({"x": x, "y": y, "treatment": treatment})
+
+# 2. Реализация алгоритма CUPED
+theta = np.cov(df["y"], df["x"])[0, 1] / np.var(df["x"])
+df["y_cuped"] = df["y"] - theta * (df["x"] - df["x"].mean())
+
+# 3. Сравнение статистик
+corr = np.corrcoef(df["y"], df["x"])[0, 1]
+var_raw = df["y"].var()
+var_cuped = df["y_cuped"].var()
+var_reduction_pct = (1 - var_cuped / var_raw) * 100
+
+# t-тест Уэлча на сырых данных
+t_raw, p_raw = stats.ttest_ind(df[df["treatment"] == 1]["y"], df[df["treatment"] == 0]["y"], equal_var=False)
+
+# t-тест Уэлча на данных после CUPED
+t_cuped, p_cuped = stats.ttest_ind(df[df["treatment"] == 1]["y_cuped"], df[df["treatment"] == 0]["y_cuped"], equal_var=False)
+
+print(f"Корреляция corr(Y, X):   {corr:.3f}")
+print(f"Коэффициент theta:       {theta:.4f}")
+print(f"Снижение дисперсии:      {var_reduction_pct:.1f}%")
+print(f"Сырые данные:   t = {t_raw:.3f}, p-value = {p_raw:.5f}")
+print(f"CUPED данные:   t = {t_cuped:.3f}, p-value = {p_cuped:.5f}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Расчет коэффициента тета раздельно по контролю и тритменту.</b> Коэффициент $\theta$ обязан рассчитываться по всей объединенной выборке (pooled data), иначе оценка аплифта будет смещенной.</li>
+        <li><b>Использование ковариаты, на которую повлиял тест.</b> Ковариата должна быть измерена строго ДО даты включения эксперимента.</li>
+        <li><b>Попытка центрировать Y вместо X.</b> Формула вычитает среднее из ковариаты: $Y - \theta(X - \bar{X})$.</li>
+        <li><b>Забывание о проверке несмещенности среднего.</b> Среднее $Y_{\text{cuped}}$ обязано в точности совпадать со средним сырого $Y$.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как применить CUPED к пользователям, которые зарегистрировались во время эксперимента и не имеют исторической ковариаты X?»</i> Ответ: <i>«Для новых пользователей без истории мы заполняем ковариату средним значением генеральной совокупности $X_i = \bar{X}$ (или нулем при центрировании). В этом случае член $\theta(X_i - \bar{X}) = 0$, и трансформированная метрика $Y_i^{\text{cuped}}$ в точности равна сырой $Y_i$. Оценка сохраняет строгую несмещенность».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как рассчитывается оптимальный коэффициент theta в CUPED?</b></p><p>$	heta = \mathrm{Cov}(Y, X) / \mathrm{Var}(X)$.</p></li>
+        <li><p><b>Какое условие гарантирует несмещенность оценки эффекта в CUPED?</b></p><p>Независимость ковариаты X от распределения воздействия (измерение ковариаты строго до теста).</p></li>
+        <li><p><b>Чему равен процент снижения дисперсии при использовании CUPED?</b></p><p>$ho^2 	imes 100\%$, где $ho$ — коэффициент корреляции между целевой метрикой и ковариатой.</p></li>
+        <li><p><b>Меняется ли точечная оценка разности средних после применения CUPED?</b></p><p>Асимптотически нет, оценка среднего аплифта сохраняется несмещенной.</p></li>
+        <li><p><b>Какие признаки чаще всего используются в качестве ковариаты X для монетизационных метрик?</b></p><p>Историческая выручка пользователя за предшествующие 14 или 30 дней.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_duration_calc" data-interview="4">
+  <div class="name" id="practise_ab_duration_calc">
+    Практика: Калькуляция длительности теста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Полный алгоритмический расчет календарного плана проведения эксперимента: сопоставление требуемого размера выборки с суточным трафиком, проверка созревания конверсионных окон, выравнивание по недельным циклам и расчет рисков затягивания теста.</p>
+<p>Если совсем простыми словами: <b>это скрипт, переводящий математическую формулу выборки в точную дату завершения теста в календаре</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Логика планирования длительности:</p>
+<ol>
+<li>Минимальное расчетное число дней: $D_{\text{raw}} = \frac{2 \cdot n_{\text{required}}}{\mathrm{DAU}_{\text{eligible}}}$.</li>
+<li>Округление вверх до полных недель: $D_{\text{weeks}} = \max\left(1, \lceil D_{\text{raw}} / 7 \rceil\right) \times 7$.</li>
+<li>Учет окна созревания конверсии (Maturation buffer): $D_{\text{final}} = D_{\text{weeks}} + \mathrm{Window}_{\text{days}}$.</li>
+<li>Проверка верхнего лимита: $D_{\text{final}} \le 35$ дней (для исключения Cookie Churn).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Требуемый размер выборки на группу: $n = 45\,000$ пользователей.
+Доступный суточный целевой трафик: $8\,000$ уникальных пользователей в день.
+Окно созревания заказа: $3$ дня.
+Требуется рассчитать точную длительность теста.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+def calculate_experiment_schedule(n_per_group, daily_traffic, maturation_days=0):
+    total_required = n_per_group * 2
+    raw_days = total_required / daily_traffic
+    
+    # Кратность полным неделям
+    full_weeks = int(np.ceil(raw_days / 7))
+    recommended_active_days = max(full_weeks * 7, 7) # минимум 1 неделя
+    total_calendar_days = recommended_active_days + maturation_days
+    
+    return {
+        "total_users_needed": total_required,
+        "raw_days": raw_days,
+        "active_test_days": recommended_active_days,
+        "full_weeks": full_weeks,
+        "maturation_buffer": maturation_days,
+        "total_calendar_days": total_calendar_days
+    }
+
+plan = calculate_experiment_schedule(n_per_group=45000, daily_traffic=8000, maturation_days=3)
+
+print(f"Требуется пользователей суммарно: {plan['total_users_needed']:,}")
+print(f"Минимум дней по математике:     {plan['raw_days']:.1f}")
+print(f"Рекомендованная длительность:     {plan['active_test_days']} дней ({plan['full_weeks']} полных недель)")
+print(f"Буфер созревания конверсий:       {plan['maturation_buffer']} дня")
+print(f"Итоговая дата подведения итогов: через {plan['total_calendar_days']} календарных дней.")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Остановка теста через 11 дней.</b> 11 дней нарушают кратность неделе (понедельник-четверг учтены дважды, пятница-воскресенье один раз). Длительность обязана быть 14 дней.</li>
+        <li><b>Подведение итогов в день выключения сбора пользователей.</b> Пользователи, пришедшие в последний день, не успеют совершить целевое конверсионное действие.</li>
+        <li><b>Забывание о праздничных днях при планировании.</b> Попадание теста на майские праздники искажает паттерны будней.</li>
+        <li><b>Планирование теста на 3 месяца.</b> Приводит к росту доли перемешанных cookie-файлов.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему нельзя запустить тест на 3 дня, если за эти 3 дня мы уже собрали нужные 100 000 пользователей?»</i> Ответ: <i>«Потому что за 3 дня невозможно учесть недельную сезонность (поведение в будни кардинально отличается от выходных), а отложенные конверсии не успеют созреть. Минимальный индустриальный стандарт любого теста — 7 дней, а золотой стандарт — 14 дней».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему минимальный срок A/B теста равен 7 дням даже при избытке трафика?</b></p><p>Для полного сбалансированного покрытия всех дней недели и исключения внутринедельной сезонности.</p></li>
+        <li><p><b>Что такое конверсионный буфер созревания (Maturation buffer)?</b></p><p>Время ожидания после остановки набора пользователей для того, чтобы последние когорты завершили конверсионное окно.</p></li>
+        <li><p><b>Какой максимальный срок непрерывного проведения теста считается безопасным?</b></p><p>Не более 4–5 недель во избежание сброса cookie-файлов и смешивания аудитории.</p></li>
+        <li><p><b>Что произойдет, если остановить тест в пятницу вечером?</b></p><p>Результаты будут смещены в пользу будничного паттерна поведения.</p></li>
+        <li><p><b>Как рассчитать календарную дату снятия отчета?</b></p><p>Дата старта + полные недели проведения + окно созревания заказов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_result_calc" data-interview="5">
+  <div class="name" id="practise_ab_result_calc">
+    Практика: Комплексный расчет итогов теста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Разработка комплексного аналитического скрипта подведения итогов A/B эксперимента, объединяющего проверку SRM, расчет доверительных интервалов первичной метрики, мониторинг Guardrail метрик и формирование управленческого вердикта по критериям раскатки.</p>
+<p>Если совсем простыми словами: <b>это скрипт, автоматизирующий работу аналитика в день подведения итогов</b>. Он берет сырые данные и выдает готовое решение: катить в прод или откатывать.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Комплексный пайплайн анализа:</p>
+<ol>
+<li>Валидация целостности выборки: Chi-square test на SRM ($p \ge 0.001$).</li>
+<li>Оценка Primary метрики (Конверсия): Z-test с расчетом 95% CI для абсолютного и относительного аплифта.</li>
+<li>Оценка Guardrail метрики (Crash rate / Latency): проверка отсутствия статистически значимого ухудшения.</li>
+<li>Автоматическая генерация вердикта по правилам Ship Criteria.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Контроль $A$: $n_A = 60\,000$, конверсий $2\,400$ ($4.0\%$), крашей $12$ ($0.02\%$).
+Тест $B$: $n_B = 60\,300$, конверсий $2\,650$ ($4.39\%$), крашей $15$ ($0.025\%$).
+Ship Criteria: Primary метрика значимо выросла ($p < 0.05$), SRM отсутствует, краши не выросли значимо.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+def run_experiment_evaluation(n_a, conv_a, crash_a, n_b, conv_b, crash_b):
+    print("==================================================")
+    print("      КОМПЛЕКСНЫЙ АУДИТ A/B ЭКСПЕРИМЕНТА          ")
+    print("==================================================")
+    
+    # 1. Проверка SRM
+    total = n_a + n_b
+    chi2_srm = ((n_a - total/2)**2) / (total/2) + ((n_b - total/2)**2) / (total/2)
+    p_srm = 1 - stats.chi2.cdf(chi2_srm, df=1)
+    srm_passed = p_srm >= 0.001
+    print(f"1. SRM Check: {'PASSED' if srm_passed else 'FAILED'} (Chi2 = {chi2_srm:.3f}, p = {p_srm:.4f})")
+    
+    # 2. Оценка Primary метрики (Конверсия)
+    cr_a, cr_b = conv_a / n_a, conv_b / n_b
+    diff_cr = cr_b - cr_a
+    rel_lift = diff_cr / cr_a
+    
+    p_pool = (conv_a + conv_b) / total
+    se_pool = np.sqrt(p_pool * (1 - p_pool) * (1/n_a + 1/n_b))
+    z_stat = diff_cr / se_pool
+    p_cr = 2 * (1 - stats.norm.cdf(abs(z_stat)))
+    
+    # 95% CI
+    se_unpool = np.sqrt(cr_a*(1-cr_a)/n_a + cr_b*(1-cr_b)/n_b)
+    ci_low, ci_high = diff_cr - 1.96 * se_unpool, diff_cr + 1.96 * se_unpool
+    
+    print(f"2. Primary Conversion: A = {cr_a:.2%} -> B = {cr_b:.2%}")
+    print(f"   Аплифт: {diff_cr:+.3%} (Относительный: {rel_lift:+.2%})")
+    print(f"   95% CI: [{ci_low:+.3%}, {ci_high:+.3%}], p-value: {p_cr:.5f}")
+    
+    # 3. Guardrail метрика (Crash Rate)
+    crash_rate_a = crash_a / n_a
+    crash_rate_b = crash_b / n_b
+    guardrail_safe = crash_rate_b <= crash_rate_a * 1.5 # порог стабильности
+    print(f"3. Guardrail Crash Rate: A = {crash_rate_a:.4%} | B = {crash_rate_b:.4%} -> {'SAFE' if guardrail_safe else 'DEGRADED'}")
+    
+    # 4. Итоговый вердикт
+    print("--------------------------------------------------")
+    if srm_passed and (p_cr < 0.05 and diff_cr > 0) and guardrail_safe:
+        verdict = "РЕКОМЕНДОВАНО К РАСКАТКЕ НА 100% (ROLLOUT)!"
+    else:
+        verdict = "НЕ РАСКАТЫВАТЬ (ROLLBACK / ITERATE)!"
+    print(f"ИТОГОВОЕ РЕШЕНИЕ: {verdict}")
+    print("==================================================")
+
+run_experiment_evaluation(60000, 2400, 12, 60300, 2650, 15)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Принятие решения о раскатке при проваленном тесте на SRM.</b> SRM аннулирует любые статистические выводы по первичной метрике.</li>
+        <li><b>Игнорирование доверительного интервала в итоговом резюме.</b> Бизнес должен видеть пессимистичную и оптимистичную границы эффекта.</li>
+        <li><b>Раскатка фичи с ростом конверсии, но падением стабильности приложения.</b> Рост покупок на 2% ценой удвоения крашей приведет к оттоку пользователей через месяц.</li>
+        <li><b>Отсутствие логирования решения в архиве экспериментов.</b> Несохраненные результаты тестов теряются при смене команды.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как выглядит идеальный чеклист аналитика в день завершения теста?»</i> Ответ: <i>«1) Валидация SRM; 2) Расчет доверительных интервалов для Primary метрики; 3) Проверка всех Guardrail метрик на отсутствие статистически значимых просадок; 4) Сопоставление факта с критериями раскатки (Ship Criteria); 5) Формирование стандартизированного отчета с рекомендацией для C-level».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какие три проверки обязательны при комплексной оценке итогов A/B теста?</b></p><p>1) Проверка SRM; 2) Оценка значимости и CI первичной метрики; 3) Проверка стабильности Guardrail метрик.</p></li>
+        <li><p><b>Что является основанием для немедленного отката фичи?</b></p><p>Статистически значимая деградация Primary метрики либо критическое падение ключевых Guardrails.</p></li>
+        <li><p><b>Почему важно оценивать как p-value, так и доверительный интервал?</b></p><p>p-value показывает факт наличия эффекта, а доверительный интервал — его экономический размер и границы неопределенности.</p></li>
+        <li><p><b>Какую роль играет порог p < 0.001 в тесте на SRM?</b></p><p>Служит консервативным фильтром выявления технических аномалий сплитования.</p></li>
+        <li><p><b>Что делать, если Primary метрика нейтральна (p = 0.35), но Guardrails стабильны?</b></p><p>Следовать правилу бритвы Оккама: не усложнять продукт неработающим функционалом и закрыть ветку разработки.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_multiple_testing_calc" data-interview="4">
+  <div class="name" id="practise_ab_multiple_testing_calc">
+    Практика: Расчет поправок множественного тестирования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Программная коррекция уровня значимости при проверке 10 продуктовых метрик. Реализация классической консервативной поправки Бонферрони (Bonferroni) и современного метода контроля ложных открытий Бенджамини-Хохберга (FDR Benjamini-Hochberg) на языке Python.</p>
+<p>Если совсем простыми словами: <b>это скрипт, защищающий от ложных открытий, когда в тесте смотрят на 20 графиков сразу</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математические алгоритмы поправок:</p>
+<ol>
+<li><b>Поправка Бонферрони (FWER control):</b> Каждое скорректированное $p$-value равно:
+<p>$$p^{\text{bonf}}_i = \min(1, p_i \cdot k)$$</p>
+Гипотеза отвергается, если $p^{\text{bonf}}_i < \alpha$.</li>
+<li><b>Процедура Бенджамини-Хохберга (FDR control):</b>
+    <ul>
+    <li>Сортируем $k$ $p$-значений по возрастанию: $p_{(1)} \le p_{(2)} \le \dots \le p_{(k)}$.</li>
+    <li>Находим максимальный индекс $i$, для которого выполняется:
+    <p>$$p_{(i)} \le \frac{i}{k} \cdot \alpha$$</p>
+    </li>
+    <li>Отвергаем все гипотезы от $1$ до $i$.</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+В A/B тесте анализировались 8 вторичных метрик. Получены следующие сырые $p$-values:
+<code>[0.004, 0.012, 0.035, 0.048, 0.082, 0.150, 0.420, 0.890]</code>.
+Уровень значимости: $\alpha = 0.05$.
+Требуется определить, какие метрики сохранят статистическую значимость после контроля FWER и FDR.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+from statsmodels.stats.multitest import multipletests
+
+raw_p_values = [0.004, 0.012, 0.035, 0.048, 0.082, 0.150, 0.420, 0.890]
+alpha = 0.05
+
+# 1. Поправка Бонферрони (строгий FWER)
+bonf_reject, bonf_p, _, _ = multipletests(raw_p_values, alpha=alpha, method='bonferroni')
+
+# 2. Метод Бенджамини-Хохберга (FDR)
+fdr_reject, fdr_p, _, _ = multipletests(raw_p_values, alpha=alpha, method='fdr_bh')
+
+print("Метрика | Сырой p-val | Бонферрони p-val (Rej) | FDR p-val (Rej)")
+print("-" * 65)
+for i, p_raw in enumerate(raw_p_values):
+    b_str = f"{bonf_p[i]:.4f} ({'YES' if bonf_reject[i] else 'no'})"
+    f_str = f"{fdr_p[i]:.4f} ({'YES' if fdr_reject[i] else 'no'})"
+    print(f"M{i+1:2d}     | {p_raw:11.4f} | {b_str:22s} | {f_str:15s}")
+
+print(f"\nСырых открытий (p < 0.05):       {(np.array(raw_p_values) < 0.05).sum()} из {len(raw_p_values)}")
+print(f"Подтверждено по Бонферрони:       {bonf_reject.sum()}")
+print(f"Подтверждено по Бенджамини-Хохбергу: {fdr_reject.sum()}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Применение поправки Бонферрони к Primary метрике.</b> Если целевая метрика была одна и зафиксирована заранее, поправка множественного тестирования к ней НЕ применяется.</li>
+        <li><b>Игнорирование поправок при анализе 50 сегментов.</b> Поиск значимости по нарезке городов без поправки приводит к ложным выводам.</li>
+        <li><b>Путаница между FWER и FDR.</b> Бонферрони защищает от любой ошибки, но убивает мощность; Бенджамини-Хохберг контролирует долю ошибок и сохраняет высокую мощность.</li>
+        <li><b>Поправка на зависимые метрики.</b> При сильной корреляции метрик Бонферрони слишком консервативен.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Когда следует использовать поправку Бонферрони, а когда Бенджамини-Хохберга?»</i> Ответ: <i>«Бонферрони используют, когда цена ложноположительного вывода катастрофична (например, принятие решения о раскатке ядра поиска). Бенджамини-Хохберг (FDR) используют при разведочном анализе, поиске гетерогенных сегментов и мониторинге дашбордов со десятками второстепенных метрик, где допустима небольшая контролируемая доля ложных открытий ради сохранения мощности».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что контролирует процедура Бонферрони?</b></p><p>Family-Wise Error Rate (FWER) — вероятность совершить хотя бы одну ошибку I рода среди всех проверяемых гипотез.</p></li>
+        <li><p><b>Что контролирует процедура Бенджамини-Хохберга?</b></p><p>False Discovery Rate (FDR) — ожидаемую долю ложноположительных отклонений среди всех отклоненных гипотез.</p></li>
+        <li><p><b>Как вычисляется скорректированное p-value по Бонферрони?</b></p><p>$p_{	ext{adj}} = \min(1, p \cdot k)$, где k — число гипотез.</p></li>
+        <li><p><b>Почему процедура Бенджамини-Хохберга обладает большей мощностью, чем Бонферрони?</b></p><p>Потому что она использует адаптивный ранговый порог $rac{i}{k}lpha$, который мягче деления на константу $k$.</p></li>
+        <li><p><b>Нужно ли делать поправку на множественное тестирование, если проверяется ровно одна заранее зафиксированная гипотеза?</b></p><p>Нет, поправка требуется только при одновременной проверке нескольких гипотез.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_ab_design_errors" data-interview="4">
+  <div class="name" id="practise_ab_design_errors">
+    Практика: Аудит ошибок дизайна эксперимента
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Проведение критического аудита дизайна A/B эксперимента (Design Review). Поиск и классификация методологических ошибок в техническом задании на эксперимент с предложением корректирующих мер.</p>
+<p>Если совсем простыми словами: <b>это разбор типовых капканов, в которые попадают начинающие аналитики и продакт-менеджеры</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Чек-лист типовых дефектов дизайна:</p>
+<ol>
+<li><i>Дефект рандомизации:</i> сплитование по сессиям при измерении удержания пользователей.</li>
+<li><i>Дефект мощности:</i> задание MDE в 0.1% на трафике в 5 000 человек.</li>
+<li><i>Дефект сезонности:</i> тест на 3 дня посреди недели.</li>
+<li><i>Дефект изоляции:</i> проведение теста скидок на маркетплейсе с общим пулом продавцов (нарушение SUTVA).</li>
+<li><i>Дефект множественности:</i> мониторинг 40 метрик без единого OEC.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Продакт-менеджер принес ТЗ на A/B тест:
+<i>«Хотим протестировать новый дизайн карточки товара. Будем делить трафик поровну по сессиям (session_id). Тест запустим в черную пятницу на 4 дня (с пятницы по понедельник). Primary метрика — LTV 90-го дня. Если через 2 дня конверсия вырастет с p < 0.05, выкатим на 100% досрочно».</i>
+Требуется провести аудит и найти все грубейшие ошибки.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Чек-лист автоматического аудита дизайна эксперимента
+audit_issues = [
+    {"issue": "Единица рандомизации - session_id для метрики LTV", "severity": "CRITICAL", "fix": "Сменить единицу сплитования на persistent user_id"},
+    {"issue": "Запуск в Черную Пятницу (Black Friday)",           "severity": "HIGH",     "fix": "Перенести тест на стабильный репрезентативный период"},
+    {"issue": "Длительность 4 дня (нарушение недельной кратности)", "severity": "HIGH",     "fix": "Увеличить длительность минимум до 14 полных дней"},
+    {"issue": "Метрика LTV 90d при длительности теста 4 дня",      "severity": "CRITICAL", "fix": "Использовать чувствительную прокси-метрику (CR в покупку)"},
+    {"issue": "Досрочная остановка при p < 0.05 (Peeking)",        "severity": "CRITICAL", "fix": "Зафиксировать длительность или включить mSPRT Sequential"}
+]
+
+print("=== РЕЗУЛЬТАТЫ АУДИТА ДИЗАЙНА ЭКСПЕРИМЕНТА ===")
+for i, item in enumerate(audit_issues, 1):
+    print(f"{i}. [{item['severity']}] {item['issue']}\n   -> Исправление: {item['fix']}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Игнорирование контекста проведения эксперимента.</b> Проведение теста во время маркетинговых распродаж делает результаты невоспроизводимыми.</li>
+        <li><b>Сплитование по сессиям при долгосрочных метриках.</b> Пользователь видит оба варианта, разрушая когортный LTV.</li>
+        <li><b>Подглядывание с досрочной остановкой.</b> Инфляция ошибки первого рода до 30-40%.</li>
+        <li><b>Несоответствие горизонта метрики сроку теста.</b> Попытка измерить 90-дневный LTV в 4-дневном тесте.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Вам принесли дизайн теста с 5 ошибками выше. Каков ваш вердикт?»</i> Ответ: <i>«Тест запустить нельзя ни при каких условиях. Это гарантированный провал: сессионный сплит разрушит расчет LTV, Черная Пятница даст ложную внешнюю валидность, 4 дня исказят недельную сезонность, а досрочная остановка приведет к ошибке Peeking. Проект дизайна отправляется на полную переработку».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему нельзя сплитовать по session_id при анализе долгосрочного LTV?</b></p><p>Потому что один пользователь совершит сессии в обеих группах, вызвав утечку тритмента.</p></li>
+        <li><p><b>В чем опасность тестирования фичей во время масштабных распродаж?</b></p><p>Поведение пользователей аномально и не репрезентативно для стандартных периодов работы продукта.</p></li>
+        <li><p><b>Почему длительность эксперимента должна быть кратна 7 дням?</b></p><p>Для устранения систематических перекосов поведения будних и выходных дней.</p></li>
+        <li><p><b>Что такое Peeking Problem в дизайне теста?</b></p><p>Преждевременная остановка теста при случайном пересечении p-value порога 0.05 во время промежуточного просмотра.</p></li>
+        <li><p><b>Как исправить нечувствительность долгосрочной метрики LTV в двухнедельном тесте?</b></p><p>Заменить ее на валидированную краткосрочную прокси-метрику (например, раннюю конверсию или траты первых 7 дней).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

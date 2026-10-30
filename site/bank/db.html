@@ -1,0 +1,1858 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Банк вопросов собеседований: SQL и базы данных</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../assets/code-styles.css" rel="stylesheet" />
+  <link href="../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../assets/js/components/questions-toc.js"></script>
+  <script src="../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../assets/js/core.js"></script>
+  <script defer="" src="../assets/js/questions.js"></script>
+  <script defer="" src="../assets/js/controls.js"></script>
+  <script defer="" src="../assets/katex/katex.min.js"></script>
+  <script defer="" src="../assets/katex/auto-render.min.js"></script>
+  <script src="../assets/js/components/lazy-questions.js"></script>
+  <script src="../assets/js/init-head.js"></script>
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/anchor-scroll.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/components/section-hero.js"></script>
+  <script src="../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../assets/js/components/difficulty-rating.js"></script>
+  <script src="../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../assets/js/components/info-cards.js"></script>
+  <script src="../assets/js/components/quiz.js"></script>
+  <script src="../assets/js/components/block-tests.js"></script>
+  <script src="../assets/js/components/question-presentation.js"></script>
+  <script src="../assets/js/components/question-badges.js"></script>
+  <script src="../assets/js/components/term-definitions.js"></script>
+  <script src="../assets/js/components/term-tooltip.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../db/index.html">Базы данных</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Собеседования: SQL и БД</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">SQL & Databases Interview</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">20 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Банк вопросов собеседований: SQL и базы данных</h1>
+        <p class="section-shell__desc">Полный справочник вопросов по SQL и базам данных: джойны, оконные функции, CTE, оптимизация индексов, планы запросов EXPLAIN, ACID и транзакции.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="db-joins-interview" data-interview="5">
+  <div class="name" id="db-joins-interview">
+    Собеседование: Все типы JOIN
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Middle/Senior Data Analyst & Backend):</b> Классический фундамент реляционных баз данных: <i>«Перечислите все типы JOIN в стандарте SQL. Чем отличаются SEMI-JOIN и ANTI-JOIN, как оптимизатор СУБД физически выполняет соединения (Nested Loop, Hash Join, Merge Join) и почему соединение по полям со значением NULL возвращает пустой результат?»</i></p>
+<p>Если совсем простыми словами: <b>JOIN — это операция сопоставления строк двух таблиц по заданному логическому условию</b>. Но на уровне процессора СУБД не просто перебирает строки: она строит хеш-таблицы в оперативной памяти или сортирует массивы на диске, чтобы объединить миллионы записей за доли секунды.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Классификация типов JOIN и физические алгоритмы выполнения:</p>
+<ol>
+<li><b>Логические типы JOIN в SQL:</b>
+    <ul>
+    <li><b>INNER JOIN:</b> Возвращает только те строки, для которых условие соединения истинно в обеих таблицах ($A \cap B$).</li>
+    <li><b>LEFT / RIGHT OUTER JOIN:</b> Возвращает все строки одной таблицы и совпадающие строки второй. Если совпадений нет — заполняет поля `NULL`.</li>
+    <li><b>FULL OUTER JOIN:</b> Объединение ($A \cup B$): все строки из обеих таблиц, дополненные `NULL` при отсутствии пары.</li>
+    <li><b>CROSS JOIN:</b> Декартово произведение ($A \times B$). Каждая строка левой таблицы соединяется с каждой строкой правой. Размер: $|A| \times |B|$ строк.</li>
+    <li><b>SEMI-JOIN (Полусоединение):</b> Возвращает строки левой таблицы, для которых <i>есть хотя бы одно совпадение</i> в правой, но <b>без размножения строк</b> и без добавления колонок правой таблицы (`EXISTS`).</li>
+    <li><b>ANTI-JOIN (Антисоединение):</b> Возвращает строки левой таблицы, для которых <i>нет ни одного совпадения</i> в правой (`NOT EXISTS` или `LEFT JOIN ... WHERE right.key IS NULL`).</li>
+    </ul>
+</li>
+<li><b>Физические алгоритмы выполнения в оптимизаторе (Execution Engines):</b>
+    <table class="task-table">
+    <thead><tr><th>Алгоритм</th><th>Сложность</th><th>Когда выбирается оптимизатором</th></tr></thead>
+    <tbody>
+    <tr><td><b>Nested Loop Join</b></td><td>$O(N \times M)$ или $O(N \log M)$</td><td>Одна таблица крошечная, а вторая имеет индекс B-Tree по ключу джойна.</td></tr>
+    <tr><td><b>Hash Join</b></td><td>$O(N + M)$</td><td>Большие несортированные таблицы. По меньшей таблице строится хеш-таблица в RAM (`work_mem`), большая таблица сканируется построчно.</td></tr>
+    <tr><td><b>Merge Join (Sort-Merge)</b></td><td>$O(N \log N + M \log M)$</td><td>Обе таблицы уже отсортированы по ключу соединения (например, через B-Tree индекс). Сканирование в один проход.</td></tr>
+    </tbody>
+    </table>
+</li>
+<li><b>Ловушка NULL в условиях соединения:</b>
+    Поскольку в трехуровневой логике SQL `NULL = NULL` вычисляется как `UNKNOWN`, условие `ON a.id = b.id` <b>никогда не сопоставит строки с NULL</b>. Строки с NULL выпадают из INNER JOIN и уходят в правую часть с NULL при LEFT JOIN.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Размножение строк при Left Join:</b>
+Финансовый отчет считал выручку: `orders LEFT JOIN payments ON orders.id = payments.order_id`.
+Если заказ оплачивался двумя частями (аванс + доплата), в таблице `payments` было 2 строки.
+Left Join удвоил строку заказа, и сумма `SUM(orders.total_amount)` завысила выручку на $40\%$.
+<i>Решение:</i> Предварительная агрегация `payments` до уровня 1:1 перед джойном либо использование SEMI-JOIN.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Эффективный ANTI-JOIN через NOT EXISTS (быстрее, чем NOT IN при наличии NULL)
+SELECT c.customer_id, c.email
+FROM customers c
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM orders o 
+    WHERE o.customer_id = c.customer_id
+);
+
+-- 2. Эквивалентный ANTI-JOIN через LEFT JOIN ... IS NULL
+SELECT c.customer_id, c.email
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.customer_id IS NULL;
+
+-- 3. Безопасный SEMI-JOIN: извлечь клиентов, купивших товар из категории 'VIP', без размножения строк
+SELECT c.customer_id, c.full_name
+FROM customers c
+WHERE EXISTS (
+    SELECT 1 
+    FROM orders o
+    JOIN order_items oi ON o.order_id = oi.order_id
+    WHERE o.customer_id = c.customer_id AND oi.category = 'VIP'
+);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Непреднамеренное размножение строк при связи 1:N в LEFT JOIN.</b> Суммирование метрик левой таблицы после джойна с таблицей отношений 'многие' приводит к фатальному задвоению сумм.</li>
+        <li><b>Использование конструкции `WHERE col NOT IN (SELECT ...)` при наличии NULL.</b> Если подзапрос вернет хотя бы один `NULL`, весь предикат `NOT IN` вернет пустой результат (0 строк) из-за трехзначной логики SQL!</li>
+        <li><b>Отсутствие индексов на внешних ключах при Nested Loop Join.</b> Приводит к катастрофическому последовательному сканированию (`Seq Scan`) на каждую строку внешней таблицы.</li>
+        <li><b>Случайный CROSS JOIN из-за опечатки в условии ON.</b> Создает декартово произведение, исчерпывает оперативную память сервера и роняет базу данных.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: всегда объясняйте физические движки выполнения — <b>Hash Join, Merge Join, Nested Loop</b>. Понимание того, как `work_mem` влияет на выбор Hash Join, отличает Senior инженера.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем SEMI-JOIN отличается от обычного INNER JOIN?</b></p><p>SEMI-JOIN только проверяет наличие совпадения в правой таблице, не возвращая ее колонок и не размножая строки левой таблицы при множественных совпадениях.</p></li>
+        <li><p><b>Как оптимизатор СУБД выполняет Hash Join?</b></p><p>Строит хеш-таблицу по ключам меньшей таблицы в оперативной памяти, затем последовательно сканирует вторую таблицу, вычисляя хеш ключа.</p></li>
+        <li><p><b>Почему условие `ON a.key = b.key` не соединяет строки, где `key IS NULL`?</b></p><p>Потому что в стандарте SQL операция `NULL = NULL` вычисляется как UNKNOWN (ложно для предикатов соединения).</p></li>
+        <li><p><b>Когда оптимизатор предпочтет Merge Join вместо Hash Join?</b></p><p>Когда обе соединяемые таблицы уже отсортированы по ключу джойна (например, через индекс B-Tree) или таблицы слишком велики для RAM.</p></li>
+        <li><p><b>В чем опасность использования NOT IN со значением NULL?</b></p><p>Если в списке значений присутствует NULL, выражение `x NOT IN (..., NULL)` всегда возвращает UNKNOWN, что отсекает вообще все строки.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-where-having-interview" data-interview="4">
+  <div class="name" id="db-where-having-interview">
+    Собеседование: WHERE против HAVING
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst):</b> Классический проверочный вопрос: <i>«В чем принципиальная разница между предложениями WHERE и HAVING в SQL? В каком строгом порядке СУБД выполняет этапы SQL-запроса и почему фильтрация строк в HAVING вместо WHERE может замедлить запрос в сотни раз?»</i></p>
+<p>Если совсем простыми словами: <b>WHERE отсекает отдельные сырые строки ДО группировки, а HAVING фильтрует уже свернутые группы ПОСЛЕ выполнения агрегатных функций</b>. Фильтровать в HAVING то, что можно отсечь в WHERE — это как нарезать гнилые яблоки в салат, а потом выковыривать их вилкой.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Канонический порядок выполнения фаз SQL-запроса (SQL Order of Execution):</p>
+<ol>
+<li><b>1. FROM & JOIN:</b> Определение таблиц источников, вычисление декартовых произведений и соединений `ON`.</li>
+<li><b>2. WHERE:</b> Фильтрация отдельных атомарных строк по предикатам. <i>На этом этапе агрегатные функции (SUM, AVG) еще недоступны!</i></li>
+<li><b>3. GROUP BY:</b> Сворачивание строк в группы по заданным ключам.</li>
+<li><b>4. HAVING:</b> Фильтрация полученных групп на основе условий, включающих агрегатные функции (`COUNT(*) > 5`).</li>
+<li><b>5. SELECT:</b> Вычисление выражений выборки, проекция столбцов.</li>
+<li><b>6. DISTINCT:</b> Удаление дубликатов строк.</li>
+<li><b>7. ORDER BY:</b> Сортировка финального результата.</li>
+<li><b>8. LIMIT / OFFSET:</b> Пагинация и отсечение числа выводимых строк.</li>
+</ol>
+<p><b>Почему WHERE критически быстрее HAVING:</b>
+Если таблица содержит $10\,000\,000$ строк, а нам нужны только активные пользователи за текущий год ($100\,000$ строк):
+- Предикат `WHERE status = 'active'` отсечет $9.9$ млн строк сразу (используя индекс), и `GROUP BY` обработает всего $100$ тысяч записей.
+- Предикат `HAVING status = 'active'` заставит базу сгруппировать все $10$ миллионов строк в оперативной памяти, потратив гигабайты RAM и минуты CPU, и только потом отфильтрует группы!</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический пример:</b>
+Задача: найти отделы с более чем 10 сотрудниками, средняя зарплата которых превышает 150 000 руб., рассматривая только штатных сотрудников (`is_contractor = FALSE`).
+- `is_contractor = FALSE` $\to$ строго в **WHERE** (атомарное свойство сотрудника).
+- `COUNT(*) > 10` и `AVG(salary) > 150000` $\to$ строго в **HAVING** (агрегаты группы).</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Корректное разделение предикатов между WHERE и HAVING
+SELECT
+    department_id,
+    COUNT(*) AS total_employees,
+    ROUND(AVG(salary), 2) AS avg_salary
+FROM employees
+-- WHERE: фильтрация сырых строк ДО группировки (использует индекс по is_active и hire_date)
+WHERE is_active = TRUE
+  AND hire_date >= '2020-01-01'
+-- GROUP BY: агрегация только валидных строк
+GROUP BY department_id
+-- HAVING: фильтрация агрегированных групп ПОСЛЕ свертки
+HAVING COUNT(*) >= 5 
+   AND AVG(salary) > 120000.00
+ORDER BY avg_salary DESC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Помещение условий на обычные столбцы в блок HAVING вместо WHERE.</b> Заставляет СУБД группировать гигантские объемы мусорных данных в оперативной памяти вместо использования индексов в WHERE.</li>
+        <li><b>Попытка использовать агрегатные функции (SUM, COUNT) в блоке WHERE.</b> Вызовет синтаксическую ошибку `aggregate functions are not allowed in WHERE`, так как строки еще не сгруппированы.</li>
+        <li><b>Использование алиасов из SELECT в блоке WHERE.</b> Поскольку WHERE выполняется раньше SELECT, алиасы колонок еще не существуют и вызовут ошибку `column does not exist`.</li>
+        <li><b>Забывание о том, что HAVING без GROUP BY превращает всю таблицу в единую группу.</b> Конструкция `SELECT SUM(x) FROM t HAVING SUM(x) > 0` валидна, но работает на уровне всей таблицы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: перечислите этапы выполнения SQL по порядку (<b>FROM $\to$ WHERE $\to$ GROUP BY $\to$ HAVING $\to$ SELECT $\to$ ORDER BY $\to$ LIMIT</b>). Это фундаментальный маркер технической грамотности.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем главное функциональное различие WHERE и HAVING?</b></p><p>WHERE фильтрует индивидуальные строки до группировки; HAVING фильтрует сформированные группы на основе агрегатных функций.</p></li>
+        <li><p><b>Можно ли использовать агрегатные функции в блоке WHERE?</b></p><p>Нет, на этапе WHERE группировка еще не выполнена, поэтому агрегаты вычислять невозможно.</p></li>
+        <li><p><b>Почему фильтрация неагрегированных колонок в HAVING снижает производительность?</b></p><p>Потому что база данных тратит ресурсы на группировку всех строк таблицы вместо быстрой фильтрации по индексу в WHERE.</p></li>
+        <li><p><b>На каком этапе выполнения SQL создаются алиасы из блока SELECT?</b></p><p>На этапе SELECT, который выполняется строго ПОСЛЕ WHERE, GROUP BY и HAVING.</p></li>
+        <li><p><b>Можно ли использовать условие HAVING без явного указания GROUP BY?</b></p><p>Да, в этом случае вся таблица неявно считается единой агрегированной группой.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-null-count-interview" data-interview="5">
+  <div class="name" id="db-null-count-interview">
+    Собеседование: Поведение NULL в SQL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Specialist / Senior Analyst):</b> Тонкости стандарта SQL: <i>«Как работает трехзначная логика (Three-Valued Logic, 3VL) при наличии значений NULL? В чем различия между COUNT(*), COUNT(1), COUNT(column) и COUNT(DISTINCT column)? Почему функция AVG() может возвращать смещенную оценку при наличии NULL?»</i></p>
+<p>Если совсем простыми словами: <b>NULL — это не ноль и не пустая строка, это признак неизвестности (Unknown)</b>. Любое сравнение с неизвестностью дает неизвестность: если у Васи неизвестна зарплата, и у Пети неизвестна зарплата, мы не можем сказать, равны ли они — поэтому `NULL = NULL` вычисляется как UNKNOWN, а не TRUE.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Трехзначная логика (3VL) и семантика агрегатных функций:</p>
+<ol>
+<li><b>Таблица истинности трехзначной логики (3VL):</b>
+    <table class="task-table">
+    <thead><tr><th>Выражение</th><th>Результат</th><th>Пояснение</th></tr></thead>
+    <tbody>
+    <tr><td><code>TRUE AND UNKNOWN</code></td><td><b>UNKNOWN</b></td><td>Истинность зависит от неизвестного значения.</td></tr>
+    <tr><td><code>FALSE AND UNKNOWN</code></td><td><b>FALSE</b></td><td>Ложь при любых обстоятельствах (короткое замыкание).</td></tr>
+    <tr><td><code>TRUE OR UNKNOWN</code></td><td><b>TRUE</b></td><td>Истина при любых обстоятельствах.</td></tr>
+    <tr><td><code>NOT UNKNOWN</code></td><td><b>UNKNOWN</b></td><td>Отрицание неизвестности остается неизвестностью.</td></tr>
+    <tr><td><code>x = NULL</code> / <code>x <> NULL</code></td><td><b>UNKNOWN</b></td><td>Сравнение строго через операторы <code>IS NULL / IS NOT NULL</code>!</td></tr>
+    </tbody>
+    </table>
+</li>
+<li><b>Различия семейства COUNT:</b>
+    - `COUNT(*)`: Считает <b>все физические строки</b> таблицы, включая строки, целиком состоящие из NULL.
+    - `COUNT(1)`: Абсолютно идентичен `COUNT(*)` в современных СУБД (оптимизатор транслирует их в один и тот же план).
+    - `COUNT(column)`: Считает строки, где значение в данном столбце <b>НЕ равно NULL</b> (`NOT NULL`).
+    - `COUNT(DISTINCT column)`: Считает число уникальных значений, <b>полностью игнорируя NULL</b>.
+</li>
+<li><b>Искажение средних в AVG():</b>
+    Функция `AVG(col)` математически рассчитывается как:
+    $$\text{AVG}(col) = \frac{\sum_{i \in \text{not null}} col_i}{\text{COUNT}(col)}$$
+    Знаменатель — это `COUNT(col)`, а не `COUNT(*)`. Если у 10 пользователей зарплата 100 000, а у 90 пользователей она `NULL`, `AVG()` вернет $100\,000$ рублей, а не реальные $10\,000$ на человека!
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс: Ловушка функции COALESCE в среднем чеке:</b>
+Таблица пользователей: 100 человек. 20 человек потратили по $1\,000$ руб., у 80 покупок не было (`NULL`).
+- `SELECT AVG(spend) FROM users;` $\to$ вернет **$1\,000$ руб.** (средний чек среди платящих).
+- `SELECT AVG(COALESCE(spend, 0)) FROM users;` $\to$ вернет **$200$ руб.** (ARPU на всю базу).
+Путаница этих двух формул в бизнес-отчетах приводит к завышению ARPU в 5 раз!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Демонстрация поведения NULL в агрегатных функциях
+WITH user_data AS (
+    SELECT 1 AS id, 100.0 AS amount UNION ALL
+    SELECT 2 AS id, 200.0 AS amount UNION ALL
+    SELECT 3 AS id, NULL  AS amount
+)
+SELECT
+    COUNT(*) AS cnt_star,                       -- 3 (все строки)
+    COUNT(amount) AS cnt_amount,               -- 2 (только NOT NULL)
+    AVG(amount) AS avg_ignoring_null,          -- (100 + 200) / 2 = 150.0
+    AVG(COALESCE(amount, 0.0)) AS avg_with_zero -- (100 + 200 + 0) / 3 = 100.0
+FROM user_data;
+
+-- Безопасное сравнение с учетом NULL: оператор IS DISTINCT FROM
+-- В отличие от '=', 'a IS NOT DISTINCT FROM b' вернет TRUE, если оба значения NULL!
+SELECT *
+FROM employees
+WHERE manager_id IS DISTINCT FROM 42;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование конструкции `WHERE col = NULL` вместо `WHERE col IS NULL`.</b> Предикат всегда вернет UNKNOWN, и запрос вернет 0 строк.</li>
+        <li><b>Забывание о том, что `NOT IN` ломается при наличии хотя бы одного NULL в подзапросе.</b> Конструкция `WHERE id NOT IN (1, 2, NULL)` эквивалентна `id != 1 AND id != 2 AND id != NULL`, что дает UNKNOWN и уничтожает весь результат.</li>
+        <li><b>Расчет ARPU через AVG(revenue) без замены NULL на 0 через COALESCE.</b> Игнорирует неплатящую аудиторию и превращает ARPU в ARPPU.</li>
+        <li><b>Сортировка ORDER BY без явного указания NULLS FIRST / NULLS LAST.</b> По умолчанию в PostgreSQL NULL сортируются в конец при ASC и в начало при DESC, что может скрыть важные данные при пагинации.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: расскажите про оператор стандарта SQL <b>IS DISTINCT FROM</b> (null-safe equality). Это маркер того, что кандидат виртуозно владеет стандартом ANSI SQL.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое трехзначная логика (3VL) в SQL?</b></p><p>Логическая система, оперирующая тремя истинностными значениями: TRUE, FALSE и UNKNOWN.</p></li>
+        <li><p><b>Чем `COUNT(*)` отличается от `COUNT(column)`?</b></p><p>`COUNT(*)` считает общее количество физических строк; `COUNT(column)` считает только те строки, где значение в указанной колонке не равно NULL.</p></li>
+        <li><p><b>Почему выражение `NULL = NULL` не равно TRUE?</b></p><p>Потому что NULL означает неизвестное значение, а равенство двух неизвестных величин невозможно подтвердить достоверно (результат UNKNOWN).</p></li>
+        <li><p><b>Как функция AVG() обрабатывает значения NULL?</b></p><p>Она полностью игнорирует строки со значением NULL как при подсчете числителя (суммы), так и знаменателя (числа строк).</p></li>
+        <li><p><b>Как работает оператор `IS NOT DISTINCT FROM`?</b></p><p>Он выполняет null-safe сравнение: возвращает TRUE, если оба операнда имеют одинаковые значения либо если оба операнда равны NULL.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-union-interview" data-interview="4">
+  <div class="name" id="db-union-interview">
+    Собеседование: UNION vs UNION ALL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Engineer / Analyst):</b> Базовый, но критический вопрос оптимизации: <i>«В чем физическая и алгоритмическая разница между операторами UNION и UNION ALL? Почему замена UNION на UNION ALL может ускорить выполнение запроса в 50 раз и когда применение обычного UNION оправдано?»</i></p>
+<p>Если совсем простыми словами: <b>UNION ALL просто склеивает две таблицы стопкой как есть, а UNION дополнительно запускает тяжелую операцию поиска и удаления дубликатов</b>. Если дубликатов в данных заведомо нет (или они допустимы), использование UNION впустую сжигает память и процессорное время сервера.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Алгоритмическое устройство и физический план выполнения:</p>
+<ol>
+<li><b>Механика UNION ALL:</b>
+    - Операция потокового объединения (Append node в плане запроса).
+    - Не требует синхронизации, сортировки или сохранения промежуточных строк в буфер памяти.
+    - Вычислительная сложность: <b>$O(N + M)$</b>. Данные начинают отдаваться клиенту мгновенно (Streaming).
+</li>
+<li><b>Механика UNION:</b>
+    - Выполняет UNION ALL, а затем накладывает неявный <b>DISTINCT</b>.
+    - <i>Способ 1 (Sort-Unique):</i> Все строки обеих выборок выгружаются во временный буфер, сортируются на диске/RAM ($O(K \log K)$), и соседние дубликаты схлопываются.
+    - <i>Способ 2 (HashAggregate):</i> Строится огромная хеш-таблица в `work_mem` для дедупликации записей. Если память переполняется — данные сбрасываются во временные файлы на диск (Spill to disk).
+</li>
+<li><b>Требования стандарта к объединяемым выборкам:</b>
+    1. Одинаковое количество столбцов.
+    2. Совместимые типы данных соответствующих колонок.
+    3. Имена колонок в результирующем наборе определяются <b>строго первой выборкой</b>.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Оптимизация ETL-пайплайна логов:</b>
+Ежесуточный джоб собирал данные за прошлый день из 10 региональных партиций:
+`SELECT ... FROM reg1 UNION SELECT ... FROM reg2 UNION ...`
+Запрос выполнялся $42$ минуты и периодически падал с ошибкой нехватки диска под временные файлы сортировки.
+Поскольку ключи записей в разных регионах физически уникальны, инженер заменил `UNION` на `UNION ALL`.
+Время выполнения упало с 42 минут <b>до 18 секунд</b>!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Оптимизированный сбор данных через UNION ALL (без накладных расходов на сортировку)
+SELECT 
+    'web' AS traffic_source,
+    session_id,
+    user_id,
+    event_timestamp
+FROM web_logs
+WHERE event_date = CURRENT_DATE
+
+UNION ALL -- Быстрое потоковое объединение!
+
+SELECT 
+    'mobile' AS traffic_source,
+    session_id,
+    user_id,
+    event_timestamp
+FROM mobile_logs
+WHERE event_date = CURRENT_DATE;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование UNION по умолчанию вместо UNION ALL.</b> Главная анти-паттерн привычка начинающих: создание скрытой тяжелой дедупликации там, где она не требуется.</li>
+        <li><b>Несовпадение порядков колонок в объединяемых SELECT.</b> SQL сопоставляет столбцы по их позиции (1-й с 1-м, 2-й со 2-м), а не по именам! Если перепутать порядок, данные запишутся в чужие поля.</li>
+        <li><b>Попытка задать алиасы колонок во втором подзапросе.</b> Алиасы результирующего набора определяются исключительно первым SELECT; имена во втором просто игнорируются.</li>
+        <li><b>Размещение ORDER BY внутри каждого подзапроса без ограничения LIMIT.</b> В большинстве СУБД ORDER BY внутри отдельных веток UNION без LIMIT игнорируется или вызывает синтаксическую ошибку.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: золотое правило — <i>«Всегда используйте UNION ALL по умолчанию. Применяйте UNION только тогда, когда удаление дубликатов является строгим бизнес-требованием и не может быть решено иначе»</i>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем ключевое отличие UNION от UNION ALL?</b></p><p>UNION ALL просто объединяет строки без изменений; UNION выполняет объединение с последующим ресурсоемким удалением дубликатов (DISTINCT).</p></li>
+        <li><p><b>Какой узел (Node) создает UNION ALL в плане выполнения запроса?</b></p><p>Узел Append, выполняющий потоковое чтение результатов без промежуточных буферов.</p></li>
+        <li><p><b>Как СУБД физически удаляет дубликаты при операции UNION?</b></p><p>Через сортировку всех строк во временной памяти (Sort Unique) либо через построение хеш-таблицы (Hash Aggregate).</p></li>
+        <li><p><b>Какая из выборок определяет имена столбцов в результирующем наборе UNION?</b></p><p>Исключительно первая выборка (самый первый оператор SELECT).</p></li>
+        <li><p><b>Почему UNION ALL работает быстрее при передаче данных клиенту?</b></p><p>Потому что он может стримить первые строки клиенту немедленно, не дожидаясь окончания чтения всех объединяемых таблиц.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-delete-truncate-drop-interview" data-interview="4">
+  <div class="name" id="db-delete-truncate-drop-interview">
+    Собеседование: DELETE vs TRUNCATE vs DROP
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Administrator / Analyst):</b> Эксплуатационный вопрос по DDL и DML: <i>«В чем принципиальная разница между командами DELETE, TRUNCATE и DROP? Что происходит с логом транзакций (WAL), счетчиками автоинкремента, триггерами и дисковым пространством при выполнении каждой из них? Можно ли откатить (ROLLBACK) TRUNCATE в транзакции?»</i></p>
+<p>Если совсем простыми словами: <b>DELETE выносит жильцов из комнат по одному, составляя опись каждого чемодана; TRUNCATE сносит все внутренние перегородки здания за одну секунду; а DROP сносит сам дом вместе с фундаментом</b>. DELETE работает аккуратно, но медленно; TRUNCATE очищает миллионы строк мгновенно.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительная матрица операций удаления данных:</p>
+<table class="task-table">
+<thead><tr><th>Характеристика</th><th>DELETE</th><th>TRUNCATE</th><th>DROP</th></tr></thead>
+<tbody>
+<tr><td><b>Категория языка</b></td><td>DML (Data Manipulation)</td><td>DDL (Data Definition)</td><td>DDL (Data Definition)</td></tr>
+<tr><td><b>Фильтрация WHERE</b></td><td>Поддерживается (точечное удаление)</td><td><b>Не поддерживается</b> (очистка всей таблицы)</td><td>Не применима</td></tr>
+<tr><td><b>Логирование в WAL</b></td><td>Полное построчное логирование каждой строки</td><td>Минимальное (освобождение страниц/экстентов)</td><td>Минимальное (удаление объектов каталога)</td></tr>
+<tr><td><b>Срабатывание триггеров</b></td><td>Срабатывают триггеры `ON DELETE`</td><td>Триггеры строк НЕ вызываются (только `TRUNCATE` триггер)</td><td>Не вызываются</td></tr>
+<tr><td><b>Сброс AUTO_INCREMENT</b></td><td>Не сбрасывает счетчик (продолжает рост)</td><td>Сбрасывает последовательности (с опцией `RESTART IDENTITY`)</td><td>Удаляет последовательность вместе с таблицей</td></tr>
+<tr><td><b>Освобождение диска (HWM)</b></td><td>Не освобождает место на диске сразу (требуется VACUUM)</td><td><b>Мгновенно освобождает дисковое пространство</b></td><td>Мгновенно удаляет файл таблицы с диска</td></tr>
+<tr><td><b>Возможность ROLLBACK</b></td><td>Да, полностью откатывается</td><td><b>Да в PostgreSQL!</b> (Нет в MySQL/Oracle при неявном коммите)</td><td>Да в PostgreSQL!</td></tr>
+</tbody>
+</table>
+<p><b>Миф про невозможность отката TRUNCATE:</b>
+Многие начинающие разработчики считают, что TRUNCATE нельзя откатить. В СУБД <b>PostgreSQL DDL-команды полностью транзакционны</b>! Если выполнить `BEGIN; TRUNCATE table; ROLLBACK;`, таблица и все ее данные останутся нетронутыми!</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Зависание базы от массового DELETE:</b>
+Аналитик попытался очистить историческую таблицу логов на $50$ млн строк: `DELETE FROM raw_logs;`.
+Сервер завис: PostgreSQL начал генерировать гигабайты WAL-логов, заблокировал таблицу эксклюзивными блокировками и заполнил диск.
+<i>Правильное решение:</i> `TRUNCATE TABLE raw_logs;` очистил таблицу за $0.05$ секунды без раздувания WAL.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Демонстрация транзакционности TRUNCATE в PostgreSQL
+BEGIN;
+
+-- Мгновенная очистка таблицы со сбросом автоинкремента
+TRUNCATE TABLE staging_events RESTART IDENTITY;
+
+-- Проверка: таблица пуста
+SELECT count(*) FROM staging_events; -- вернет 0
+
+-- Если произошла ошибка, операция откатывается на 100%!
+ROLLBACK;
+
+-- Данные снова на месте в целости и сохранности:
+SELECT count(*) FROM staging_events;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Удаление всей таблицы через DELETE без условий вместо TRUNCATE.</b> Порождает колоссальный объем журналов транзакций (WAL) и приводит к 'раздуванию' (Table Bloat), не возвращая место операционной системе.</li>
+        <li><b>Забывание о блокировках при TRUNCATE.</b> TRUNCATE берет тяжелую исключительную блокировку `ACCESS EXCLUSIVE`, блокируя даже чтение из таблицы до завершения транзакции.</li>
+        <li><b>Попытка TRUNCATE таблицы, на которую ссылается Foreign Key.</b> Завершится ошибкой, если не указать каскадное удаление `TRUNCATE ... CASCADE`.</li>
+        <li><b>Ошибочная вера в то, что TRUNCATE в MySQL можно откатить.</b> В MySQL DDL-команды вызывают неявный авто-коммит (`implicit commit`), и откат становится невозможным.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: обязательно подчеркните транзакционность TRUNCATE в PostgreSQL и разницу в логировании WAL (построчное логирование кортежей vs деаллокация страниц на диске).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>К какой категории команд SQL относится TRUNCATE?</b></p><p>К командам DDL (Data Definition Language), так как она манипулирует объектами схемы и экстентами хранения.</p></li>
+        <li><p><b>Можно ли откатить операцию TRUNCATE внутри транзакции в PostgreSQL?</b></p><p>Да, в PostgreSQL транзакции поддерживают DDL, поэтому после ROLLBACK все строки будут восстановлены.</p></li>
+        <li><p><b>Почему TRUNCATE выполняется быстрее, чем DELETE без предложения WHERE?</b></p><p>Потому что TRUNCATE освобождает страницы памяти целиком и пишет минимальный лог, а DELETE построчно блокирует и логирует каждую запись.</p></li>
+        <li><p><b>Что происходит с дисковым пространством после выполнения массового DELETE в PostgreSQL?</b></p><p>Место физически не возвращается операционной системе и помечается как свободное для повторного использования внутри таблицы (требуется VACUUM FULL).</p></li>
+        <li><p><b>Вызываются ли построчные триггеры FOR EACH ROW при выполнении TRUNCATE?</b></p><p>Нет, построчные триггеры DELETE игнорируются при операции TRUNCATE.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-keys-interview" data-interview="4">
+  <div class="name" id="db-keys-interview">
+    Собеседование: Первичные и внешние ключи
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Architect / Backend):</b> Проектирование реляционных схем: <i>«В чем разница между Primary Key, Unique Key и Foreign Key? Что выбрать в качестве первичного ключа: естественный бизнес-ключ (Natural Key), автоинкрементный ID (Surrogate Key) или UUID (v4 vs v7)? Почему случайные UUIDv4 разрушают производительность B-Tree индексов?»</i></p>
+<p>Если совсем простыми словами: <b>Первичный ключ — это паспорт строки (уникален и никогда не пуст), Внешний ключ — поводок, связывающий строку с другой таблицей, а Уникальный ключ запрещает дубликаты, но допускает отсутствие данных (NULL)</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ ключей и стратегий идентификации:</p>
+<ol>
+<li><b>Ограничения целостности ключей:</b>
+    - <b>Primary Key (PK):</b> `UNIQUE` + `NOT NULL`. В таблице может быть строго <b>один</b> первичный ключ (простой или составной). Автоматически создает уникальный B-Tree индекс.
+    - <b>Unique Key:</b> Гарантирует уникальность значений. В таблице может быть сколько угодно Unique ключей. В большинстве СУБД <i>разрешает хранение значений NULL</i> (и даже нескольких NULL, так как `NULL <> NULL`).
+    - <b>Foreign Key (FK):</b> Ссылается на Primary Key или Unique Key другой таблицы, гарантируя ссылочную целостность (Referential Integrity).
+</li>
+<li><b>Баттл первичных ключей: BIGINT IDENTITY vs UUIDv4 vs UUIDv7:</b>
+    <table class="task-table">
+    <thead><tr><th>Тип ключа</th><th>Размер</th><th>Сортируемость</th><th>Поведение B-Tree индекса</th></tr></thead>
+    <tbody>
+    <tr><td><b>BIGINT (Sequence)</b></td><td>8 байт</td><td>Монотонно растет</td><td>Идеальное: запись строго в правый лист B-Tree, отсутствие фрагментации.</td></tr>
+    <tr><td><b>UUIDv4 (Случайный)</b></td><td>16 байт</td><td>Хаотичный</td><td><b>Катастрофа:</b> случайная вставка в середину B-Tree, расщепление страниц (Page Splits), кэш вымывается из RAM.</td></tr>
+    <tr><td><b>UUIDv7 (Time-ordered)</b></td><td>16 байт</td><td>Сортируется по времени</td><td>Идеальное: глобальная уникальность без координации + монотонный рост для быстрого B-Tree.</td></tr>
+    </tbody>
+    </table>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Просадка скорости записи на 90% из-за UUIDv4:</b>
+Высоконагруженный сервис платежей использовал `uuid_generate_v4()` в качестве Primary Key.
+При объеме таблицы $200$ млн строк скорость вставки упала с $5\,000$ RPS до $250$ RPS.
+Причина: размер индекса B-Tree вырос до $45$ ГБ и перестал помещаться в RAM (`shared_buffers`). Каждая новая случайная вставка требовала медленного чтения случайной страницы с SSD.
+Миграция на <b>UUIDv7</b> вернула производительность до $6\,500$ RPS.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Создание таблицы с правильной организацией первичных, внешних и уникальных ключей
+CREATE TABLE user_accounts (
+    account_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, -- Компактный монотонный PK (8 байт)
+    account_uuid UUID NOT NULL DEFAULT gen_random_uuid(),       -- Публичный идентификатор для API
+    email VARCHAR(255) NOT NULL,
+    phone VARCHAR(32),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Уникальный бизнес-ключ
+    CONSTRAINT uq_user_email UNIQUE (email),
+    -- Уникальный ключ, допускающий NULL (несколько клиентов могут не иметь телефона)
+    CONSTRAINT uq_user_phone UNIQUE (phone)
+);
+
+CREATE TABLE user_cards (
+    card_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    account_id BIGINT NOT NULL,
+    card_token VARCHAR(128) NOT NULL UNIQUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    -- Внешний ключ со строгим контролем ссылочной целостности
+    CONSTRAINT fk_cards_account 
+        FOREIGN KEY (account_id) 
+        REFERENCES user_accounts(account_id) 
+        ON DELETE RESTRICT
+);
+
+-- КРИТИЧЕСКИ ВАЖНО: Внешние ключи в PostgreSQL не индексируются автоматически!
+CREATE INDEX idx_user_cards_account_id ON user_cards(account_id);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование изменяемых естественных ключей (email, телефон, номер паспорта) в качестве PK.</b> При смене email придется обновлять записи в миллионах связанных таблиц через каскадный апдейт.</li>
+        <li><b>Забывание создания индексов на столбцы Foreign Key в PostgreSQL.</b> Без индекса удаление строки в родительской таблице вызывает полное последовательное сканирование (`Seq Scan`) всей дочерней таблицы.</li>
+        <li><b>Использование чисто случайных UUIDv4 для таблиц с сотнями миллионов записей.</b> Вызывает тяжелую фрагментацию B-Tree и деградацию дискового ввода-вывода.</li>
+        <li><b>Использование составных первичных ключей из 5+ колонок во взаимосвязанных таблицах.</b> Раздувает размер внешних ключей и таблиц фактов в разы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: если встает выбор между BIGINT и UUID для распределенной системы, рекомендуйте <b>UUIDv7</b>. Это показывает глубокое понимание устройства дисковых структур данных B-Tree.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Может ли Primary Key содержать значение NULL?</b></p><p>Нет, стандарт SQL категорически запрещает значение NULL в столбцах первичного ключа.</p></li>
+        <li><p><b>Разрешает ли Unique Key хранение значений NULL?</b></p><p>Да, в стандарте SQL ограничение UNIQUE допускает значения NULL (и даже несколько строк с NULL, если не задано NOT NULL).</p></li>
+        <li><p><b>Почему случайные UUIDv4 вызывают деградацию производительности B-Tree индексов?</b></p><p>Из-за хаотичности значений вставки происходят в случайные страницы дерева, вызывая частое расщепление страниц (Page Splits) и вымывание кэша.</p></li>
+        <li><p><b>В чем преимущество UUIDv7 перед UUIDv4?</b></p><p>UUIDv7 содержит временную метку (timestamp) в старших битах, что делает его хронологически сортируемым и дружественным к индексам B-Tree.</p></li>
+        <li><p><b>Индексируются ли Foreign Keys автоматически в PostgreSQL?</b></p><p>Нет, в PostgreSQL индексы на внешние ключи должны создаваться разработчиком явно.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-row-number-rank-interview" data-interview="5">
+  <div class="name" id="db-row-number-rank-interview">
+    Собеседование: Оконные функции ранжирования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Product Analyst / Data Engineer):</b> Топовый вопрос технического интервью: <i>«В чем математическая разница между оконными функциями ранжирования ROW_NUMBER(), RANK(), DENSE_RANK() и NTILE()? Что вернет каждая из них на наборе значений с дубликатами [100, 100, 80, 50]?»</i></p>
+<p>Если совсем простыми словами: <b>ROW_NUMBER нумерует строки тупо по порядку без оглядки на совпадения, RANK дает одинаковым числам одинаковое место, но пропускает следующие номера (как в спорте), а DENSE_RANK дает одинаковые места без пропусков</b>. NTILE делит выборку на равные корзины (квантили).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный расчет функций ранжирования на реальных данных:</p>
+<table class="task-table">
+<thead><tr><th>Score</th><th>ROW_NUMBER()</th><th>RANK()</th><th>DENSE_RANK()</th><th>NTILE(2)</th><th>Логика и механика</th></tr></thead>
+<tbody>
+<tr><td><b>100</b></td><td>1</td><td>1</td><td>1</td><td>1</td><td>Первое вхождение лидера</td></tr>
+<tr><td><b>100</b></td><td>2</td><td>1</td><td>1</td><td>1</td><td><b>Дубликат:</b> ROW_NUMBER инкрементирует, остальные сохраняют ранг</td></tr>
+<tr><td><b>80</b></td><td>3</td><td><b>3</b> (пропустил 2!)</td><td><b>2</b> (без пропуска)</td><td>2</td><td>RANK пропустил номер 2 из-за двух лидеров</td></tr>
+<tr><td><b>50</b></td><td>4</td><td>4</td><td>3</td><td>2</td><td>Четвертое значение</td></tr>
+</tbody>
+</table>
+<p><b>Сферы применения каждой функции:</b>
+- **ROW_NUMBER():** Дедупликация данных (выборка строго 1 самой свежей записи `WHERE rn = 1`) и пагинация страниц.
+- **DENSE_RANK():** Топ-3 зарплаты в отделе (если три человека получают максимум, они все на 1 месте, а человек со второй зарплатой будет строго на 2 месте).
+- **RANK():** Олимпийские соревнования и расчет центилей.
+- **NTILE(N):** Разбиение пользователей на когорты равного размера: терцили ($N=3$), квартили ($N=4$), децили ($N=10$).</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практическая задача: Топ-3 максимальные зарплаты в отделе:</b>
+Если использовать `ROW_NUMBER() <= 3` при наличии 3 человек с зарплатой 200 000 руб., мы потеряем сотрудника с реальной второй зарплатой (180 000 руб.).
+Использование `DENSE_RANK() <= 3` корректно выберет все три уровня самых высоких окладов компании.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Сравнение всех функций ранжирования в одном запросе
+WITH sales_leaders AS (
+    SELECT 'Алиса' AS rep, 'Электроника' AS dept, 500000 AS revenue UNION ALL
+    SELECT 'Борис',       'Электроника',        500000 UNION ALL
+    SELECT 'Влад',        'Электроника',        350000 UNION ALL
+    SELECT 'Дарья',       'Электроника',        200000 UNION ALL
+    SELECT 'Елена',       'Одежда',             400000 UNION ALL
+    SELECT 'Федор',       'Одежда',             400000
+)
+SELECT
+    dept,
+    rep,
+    revenue,
+    ROW_NUMBER() OVER (PARTITION BY dept ORDER BY revenue DESC) AS row_num,
+    RANK()       OVER (PARTITION BY dept ORDER BY revenue DESC) AS rnk,
+    DENSE_RANK() OVER (PARTITION BY dept ORDER BY revenue DESC) AS dense_rnk,
+    NTILE(2)     OVER (PARTITION BY dept ORDER BY revenue DESC) AS quartile_bucket
+FROM sales_leaders;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование функции RANK() для дедупликации данных.</b> Если есть дубликаты, условие `WHERE rnk = 1` вернет несколько строк вместо одной уникальной записи (нужно использовать ROW_NUMBER).</li>
+        <li><b>Забывание предложения ORDER BY внутри конструкции OVER().</b> Функции ранжирования без явной сортировки теряют детерминированность и возвращают случайные результаты.</li>
+        <li><b>Использование ROW_NUMBER() для поиска топ-N значений при наличии дубликатов окладов.</b> Приведет к потере сотрудников с одинаковыми максимальными баллами.</li>
+        <li><b>Попытка фильтрации по оконной функции прямо в блоке WHERE.</b> Оконные функции выполняются после WHERE; фильтровать по ним можно строго через CTE или подзапрос.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: мгновенно нарисуйте таблицу с числами [100, 100, 80] и покажите значения (1,2,3 vs 1,1,3 vs 1,1,2). Это гарантирует максимальный балл за секцию SQL.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что вернет RANK() для элементов [100, 100, 80]?</b></p><p>Значения: 1, 1, 3 (ранг 2 пропускается из-за связки на первом месте).</p></li>
+        <li><p><b>Что вернет DENSE_RANK() для тех же элементов [100, 100, 80]?</b></p><p>Значения: 1, 1, 2 (ранжирование продолжается без пропусков номеров).</p></li>
+        <li><p><b>Какую функцию ранжирования следует использовать для гарантированного удаления дубликатов?</b></p><p>`ROW_NUMBER()`, так как она всегда присваивает абсолютно уникальный номер каждой строке.</p></li>
+        <li><p><b>Для чего используется функция NTILE(K)?</b></p><p>Для разбиения отсортированного набора строк на K равных по количеству групп (корзин / бакетов).</p></li>
+        <li><p><b>Почему нельзя написать `WHERE ROW_NUMBER() OVER (...) = 1`?</b></p><p>Потому что оконные функции вычисляются на этапе SELECT, который выполняется строго ПОСЛЕ этапа фильтрации WHERE.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-lag-lead-interview" data-interview="5">
+  <div class="name" id="db-lag-lead-interview">
+    Собеседование: Оконные функции LAG и LEAD
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data / Product Analyst):</b> Оконные смещения во времени: <i>«Как работают оконные функции LAG(), LEAD(), FIRST_VALUE() и LAST_VALUE()? Как рассчитать время между соседними событиями пользователя и в чем заключается знаменитая ловушка функции LAST_VALUE() с рамкой окна (Window Frame)?»</i></p>
+<p>Если совсем простыми словами: <b>LAG смотрит в зеркало заднего вида (на предыдущую строку), а LEAD заглядывает вперед (в будущую строку)</b>. Без них аналитику пришлось бы делать медленный self-join таблицы самой на себя со смещением по дате.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Синтаксис и механика функций смещения:</p>
+<ol>
+<li><b>Функции LAG и LEAD:</b>
+    $$\text{LAG}(column, [offset=1], [default=NULL]) \text{ OVER } (\text{PARTITION BY } ... \text{ ORDER BY } ...)$$
+    - `offset`: Смещение на сколько строк назад/вперед смотреть (по умолчанию 1).
+    - `default`: Значение для первой/последней строки, у которой нет соседа (вместо NULL можно подставить 0).
+</li>
+<li><b>Ловушка рамки окна в функции `LAST_VALUE()`:</b>
+    Если написать `LAST_VALUE(val) OVER (PARTITION BY u ORDER BY date)`, функция вернет... <b>значение текущей строки</b>, а не последнее значение партиции!
+    <i>Причина:</i> Стандартная рамка окна по умолчанию при наличии `ORDER BY` — это:
+    `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`.
+    Окно расширяется построчно и заканчивается на текущей строке, поэтому текущая строка и оказывается «последней»!
+    <i>Правильное решение:</i> Явно указывать рамку до конца партиции:
+    `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический кейс: Расчет времени бездействия между сессиями (Inactivity Time):</b>
+Логи приложения содержат клики пользователя.
+Задача: выделить сессии, если пауза между действиями превысила 30 минут:
+`diff_minutes = (event_time - LAG(event_time) OVER (PARTITION BY user_id ORDER BY event_time))`
+Если `diff_minutes > 30` или `diff_minutes IS NULL`, мы ставим флаг `new_session_flag = 1` и затем через кумулятивную сумму нумеруем сессии пользователя!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Расчет дельты выручки к предыдущему месяцу и решение ловушки LAST_VALUE
+WITH monthly_revenue AS (
+    SELECT '2026-01-01'::DATE AS month_date, 100000 AS revenue UNION ALL
+    SELECT '2026-02-01'::DATE, 125000 UNION ALL
+    SELECT '2026-03-01'::DATE, 110000 UNION ALL
+    SELECT '2026-04-01'::DATE, 150000
+)
+SELECT
+    month_date,
+    revenue,
+    -- 1. Значение прошлого месяца
+    LAG(revenue, 1) OVER (ORDER BY month_date) AS prev_month_rev,
+    -- 2. Абсолютный и процентный прирост (MoM Growth)
+    revenue - LAG(revenue, 1) OVER (ORDER BY month_date) AS mom_diff,
+    ROUND(
+        (revenue - LAG(revenue, 1) OVER (ORDER BY month_date)) * 100.0 / 
+        NULLIF(LAG(revenue, 1) OVER (ORDER BY month_date), 0), 
+        1
+    ) AS mom_growth_pct,
+    -- 3. Корректное использование LAST_VALUE с явным фреймом до конца окна:
+    LAST_VALUE(revenue) OVER (
+        ORDER BY month_date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS final_month_revenue
+FROM monthly_revenue;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование LAST_VALUE() без явного указания фрейма ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING.</b> Функция будет возвращать значение текущей строки, вводя аналитика в заблуждение.</li>
+        <li><b>Забывание о NULL в первой строке при использовании LAG().</b> Арифметические операции с NULL возвращают NULL, поэтому деление `rev / LAG(rev)` в первой строке требует обработки через COALESCE или NULLIF.</li>
+        <li><b>Использование LAG без предложения ORDER BY.</b> Оконные смещения не имеют физического смысла без строгой детерминированной сортировки.</li>
+        <li><b>Путаница между LAG и LEAD при обратной сортировке DESC.</b> При `ORDER BY date DESC` функция LAG() начинает возвращать хронологически следующее событие!</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: обязательно упомяните <b>дефолтный фрейм окна в стандарте SQL (RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)</b> при объяснении поведения LAST_VALUE. Это высший пилотаж.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что делают функции LAG() и LEAD()?</b></p><p>LAG() возвращает значение из строки, находящейся на N позиций позади текущей; LEAD() — из строки на N позиций впереди.</p></li>
+        <li><p><b>Что вернет LAG() для самой первой строки партиции?</b></p><p>Значение NULL (или заданное значение по умолчанию, если передан третий аргумент).</p></li>
+        <li><p><b>В чем заключается ловушка функции LAST_VALUE()?</b></p><p>По умолчанию рамка окна ограничена текущей строкой (CURRENT ROW), поэтому LAST_VALUE() возвращает саму текущую строку вместо последнего значения группы.</p></li>
+        <li><p><b>Как исправить поведение функции LAST_VALUE()?</b></p><p>Явно указать границы фрейма: `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.</p></li>
+        <li><p><b>Как рассчитать Month-over-Month (MoM) прирост с помощью LAG?</b></p><p>Как разность текущего значения и `LAG(revenue) OVER (ORDER BY month)`.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-running-total-interview" data-interview="5">
+  <div class="name" id="db-running-total-interview">
+    Собеседование: Накопительный итог (Running Total)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Middle/Senior Analyst):</b> Практическая задача на окна: <i>«Как написать SQL-запрос для расчета накопительного итога (Running Total) и скользящего среднего (Moving Average)? В чем фундаментальная разница между рамками окон ROWS и RANGE при наличии одинаковых дат?»</i></p>
+<p>Если совсем простыми словами: <b>накопительный итог — это копилка</b>. Каждая новая строка добавляет свои деньги к сумме всех предыдущих строк. Но если у вас две покупки совершены в один день, ключевое слово `RANGE` объединит их и покажет одинаковую сумму сразу в обеих строках, а `ROWS` прибавит честно по очереди.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Устройство оконных рамок (Window Frames): ROWS против RANGE:</p>
+<ol>
+<li><b>Синтаксис накопительного итога:</b>
+    $$\text{SUM}(amount) \text{ OVER } (\text{PARTITION BY } ... \text{ ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW})$$
+</li>
+<li><b>Разница между ROWS и RANGE:</b>
+    - **ROWS:** Работает строго с <b>физическими строками</b> таблицы. Обрабатывает записи строго по одной: текущая строка берет ровно строки от начала до себя.
+    - **RANGE:** Работает с <b>логическим диапазоном значений</b> ключа сортировки `ORDER BY`.
+    <i>Опасность RANGE:</i> Если несколько строк имеют одинаковое значение даты (Tie), `RANGE` суммирует <b>все эти строки целиком</b> и выдает одинаковый суммарный итог для всех дубликатов сразу!
+</li>
+<li><b>Скользящее среднее (Moving Average):</b>
+    $$\text{AVG}(metric) \text{ OVER } (\text{ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW})$$
+    Окно охватывает ровно текущую строку и 6 предшествующих (7-дневное сглаживание недельной сезонности).
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Сравнение ROWS и RANGE при совпадении дат:</b>
+Транзакции в один день 2026-10-01: заказ 1 ($100$ руб.) и заказ 2 ($200$ руб.).
+- `SUM(amount) OVER (ORDER BY date ROWS ...)`:
+  - Заказ 1: **$100$ руб.**
+  - Заказ 2: **$300$ руб.** (строго накопительно).
+- `SUM(amount) OVER (ORDER BY date RANGE ...)`:
+  - Заказ 1: **$300$ руб.** (схлопнулись вместе!)
+  - Заказ 2: **$300$ руб.**</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Накопительный итог и 7-дневное скользящее среднее в одном запросе
+WITH daily_sales AS (
+    SELECT '2026-10-01'::DATE AS sale_date, 10000 AS amount UNION ALL
+    SELECT '2026-10-02'::DATE, 15000 UNION ALL
+    SELECT '2026-10-03'::DATE, 12000 UNION ALL
+    SELECT '2026-10-04'::DATE, 18000 UNION ALL
+    SELECT '2026-10-05'::DATE, 25000 UNION ALL
+    SELECT '2026-10-06'::DATE, 20000 UNION ALL
+    SELECT '2026-10-07'::DATE, 30000
+)
+SELECT
+    sale_date,
+    amount,
+    -- 1. Накопительный итог с начала времен (Cumulative Sum)
+    SUM(amount) OVER (
+        ORDER BY sale_date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running_total_revenue,
+    
+    -- 2. Скользящее среднее за 3 дня (текущий + 2 предшествующих)
+    ROUND(
+        AVG(amount) OVER (
+            ORDER BY sale_date 
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ), 
+        2
+    ) AS moving_avg_3d
+FROM daily_sales
+ORDER BY sale_date;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование краткой записи `SUM(x) OVER (ORDER BY d)` без указания ROWS.</b> По умолчанию стандарт SQL использует RANGE, что приводит к некорректным скачкам сумм при наличии дублирующихся дат.</li>
+        <li><b>Попытка посчитать накопительный итог через треугольный SELF-JOIN (a.date >= b.date).</b> Имеет квадратичную сложность $O(N^2)$, которая на 100 000 строк подвесит сервер на часы (оконная функция считает за $O(N \log N)$).</li>
+        <li><b>Забывание min_periods при расчете скользящих средних на первых строках.</b> Первые N строк окна усредняют меньшее число наблюдений, что может создать ложное впечатление просадки.</li>
+        <li><b>Использование фрейма ROWS на временных рядах с пропусками дней.</b> Окно из 7 строк не будет равно 7 дням, если в ряде пропущены выходные дни.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: всегда явно пишите <b>ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</b> вместо краткой формы `OVER (ORDER BY date)`. Это подчеркивает знание тонкостей фрейма ROWS/RANGE.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое накопительный итог (Running Total)?</b></p><p>Последовательное суммирование значений текущей и всех предшествующих строк внутри упорядоченного набора данных.</p></li>
+        <li><p><b>В чем различие между ROWS и RANGE во фрейме окна?</b></p><p>ROWS считает физические строки независимо от значений; RANGE объединяет строки с совпадающими значениями ключа сортировки в одну общую группу.</p></li>
+        <li><p><b>Какое поведение оконного фрейма задано по умолчанию при наличии ORDER BY?</b></p><p>`RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`.</p></li>
+        <li><p><b>Как рассчитать 7-дневное скользящее среднее на непрерывном ежедневном ряде?</b></p><p>`AVG(val) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)`.</p></li>
+        <li><p><b>Какова вычислительная сложность расчета накопительного итога оконной функцией?</b></p><p>$O(N \log N)$ на этапе сортировки и $O(N)$ на этапе одного прохода оконного аккумулятора.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-cte-subquery-interview" data-interview="4">
+  <div class="name" id="db-cte-subquery-interview">
+    Собеседование: Common Table Expressions (CTE) vs Subqueries
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Engineer / Senior Analyst):</b> Структурирование сложного SQL: <i>«В чем разница между CTE (WITH), подзапросами (Subqueries) и временными таблицами? Как оптимизатор PostgreSQL 12+ обрабатывает CTE (Inlining vs Materialization Fence) и как работают рекурсивные CTE (WITH RECURSIVE)?»</i></p>
+<p>Если совсем простыми словами: <b>CTE — это временные именованные переменные в начале запроса, делающие SQL похожим на понятную поэтапную программу сверху вниз</b>. Без них сложный аналитический запрос превращается в нечитаемую «матрешку» из пяти вложенных подзапросов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ и поведение оптимизатора:</p>
+<ol>
+<li><b>Читаемость и декомпозиция (Code Structure):</b>
+    - Подзапросы (`FROM (SELECT ...)`) читаются изнутри наружу (снизу вверх), усложняя отладку.
+    - CTE (`WITH step1 AS (...), step2 AS (...)`) читаются последовательно от источника к результату.
+</li>
+<li><b>Поведение оптимизатора (Optimization Fence в PostgreSQL 12+):</b>
+    - <i>До PostgreSQL 12:</i> CTE всегда материализовался принудительно (Optimization Fence). СУБД вычисляла CTE целиком и складывала во временный буфер памяти, даже если внешний запрос брал только `LIMIT 1`.
+    - <i>Начиная с PostgreSQL 12:</i> Оптимизатор по умолчанию **встраивает (inline)** нерекурсивные CTE без побочных эффектов прямо во внешний запрос, проталкивая предикаты `WHERE` и индексы внутрь.
+    - <i>Управление материализацией:</i> `WITH my_cte AS MATERIALIZED (...)` (принудительно изолировать расчет) или `NOT MATERIALIZED` (принудительно встроить в план).
+</li>
+<li><b>Рекурсивные CTE (Recursive CTE):</b>
+    Синтаксис `WITH RECURSIVE cte AS (Anchor query UNION ALL Recursive query)`:
+    - <b>Anchor:</b> Базовый шаг (корень иерархии или начальное число).
+    - <b>Recursive:</b> Итеративный шаг, ссылающийся на саму CTE, пока результирующий набор не станет пустым.
+    - Незаменимы для обхода графов, деревьев категорий и генерации дат.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический пример: Обход организационной структуры компании:</b>
+Задача: найти всех подчиненных генерального директора на всех уровнях иерархии:
+Anchor: `SELECT emp_id, manager_id, 1 AS level FROM employees WHERE manager_id IS NULL`
+Recursive: `SELECT e.emp_id, e.manager_id, c.level + 1 FROM employees e JOIN org_tree c ON e.manager_id = c.emp_id`
+Рекурсивный CTE обходит дерево произвольной глубины за один элегантный SQL-запрос.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Пример рекурсивного CTE для генерации непрерывного календаря дат
+WITH RECURSIVE calendar AS (
+    -- Anchor member (начало диапазона)
+    SELECT '2026-10-01'::DATE AS cal_date
+    UNION ALL
+    -- Recursive member (итерация +1 день до условия остановки)
+    SELECT (cal_date + INTERVAL '1 day')::DATE
+    FROM calendar
+    WHERE cal_date < '2026-10-07'::DATE
+)
+SELECT cal_date FROM calendar;
+
+-- 2. Использование явной подсказки MATERIALIZED для тяжелого общего расчета
+WITH expensive_stats AS MATERIALIZED (
+    SELECT
+        user_id,
+        COUNT(*) AS total_tx,
+        SUM(amount) AS total_spent
+    FROM transactions
+    WHERE event_date >= CURRENT_DATE - INTERVAL '90 days'
+    GROUP BY user_id
+)
+SELECT u.email, s.total_spent
+FROM users u
+JOIN expensive_stats s ON u.user_id = s.user_id
+WHERE s.total_spent > 100000;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Бесконечный цикл в рекурсивном CTE из-за циклов в данных (A ссылается на B, B ссылается на A).</b> Запрос зависнет навсегда; для защиты используйте лимит глубины `WHERE level < 50` или отслеживание пути через массив `ARRAY[id]`.</li>
+        <li><b>Использование десятков вложенных CTE там, где достаточно простой временной таблицы.</b> При очень сложных многостадийных ETL-скриптах временная таблица (`CREATE TEMP TABLE`) с созданием индексов работает быстрее огромного монолитного WITH.</li>
+        <li><b>Забывание о том, что CTE не сохраняется между запросами.</b> Область видимости CTE ограничена строго одним единственным SQL-запросом.</li>
+        <li><b>Неучет того, что до Postgres 12 CTE блокировал проталкивание предикатов (Predicate Pushdown).</b> Если в старых версиях к CTE применялся внешний WHERE, база все равно сканировала таблицу целиком.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: расскажите про ключевое изменение в <b>PostgreSQL 12</b> относительно inline-оптимизации CTE и синтаксис <b>MATERIALIZED / NOT MATERIALIZED</b>. Это признак глубокой экспертизы.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое CTE (Common Table Expression)?</b></p><p>Временный именованный результирующий набор данных, определенный с помощью оператора WITH и доступный в рамках одного SQL-запроса.</p></li>
+        <li><p><b>Как изменилась оптимизация CTE в PostgreSQL начиная с версии 12?</b></p><p>Нерекурсивные CTE стали по умолчанию встраиваться (inline) в общий план запроса, как обычные подзапросы, с проталкиванием предикатов WHERE.</p></li>
+        <li><p><b>Из каких двух обязательных частей состоит рекурсивный CTE?</b></p><p>Из якорного запроса (Anchor member) и рекурсивного запроса (Recursive member), объединенных через UNION ALL.</p></li>
+        <li><p><b>Как предотвратить зацикливание рекурсивного CTE при обходе графов с циклами?</b></p><p>Добавлением ограничения максимального уровня глубины (`level < MAX`) или отслеживанием массива посещенных вершин (`NOT id = ANY(path)`).</p></li>
+        <li><p><b>Зачем использовать явную директиву WITH ... AS MATERIALIZED?</b></p><p>Чтобы принудительно заставить СУБД выполнить расчет CTE один раз и сохранить его в буфер памяти, предотвращая повторное вычисление при многократном обращении.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-top-n-per-group-interview" data-interview="5">
+  <div class="name" id="db-top-n-per-group-interview">
+    Собеседование: Топ-N записей в каждой группе
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Senior Data Analyst / Backend):</b> Классический хит технических секций: <i>«Как эффективно выбрать Топ-N записей в каждой группе (например, 3 самых дорогих товара в каждой категории или последний заказ каждого клиента)? Почему на огромных таблицах оконная функция ROW_NUMBER() проигрывает соединению LATERAL и специфической конструкции PostgreSQL DISTINCT ON?»</i></p>
+<p>Если совсем простыми словами: <b>ROW_NUMBER() честно перебирает и нумерует абсолютно все миллионы строк таблицы, даже если вам нужны только 3 штуки из каждой папки</b>. Конструкция LATERAL с правильным индексом прыгает сразу к верхушке каждой группы (Index Skip Scan), выполняя запрос в тысячи раз быстрее.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Три паттерна решения задачи Топ-N в каждой группе:</p>
+<ol>
+<li><b>Паттерн 1: Оконная функция ROW_NUMBER() (Стандарт ANSI SQL):</b>
+    Универсальный переносимый подход.
+    `WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY cat_id ORDER BY price DESC) AS rn FROM products) SELECT * FROM ranked WHERE rn <= 3;`
+    - <i>Плюс:</i> Работает в любых СУБД (Postgres, MySQL, Oracle, ClickHouse).
+    - <i>Минус:</i> Сканирует и сортирует <b>всю таблицу целиком</b> ($100$ млн строк), даже если категорий всего 10.
+</li>
+<li><b>Паттерн 2: PostgreSQL DISTINCT ON (Топ-1 в каждой группе):</b>
+    Специфический сверхбыстрый синтаксис для выбора ровно одной записи:
+    `SELECT DISTINCT ON (customer_id) * FROM orders ORDER BY customer_id, order_date DESC;`
+    Возвращает строго первую строку для каждого уникального значения `customer_id`.
+</li>
+<li><b>Паттерн 3: CROSS JOIN LATERAL (High-Performance Top-N):</b>
+    Соединение таблицы категорий с подзапросом, содержащим `LIMIT N`:
+    `SELECT c.cat_name, p.* FROM categories c CROSS JOIN LATERAL (SELECT * FROM products WHERE cat_id = c.id ORDER BY price DESC LIMIT 3) p;`
+    - <i>Магия:</i> При наличии индекса `(cat_id, price DESC)` база делает ровно 3 точечных чтения индекса на каждую категорию ($O(K \times N)$ вместо $O(\text{Все строки})$)!
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Сравнение производительности на 10 млн товаров (50 категорий):</b>
+- <b>ROW_NUMBER():</b> Читает 10 млн строк, сортирует в памяти: <b>$4.8$ секунды</b>.
+- <b>LATERAL + B-Tree индекс:</b> Делает $50 \times 3 = 150$ чтений по индексу: <b>$0.002$ секунды</b> (ускорение в $2400$ раз!).</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Классический переносимый подход через ROW_NUMBER() (Топ-3 товара в категории)
+WITH ranked_products AS (
+    SELECT
+        category_id,
+        product_name,
+        price,
+        ROW_NUMBER() OVER (
+            PARTITION BY category_id 
+            ORDER BY price DESC
+        ) AS ranking
+    FROM products
+)
+SELECT category_id, product_name, price, ranking
+FROM ranked_products
+WHERE ranking <= 3
+ORDER BY category_id, ranking;
+
+-- 2. Высокопроизводительный подход через LATERAL JOIN для больших таблиц
+-- Требует индекса: CREATE INDEX idx_products_cat_price ON products(category_id, price DESC);
+SELECT
+    c.category_id,
+    c.category_name,
+    top_p.product_name,
+    top_p.price
+FROM categories c
+CROSS JOIN LATERAL (
+    SELECT product_name, price
+    FROM products p
+    WHERE p.category_id = c.category_id
+    ORDER BY p.price DESC
+    LIMIT 3
+) top_p
+ORDER BY c.category_id, top_p.price DESC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование ROW_NUMBER() без покрытия составным индексом на больших таблицах.</b> Приводит к тяжелой дисковой сортировке всей таблицы при выборке всего нескольких строк.</li>
+        <li><b>Забывание о том, что порядок колонок в ORDER BY при DISTINCT ON должен начинаться с полей DISTINCT ON.</b> В PostgreSQL синтаксис `DISTINCT ON (a) ... ORDER BY b` выбросит ошибку; порядок обязан быть `ORDER BY a, b`.</li>
+        <li><b>Использование ROW_NUMBER() вместо DENSE_RANK(), когда требуется включить все товары с одинаковой максимальной ценой.</b> ROW_NUMBER произвольно отсечет товары с равной ценой.</li>
+        <li><b>LATERAL без индекса по ключу партиционирования.</b> Без индекса LATERAL превратится в серию полных сканирований таблицы, работая медленнее обычного окна.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: сначала напишите решение через <b>ROW_NUMBER()</b>, а затем скажите: <i>«Если таблица огромная, я перепишу это на <b>CROSS JOIN LATERAL</b> с композитным B-Tree индексом `(category_id, price DESC)`, чтобы оптимизатор применил Index Scan с отсечением по LIMIT»</i>. Это уровень Principal Data Engineer.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как работает оконный подход к задаче Топ-N?</b></p><p>Через вычисление `ROW_NUMBER() OVER (PARTITION BY group ORDER BY val DESC)` внутри CTE и последующую фильтрацию `WHERE rn <= N`.</p></li>
+        <li><p><b>В чем преимущество связки LATERAL + LIMIT N перед ROW_NUMBER()?</b></p><p>LATERAL с композитным индексом выполняет точечный поиск верхушки каждой группы без сканирования и сортировки всей многомиллионной таблицы.</p></li>
+        <li><p><b>Что делает конструкция `DISTINCT ON (col)` в PostgreSQL?</b></p><p>Оставляет строго одну первую строку для каждого уникального значения `col` в соответствии с сортировкой ORDER BY.</p></li>
+        <li><p><b>Какое строгое синтаксическое требование накладывает DISTINCT ON на блок ORDER BY?</b></p><p>Столбцы, указанные в `DISTINCT ON (...)`, обязаны стоять первыми в списке `ORDER BY`.</p></li>
+        <li><p><b>Какой индекс необходим для идеальной работы LATERAL выборки Топ-N?</b></p><p>Композитный B-Tree индекс на `(group_id, sort_column DESC)`.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-dedup-interview" data-interview="5">
+  <div class="name" id="db-dedup-interview">
+    Собеседование: Удаление дубликатов в SQL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Administrator / Analyst):</b> Эксплуатационная задача: <i>«В таблице без уникального ключа образовались дубликаты строк. Как написать SQL-запрос для физического удаления дубликатов с сохранением строго одной самой первой (или самой свежей) записи? Как использовать служебный системный атрибут ctid в PostgreSQL?»</i></p>
+<p>Если совсем простыми словами: <b>чтобы удалить дубликаты, нужно дать каждой копии уникальный временный номер</b>. Самую первую копию мы оставляем, а все строки с номерами 2, 3 и 4 безжалостно стираем через DELETE.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методология физической дедупликации данных:</p>
+<ol>
+<li><b>Понятие системного атрибута `ctid` в PostgreSQL:</b>
+    - Каждая физическая строка (кортеж / tuple) в таблице PostgreSQL имеет невидимый системный идентификатор `ctid` вида `(page_number, tuple_offset)` (например, `(0, 1)` — первая страница, первая строка).
+    - `ctid` уникален для каждой строки в данный момент времени и идеально подходит для точечного удаления дубликатов, когда у таблицы нет первичного ключа.
+</li>
+<li><b>Стратегия 1: DELETE через CTE и оконную функцию (Рекомендуемый стандарт):</b>
+    Группируем строки по бизнес-ключам, нумеруем через `ROW_NUMBER()` и удаляем строки с `rn > 1`.
+</li>
+<li><b>Стратегия 2: DELETE через ctid и подзапрос:</b>
+    `DELETE FROM users WHERE ctid NOT IN (SELECT MIN(ctid) FROM users GROUP BY email);`
+    Удаляет все физические строки, кроме кортежей с минимальным адресом блока.
+</li>
+<li><b>Стратегия 3: Пересоздание таблицы (Table Swap для огромных данных):</b>
+    Если дубликатов более $30\%$ в таблице на 100 млн строк, DELETE вызовет гигантский Table Bloat и блокировки. Быстрее создать новую таблицу через `INSERT INTO new_table SELECT DISTINCT ON ...`, создать индексы и сделать `ALTER TABLE RENAME`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический кейс:</b>
+Сбой интеграции создал $500\,000$ повторных заявок с одинаковыми `(client_id, request_date)`.
+Запрос через `DELETE ... USING` с оконной функцией удалил все лишние дубликаты за $3.2$ секунды, сохранив самую раннюю версию заявки по `created_at`.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Эталонное удаление дубликатов в PostgreSQL через CTE и ctid
+WITH ranked_duplicates AS (
+    SELECT
+        ctid,
+        ROW_NUMBER() OVER (
+            PARTITION BY client_id, email 
+            ORDER BY created_at ASC -- сохраняем самую раннюю запись
+        ) AS duplicate_rank
+    FROM client_applications
+)
+DELETE FROM client_applications
+WHERE ctid IN (
+    SELECT ctid 
+    FROM ranked_duplicates 
+    WHERE duplicate_rank > 1
+);
+
+-- 2. Обязательный финальный шаг: установка уникального индекса для защиты от рецидивов!
+CREATE UNIQUE INDEX CONCURRENTLY uq_client_applications_email 
+ON client_applications(client_id, email);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Удаление дубликатов без последующего создания UNIQUE ограничения.</b> Через день дубликаты появятся снова; дедупликация должна завершаться установкой констрейнта.</li>
+        <li><b>Массовый DELETE на таблице в 100 млн строк без разбиения на батчи.</b> Заблокирует таблицу, раздует WAL и исчерпает системные ресурсы; для больших таблиц используйте батчи или пересоздание таблицы.</li>
+        <li><b>Попытка постоянного хранения и использования ctid в бизнес-логике.</b> Значение ctid меняется при любом `UPDATE` или фоновом `VACUUM FULL`. Использовать ctid можно только внутри одной транзакции!</li>
+        <li><b>Случайное удаление всех строк при ошибке в условии ctid NOT IN.</b> Если подзапрос вернет NULL или пустой результат, логика может сработать некорректно.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: продемонстрируйте использование системной колонки <b>ctid</b> и конструкции <b>WITH ... DELETE FROM</b>. Это эталонный паттерн для СУБД PostgreSQL.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое системный столбец ctid в PostgreSQL?</b></p><p>Физический адрес строки на диске, состоящий из номера страницы файла и номера кортежа внутри страницы (page, offset).</p></li>
+        <li><p><b>Почему значение ctid нельзя использовать в качестве постоянного первичного ключа?</b></p><p>Потому что ctid изменяется при любых обновлениях строки (UPDATE) или реорганизации страниц процессом VACUUM.</p></li>
+        <li><p><b>Как удалить дубликаты с помощью оконной функции ROW_NUMBER()?</b></p><p>Пронумеровать строки внутри `PARTITION BY` по бизнес-ключам и удалить все строки, где `duplicate_rank > 1`.</p></li>
+        <li><p><b>Почему при дедупликации 50+ млн строк создание новой таблицы эффективнее DELETE?</b></p><p>Потому что `CREATE TABLE AS SELECT ...` выполняется последовательной быстрой записью без накладных расходов на удаление кортежей и очистку WAL.</p></li>
+        <li><p><b>Какой шаг обязателен после завершения очистки дубликатов?</b></p><p>Создание уникального индекса (UNIQUE INDEX / CONSTRAINT), исключающего повторное засорение базы.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-retention-cohort-interview" data-interview="5">
+  <div class="name" id="db-retention-cohort-interview">
+    Собеседование: Написание когортного Retention на SQL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Lead Product Analyst):</b> Высший пилотаж аналитического SQL: <i>«Напишите сквозной SQL-запрос для построения треугольной матрицы месячного когортного удержания (Monthly Cohort Retention Rate) по таблице пользовательской активности <code>user_events(user_id, event_date)</code>. Как избежать смещения дат и корректно развернуть матрицу?»</i></p>
+<p>Если совсем простыми словами: <b>когортный анализ — это отслеживание судьбы людей, пришедших в один месяц</b>. Мы группируем людей по месяцу их «рождения» и смотрим, какой процент из них вернулся в магазин через 1 месяц, через 2 месяца и через полгода.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический и технический алгоритм расчета когортной матрицы:</p>
+<ol>
+<li><b>Шаг 1: Определение даты когорты для каждого пользователя:</b>
+    Используем оконную функцию `MIN(event_date) OVER (PARTITION BY user_id)` или группировку, усекая дату до месяца через `DATE_TRUNC('month', ...)`.
+</li>
+<li><b>Шаг 2: Расчет индекса периода жизни (Cohort Index / Month Offset):</b>
+    Вычисляем разницу в полных месяцах между датой текущего события и датой когорты:
+    $$\Delta M = (\text{Year}_{\text{event}} - \text{Year}_{\text{cohort}}) \times 12 + (\text{Month}_{\text{event}} - \text{Month}_{\text{cohort}})$$
+</li>
+<li><b>Шаг 3: Агрегация уникальных пользователей (Active Users):</b>
+    Группируем по `(cohort_month, month_offset)` и считаем `COUNT(DISTINCT user_id)`. Базовый размер когорты — это число пользователей на смещении $0$ ($M_0$).
+</li>
+<li><b>Шаг 4: Разворачивание (Pivot) в треугольную матрицу:</b>
+    Используем условную фильтрацию `100.0 * COUNT(DISTINCT CASE WHEN month_offset = K THEN user_id END) / cohort_size`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Вид итоговой когортной матрицы:</b></p>
+<table class="task-table">
+<thead><tr><th>Когорта</th><th>Размер базы</th><th>Месяц 0</th><th>Месяц 1</th><th>Месяц 2</th><th>Месяц 3</th></tr></thead>
+<tbody>
+<tr><td>2026-01</td><td>10,000</td><td>100.0%</td><td>35.4%</td><td>24.1%</td><td>19.8%</td></tr>
+<tr><td>2026-02</td><td>12,500</td><td>100.0%</td><td>38.2%</td><td>26.5%</td><td>-</td></tr>
+<tr><td>2026-03</td><td>11,000</td><td>100.0%</td><td>36.0%</td><td>-</td><td>-</td></tr>
+</tbody>
+</table>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Сквозной расчет когортного удержания в PostgreSQL
+WITH user_cohorts AS (
+    -- 1. Месяц первого действия (когорта) каждого клиента
+    SELECT
+        user_id,
+        DATE_TRUNC('month', MIN(event_date))::DATE AS cohort_month
+    FROM user_events
+    GROUP BY user_id
+),
+activity_with_offsets AS (
+    -- 2. Связываем каждое последующее событие с когортой и вычисляем смещение
+    SELECT DISTINCT
+        e.user_id,
+        c.cohort_month,
+        -- Формула точного смещения в месяцах
+        (EXTRACT(YEAR FROM e.event_date) - EXTRACT(YEAR FROM c.cohort_month)) * 12 +
+        (EXTRACT(MONTH FROM e.event_date) - EXTRACT(MONTH FROM c.cohort_month)) AS month_offset
+    FROM user_events e
+    JOIN user_cohorts c ON e.user_id = c.user_id
+),
+cohort_sizes AS (
+    -- 3. Базовый размер когорты на нулевом месяце
+    SELECT
+        cohort_month,
+        COUNT(DISTINCT user_id) AS total_users
+    FROM user_cohorts
+    GROUP BY cohort_month
+)
+-- 4. Сборка треугольной матрицы Retention Rate (%)
+SELECT
+    TO_CHAR(cs.cohort_month, 'YYYY-MM') AS cohort,
+    cs.total_users AS cohort_size,
+    100.0 AS m0,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.month_offset = 1 THEN a.user_id END) / cs.total_users, 1) AS m1,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.month_offset = 2 THEN a.user_id END) / cs.total_users, 1) AS m2,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.month_offset = 3 THEN a.user_id END) / cs.total_users, 1) AS m3,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.month_offset = 6 THEN a.user_id END) / cs.total_users, 1) AS m6
+FROM cohort_sizes cs
+LEFT JOIN activity_with_offsets a ON cs.cohort_month = a.cohort_month
+GROUP BY cs.cohort_month, cs.total_users
+ORDER BY cs.cohort_month ASC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Расчет разницы месяцев через простое деление дней на 30 `(date2 - date1) / 30`.</b> Длина месяцев колеблется от 28 до 31 дня; деление на 30 приводит к хаотичным ошибкам смещения когорт.</li>
+        <li><b>Забывание DISTINCT при подсчете активных пользователей месяца.</b> Пользователь с 50 событиями в месяце будет посчитан 50 раз, раздув Retention свыше 100%.</li>
+        <li><b>Неучет того, что размер когорты должен определяться строго по месяцу 0.</b> Использование текущего числа активных исказит знаменатель расчета долей.</li>
+        <li><b>Жесткий JOIN вместо LEFT JOIN при сведении матрицы.</b> Если в каком-то месяце вернулось 0 человек, строка когорты может полностью выпасть из отчета.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: четко структурируйте код на 3 CTE: **определение когорт $\to$ расчет смещения $\to$ сводная матрица**. Читаемость и архитектурная чистота решения оцениваются в первую очередь.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что является базой (размером) когорты при расчете Retention Rate?</b></p><p>Количество уникальных пользователей, совершивших первое ключевое действие в период формирования данной когорты (месяц 0).</p></li>
+        <li><p><b>Как рассчитать целочисленную разницу в месяцах между двумя датами в SQL?</b></p><p>`((EXTRACT(YEAR FROM d2) - EXTRACT(YEAR FROM d1)) * 12 + EXTRACT(MONTH FROM d2) - EXTRACT(MONTH FROM d1))`.</p></li>
+        <li><p><b>Почему нулевой месяц (m0) в когортном анализе всегда строго равен 100%?</b></p><p>Потому что все пользователи когорты по определению проявили активность в месяц своего привлечения ($N_0 / N_0 = 100\%$).</p></li>
+        <li><p><b>Какую роль играет функция DATE_TRUNC('month', date)?</b></p><p>Она усекает дату до первого числа соответствующего месяца со временем 00:00:00.</p></li>
+        <li><p><b>Как развернуть строки смещений в столбцы без сторонних модулей?</b></p><p>Через условную агрегацию с конструкцией `COUNT(DISTINCT CASE WHEN month_offset = K THEN user_id END)`.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-gaps-islands-interview" data-interview="5">
+  <div class="name" id="db-gaps-islands-interview">
+    Собеседование: Задача Gaps and Islands (Острова и пропуски)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Lead Analyst / Senior SQL):</b> Легендарная олимпиадная задача на собеседованиях: <i>«Дана таблица посещений пользователем приложения по дням <code>user_logins(user_id, login_date)</code>. Как найти непрерывные последовательности дней активности (Острова / Islands), максимальный непрерывный стрик (Streak) каждого пользователя и интервалы пропусков (Пропуски / Gaps)? В чем заключается математический фокус разности двух последовательностей?»</i></p>
+<p>Если совсем простыми словами: <b>трюк 'Gaps and Islands' — это чистая математическая магия</b>. Если из непрерывно растущей даты вычесть непрерывно растущий номер строки ($1, 2, 3$), их разность останется абсолютной константой! Как только в датах случается пропуск (дыра), эта разность мгновенно перескакивает на новое число, автоматически создавая идеальный ключ группы.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математическое доказательство трюка Difference of Row Numbers:</p>
+<ol>
+<li><b>Идея константной разности:</b>
+    Пусть у нас есть непрерывная последовательность дат $D_i$ и их порядковые номера $R_i$:
+    $$D_i = D_0 + i \cdot \text{1 day}, \quad R_i = R_0 + i$$
+    Вычтем номер строки (умноженный на 1 день) из даты:
+    $$D_i - R_i \cdot \text{1 day} = (D_0 + i) - (R_0 + i) = D_0 - R_0 = \text{const}$$
+    Пока дни идут подряд без пропусков, разность $(D_i - R_i)$ <b>строго постоянна</b>!
+</li>
+<li><b>Что происходит при пропуске (Gap):</b>
+    Если пользователь пропустил 3 дня, дата перескакивает на $+4$, а номер строки увеличивается только на $+1$.
+    Разность $(D_{i+1} - R_{i+1})$ скачкообразно меняется, образуя идентификатор <b>нового острова</b>!
+</li>
+<li><b>Группировка:</b>
+    Группируя по полученной константной разности `grp`, мы мгновенно находим:
+    - Начало острова: `MIN(login_date)`.
+    - Конец острова: `MAX(login_date)`.
+    - Длину непрерывной серии (Streak): `COUNT(*)`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Демонстрация трюка на числах:</b>
+Даты: 01-е, 02-е, 03-е (пропуск!) 07-е, 08-е число.
+- День 1: 01.10 - 1 = **30.09** (Группа A)
+- День 2: 02.10 - 2 = **30.09** (Группа A)
+- День 3: 03.10 - 3 = **30.09** (Группа A) $\to$ Стрик = 3 дня!
+- <i>Пропуск 3 дня</i>
+- День 4: 07.10 - 4 = **03.10** (Группа B)
+- День 5: 08.10 - 5 = **03.10** (Группа B) $\to$ Стрик = 2 дня!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Решение классической задачи Gaps and Islands (поиск непрерывных серий входов)
+WITH distinct_logins AS (
+    -- Шаг 1: Дедупликация (пользователь мог войти 5 раз за один день)
+    SELECT DISTINCT
+        user_id,
+        login_date
+    FROM user_logins
+),
+numbered_logins AS (
+    -- Шаг 2: Вычисление порядкового номера дня активности
+    SELECT
+        user_id,
+        login_date,
+        ROW_NUMBER() OVER (
+            PARTITION BY user_id 
+            ORDER BY login_date ASC
+        ) AS row_num
+    FROM distinct_logins
+),
+islands AS (
+    -- Шаг 3: Математический фокус вычитания номера строки из даты
+    SELECT
+        user_id,
+        login_date,
+        -- Разность образует уникальный групповой маркер непрерывного острова
+        (login_date - (row_num * INTERVAL '1 day'))::DATE AS island_group
+    FROM numbered_logins
+),
+streak_summary AS (
+    -- Шаг 4: Агрегация непрерывных серий
+    SELECT
+        user_id,
+        MIN(login_date) AS streak_start,
+        MAX(login_date) AS streak_end,
+        COUNT(*) AS streak_length_days
+    FROM islands
+    GROUP BY user_id, island_group
+)
+-- Шаг 5: Нахождение максимального стрика для каждого пользователя
+SELECT
+    user_id,
+    streak_start,
+    streak_end,
+    streak_length_days
+FROM (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY user_id 
+            ORDER BY streak_length_days DESC, streak_start DESC
+        ) AS rn
+    FROM streak_summary
+)
+WHERE rn = 1;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Забывание предварительной дедупликации дат на шаге 1.</b> Если в один день было 2 входа, номер строки увеличится на 2 при одинаковой дате, сломав разность констант.</li>
+        <li><b>Попытка решения задачи через рекурсивный CTE на миллионах строк.</b> Рекурсивный CTE имеет сложность $O(N^2)$ и упадет по памяти, в то время как трюк с ROW_NUMBER() работает за $O(N \log N)$.</li>
+        <li><b>Неучет нерегулярных временных меток со временем (TIMESTAMP вместо DATE).</b> Метки времени необходимо обязательно приводить к типу DATE, иначе миллисекунды уничтожат равенство.</li>
+        <li><b>Путаница в нахождении пропусков (Gaps).</b> Для поиска самих пропусков проще использовать функцию `LEAD(date) OVER ()` и условие `next_date - date > 1`.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: мгновенно произнесите фразу <b>«Разность даты и номера строки постоянна для непрерывных последовательностей»</b>. Это классический маркер эрудиции и высокого ранга в SQL.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем суть задачи Gaps and Islands (Острова и пропуски)?</b></p><p>В разбиении дискретных упорядоченных последовательностей на непрерывные непрерывающиеся диапазоны (острова) и изолировании промежутков между ними (пропуски).</p></li>
+        <li><p><b>Почему выражение `date - ROW_NUMBER() * INTERVAL '1 day'` является константой внутри острова?</b></p><p>Потому что для последовательных дней и дата, и номер строки прирастают ровно на 1 единицу на каждом шаге.</p></li>
+        <li><p><b>Зачем необходима предварительная дедупликация дат перед расчетом островов?</b></p><p>Чтобы один календарный день соответствовал строго одному номеру строки.</p></li>
+        <li><p><b>Как найти сами пропуски (Gaps) между событиями?</b></p><p>С помощью функции `LEAD(event_date)`: условие `LEAD(event_date) - event_date > 1` указывает на наличие разрыва.</p></li>
+        <li><p><b>Какова вычислительная сложность алгоритма поиска островов через ROW_NUMBER()?</b></p><p>$O(N \log N)$ на этапе сортировки оконной функции, что делает его масштабируемым на миллиарды строк.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-indexes-interview" data-interview="5">
+  <div class="name" id="db-indexes-interview">
+    Собеседование: Индексы в реляционных БД
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Senior Database / Analytics Engineer):</b> Глубокое понимание структур данных: <i>«Как устроено сбалансированное дерево B-Tree в индексах реляционных баз данных? Как работает правило левого префикса (Leftmost Prefix Rule) для составных индексов, что такое Index-Only Scan с предложением INCLUDE и в каких случаях индекс BRIN превосходит B-Tree?»</i></p>
+<p>Если совсем простыми словами: <b>B-Tree индекс — это алфавитный указатель в конце толстой энциклопедии</b>. Вместо листания всех 1000 страниц подряд вы за 3 шага находите нужную фамилию и сразу открываете конкретную страницу. Составной индекс — как телефонная книга, отсортированная строго по 'Фамилия $\to$ Имя $\to$ Отчество'.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия индексов и физические механизмы поиска:</p>
+<ol>
+<li><b>Устройство B+Tree (Balanced Tree) индекса:</b>
+    - Корень (Root) $\to$ Промежуточные узлы (Internal Nodes) $\to$ Листовые страницы (Leaf Pages).
+    - Листовые страницы связаны двусвязным списком (Doubly Linked List), обеспечивая мгновенный диапазонный поиск (`BETWEEN`, `>`, `<`).
+    - Лист содержит: `(Ключ, TID / ItemPointer)` — физический адрес строки на диске `(block, offset)`.
+    - Сложность поиска: <b>$O(\log N)$</b>. При 100 млн строк высота дерева составляет всего 3-4 уровня!
+</li>
+<li><b>Правило левого префикса (Leftmost Prefix Rule):</b>
+    Индекс создан по полям `(A, B, C)`:
+    - Запросы `WHERE A = 1` $\to$ <b>Использует индекс</b>.
+    - Запросы `WHERE A = 1 AND B = 2` $\to$ <b>Использует индекс</b>.
+    - Запросы `WHERE B = 2 AND C = 3` $\to$ <b>НЕ МОЖЕТ использовать индекс</b> (первое поле пропущено, как поиск по имени 'Иван' в телефонной книге без знания фамилии!).
+</li>
+<li><b>Покрывающие индексы (Covering Index / Index-Only Scan):</b>
+    Индекс с дополнительными неключевыми полями: `CREATE INDEX ... ON orders(customer_id) INCLUDE (total_amount)`.
+    - Поле `total_amount` хранится только в листьях дерева и не участвует в сортировке.
+    - Запрос `SELECT total_amount FROM orders WHERE customer_id = 42` получает данные <b>строго из индекса</b>, вообще не обращаясь к таблице на диске (Zero Heap Fetches)!
+</li>
+<li><b>Индексы BRIN (Block Range Index):</b>
+    - Хранит только диапазон `[MIN, MAX]` для блока из 128 страниц.
+    - Размер: в <b>1000 раз меньше</b> B-Tree!
+    - Идеален для монотонно растущих временных рядов и логов событий.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Ускорение аналитического запроса в 300 раз:</b>
+Запрос: `SELECT user_id, sum(spent) FROM orders WHERE status = 'paid' GROUP BY user_id;`
+Таблица: $50$ млн строк.
+Обычный B-Tree на `(status)` требовал чтения миллионов страниц таблицы из Heap.
+Создание покрывающего индекса `CREATE INDEX idx ON orders(status, user_id) INCLUDE (spent);` перевело план в **Index Only Scan**, сократив время с $14$ секунд до $0.04$ секунды!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Создание композитного B-Tree индекса с учетом селективности (слева направо)
+CREATE INDEX idx_orders_customer_date 
+ON orders (customer_id, order_date DESC);
+
+-- 2. Создание покрывающего индекса с предложением INCLUDE для Index-Only Scan
+CREATE INDEX idx_orders_covering_report 
+ON orders (customer_id) 
+INCLUDE (total_amount, status);
+
+-- 3. Частичный индекс (Partial Index) для экономии 95% памяти RAM
+-- Индексирует только активные заказы (не раздувает B-Tree завершенными архивами)
+CREATE INDEX idx_orders_active_only 
+ON orders (created_at) 
+WHERE status IN ('processing', 'delivering');
+
+-- 4. BRIN-индекс для гигантской таблицы аналитических логов (терабайты данных)
+CREATE INDEX idx_events_timestamp_brin 
+ON app_event_logs USING BRIN (event_timestamp);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Применение функций к индексированным колонкам в блоке WHERE.</b> Выражение `WHERE DATE(created_at) = '2026-10-01'` ослепляет индекс B-Tree! Нужно писать диапазон `WHERE created_at >= '2026-10-01' AND created_at < '2026-10-02'`.</li>
+        <li><b>Создание индексов на низкоселективные колонки (например, пол M/F или булев флаг is_active).</b> Оптимизатор проигнорирует такой индекс и выберет последовательное сканирование Seq Scan; используйте частичные индексы (Partial Indexes).</li>
+        <li><b>Чрезмерная индексация всех подряд колонок (Over-indexing).</b> Каждый дополнительный индекс драматически замедляет операции INSERT, UPDATE и DELETE, так как требует обновления деревьев.</li>
+        <li><b>Неучет неявного приведения типов (Type Coercion).</b> Если колонка `phone` имеет тип VARCHAR, а запрос ищет `WHERE phone = 79991234567` (число), индекс не применится.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: обязательно объясните разницу между <b>B-Tree</b>, <b>BRIN</b> (для временных рядов) и концепцией <b>Index-Only Scan с INCLUDE</b>. Это признак элитного разработчика.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какова вычислительная сложность поиска по B-Tree индексу?</b></p><p>$O(\log N)$ благодаря сбалансированной древовидной структуре страниц.</p></li>
+        <li><p><b>В чем суть правила левого префикса (Leftmost Prefix Rule)?</b></p><p>Составной индекс может использоваться только в том случае, если предикаты запроса фильтруют по начальным (левым) столбцам определения индекса без пропусков.</p></li>
+        <li><p><b>Что такое Index-Only Scan?</b></p><p>Режим выполнения запроса, при котором все запрашиваемые данные извлекаются напрямую из листьев индекса без обращения к страницам самой таблицы на диске.</p></li>
+        <li><p><b>Чем полезно предложение INCLUDE при создании индекса?</b></p><p>Оно включает дополнительные столбцы в листовые узлы индекса для поддержки Index-Only Scan, не утяжеляя дерево сортировкой по ним.</p></li>
+        <li><p><b>В чем специфика индекса BRIN (Block Range Index)?</b></p><p>Он хранит только минимальные и максимальные значения для блоков страниц, занимая в сотни раз меньше места и эффективно работая на физически отсортированных данных.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-explain-interview" data-interview="5">
+  <div class="name" id="db-explain-interview">
+    Собеседование: Чтение плана запроса EXPLAIN
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Performance Tuning):</b> Экспертный навык оптимизации: <i>«Как читать и анализировать план выполнения запроса EXPLAIN (ANALYZE, BUFFERS)? Чем отличаются оценки планировщика (Cost) от реального времени (Actual Time), как трактовать узлы Seq Scan, Index Scan, Bitmap Scan и о чем сигнализирует метрика Buffers: shared read?»</i></p>
+<p>Если совсем простыми словами: <b>EXPLAIN — это рентгеновский снимок работы базы данных</b>. Он показывает, какую стратегию выбрал планировщик, сколько страниц он прочитал из оперативной памяти, а сколько пришлось мучительно считывать с медленного диска.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия вывода EXPLAIN (ANALYZE, BUFFERS):</p>
+<ol>
+<li><b>EXPLAIN vs EXPLAIN ANALYZE:</b>
+    - `EXPLAIN`: Показывает гипотетический план и оценку стоимости (Cost) на основе статистики `pg_statistic` <b>без реального запуска запроса</b>.
+    - `EXPLAIN ANALYZE`: <b>Реально выполняет запрос на сервере</b>, замеряет фактическое время в миллисекундах и сравнивает прогноз с фактом. <i>Осторожно с DELETE/UPDATE!</i>
+</li>
+<li><b>Ключевые метрики в строке плана:</b>
+    `cost=0.42..8.45 rows=10 width=64 (actual time=0.015..0.030 rows=8 loops=1)`
+    - `cost=0.42..8.45`: Условные единицы дискового I/O. Первое число — стоимость получения первой строки (Startup cost), второе — общая стоимость (Total cost).
+    - `rows=10 vs actual rows=8`: Если оценка планировщика расходится с фактом в $10-1000$ раз — статистика устарела, требуется `ANALYZE table`.
+    - `loops=N`: Количество повторений узла (например, во внешнем цикле Nested Loop). Общее реальное время = `actual time * loops`!
+</li>
+<li><b>Типы узлов сканирования таблицы:</b>
+    - **Seq Scan:** Полное последовательное сканирование таблицы. Нормально для чтения $>20\%$ строк, катастрофа для точечных поисков.
+    - **Index Scan:** Поиск в B-Tree $\to$ точечный переход в страницу таблицы (Heap Fetch) за каждой строкой.
+    - **Index Only Scan:** Данные прочитаны строго из индекса без перехода в таблицу.
+    - **Bitmap Index Scan + Bitmap Heap Scan:** Индекс сканируется целиком, строится битовая карта страниц в памяти, затем страницы таблицы читаются последовательно.
+</li>
+<li><b>Анализ дискового ввода-вывода (Buffers):</b>
+    - `shared hit`: Страницы найдены в оперативной памяти (`shared_buffers` RAM) — мгновенно.
+    - `shared read`: Страницы прочитаны с диска/SSD — главный источник задержек.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс оптимизации по EXPLAIN:</b>
+Запрос выполнялся за $12.4$ секунды.
+План показал: `Seq Scan on large_orders (cost=0.00..894520.00 rows=5) (Buffers: shared read=450000)`.
+Аналитик обнаружил, что база прочитала $450\,000$ блоков ($3.5$ ГБ) с диска ради 5 строк!
+После добавления индекса план переключился на `Index Scan (Buffers: shared hit=4)`, время выполнения упало до <b>0.8 миллисекунды</b>.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Запуск детального профилирования запроса с замером буферов
+EXPLAIN (ANALYZE, BUFFERS, TIMING, COSTS, VERBOSE)
+SELECT 
+    c.customer_id, 
+    c.email, 
+    o.order_id, 
+    o.total_amount
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.order_date >= '2026-10-01'
+  AND o.status = 'completed';
+
+/* Пример интерпретации реального вывода:
+-> Nested Loop (cost=0.56..32.40 rows=5 width=48) (actual time=0.045..0.120 rows=4 loops=1)
+     Buffers: shared hit=12 read=0
+     -> Index Scan using idx_orders_date on orders o (actual time=0.025..0.040 rows=4 loops=1)
+          Index Cond: (order_date >= '2026-10-01'::date)
+          Filter: (status = 'completed')
+          Buffers: shared hit=4
+     -> Index Scan using customers_pkey on customers c (actual time=0.012..0.015 rows=1 loops=4)
+          Index Cond: (customer_id = o.customer_id)
+          Buffers: shared hit=8
+Planning Time: 0.180 ms
+Execution Time: 0.165 ms
+*/</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск EXPLAIN ANALYZE для команд DELETE или DROP на боевой базе.</b> EXPLAIN ANALYZE физически выполняет команду, что приведет к реальному удалению данных! Оборачивайте вызов в транзакцию с последующим ROLLBACK.</li>
+        <li><b>Путаница между единицами Cost и миллисекундами времени.</b> Cost — это абстрактная математическая оценка планировщика, а не секунды.</li>
+        <li><b>Забывание умножения времени на счетчик loops.</b> Если узел выполнялся со значением `loops=1000`, суммарное затраченное время равно `actual time * 1000`.</li>
+        <li><b>Игнорирование расхождения оценочного и фактического числа строк (Rows estimate discrepancy).</b> Если оптимизатор ожидает 1 строку, а получает 1 млн, он выберет заведомо неверный план (Nested Loop вместо Hash Join).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: всегда предлагайте добавить флаг <b>BUFFERS</b> к `EXPLAIN ANALYZE`. Умение анализировать `shared hit` против `shared read` — знак высочайшего класса инженера баз данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем принципиальная разница между EXPLAIN и EXPLAIN ANALYZE?</b></p><p>EXPLAIN строит прогнозный план на основе статистики без выполнения запроса; EXPLAIN ANALYZE реально выполняет запрос и фиксирует точные тайминги и фактическое число строк.</p></li>
+        <li><p><b>Что означает метрика loops в выводе EXPLAIN ANALYZE?</b></p><p>Количество итераций выполнения данного узла плана во внутреннем цикле соединения.</p></li>
+        <li><p><b>Когда планировщик выбирает Bitmap Index Scan вместо обычного Index Scan?</b></p><p>Когда строк много, и чтобы избежать хаотичных случайных чтений диска, база сначала формирует упорядоченную битовую карту блоков в памяти.</p></li>
+        <li><p><b>О чем свидетельствует показатель `shared read` в отчете BUFFERS?</b></p><p>О количестве страниц данных размером 8 КБ, которые пришлось физически считывать с дискового накопителя из-за их отсутствия в кэше RAM.</p></li>
+        <li><p><b>Что делать, если прогнозируемое число строк (estimated rows) сильно расходится с фактическим?</b></p><p>Выполнить команду `ANALYZE table_name` для обновления статистики распределения данных в системном каталоге.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-acid-interview" data-interview="5">
+  <div class="name" id="db-acid-interview">
+    Собеседование: Принципы ACID
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Backend Architect / Senior Data Engineer):</b> Канонический фундамент транзакционных систем: <i>«Как детально расшифровываются принципы ACID (Atomicity, Consistency, Isolation, Durability)? Какими низкоуровневыми механизмами СУБД гарантирует каждый из этих четырех принципов (WAL, MVCC, 2PL, fsync)?»</i></p>
+<p>Если совсем простыми словами: <b>ACID — это четыре нерушимые заповеди надежности банка</b>. Деньги либо перевелись полностью, либо не тронуты вообще (Атомарность); сумма на счетах всегда сходится с математикой (Согласованность); параллельные переводы не путаются между собой (Изоляция); и если вам выдали чек, запись не сотрется даже при ударе молнии в серверную (Долговечность).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Низкоуровневые механизмы реализации каждого принципа ACID:</p>
+<ol>
+<li><b>Atomicity (Атомарность — «Все или ничего»):</b>
+    - Транзакция не может выполниться частично. При любом сбое все промежуточные шаги откатываются.
+    - <i>Реализация:</i> Журнал упреждающей записи <b>WAL (Write-Ahead Log)</b> или Undo-логи. При падении система накатывает успешные и откатывает незавершенные транзакции.
+</li>
+<li><b>Consistency (Согласованность / Непротиворечивость):</b>
+    - Перевод системы из одного валидного состояния в другое. Все ограничения схемы данных (`NOT NULL`, `CHECK`, `UNIQUE`, `FOREIGN KEY`) и триггеры остаются нерушимыми.
+    - <i>Реализация:</i> Валидация констрейнтов на уровне ядра СУБД перед коммитом.
+</li>
+<li><b>Isolation (Изоляция):</b>
+    - Параллельно выполняющиеся транзакции не должны влиять на результат работы друг друга.
+    - <i>Реализация:</i> Механизм многоверсионности <b>MVCC (Multi-Version Concurrency Control)</b> и блокировки (Shared / Exclusive Locks).
+</li>
+<li><b>Durability (Долговечность / Надежность):</b>
+    - Если транзакция зафиксирована (`COMMIT`), ее результаты гарантированно сохранятся даже при внезапном отключении электричества.
+    - <i>Реализация:</i> Синхронный сброс буфера WAL на энергонезависимый диск через системный вызов <b>fsync()</b> до отправки клиенту подтверждения об успехе.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Цена отключения fsync:</b>
+Команда настроила параметр PostgreSQL `fsync = off` ради ускорения тестов в 10 раз, но случайно раскатала этот конфиг на боевой сервер.
+При кратковременном сбое питания в ЦОД база данных поднялась в поврежденном состоянии с битыми страницами диска (Data Corruption).
+Восстановление из бэкапов заняло $14$ часов. <b>Durability нельзя приносить в жертву производительности</b>.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Классическая банковская транзакция с гарантией ACID
+BEGIN;
+
+-- Проверка и списание баланса отправителя
+UPDATE accounts
+SET balance = balance - 5000.00
+WHERE account_id = 101 AND balance >= 5000.00;
+
+-- Зачисление на счет получателя
+UPDATE accounts
+SET balance = balance + 5000.00
+WHERE account_id = 202;
+
+-- Запись в аудит-лог транзакций
+INSERT INTO transaction_audit (from_acc, to_acc, amount, created_at)
+VALUES (101, 202, 5000.00, NOW());
+
+-- Если все 3 шага успешны — фиксируем (Durability + Atomicity)
+COMMIT;
+
+-- В случае любой ошибки (например, сработал CHECK balance >= 0) — полный откат:
+-- ROLLBACK;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Путаница между понятием Consistency в ACID и понятием Consistency в CAP-теореме.</b> В ACID это соблюдение инвариантов схемы данных; в CAP — это линеаризуемость и одинаковое чтение на всех репликах.</li>
+        <li><b>Отключение параметра fsync или synchronous_commit на боевых базах данных.</b> Уничтожает гарантию Durability: при падении сервера зафиксированные транзакции будут безвозвратно утеряны.</li>
+        <li><b>Выполнение длинных многоминутных транзакций.</b> Удерживает блокировки, раздувает таблицы версиями строк (MVCC Bloat) и препятствует очистке VACUUM.</li>
+        <li><b>Ожидание, что изоляция по умолчанию защитит от всех конфликтов.</b> По умолчанию уровень Read Committed допускает неповторяющееся чтение и фантомы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: четко разграничьте <b>Consistency в ACID</b> (бизнес-инварианты и ограничения целостности) и <b>Consistency в CAP</b> (согласованность распределенных реплик). Это классическая ловушка для синьоров.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что означает Атомарность (Atomicity) в транзакциях?</b></p><p>Гарантию неделимости транзакции: либо все операции фиксируются успешно, либо ни одна операция не применяется к базе.</p></li>
+        <li><p><b>Какой системный компонент обеспечивает Долговечность (Durability)?</b></p><p>Журнал предзаписи WAL (Write-Ahead Log) совместно с системным вызовом `fsync`, принудительно сбрасывающим буферы диска.</p></li>
+        <li><p><b>В чем отличие понятия Consistency в ACID от Consistency в теореме CAP?</b></p><p>В ACID это соблюдение правил схемы (FK, CHECK, UNIQUE); в CAP — это гарантия того, что все узлы распределенной системы видят одинаковые актуальные данные.</p></li>
+        <li><p><b>С помощью каких двух технологий обычно реализуется Изоляция (Isolation)?</b></p><p>С помощью MVCC (многоверсионного контроля параллелизма) и механизма блокировок (2-Phase Locking).</p></li>
+        <li><p><b>Что произойдет с транзакцией при падении сервера до выполнения команды COMMIT?</b></p><p>При перезапуске СУБД процесс восстановления WAL обнаружит незавершенную транзакцию и полностью откатит все ее изменения.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-isolation-interview" data-interview="5">
+  <div class="name" id="db-isolation-interview">
+    Собеседование: Уровни изоляции транзакций
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Lead Backend / Database Specialist):</b> Классический хардкорный вопрос: <i>«Какие 4 уровня изоляции транзакций определены стандартом ANSI SQL? Какие феномены параллельного доступа они предотвращают (Dirty Read, Non-Repeatable Read, Phantom Read, Write Skew) и как устроен механизм MVCC (поля xmin и xmax) в PostgreSQL?»</i></p>
+<p>Если совсем простыми словами: <b>уровни изоляции — это баланс между скоростью и паранойей</b>. Чем выше изоляция, тем меньше шансов получить искаженные данные при параллельной работе сотен пользователей, но тем чаще транзакции будут ждать друг друга на блокировках или падать с ошибками конфликта.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Матрица уровней изоляции и феноменов параллельного доступа:</p>
+<table class="task-table">
+<thead><tr><th>Уровень изоляции</th><th>Грязное чтение (Dirty Read)</th><th>Неповторяющееся чтение (Non-Repeatable Read)</th><th>Фантомное чтение (Phantom Read)</th><th>Аномалия перекоса записи (Write Skew)</th></tr></thead>
+<tbody>
+<tr><td><b>Read Uncommitted</b></td><td>Возможно</td><td>Возможно</td><td>Возможно</td><td>Возможно</td></tr>
+<tr><td><b>Read Committed</b> (Дефолт Postgres)</td><td><b>Исключено</b></td><td>Возможно</td><td>Возможно</td><td>Возможно</td></tr>
+<tr><td><b>Repeatable Read</b></td><td><b>Исключено</b></td><td><b>Исключено</b></td><td><b>Исключено в PG!</b></td><td>Возможно</td></tr>
+<tr><td><b>Serializable</b></td><td><b>Исключено</b></td><td><b>Исключено</b></td><td><b>Исключено</b></td><td><b>Исключено</b> (SSI)</td></tr>
+</tbody>
+</table>
+<p><b>Анатомия MVCC в PostgreSQL:</b>
+- Каждая строка в таблице содержит скрытые служебные поля: `xmin` (ID транзакции, создавшей строку) и `xmax` (ID транзакции, удалившей/обновившей строку).
+- Обновление строки `UPDATE` не перезаписывает байты на месте: оно проставляет `xmax` старой строке и вставляет новую строку с новым `xmin`.
+- <b>Снимок данных (Snapshot):</b>
+  - В `Read Committed`: снимок создается заново <b>перед каждым отдельным SQL-выражением</b> внутри транзакции.
+  - В `Repeatable Read`: единый неизменяемый снимок фиксируется <b>один раз в момент старта транзакции</b>.
+</p>
+<p><b>Аномалия Write Skew (Перекос записи):</b>
+Два дежурных врача в больнице одновременно запрашивают: `SELECT count(*) FROM on_call WHERE active = true`. Оба видят, что дежурят двое. Каждый решает снять себя с дежурства (`UPDATE ... SET active = false`) и коммитит транзакцию. В результате в больнице не осталось ни одного дежурного врача! Эта аномалия лечится только уровнем <b>Serializable</b> или явной блокировкой `FOR UPDATE`.</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс: Предотвращение Write Skew через SELECT FOR UPDATE:</b>
+Вместо изменения уровня изоляции на Serializable разработчик заблокировал строки:
+`SELECT * FROM on_call WHERE active = true FOR UPDATE;`
+Вторая транзакция встала в очередь и увидела изменения первого врача после коммита, предотвратив инцидент.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Установка строгого уровня изоляции Repeatable Read
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
+-- Повторный селект гарантированно вернет те же строки, даже если параллельно кто-то закоммитил изменения!
+SELECT SUM(balance) FROM user_accounts;
+
+-- ... какие-то расчеты ...
+
+SELECT SUM(balance) FROM user_accounts; -- результат строго идентичен первому запросу
+
+COMMIT;
+
+-- 2. Обработка конфликта параллельного изменения (Serialization Failure)
+-- При Repeatable Read параллельный UPDATE тех же строк вызовет ошибку:
+-- ERROR: could not serialize access due to concurrent update
+-- Приложение обязано перехватить код ошибки 40001 и повторить транзакцию (Retry Pattern)!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Уверенность в том, что Repeatable Read защищает от аномалии Write Skew.</b> Write Skew возникает, когда транзакции модифицируют непересекающиеся множества строк; спасает только Serializable или блокировка `FOR UPDATE`.</li>
+        <li><b>Отсутствие логики повтора (Retry Loop) при работе с уровнем Serializable.</b> Уровень Serializable гарантирует целостность ценой частых ошибок `could not serialize access` (код 40001), которые приложение должно автоматически перезапускать.</li>
+        <li><b>Использование Read Uncommitted в PostgreSQL.</b> В PostgreSQL уровень Read Uncommitted физически транслируется в Read Committed, так как движок MVCC не умеет читать грязные незакоммиченные версии строк.</li>
+        <li><b>Длительное удержание транзакций в Repeatable Read.</b> Старый снимок мешает фоновому процессу VACUUM удалять мертвые строки (Dead Tuples), вызывая лавинообразное раздувание таблиц.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: подробно разберите пример с <b>Write Skew</b> и объясните, как работает <b>Snapshot Isolation</b> через поля `xmin/xmax`. Это визитная карточка глубокого специалиста по базам данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое грязное чтение (Dirty Read)?</b></p><p>Чтение данных, измененных параллельной транзакцией, которая еще не была зафиксирована (COMMIT) и впоследствии может быть откатана (ROLLBACK).</p></li>
+        <li><p><b>Чем неповторяющееся чтение отличается от фантомного чтения?</b></p><p>Неповторяющееся чтение — изменение или удаление уже прочитанных строк; фантомное чтение — появление новых строк, подходящих под предикат диапазонного запроса.</p></li>
+        <li><p><b>В чем различие между снимками данных в Read Committed и Repeatable Read в Postgres?</b></p><p>В Read Committed снимок пересоздается перед каждой инструкцией; в Repeatable Read фиксируется один снимок на всю транзакцию.</p></li>
+        <li><p><b>Что такое аномалия Write Skew (Перекос записи)?</b></p><p>Аномалия, при которой две параллельные транзакции на основе одинакового состояния данных модифицируют разные строки, приводя к нарушению общего бизнес-инварианта системы.</p></li>
+        <li><p><b>Как приложение должно обрабатывать ошибку 40001 (Serialization Failure)?</b></p><p>Приложение обязано перехватить исключение и заново повторить всю транзакцию целиком с начального шага (Retry pattern).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-normalization-interview" data-interview="4">
+  <div class="name" id="db-normalization-interview">
+    Собеседование: Нормальные формы БД и денормализация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Modeler / Analyst):</b> Теория реляционного проектирования: <i>«В чем суть первых трех нормальных форм (1NF, 2NF, 3NF) и нормальной формы Бойса-Кодда (BCNF)? Какие аномалии модификации данных решает нормализация и когда осознанная денормализация является лучшим инженерным решением?»</i></p>
+<p>Если совсем простыми словами: <b>каждый факт должен храниться строго в одном месте</b>. Нормализация исключает бардак, при котором для смены фамилии клиента вам нужно обновить 100 000 строк в разных таблицах. Денормализация — осознанный шаг назад ради скорости чтения в отчетах.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Иерархия нормальных форм (Эдгар Кодд):</p>
+<ol>
+<li><b>1-я Нормальная Форма (1NF — Атомарность):</b>
+    - Каждая ячейка содержит строго <b>атомарное (неделимое) значение</b>.
+    - Нет повторяющихся групп и массивов (например, строка `'телефон1, телефон2'` нарушает 1NF).
+    - У таблицы есть уникальный первичный ключ.
+</li>
+<li><b>2-я Нормальная Форма (2NF — Полная функциональная зависимость):</b>
+    - Таблица находится в 1NF.
+    - Каждый неключевой атрибут функционально зависит от <b>всего первичного ключа целиком</b>, а не от его части (актуально для составных ключей `(A, B)`).
+    - <i>Пример нарушения:</i> В таблице `(order_id, product_id, product_name)` название товара `product_name` зависит только от `product_id`, а не от заказа.
+</li>
+<li><b>3-я Нормальная Форма (3NF — Отсутствие транзитивных зависимостей):</b>
+    - Таблица находится в 2NF.
+    - Нет транзитивных зависимостей неключевых полей: $A \to B \to C$ (неключевой атрибут не должен зависеть от другого неключевого атрибута).
+    - <i>Классическая фраза:</i> «Every attribute must depend on the key, the whole key, and nothing but the key, so help me Codd».
+</li>
+<li><b>Когда денормализация оправдана:</b>
+    1. Аналитические хранилища (DWH / Схема «Звезда»): объединение измерений ускоряет джойны в разы.
+    2. Горячие счетчики и агрегаты: хранение `total_orders_count` прямо в профиле пользователя во избежание тяжелого `COUNT(*)` при каждом входе в приложение.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический пример приведения к 3NF:</b>
+Исходная таблица: `Orders(order_id, user_id, user_city, city_delivery_cost)`.
+Здесь `order_id $\to$ user_id $\to$ user_city $\to$ city_delivery_cost`.
+При изменении тарифа доставки по городу пришлось бы обновлять миллионы исторических заказов (Аномалия обновления!).
+<i>Приведение к 3NF:</i> Вынесение `cities(city_id, delivery_cost)` и `users(user_id, city_id)` в отдельные таблицы.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Пример нормализованной структуры (3NF): отсутствие дублирования и транзитивности
+CREATE TABLE cities (
+    city_id SERIAL PRIMARY KEY,
+    city_name VARCHAR(100) UNIQUE NOT NULL,
+    delivery_base_cost NUMERIC(10, 2) NOT NULL
+);
+
+CREATE TABLE customers (
+    customer_id SERIAL PRIMARY KEY,
+    full_name VARCHAR(255) NOT NULL,
+    city_id INT NOT NULL REFERENCES cities(city_id)
+);
+
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_id INT NOT NULL REFERENCES customers(customer_id),
+    order_date TIMESTAMPTZ DEFAULT NOW(),
+    order_amount NUMERIC(12, 2) NOT NULL
+);
+
+-- 2. Осознанная денормализация для ускорения чтения дашборда:
+-- Добавление предрассчитанных агрегатов с обновлением через триггер
+ALTER TABLE customers ADD COLUMN total_spent NUMERIC(12, 2) DEFAULT 0.00;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Преждевременная денормализация на этапе проектирования транзакционной OLTP системы.</b> Приводит к расхождениям данных, когда в одной таблице статус обновился, а в другой остался старым.</li>
+        <li><b>Чрезмерная нормализация в аналитических базах данных.</b> Требование соединить 12 таблиц ради построения простого отчета продаж делает аналитику неповоротливой.</li>
+        <li><b>Забывание о синхронизации денормализованных полей.</b> Если поле `total_spent` хранится в профиле, разработчик обязан гарантировать его актуальность через транзакции или триггеры.</li>
+        <li><b>Хранение списков через запятую в текстовом поле VARCHAR.</b> Грубейшее нарушение 1NF, блокирующее индексацию, проверку типов и быстрый поиск.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: процитируйте знаменитую фразу: <i>«Каждое неключевое поле должно зависеть от ключа, всего ключа и ни от чего, кроме ключа (so help me Codd)»</i>. Это гарантирует признание интервьюера.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что требует первая нормальная форма (1NF)?</b></p><p>Атомарности всех атрибутов (отсутствие списков/массивов в ячейках) и наличия уникального первичного ключа.</p></li>
+        <li><p><b>В чем суть второй нормальной формы (2NF)?</b></p><p>В отсутствии частичных функциональных зависимостей: каждый неключевой атрибут должен зависеть от составного ключа целиком.</p></li>
+        <li><p><b>Что устраняет третья нормальная форма (3NF)?</b></p><p>Транзитивные зависимости между неключевыми атрибутами ($A 	o B 	o C$).</p></li>
+        <li><p><b>Какие аномалии предотвращает нормализация данных?</b></p><p>Аномалии вставки (Insertion anomaly), обновления (Update anomaly) и удаления (Deletion anomaly).</p></li>
+        <li><p><b>В каких сценариях осознанная денормализация приносит пользу?</b></p><p>В аналитических хранилищах данных (DWH) и для кэширования агрегированных счетчиков в высоконагруженных интерфейсах.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db-oltp-olap-interview" data-interview="5">
+  <div class="name" id="db-oltp-olap-interview">
+    Собеседование: Архитектурные различия OLTP и OLAP
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Lead Data Architect):</b> Системный дизайн корпоративных данных: <i>«Как спроектировать надежный пайплайн передачи данных между транзакционным бэкендом (OLTP) и аналитическим хранилищем (OLAP)? Что такое технология CDC (Change Data Capture) на базе Debezium и почему прямые ночные выгрузки SELECT * из продакшен-баз считаются устаревшим анти-паттерном?»</i></p>
+<p>Если совсем простыми словами: <b>OLTP обслуживает живых клиентов прямо сейчас, а OLAP помогает руководству анализировать тренды за 5 лет</b>. Пытаться строить квартальные отчеты на боевой базе клиентов — все равно что загнать карьерный экскаватор на детскую площадку.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурный мост между OLTP и OLAP:</p>
+<ol>
+<li><b>Сравнительная матрица рабочих нагрузок:</b>
+    <table class="task-table">
+    <thead><tr><th>Характеристика</th><th>OLTP (PostgreSQL, MySQL)</th><th>OLAP (ClickHouse, Snowflake)</th></tr></thead>
+    <tbody>
+    <tr><td><b>Тип нагрузки</b></td><td>Тысячи коротких транзакций в секунду (CRUD)</td><td>Сложные аналитические агрегации по миллионам строк</td></tr>
+    <tr><td><b>Модель хранения</b></td><td>Строчная (Row-oriented), нормализованная 3NF</td><td>Колоночная (Column-oriented), денормализованная</td></tr>
+    <tr><td><b>Узкое место</b></td><td>Задержка дискового ввода-вывода (I/O Latency, IOPS)</td><td>Пропускная способность шины и CPU (Throughput)</td></tr>
+    <tr><td><b>Индексы</b></td><td>Множество плотных B-Tree индексов</td><td>Разреженные индексы, зонные карты (Min/Max)</td></tr>
+    </tbody>
+    </table>
+</li>
+<li><b>Эволюция интеграции: от батчей к Change Data Capture (CDC):</b>
+    - <i>Анти-паттерн прошлых лет:</i> Ночной SQL-скрипт `SELECT * FROM orders WHERE updated_at >= YESTERDAY`. Нагружает боевую базу, пропускает промежуточные статусы и удаленные строки (Hard Deletes).
+    - <i>Современный стандарт (CDC):</i> Утилита **Debezium** непрерывно читает журнал репликации **WAL** PostgreSQL на уровне байтов <b>с нулевой нагрузкой на движок SQL</b>.
+    - Каждое изменение мгновенно публикуется в топик **Apache Kafka** в виде структурированного события: `{before: {...}, after: {...}, op: 'u'}`.
+    - Из Kafka данные стримятся в ClickHouse через движок Kafka Engine или Flink, обеспечивая задержку данных в DWH менее <b>1 секунды (Near Real-Time)</b>!
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Ликвидация ночных сбоев биллинга:</b>
+Каждую полночь аналитический ETL запускал выгрузку транзакций.
+Боевая база уходила в перегрузку, транзакции пользователей завершались по таймауту.
+Внедрение связки <b>PostgreSQL WAL $\to$ Debezium $\to$ Kafka $\to$ ClickHouse</b> снизило нагрузку на боевую базу до нуля и обеспечило появление свежих транзакций на дашбордах через $500$ миллисекунд после их совершения.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Настройка логической репликации в PostgreSQL для CDC Debezium
+-- 1. Создание публикации для изменений таблицы заказов
+CREATE PUBLICATION orders_cdc_publication FOR TABLE orders;
+
+-- В ClickHouse: Создание витрины с движком ReplacingMergeTree для приема CDC потока
+CREATE TABLE analytics.orders_stream (
+    order_id UInt64,
+    customer_id UInt64,
+    order_amount Decimal(10, 2),
+    status LowCardinality(String),
+    cdc_op LowCardinality(String), -- 'c' (create), 'u' (update), 'd' (delete)
+    cdc_timestamp DateTime64(3),
+    version UInt64
+)
+ENGINE = ReplacingMergeTree(version)
+ORDER BY order_id;
+
+-- Аналитический запрос к свежим данным: мгновенная агрегация с дедупликацией
+SELECT
+    status,
+    count() AS total_orders,
+    sum(order_amount) AS total_revenue
+FROM analytics.orders_stream FINAL
+WHERE cdc_op != 'd' -- исключение удаленных записей
+GROUP BY status;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск аналитических отчетов на реплике OLTP без ограничения ресурсов.</b> Тяжелый запрос может вызвать рассинхронизацию репликации (Replication Lag), делая реплику непригодной для аварийного переключения (Failover).</li>
+        <li><b>Опрос базы данных частыми запросами polling (SELECT WHERE updated_at > last_sync).</b> Создает постоянную нагрузку на индексы и не может отследить физически удаленные строки (`DELETE`).</li>
+        <li><b>Отсутствие контроля версий при записи CDC-потока в OLAP.</b> События в распределенных очередях могут приходить не по порядку (Out-of-order delivery); в OLAP требуется сохранять поле версии (`version`).</li>
+        <li><b>Использование единой базы данных и для транзакций, и для Big Data аналитики.</b> Архитектурный тупик, неизбежно приводящий к деградации бизнеса при росте аудитории.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: назовите связку <b>CDC (Debezium) + Kafka + ClickHouse</b> как современный отраслевой стандарт репликации между OLTP и OLAP. Это ключевой маркер уровня Staff / Lead Architect.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Change Data Capture (CDC)?</b></p><p>Технология отслеживания и захвата изменений данных на уровне журнала транзакций (WAL/binlog) СУБД для их потоковой репликации в другие системы без нагрузки на SQL-движок.</p></li>
+        <li><p><b>В чем преимущество CDC перед периодическими SQL-выгрузками?</b></p><p>CDC не нагружает боевую базу, гарантирует фиксацию всех промежуточных состояний и физических удалений, обеспечивая околонулевую задержку репликации.</p></li>
+        <li><p><b>Почему OLTP базы используют нормализованную модель (3NF), а OLAP — денормализованную?</b></p><p>OLTP минимизирует избыточность для быстрых и безопасных транзакций записи; OLAP минимизирует количество JOIN для скоростной аналитики больших объемов.</p></li>
+        <li><p><b>Как ClickHouse справляется с обновлениями, приходящими из CDC потока?</b></p><p>Через движок `ReplacingMergeTree(version)`, схлопывающий устаревшие версии строк во время фонового слияния или по модификатору FINAL.</p></li>
+        <li><p><b>Что произойдет, если запустить тяжелый OLAP-запрос на реплике PostgreSQL?</b></p><p>Запрос может заблокировать применение WAL-логов репликации, вызвав критическое отставание реплики от мастера (Replication Lag).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

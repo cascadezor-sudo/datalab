@@ -1,0 +1,610 @@
+/* Interview Algo Tasks — карточки, фильтры, пагинация и модалка редактора. */
+
+.interview-algo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 22px;
+  margin-bottom: 40px;
+}
+
+@media (max-width: 768px) {
+  .interview-algo-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.interview-algo-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.interview-algo-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.interview-algo-card-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.interview-algo-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.interview-algo-card-title {
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.interview-algo-edit-btn {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.interview-algo-edit-btn:hover {
+  color: var(--brand);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+.interview-algo-card-loading {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.interview-algo-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.interview-algo-card-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--primary-color);
+}
+
+.interview-algo-card-badge-company {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.18);
+  color: var(--success-color);
+}
+
+.interview-algo-card-badge-approach {
+  background: color-mix(in srgb, var(--brand-secondary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--brand-secondary) 18%, transparent);
+  color: var(--brand);
+}
+
+.interview-algo-card-condition,
+.interview-algo-card-solution-wrap {
+  padding: 12px 16px;
+}
+
+.interview-algo-card-condition {
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.interview-algo-card-condition-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 8px 0;
+}
+
+[data-theme="light"] body.interviews .interview-algo-card-condition-title {
+  color: rgba(20, 20, 30, 0.55);
+}
+
+.interview-algo-card-condition p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0 0 6px 0;
+}
+
+.interview-algo-card-condition p:last-child {
+  margin-bottom: 0;
+}
+
+.interview-algo-card-solution-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 8px 0;
+}
+
+[data-theme="light"] body.interviews .interview-algo-card-solution-title {
+  color: rgba(20, 20, 30, 0.55);
+}
+
+.interview-algo-card-code-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 16px 16px;
+}
+
+.interview-algo-card-code-wrap .code-block {
+  margin: 0;
+}
+
+[data-theme="light"] body.interviews .interview-algo-card {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] body.interviews .interview-algo-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Фильтры */
+
+/* display:flex/grid would otherwise override the hidden attribute. */
+.interview-algo-filters[hidden],
+.interview-algo-pagination[hidden],
+.interview-algo-modal-error[hidden],
+.page-header-button[hidden],
+.interview-algo-danger-btn[hidden] {
+  display: none;
+}
+
+.interview-algo-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  margin-bottom: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+
+.interview-algo-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  gap: 18px;
+  align-items: end;
+}
+
+@media (max-width: 768px) {
+  .interview-algo-filter-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.interview-algo-filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.interview-algo-filter-heading h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.interview-algo-filter-heading p {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 4px 0 0 0;
+}
+
+.interview-algo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.interview-algo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.interview-algo-chip:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+.interview-algo-chip.is-selected {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+}
+
+.interview-algo-chip-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.interview-algo-chip--easy.is-selected {
+  color: var(--success-color);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.interview-algo-chip--medium.is-selected {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.interview-algo-chip--hard.is-selected {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+[data-theme="dark"] body .interview-algo-chip--medium.is-selected {
+  color: #fbbf24;
+}
+
+[data-theme="dark"] body .interview-algo-chip--hard.is-selected {
+  color: #f87171;
+}
+
+.interview-algo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.interview-algo-field select,
+.interview-algo-field input,
+.interview-algo-field textarea {
+  font: inherit;
+  font-weight: 400;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+.interview-algo-field input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+.interview-algo-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.interview-algo-field textarea#algoTaskSolution {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.interview-algo-field select:focus,
+.interview-algo-field input:focus,
+.interview-algo-field textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* Сводка, пагинация и состояния */
+
+.interview-algo-summary {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 14px 0;
+}
+
+.interview-algo-pagination {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+
+.interview-algo-pagination-summary {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.interview-algo-show-more {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid transparent;
+  transition:
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.interview-algo-show-more:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.interview-algo-state {
+  grid-column: 1 / -1;
+  padding: 32px 20px;
+  text-align: center;
+  border-radius: 16px;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+}
+
+.interview-algo-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 6px 0;
+}
+
+.interview-algo-state p:last-child {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Модалка ментора */
+
+.interview-algo-modal {
+  width: min(880px, calc(100vw - 28px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border-radius: 16px;
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+.interview-algo-modal::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.interview-algo-modal form {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+}
+
+.interview-algo-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.interview-algo-modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.interview-algo-modal-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 4px 0;
+}
+
+.interview-algo-icon-btn {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+}
+
+.interview-algo-icon-btn:hover {
+  color: var(--text-primary);
+}
+
+.interview-algo-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 20px;
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  .interview-algo-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.interview-algo-field--wide {
+  grid-column: 1 / -1;
+}
+
+.interview-algo-approaches {
+  padding: 12px;
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.interview-algo-approaches legend {
+  padding: 0 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.interview-algo-approach-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 8px;
+}
+
+.interview-algo-approach-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 400;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.interview-algo-modal-error {
+  margin: 0 20px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  border-radius: 10px;
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+[data-theme="dark"] body .interview-algo-modal-error {
+  color: #fca5a5;
+}
+
+.interview-algo-modal-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border-color);
+}
+
+.interview-algo-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.interview-algo-primary-btn,
+.interview-algo-secondary-btn,
+.interview-algo-danger-btn {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    filter 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.interview-algo-primary-btn {
+  color: #fff;
+  background: var(--brand);
+}
+
+.interview-algo-primary-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.interview-algo-secondary-btn {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border-color);
+}
+
+.interview-algo-secondary-btn:hover {
+  color: var(--text-primary);
+}
+
+.interview-algo-danger-btn {
+  color: #b91c1c;
+  background: transparent;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.interview-algo-danger-btn:hover:not(:disabled) {
+  color: #fff;
+  background: #dc2626;
+}
+
+.interview-algo-primary-btn:disabled,
+.interview-algo-danger-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

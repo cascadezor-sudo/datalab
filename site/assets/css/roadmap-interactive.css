@@ -1,0 +1,1154 @@
+/* Interactive Roadmap — flow from categories-config.json, platform style */
+
+/* Page header (when used with .roadmap-header from pages-modern or standalone) */
+.roadmap-header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding: 32px 24px;
+  background: var(--gradient-brand);
+  color: #fff;
+  border-radius: var(--radius-xl, 20px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
+}
+
+.roadmap-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  color: #fff;
+}
+
+.roadmap-header .subtitle {
+  font-size: 1rem;
+  margin: 0;
+  opacity: 0.95;
+}
+
+[data-theme="dark"] body .roadmap-header {
+  background: var(--gradient-index-hero);
+}
+
+.roadmap-interactive {
+  --roadmap-connector: var(--border);
+  --roadmap-phase-bg: var(--card);
+  --roadmap-node-radius: 12px;
+  --roadmap-chevron-gap: 8px;
+}
+
+.roadmap-interactive-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 4px;
+}
+
+.roadmap-interactive-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-muted, #64748b);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.roadmap-interactive-back:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+  background: color-mix(in srgb, var(--brand) 10%, var(--card));
+  transform: translateX(-1px);
+}
+
+[data-theme="dark"] body .roadmap-interactive-back {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] body .roadmap-interactive-back:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Страница роадмапа: шире контейнер, чтобы не появлялись лишние скроллбары */
+.container:has(.roadmap-interactive) {
+  max-width: 1400px;
+}
+
+.roadmap-interactive {
+  position: relative;
+  padding: 24px 0 48px;
+  overflow-x: hidden;
+  overflow-y: visible;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-height: 85vh;
+}
+
+/* Flow container: horizontal on desktop, vertical on small screens */
+.roadmap-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+/* One row of the flow: can contain multiple phases and a connector */
+.roadmap-flow__row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  position: relative;
+  margin-bottom: 32px;
+}
+
+.roadmap-flow__row:last-child {
+  margin-bottom: 0;
+}
+
+.roadmap-flow__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  width: 100%;
+}
+
+.roadmap-flow__stack-item {
+  width: 100%;
+}
+
+/* Connector line between rows (vertical) */
+.roadmap-flow__connector {
+  width: 2px;
+  min-height: 28px;
+  background: var(--roadmap-connector);
+  margin: 0 auto 8px;
+  border-radius: 1px;
+}
+
+/* Phase block (e.g. "Введение", "ML I") */
+.roadmap-phase {
+  background: var(--roadmap-phase-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--roadmap-node-radius);
+  padding: 20px 24px;
+  min-width: 200px;
+  max-width: 420px;
+  box-shadow: var(--shadow);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.roadmap-phase:hover {
+  border-color: color-mix(in srgb, var(--brand) 25%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] body .roadmap-phase:hover {
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.roadmap-phase__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.roadmap-phase__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--roadmap-chevron-gap);
+  justify-content: center;
+}
+
+.roadmap-phase__categories .roadmap-node-wrap {
+  flex: 0 1 auto;
+  align-self: flex-start;
+}
+
+/* Single category node (chevron-style block, clickable) */
+.roadmap-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.15s ease;
+  border: 1px solid transparent;
+  position: relative;
+  background: var(--card);
+}
+
+.roadmap-node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  filter: brightness(1.02);
+}
+
+[data-theme="dark"] body .roadmap-node:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.roadmap-node:active {
+  transform: translateY(0);
+}
+
+.roadmap-node__icon {
+  display: none; /* эмодзи в карточках отключены */
+}
+
+.roadmap-node__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Color bar on the left of the node (uses --node-color set inline) */
+.roadmap-node::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 60%;
+  border-radius: 0 2px 2px 0;
+  background: var(--node-color, var(--primary));
+}
+
+.roadmap-node.has-link {
+  cursor: pointer;
+}
+
+.roadmap-node.has-link:hover {
+  border-color: var(--node-color, var(--primary));
+}
+
+/* Milestone node ("Готовый специалист") */
+.roadmap-milestone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 32px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 12%, transparent) 0%,
+    color-mix(in srgb, var(--brand-secondary) 8%, transparent) 100%
+  );
+  border: 2px dashed var(--primary);
+  border-radius: var(--roadmap-node-radius);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin: 16px 0;
+}
+
+[data-theme="dark"] body .roadmap-milestone {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 15%, transparent) 0%,
+    color-mix(in srgb, var(--brand-secondary) 8%, transparent) 100%
+  );
+}
+
+.roadmap-milestone__icon {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+/* Sub-links under a node (e.g. "Роадмап" / "Вопросы") */
+.roadmap-node-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.roadmap-node-links a {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+[data-theme="dark"] body .roadmap-node-links a {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.roadmap-node-links a:hover {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+/* Phase note (small text under phase) */
+.roadmap-phase-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.roadmap-phase-note a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.roadmap-phase-note a:hover {
+  text-decoration: underline;
+}
+
+/* Start node (Знакомство) */
+.roadmap-start {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.roadmap-start__dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin: 0 auto 10px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
+.roadmap-start__label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Wrapper for multiple phases in one row with connectors */
+.roadmap-phase-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.roadmap-phase-wrap + .roadmap-phase-wrap::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--roadmap-connector);
+  opacity: 0.5;
+}
+
+/* Responsive: stack phases vertically on narrow screens */
+@media (max-width: 900px) {
+  .roadmap-flow__row {
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .roadmap-phase {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .roadmap-phase__categories {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 600px) {
+  .roadmap-interactive {
+    padding: 16px 0 32px;
+  }
+
+  .roadmap-phase {
+    padding: 16px 20px;
+  }
+
+  .roadmap-node {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .roadmap-milestone {
+    padding: 18px 24px;
+    font-size: 1rem;
+  }
+}
+
+/* Loading / empty state */
+.roadmap-loading,
+.roadmap-error {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+}
+
+.roadmap-error {
+  color: var(--danger-color, #ef4444);
+}
+
+/* =========================
+   Modern Roadmap Skin (2026)
+   drop-in overrides
+   ========================= */
+
+/* 1) Токены под roadmap (не ломая твою дизайн-систему) */
+.roadmap-interactive {
+  --rm-radius-xl: 18px;
+  --rm-radius-lg: 14px;
+  --rm-radius-md: 12px;
+
+  --rm-border: rgba(255, 255, 255, 0.1);
+  --rm-border-strong: rgba(255, 255, 255, 0.14);
+
+  --rm-surface: rgba(255, 255, 255, 0.04);
+  --rm-surface-2: rgba(255, 255, 255, 0.06);
+
+  --rm-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  --rm-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.2);
+
+  --rm-glow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+
+  --rm-connector: rgba(255, 255, 255, 0.14);
+  --rm-connector-dim: rgba(255, 255, 255, 0.09);
+}
+
+/* 2) Фон полотна роадмапа — чуть богаче (но без перегруза) */
+.roadmap-interactive {
+  position: relative;
+  padding: 28px 0 56px;
+}
+
+.roadmap-interactive::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      900px 420px at 50% 0%,
+      color-mix(in srgb, var(--brand) 12%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      700px 360px at 20% 40%,
+      color-mix(in srgb, var(--brand-secondary) 10%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      700px 360px at 80% 55%,
+      rgba(59, 130, 246, 0.1),
+      transparent 55%
+    );
+  opacity: 0.85;
+}
+
+/* 3) Коннекторы — тоньше, «пунктирно» и современнее */
+.roadmap-flow__connector {
+  width: 2px;
+  min-height: 34px;
+  margin: 0 auto 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--rm-connector) 22%,
+    var(--rm-connector) 78%,
+    transparent
+  );
+  opacity: 0.9;
+}
+
+.roadmap-flow__row {
+  gap: 26px;
+  margin-bottom: 34px;
+}
+
+/* 4) Карточка фазы — glass + аккуратный бордер + мягкий hover */
+.roadmap-phase {
+  background: linear-gradient(
+    180deg,
+    var(--rm-surface),
+    rgba(255, 255, 255, 0.02)
+  );
+  border: 1px solid var(--rm-border);
+  border-radius: var(--rm-radius-xl);
+  box-shadow: var(--rm-shadow-soft), var(--rm-glow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  padding: 18px 18px 16px;
+  min-width: 240px;
+  max-width: 460px;
+
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.roadmap-phase:hover {
+  transform: translateY(-3px);
+  border-color: var(--rm-border-strong);
+  box-shadow: var(--rm-shadow), var(--rm-glow);
+}
+
+/* 5) Заголовок фазы — компактнее, с тонкой линией */
+.roadmap-phase__title {
+  font-size: 0.98rem;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+  opacity: 0.95;
+}
+
+/* 6) Ноды — выглядят как современные pill-кнопки */
+.roadmap-phase__categories {
+  gap: 10px;
+}
+
+.roadmap-node {
+  background: linear-gradient(
+    180deg,
+    var(--rm-surface-2),
+    rgba(255, 255, 255, 0.03)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-weight: 560;
+
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease;
+}
+
+/* цветной акцент — не палка, а «капсула» */
+.roadmap-node::before {
+  width: 10px;
+  height: 10px;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--node-color, var(--primary));
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+}
+
+/* смещаем контент, чтобы точка не прижималась */
+.roadmap-node {
+  padding-left: 30px;
+}
+
+.roadmap-node:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  filter: brightness(1.03);
+}
+
+.roadmap-node.has-link:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--node-color, var(--primary)) 55%,
+    rgba(255, 255, 255, 0.22)
+  );
+}
+
+/* иконка — чуть «бейджевее» */
+.roadmap-node__icon {
+  font-size: 1.05rem;
+  opacity: 0.95;
+}
+
+/* 7) Подссылки "Роадмап / Вопросы" — как segmented control */
+.roadmap-node-links {
+  gap: 0;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 3px;
+  display: inline-flex;
+}
+
+.roadmap-node-links a {
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.roadmap-node-links a:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* 8) Milestone — более «премиальный» баннер */
+.roadmap-milestone {
+  border-radius: var(--rm-radius-xl);
+  border: 1px dashed color-mix(in srgb, var(--brand-secondary) 55%, transparent);
+  background:
+    radial-gradient(
+      800px 140px at 50% 0%,
+      color-mix(in srgb, var(--brand) 20%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--brand) 14%, transparent),
+      color-mix(in srgb, var(--brand-secondary) 10%, transparent)
+    );
+  box-shadow: var(--rm-shadow-soft), var(--rm-glow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  padding: 18px 22px;
+  font-size: 1.05rem;
+}
+
+/* 9) Start dot — аккуратнее */
+.roadmap-start__dot {
+  width: 14px;
+  height: 14px;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--brand) 14%, transparent),
+    0 12px 30px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+/* 10) Мобильная полировка */
+@media (max-width: 600px) {
+  .roadmap-flow__row {
+    margin-bottom: 26px;
+  }
+  .roadmap-phase {
+    padding: 16px 14px 14px;
+    border-radius: 16px;
+  }
+  .roadmap-node {
+    padding: 9px 12px 9px 28px;
+  }
+  .roadmap-node::before {
+    left: 9px;
+  }
+}
+
+/* =========================
+   Information model: секции, иерархия, прогресс, motion
+   ========================= */
+
+/* 1) Убираем центральную линию — секционный формат вместо timeline */
+.roadmap-flow__connector {
+  display: none;
+}
+
+.roadmap-flow__row {
+  margin-bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.roadmap-flow__row:last-child {
+  margin-bottom: 0;
+}
+
+.roadmap-start {
+  margin-bottom: 48px;
+}
+
+.roadmap-milestone {
+  margin-bottom: 56px;
+}
+
+/* 2) Иерархия: секция = крупный заголовок, тонкая линия, больше воздуха */
+.roadmap-phase__title {
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0 0 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+  color: var(--text, inherit);
+}
+
+.roadmap-phase {
+  padding: 24px 22px 22px;
+  margin-bottom: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 3) Меньше glow (~30%): карточки и ноды спокойнее */
+.roadmap-phase {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.roadmap-phase:hover {
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.roadmap-node::before {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+
+.roadmap-start__dot {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent),
+    0 8px 20px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.roadmap-milestone {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+/* 4) Scroll reveal — появление секций при скролле */
+.roadmap-phase,
+.roadmap-milestone,
+.roadmap-start {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+}
+
+.roadmap-phase.is-visible,
+.roadmap-milestone.is-visible,
+.roadmap-start.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 5) Прогресс: не начато / в процессе / завершено */
+.roadmap-node.is-done::before {
+  background: #22c55e;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.06),
+    0 0 12px rgba(34, 197, 94, 0.5);
+}
+
+.roadmap-node.is-active {
+  border-color: var(--node-color, var(--primary));
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.18),
+    0 0 0 1px var(--node-color, var(--primary));
+}
+
+.roadmap-node.is-active::before {
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--node-color, var(--primary)) 25%, transparent);
+}
+
+/* 6) Hover glow от node-color — тематический, не общий */
+.roadmap-node:hover {
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    0 0 20px
+      color-mix(in srgb, var(--node-color, var(--primary)) 32%, transparent);
+}
+
+.roadmap-node.has-link:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--node-color, var(--primary)) 50%,
+    rgba(255, 255, 255, 0.2)
+  );
+}
+
+/* 7) Ноды компактнее — более «чиповые», текст не вылезает */
+.roadmap-node {
+  padding: 8px 12px 8px 28px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.roadmap-node__icon {
+  font-size: 0.95rem;
+}
+
+@media (max-width: 600px) {
+  .roadmap-flow__row {
+    margin-bottom: 40px;
+  }
+}
+
+/* =========================
+   ROI upgrades: секции, лёгкие ноды, reveal, прогресс, horizontal
+   ========================= */
+
+/* 1) Центральная линия убрана, больше воздуха между фазами */
+.roadmap-flow__connector {
+  display: none;
+}
+
+.roadmap-flow__row {
+  margin-bottom: 80px;
+}
+
+.roadmap-flow__row:last-child {
+  margin-bottom: 0;
+}
+
+.roadmap-milestone {
+  margin-bottom: 80px;
+}
+
+/* 2) Секционные подписи над блоками */
+.roadmap-section-title {
+  text-align: center;
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 40px;
+}
+
+/* 3) Ноды легче — без blur/градиента/тяжёлой тени */
+.roadmap-node {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.roadmap-node:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* 4) Reveal при скролле — .visible */
+.roadmap-phase,
+.roadmap-milestone,
+.roadmap-start {
+  opacity: 0;
+  transform: translateY(40px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s ease;
+}
+
+.roadmap-phase.visible,
+.roadmap-milestone.visible,
+.roadmap-start.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 5) Glow только на hover фазы; обычные фазы спокойные */
+.roadmap-phase {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.roadmap-phase:hover {
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  box-shadow: 0 0 30px color-mix(in srgb, var(--brand) 15%, transparent);
+}
+
+/* 6) ML II (и все фазы) — двухколоночная сетка на десктопе */
+@media (min-width: 900px) {
+  .roadmap-phase__categories {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .roadmap-phase__categories .roadmap-node,
+  .roadmap-phase__categories .roadmap-node-wrap {
+    min-width: 0;
+  }
+}
+
+/* 7) Progress bar сверху фазы */
+.roadmap-phase {
+  position: relative;
+}
+
+.roadmap-phase::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: var(--progress, 0%);
+  background: var(--gradient-pop);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* 8) Milestone — финальный «вау» блок */
+.roadmap-milestone {
+  border: none;
+  background: var(--gradient-pop);
+  color: white;
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.roadmap-milestone .roadmap-milestone__icon {
+  filter: brightness(0) invert(1);
+}
+
+/* 9) Горизонтальный режим на десктопе (Figma / Linear style) */
+@media (min-width: 1100px) {
+  .roadmap-interactive {
+    overflow: visible;
+    padding-left: 24px;
+    padding-right: 24px;
+    min-height: 90vh;
+  }
+
+  .roadmap-flow {
+    flex-direction: row;
+    align-items: stretch;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    gap: 48px;
+    padding-bottom: 24px;
+    margin: 0;
+    padding-left: 0;
+    padding-right: 24px;
+    scroll-padding-right: 24px;
+    position: relative;
+  }
+
+  /* Горизонтальная линия между блоками: отрезок в каждом промежутке */
+  .roadmap-flow > * {
+    position: relative;
+  }
+
+  .roadmap-flow > *::after {
+    content: "";
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    margin-top: -1px;
+    width: 60px;
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.1)
+    );
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .roadmap-flow > *:last-child::after {
+    display: none;
+  }
+
+  .roadmap-flow::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .roadmap-flow::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+  }
+
+  .roadmap-flow::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+  }
+
+  .roadmap-flow > * {
+    min-width: 420px;
+    max-width: 420px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    z-index: 1;
+  }
+
+  .roadmap-flow__row {
+    margin-bottom: 0;
+    min-width: 420px;
+    max-width: 420px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .roadmap-milestone {
+    margin-bottom: 0;
+    min-width: 420px;
+    max-width: 420px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  .roadmap-start {
+    margin-bottom: 0;
+    min-width: 420px;
+    max-width: 420px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+  }
+
+  .roadmap-flow__row--stacked,
+  .roadmap-flow__row--stacked .roadmap-flow__stack {
+    min-width: 420px;
+    max-width: 420px;
+  }
+}
+
+/* =========================
+   Светлая тема: текст и бейджи читаемы
+   ========================= */
+[data-theme="light"] body .roadmap-interactive {
+  --rm-border: rgba(0, 0, 0, 0.08);
+  --rm-border-strong: rgba(0, 0, 0, 0.12);
+  --rm-surface: rgba(0, 0, 0, 0.02);
+  --rm-surface-2: rgba(0, 0, 0, 0.04);
+  --rm-glow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+  --rm-connector: rgba(0, 0, 0, 0.1);
+  --rm-connector-dim: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] body .roadmap-section-title {
+  color: var(--muted);
+}
+
+[data-theme="light"] body .roadmap-phase {
+  background: linear-gradient(180deg, var(--card), rgba(0, 0, 0, 0.02));
+  border-color: var(--border);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+}
+
+[data-theme="light"] body .roadmap-phase:hover {
+  border-color: var(--border);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+}
+
+[data-theme="light"] body .roadmap-phase__title {
+  color: var(--text);
+  border-bottom-color: var(--border);
+}
+
+[data-theme="light"] body .roadmap-node {
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04) inset;
+}
+
+[data-theme="light"] body .roadmap-node:hover {
+  border-color: var(--node-color, var(--primary));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] body .roadmap-node.has-link:hover {
+  border-color: var(--node-color, var(--primary));
+}
+
+[data-theme="light"] body .roadmap-node-links {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border);
+}
+
+[data-theme="light"] body .roadmap-node-links a {
+  color: var(--muted);
+}
+
+[data-theme="light"] body .roadmap-node-links a:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--primary);
+}
+
+[data-theme="light"] body .roadmap-milestone {
+  color: #fff;
+}
+
+[data-theme="light"] body .roadmap-start__label {
+  color: var(--muted);
+}
+
+@media (min-width: 1100px) {
+  [data-theme="light"] body .roadmap-flow > *::after {
+    background: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.12),
+      rgba(0, 0, 0, 0.06)
+    );
+  }
+  [data-theme="light"] body .roadmap-flow::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.06);
+  }
+  [data-theme="light"] body .roadmap-flow::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+  }
+}

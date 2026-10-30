@@ -1,0 +1,114 @@
+{
+  "id": "mlops:kafka:block-3",
+  "title": "Kafka · Блок 3: Connect, Streams, мониторинг и альтернативы",
+  "description": "Итоговая проверка по Kafka: source и sink connector-ы, Debezium, Kafka Streams и ksqlDB, KStream и KTable, consumer lag и метрики брокера, Kinesis, RabbitMQ, Pulsar и Redis Streams.",
+  "timeLimitSec": 720,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b3_connect",
+      "type": "single",
+      "q": "Нужно выгружать события из Kafka в S3 в Parquet без написания своего consumer-а. Что подходит?",
+      "options": [
+        "Source connector Debezium",
+        "ksqlDB",
+        "Sink connector Kafka Connect (S3 Sink)",
+        "Schema Registry"
+      ],
+      "answer": [2],
+      "explain": "Sink connector читает из Kafka и пишет во внешнюю систему; source — наоборот, из внешней системы в Kafka."
+    },
+    {
+      "id": "b3_debezium",
+      "type": "single",
+      "q": "Почему CDC через Debezium не нагружает продуктовую БД тяжёлыми запросами?",
+      "options": [
+        "Он читает binary log (WAL/binlog), а не делает `SELECT` по таблицам",
+        "Он копирует базу целиком раз в сутки ночью",
+        "Он работает только с репликами, у которых нет нагрузки",
+        "Он требует изменить код приложения, чтобы оно само писало в Kafka"
+      ],
+      "answer": [0],
+      "explain": "Debezium публикует каждое INSERT/UPDATE/DELETE из журнала БД как событие с полями `before`, `after`, `op`."
+    },
+    {
+      "id": "b3_ktable",
+      "type": "single",
+      "q": "Чем KTable отличается от KStream?",
+      "options": [
+        "KTable хранит все события без удаления, KStream — только последние",
+        "KTable работает только в Flink",
+        "KStream — это SQL-интерфейс, KTable — Java-библиотека",
+        "KTable — последнее значение для каждого ключа (materialized view), KStream — append-only последовательность всех событий"
+      ],
+      "answer": [3],
+      "explain": "KTable — «текущее состояние» по ключу поверх changelog, KStream — неограниченный поток событий."
+    },
+    {
+      "id": "b3_streams_vs_flink",
+      "type": "single",
+      "q": "В чём главное отличие Kafka Streams от Apache Flink по материалу?",
+      "options": [
+        "Kafka Streams поддерживает Python, а Flink — только Java",
+        "Kafka Streams — библиотека без отдельного кластера для базовой обработки; Flink — отдельный кластер для сложной stateful-обработки и event time",
+        "Flink не умеет читать из Kafka",
+        "Kafka Streams предназначен только для batch-обработки"
+      ],
+      "answer": [1],
+      "explain": "Для простых агрегаций и фильтрации хватает Kafka Streams; сложные окна и session-based признаки — во Flink."
+    },
+    {
+      "id": "b3_lag",
+      "type": "single",
+      "q": "Как считается consumer lag?",
+      "options": [
+        "committed offset минус число партиций",
+        "Время между отправкой и получением сообщения в миллисекундах",
+        "log end offset минус committed offset группы",
+        "Число consumer-ов, которым не досталось партиции"
+      ],
+      "answer": [2],
+      "explain": "$\\text{lag} = \\text{log\\_end\\_offset} - \\text{committed\\_offset}$: насколько группа отстаёт от потока. Высокий lag — устаревшие признаки."
+    },
+    {
+      "id": "b3_slow_consumer",
+      "type": "single",
+      "q": "Lag растёт у одной consumer group, а `messages_in_per_sec` и latency брокера в норме, у других групп lag не растёт. Где скорее всего проблема?",
+      "options": [
+        "В медленном consumer-е этой группы",
+        "В перегруженном брокере",
+        "В сети между брокерами",
+        "В нехватке партиций у всех топиков"
+      ],
+      "answer": [0],
+      "explain": "Перегруженный брокер проявился бы ростом `request_latency_ms`, `under_replicated_partitions` и lag у всех групп."
+    },
+    {
+      "id": "b3_broker_metrics",
+      "type": "multi",
+      "q": "Какие утверждения о метриках Kafka верны? (несколько ответов)",
+      "options": [
+        "`active_controller_count` должен быть равен числу брокеров",
+        "`under_replicated_partitions > 0` — сигнал проблемы с брокером или сетью и риск потери данных",
+        "Алерт на lag ставят только на абсолютное значение",
+        "Полезен алерт на lag growth rate: lag не уменьшается несколько минут — consumer не справляется"
+      ],
+      "answer": [1, 3],
+      "explain": "Controller в кластере ровно один; алерт на lag бывает и по абсолютному порогу, и по скорости роста."
+    },
+    {
+      "id": "b3_alternatives",
+      "type": "single",
+      "q": "Команде нужны простые очереди задач для inference-воркеров, без долгого хранения истории и нескольких независимых групп чтения. Что из альтернатив подходит по материалу?",
+      "options": [
+        "Apache Pulsar",
+        "AWS Kinesis",
+        "Azure Event Hubs",
+        "RabbitMQ"
+      ],
+      "answer": [3],
+      "explain": "RabbitMQ — очередь задач: сообщение обрабатывает один consumer и оно удаляется. Pulsar берут ради multi-tenancy и geo-replication, Kinesis и Event Hubs — managed-журналы событий."
+    }
+  ]
+}

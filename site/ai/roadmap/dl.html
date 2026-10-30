@@ -1,0 +1,462 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Deep Learning</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet">
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        renderMathInElement(document.body, {
+          // customised options
+          // • auto-render specific keys, e.g.:
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          // • rendering keys, e.g.:
+          throwOnError: false
+        });
+      });
+    </script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Deep Learning</h1>
+            <p class="subtitle">Основы глубокого обучения и нейронных сетей</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../../roadmap/index.html" class="page-header-button">Назад к карте разделов</a>
+          </div>
+        </div>
+      </header>
+
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:1:start -->
+          <li class="roadmap-from-md" data-md-id="mcculloch_pitts"><a href="../../ai/ml/dl.html#mcculloch_pitts" target="_blank" rel="noopener">Модель нейрона МакКаллока-Питтса</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="mlp"><a href="../../ai/ml/dl.html#mlp" target="_blank" rel="noopener">Строение многослойного перцептрона</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="activation_functions"><a href="../../ai/ml/dl.html#activation_functions" target="_blank" rel="noopener">Функции активации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="forward_backward"><a href="../../ai/ml/dl.html#forward_backward" target="_blank" rel="noopener">Прямой и обратный проход</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="backpropagation"><a href="../../ai/ml/dl.html#backpropagation" target="_blank" rel="noopener">Как обучить нейронную сеть?</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../practise/python/base.html#gradient_descent_1d" target="_blank" rel="noopener">Градиентный спуск для функции одной переменной</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="optimizers"><a href="../../ai/ml/dl.html#optimizers" target="_blank" rel="noopener">Оптимизаторы в глубоком обучении</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ema"><a href="../../ai/ml/dl.html#ema" target="_blank" rel="noopener">Экспоненциальное скользящее среднее</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sgd"><a href="../../ai/ml/dl.html#sgd" target="_blank" rel="noopener">Stochastic Gradient Descent (SGD)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="momentum"><a href="../../ai/ml/dl.html#momentum" target="_blank" rel="noopener">Momentum</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="nesterov_momentum"><a href="../../ai/ml/dl.html#nesterov_momentum" target="_blank" rel="noopener">Nesterov Accelerated Momentum (NAG)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="adagrad"><a href="../../ai/ml/dl.html#adagrad" target="_blank" rel="noopener">AdaGrad</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="rmsprop"><a href="../../ai/ml/dl.html#rmsprop" target="_blank" rel="noopener">RMSProp</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="adam"><a href="../../ai/ml/dl.html#adam" target="_blank" rel="noopener">Adam</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="adamw"><a href="../../ai/ml/dl.html#adamw" target="_blank" rel="noopener">AdamW</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="nadam"><a href="../../ai/ml/dl.html#nadam" target="_blank" rel="noopener">Nadam</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="optimizers_comparison"><a href="../../ai/ml/dl.html#optimizers_comparison" target="_blank" rel="noopener">Сравнение оптимизаторов</a>
+          </li>
+          <!-- roadmap-md:block:1:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:2:start -->
+          <li class="roadmap-from-md" data-md-id="overfitting_underfitting"><a href="../../ai/ml/dl.html#overfitting_underfitting" target="_blank" rel="noopener">Переобучение и недообучение</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="underfitting_prevention"><a href="../../ai/ml/dl.html#underfitting_prevention" target="_blank" rel="noopener">Методы борьбы с недообучением</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="overfitting_prevention"><a href="../../ai/ml/dl.html#overfitting_prevention" target="_blank" rel="noopener">Методы борьбы с переобучением</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="label_smoothing"><a href="../../ai/ml/dl.html#label_smoothing" target="_blank" rel="noopener">Label Smoothing</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="weight_initialization"><a href="../../ai/ml/dl.html#weight_initialization" target="_blank" rel="noopener">Инициализация весов модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="pretraining_finetuning"><a href="../../ai/ml/dl.html#pretraining_finetuning" target="_blank" rel="noopener">Предобучение, дообучение и Fine-tuning</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="warmup_schedulers"><a href="../../ai/ml/dl.html#warmup_schedulers" target="_blank" rel="noopener">Warm-up и Schedulers</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="hyperparameters-dl"><a href="../../ai/ml/dl.html#hyperparameters-dl" target="_blank" rel="noopener">Гиперпараметры</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="data_drift"><a href="../../ai/ml/dl.html#data_drift" target="_blank" rel="noopener">Data Drift</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="concept_drift"><a href="../../ai/ml/dl.html#concept_drift" target="_blank" rel="noopener">Concept Drift</a>
+          </li>
+          <!-- roadmap-md:block:2:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:3:start -->
+          <li class="roadmap-from-md" data-md-id="batchnorm"><a href="../../ai/ml/dl.html#batchnorm" target="_blank" rel="noopener">Batch Normalization</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="dropout"><a href="../../ai/ml/dl.html#dropout" target="_blank" rel="noopener">DropOut</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="multicollinearity"><a href="../../ai/ml/dl.html#multicollinearity" target="_blank" rel="noopener">Мультиколлинеарность</a>
+          </li>
+          <!-- roadmap-md:block:3:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:4:start -->
+          <li class="roadmap-from-md" data-md-id="conv2d"><a href="../../ai/ml/dl.html#conv2d" target="_blank" rel="noopener">Свертка</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="pool"><a href="../../ai/ml/dl.html#pool" target="_blank" rel="noopener">Pooling</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/dl.html#cv-mnist" target="_blank" rel="noopener">MNIST: MLP и CNN на PyTorch</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gradient-problems"><a href="../../ai/ml/dl.html#gradient-problems" target="_blank" rel="noopener">Взрыв и затухание градиентов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="skip-connections"><a href="../../ai/ml/dl.html#skip-connections" target="_blank" rel="noopener">Остаточные связи</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="data-augmentation"><a href="../../ai/ml/dl.html#data-augmentation" target="_blank" rel="noopener">Аугментация данных</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/dl.html#dl-augmentation" target="_blank" rel="noopener">Аугментация текста и изображений</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="rnn-lstm-gru"><a href="../../ai/ml/dl.html#rnn-lstm-gru" target="_blank" rel="noopener">RNN: Vanilla, LSTM и GRU</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gpu_vs_cpu_training"><a href="../../ai/ml/dl.html#gpu_vs_cpu_training" target="_blank" rel="noopener">Обучение на CPU и GPU: в чём разница</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="single_gpu_training"><a href="../../ai/ml/dl.html#single_gpu_training" target="_blank" rel="noopener">Обучение нейросети на одной GPU: полный цикл</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="multi_gpu_training"><a href="../../ai/ml/dl.html#multi_gpu_training" target="_blank" rel="noopener">Обучение на нескольких GPU: DataParallel, DDP и torchrun</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="parallelism_types"><a href="../../ai/ml/dl.html#parallelism_types" target="_blank" rel="noopener">Виды параллелизма при обучении: data, tensor, pipeline, FSDP</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="memory_optimization_training"><a href="../../ai/ml/dl.html#memory_optimization_training" target="_blank" rel="noopener">Экономия видеопамяти при обучении: AMP, checkpointing, accumulation</a>
+          </li>
+          <!-- roadmap-md:block:4:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:5:start -->
+          <li class="roadmap-from-md" data-md-id="embeddings"><a href="../../ai/ml/dl.html#embeddings" target="_blank" rel="noopener">Эмбеддинги (Embeddings)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="attention"><a href="../../ai/ml/dl.html#attention" target="_blank" rel="noopener">Механизм внимания (Attention)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="multi_head_attention"><a href="../../ai/ml/dl.html#multi_head_attention" target="_blank" rel="noopener">Multi-Head Attention</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="self_attention"><a href="../../ai/ml/dl.html#self_attention" target="_blank" rel="noopener">Self-Attention</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cross_attention"><a href="../../ai/ml/dl.html#cross_attention" target="_blank" rel="noopener">Cross-Attention</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="causal_attention"><a href="../../ai/ml/dl.html#causal_attention" target="_blank" rel="noopener">Causal attention</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="masked_attention"><a href="../../ai/ml/dl.html#masked_attention" target="_blank" rel="noopener">Masked attention</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/dl.html#dl-self-attention" target="_blank" rel="noopener">Self-Attention: реализация на Python</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="attention_types"><a href="../../ai/ml/dl.html#attention_types" target="_blank" rel="noopener">Виды внимания</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="attention_complexity"><a href="../../ai/ml/dl.html#attention_complexity" target="_blank" rel="noopener">Ограничения по сложности внимания</a>
+          </li>
+          <!-- roadmap-md:block:5:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:6:start -->
+          <li class="roadmap-from-md" data-md-id="transformer"><a href="../../ai/ml/dl.html#transformer" target="_blank" rel="noopener">Трансформеры: архитектура и устройство</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="positional_encoding"><a href="../../ai/ml/dl.html#positional_encoding" target="_blank" rel="noopener">Позиционное кодирование</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="encoder_only"><a href="../../ai/ml/dl.html#encoder_only" target="_blank" rel="noopener">Encoder-Only модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="decoder_only"><a href="../../ai/ml/dl.html#decoder_only" target="_blank" rel="noopener">Decoder-Only модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="layer_norm"><a href="../../ai/ml/dl.html#layer_norm" target="_blank" rel="noopener">Layer Normalization: Pre-Norm vs Post-Norm</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="long_context"><a href="../../ai/ml/dl.html#long_context" target="_blank" rel="noopener">Увеличение контекста в Transformer</a>
+          </li>
+          <!-- roadmap-md:block:6:end --></ul>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../authGuard.js"></script>
+
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

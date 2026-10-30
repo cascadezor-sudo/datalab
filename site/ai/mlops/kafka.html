@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kafka</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Common</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Kafka</h1>
+        <p class="section-shell__desc">Материалы по Kafka и потоковой инфраструктуре.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="kafka_intro" data-interview="4" data-title-link="https://kafka.apache.org/">
+  <div class="name" id="kafka_intro">
+    <a class="question-title-link" href="https://kafka.apache.org/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое Apache Kafka?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Apache Kafka</b> — распределённая платформа потоковой передачи событий (distributed event streaming platform). Kafka принимает, хранит и позволяет читать потоки событий в реальном времени с высокой пропускной способностью и отказоустойчивостью.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Классические очереди сообщений (RabbitMQ, SQS) передают сообщение одному consumer-у и удаляют его. Kafka работает иначе: сообщения хранятся на диске в упорядоченном журнале (log) и могут быть прочитаны любым количеством consumer-ов независимо.</p>
+<p>Это делает Kafka пригодной сразу для нескольких ролей:</p>
+<table class="task-table">
+<thead><tr><th>Роль</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>Message queue</b></td><td>Один producer $\to$ один consumer (замена RabbitMQ)</td></tr>
+<tr><td><b>Pub/Sub</b></td><td>Один topic $\to$ много независимых consumer групп</td></tr>
+<tr><td><b>Event store</b></td><td>Долгосрочное хранение всей истории событий</td></tr>
+<tr><td><b>Stream processing backbone</b></td><td>Источник и sink для Flink, Spark Streaming, Kafka Streams</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ML-системы сталкиваются с Kafka в самых разных местах:</p>
+<ul>
+<li><b>Сбор событий</b> — клики, просмотры, транзакции, действия пользователей поступают в Kafka и становятся сырыми данными для обучения</li>
+<li><b>Feature pipeline</b> — вычисление признаков на лету: Flink или Kafka Streams читают события и пишут готовые признаки в feature store</li>
+<li><b>Online inference</b> — inference-сервис подписывается на Kafka-топик и отвечает предсказаниями в real-time или near-real-time</li>
+<li><b>Feedback loop</b> — предсказания и реакция пользователей пишутся обратно в Kafka, чтобы накапливать разметку для retraining</li>
+<li><b>Data pipeline</b> — Kafka Connect доставляет данные из БД (CDC) в data lake или feature store без батчевых ETL</li>
+<li><b>Мониторинг дрейфа</b> — в production поток предсказаний и признаков идёт через Kafka, а consumer считает метрики дрейфа</li>
+</ul>
+<p>Понимание Kafka позволяет проектировать online-системы и разговаривать с data-инженерами, не изобретая велосипедов.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://kafka.apache.org/documentation/" target="_blank" rel="noopener">Официальная документация Kafka</a></td><td>Полная документация Apache Kafka.</td></tr>
+<tr><td><a href="https://notes.stephenholiday.com/Kafka.pdf" target="_blank" rel="noopener">Kafka: A Distributed Messaging System for Log Processing</a></td><td>Оригинальная статья LinkedIn, в которой Kafka была описана впервые.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/354486/" target="_blank" rel="noopener">Apache Kafka за 5 минут</a></td><td>Короткое введение на русском.</td></tr>
+<tr><td><a href="https://developer.confluent.io/courses/apache-kafka/events-intro/" target="_blank" rel="noopener">Kafka Fundamentals — Confluent</a></td><td>Бесплатный курс с интерактивными упражнениями.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Kafka отличается от классической очереди сообщений?</b></p>
+<p>Kafka хранит события в персистентном упорядоченном журнале на диске и позволяет читать их многим consumer-ам независимо, не удаляя сообщения после первого чтения.</p>
+</li>
+<li><p><b>Перечислите три сценария использования Kafka в ML-системах.</b></p>
+<p>Сбор сырых событий для обучения, online feature pipeline, near-real-time inference, feedback loop для накопления разметки.</p>
+</li>
+<li><p><b>Зачем ML Engineer знать Kafka, если есть data-инженеры?</b></p>
+<p>ML Engineer проектирует архитектуру inference-сервисов, feature store-ов и feedback loop-ов. Без понимания Kafka невозможно грамотно обсудить latency, гарантии доставки и схему данных с командой.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_core_concepts" data-interview="4">
+  <div class="name" id="kafka_core_concepts">
+    Основные понятия Kafka
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Ключевые понятия Kafka:</p>
+<table class="task-table">
+<thead><tr><th>Понятие</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>Event / Message</b></td><td>Единица данных: ключ + значение + timestamp + заголовки</td></tr>
+<tr><td><b>Topic</b></td><td>Именованный журнал событий (аналог таблицы или канала)</td></tr>
+<tr><td><b>Partition</b></td><td>Физический раздел topic-а; каждый partition — упорядоченная очередь</td></tr>
+<tr><td><b>Offset</b></td><td>Порядковый номер сообщения внутри partition</td></tr>
+<tr><td><b>Broker</b></td><td>Один сервер Kafka-кластера, хранит партиции</td></tr>
+<tr><td><b>Producer</b></td><td>Клиент, пишущий события в topic</td></tr>
+<tr><td><b>Consumer</b></td><td>Клиент, читающий события из topic</td></tr>
+<tr><td><b>Consumer Group</b></td><td>Группа consumer-ов, совместно читающих topic; каждая партиция назначена только одному consumer в группе</td></tr>
+</tbody>
+</table><figure style="text-align: center">
+  <img alt="kafka" src="../../images/mlops/kafka/kafka.png" width="667" height="400" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+  <figcaption>
+    Схема взаимодействия продюсеров с Kafka. <a href="https://www.geeksforgeeks.org/apache-kafka/kafka-architecture/" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Topic и Partition.</b> Topic делится на партиции для масштабирования. Сообщения с одним ключом всегда попадают в одну партицию (детерминированный роутинг по хешу ключа), что гарантирует порядок для одного ключа.</p>
+<p><b>Offset.</b> Каждый consumer group самостоятельно хранит, до какого offset он дочитал. Это позволяет перечитать историю с любого места или запустить новый consumer group, который начнёт с самого начала.</p>
+<p><b>Consumer Group.</b> Несколько consumer-ов в группе параллельно читают разные партиции одного topic-а. Это горизонтальное масштабирование чтения. Разные group-ы читают один topic независимо — например, одна группа обновляет feature store, другая считает метрики.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Topic <code>user_events</code> с 6 партициями и двумя независимыми consumer group:</p>
+
+</div>
+<div class="code-block" data-lang="text">user_events (6 partitions)
+├── Partition 0  ← consumer A (группа: feature-pipeline)
+├── Partition 1  ← consumer A (группа: feature-pipeline)
+├── Partition 2  ← consumer B (группа: feature-pipeline)
+├── Partition 3  ← consumer B (группа: feature-pipeline)
+├── Partition 4  ← consumer C (группа: feature-pipeline)
+└── Partition 5  ← consumer C (группа: feature-pipeline)
+
+Та же группа событий:
+Partition 0..5  ← consumer X (группа: drift-monitor) — читает всё независимо</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Feature pipeline и drift-monitor получают все одни и те же события, но обрабатывают их независимо.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Число партиций определяет максимальный параллелизм чтения в рамках одной consumer group. Если партиций 6, то &gt; 6 consumer-ов в группе бессмысленны — лишние будут простаивать. Партиции нельзя уменьшить после создания topic-а (только увеличить), поэтому важно закладывать запас при проектировании.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="kafka-microservices" src="../../images/mlops/kafka/microservices.png" width="1456" height="933" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+  <figcaption>
+    Схема взаимодействия различных микросервисов с Kafka. <a href="https://blog.algomaster.io/p/top-10-kafka-use-cases" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое offset и зачем он нужен?</b></p>
+<p>Порядковый номер сообщения внутри партиции. Consumer группа сохраняет, до какого offset она дочитала, что позволяет возобновить чтение после перезапуска или перечитать историю.</p>
+</li>
+<li><p><b>Как partition обеспечивает порядок сообщений?</b></p>
+<p>Внутри одной партиции сообщения строго упорядочены. Сообщения с одним ключом всегда попадают в одну партицию, поэтому порядок событий для конкретного пользователя или объекта гарантирован.</p>
+</li>
+<li><p><b>Зачем нужны consumer groups?</b></p>
+<p>Для масштабирования: consumer-ы внутри группы параллельно читают разные партиции. Разные группы читают один topic независимо друг от друга — каждая хранит свой offset.</p>
+</li>
+<li><p><b>Что произойдёт, если consumer-ов в группе больше, чем партиций?</b></p>
+<p>Лишние consumer-ы будут idle — им не достанется ни одной партиции. Число активных reader-ов ≤ числу партиций.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_delivery" data-interview="4">
+  <div class="name" id="kafka_delivery">
+    Гарантии доставки и retention
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Kafka поддерживает три уровня гарантий доставки:</p>
+<table class="task-table">
+<thead><tr><th>Уровень</th><th>Что означает</th><th>Дубли?</th><th>Потери?</th></tr></thead>
+<tbody>
+<tr><td><b>At-most-once</b></td><td>Сообщение отправлено, подтверждение не ждётся</td><td>нет</td><td>возможны</td></tr>
+<tr><td><b>At-least-once</b></td><td>Повторная отправка при неудаче</td><td>возможны</td><td>нет</td></tr>
+<tr><td><b>Exactly-once</b></td><td>Ровно одна доставка и обработка</td><td>нет</td><td>нет</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="delivery" src="../../images/mlops/kafka/delivery.png" width="1200" height="683" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>At-least-once</b> — наиболее распространённый выбор в ML-системах. Producer повторяет отправку при ошибке, consumer может получить дубль при перезапуске до commit offset-а. Обработчик должен быть <b>идемпотентным</b>: повторная обработка одного события не должна менять итог.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Exactly-once</b> (EOS) требует transactional producer и поддержки со стороны sink. В Kafka это реализовано через Kafka Transactions, но добавляет latency и сложность. Нужно только там, где дубль критичен: списание средств, обновление счётчика.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Retention</b> — как долго Kafka хранит сообщения:</p>
+<ul>
+<li>по времени: <code>retention.ms = 7 * 24 * 3600 * 1000</code> (7 дней)</li>
+<li>по объёму: <code>retention.bytes</code> на партицию</li>
+</ul>
+<p>После retention сообщения удаляются. Consumer не может вернуться назад, если retention уже истёк.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>Выбор гарантий влияет на архитектуру пайплайна:</p>
+<ul>
+<li><b>Feature pipeline:</b> at-least-once + идемпотентная агрегация по ключу (upsert в feature store)</li>
+<li><b>Inference request/response:</b> at-least-once с дедупликацией по request ID</li>
+<li><b>Feedback loop / разметка:</b> at-least-once достаточно, дубли можно отфильтровать при обучении</li>
+<li><b>Финансовые транзакции:</b> exactly-once, но это редко нужно ML Engineer-у напрямую</li>
+</ul>
+<p>Retention определяет, насколько далеко назад можно отмотать consumer: полезно при горячем перезапуске сервиса или отладке.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Consumer упал и перезапустился до того, как успел закоммитить offset. При at-least-once он перечитает последние N сообщений. Если сервис пишет признаки через upsert (<code>ON CONFLICT DO UPDATE</code>), дубль не нанесёт вреда.</p>
+
+</div>
+<div class="code-block" data-lang="python"># Идемпотентный upsert — безопасен при at-least-once
+INSERT INTO feature_store (user_id, feature_value, event_time)
+VALUES (42, 0.87, '2024-01-15 12:00:00')
+ON CONFLICT (user_id) DO UPDATE
+    SET feature_value = EXCLUDED.feature_value,
+        event_time = EXCLUDED.event_time
+    WHERE feature_store.event_time &lt; EXCLUDED.event_time;</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>В чём разница между at-least-once и exactly-once?</b></p>
+<p>At-least-once допускает дубли сообщений, но не теряет их. Exactly-once гарантирует ровно одну обработку, но требует транзакционного producer и поддержки sink-а.</p>
+</li>
+<li><p><b>Что такое идемпотентность и почему она важна при at-least-once?</b></p>
+<p>Идемпотентная операция даёт одинаковый результат при повторном применении. При at-least-once consumer может получить дубль, и тогда повторная обработка не должна менять состояние системы.</p>
+</li>
+<li><p><b>Что произойдёт, если consumer отстал и retention уже истёк?</b></p>
+<p>Consumer не сможет получить пропущенные сообщения — они удалены. Придётся сбросить offset и обработать всё с начала доступных данных или получить данные из другого источника.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="kafka_for_ml_pipelines" data-interview="3">
+  <div class="name" id="kafka_for_ml_pipelines">
+    Паттерны использования Kafka в ML
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Kafka встречается в ML-системах в нескольких устойчивых архитектурных паттернах. Важно знать каждый, чтобы проектировать пайплайны самостоятельно и понимать, что предлагают коллеги.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 1: Сбор событий для обучения">
+<p>Все действия пользователей (клики, покупки, просмотры, поиск) пишутся в Kafka в реальном времени. Downstream-consumer сохраняет их в data lake (S3, HDFS) или data warehouse (BigQuery, ClickHouse) для последующего обучения.</p>
+
+</div>
+<div class="code-block" data-lang="text">User Action  Producer -&gt; Kafka [raw_events] -&gt; Consumer -&gt; S3 / ClickHouse
+                                                         ↓
+                                                    Batch training</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 1: Сбор событий для обучения">
+<p>Преимущество перед прямой записью в БД: система отвязана от конкретного хранилища — можно добавить новый consumer без изменения producer-а.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 2: Online Feature Pipeline">
+<p>Kafka + потоковый процессор (Flink, Spark Streaming, Kafka Streams) позволяют вычислять признаки с малой задержкой и писать их в feature store.</p>
+
+</div>
+<div class="code-block" data-lang="text">raw_events -&gt; Flink / Kafka Streams -&gt; enriched features -&gt; Feature Store (Redis / Feast)
+                                                                  ↓
+                                                        Online Inference Service</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 2: Online Feature Pipeline">
+<p>Пример: на основе потока кликов считается скользящее среднее CTR пользователя за последние 5 минут и записывается в Redis. Inference-сервис читает этот признак при каждом запросе.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 3: Near-Real-Time Inference">
+<p>Запросы на предсказание поступают в Kafka-топик. Inference-сервис подписывается как consumer, делает предсказание и пишет результат в output-топик.</p>
+
+</div>
+<div class="code-block" data-lang="text">Request -&gt; Kafka [inference_requests] -&gt; Inference Service -&gt; Kafka [inference_results]
+                                                                    ↓
+                                                          Downstream consumer / API</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 3: Near-Real-Time Inference">
+<p>Подходит для асинхронных сценариев: модерация контента, антифрод, email-рекомендации, — где ответ не нужен синхронно в HTTP-ответе.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 4: Feedback Loop">
+<p>Предсказания модели и реакция пользователей (клик / нет, купил / нет) собираются в Kafka и используются для накопления разметки, дообучения или мониторинга дрейфа.</p>
+
+</div>
+<div class="code-block" data-lang="text">Inference result -&gt; Kafka [predictions]
+User action      -&gt; Kafka [user_events]
+                          ↓
+             Join по request_id / session_id
+                          ↓
+              Labeled dataset -&gt; Retraining pipeline
+                          ↓
+              Drift monitor (сравнение распределений)</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 5: CDC — Change Data Capture">
+<p>Kafka Connect + Debezium читают binlog/WAL основной БД и публикуют каждое изменение строки как событие в Kafka. Downstream-consumer обновляет feature store или data warehouse без batch-ETL.</p>
+
+</div>
+<div class="code-block" data-lang="text">PostgreSQL (binlog) -&gt; Debezium -&gt; Kafka [db.public.users] -&gt; Feature Store / DWH</div>
+<div class="info-card-auto" data-type="remark" data-title="Паттерн 5: CDC — Change Data Capture">
+<p>Это устраняет задержку batch-загрузки и упрощает реактивные пайплайны.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем online feature pipeline через Kafka лучше batch ETL?</b></p>
+<p>Batch ETL вычисляет признаки раз в час/день, что создаёт задержку. Потоковый pipeline через Kafka обновляет признаки в секунды или минуты после события.</p>
+</li>
+<li><p><b>Когда подходит near-real-time inference через Kafka, а когда нужен синхронный HTTP?</b></p>
+<p>Kafka-inference подходит, когда ответ не нужен немедленно в рамках одного HTTP-запроса (антифрод по email, модерация контента, рекомендации). HTTP/gRPC inference подходит для интерактивных сценариев с жёстким latency &lt; 100 мс.</p>
+</li>
+<li><p><b>Что такое CDC и зачем он нужен в ML-пайплайне?</b></p>
+<p>Change Data Capture перехватывает изменения в БД через binlog/WAL и публикует их как события. Позволяет обновлять feature store в реальном времени без batch-ETL и не нагружать продуктовую БД тяжёлыми SELECT-ами.</p>
+</li>
+<li><p><b>Как построить feedback loop через Kafka?</b></p>
+<p>Prediction-сервис пишет предсказания в топик с request_id. Сервис событий пишет действия пользователя с тем же идентификатором. Downstream join по ключу даёт размеченные примеры для retraining и дрейф-мониторинга.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_python" data-interview="2">
+  <div class="name" id="kafka_python">
+    Kafka в Python: producer и consumer
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Для работы с Kafka из Python используют две основные библиотеки:</p>
+<table class="task-table">
+<thead><tr><th>Библиотека</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><b>confluent-kafka-python</b></td><td>Обёртка над librdkafka; высокая производительность, рекомендуется для production</td></tr>
+<tr><td><b>kafka-python</b></td><td>Чистый Python; проще в установке, ниже throughput</td></tr>
+</tbody>
+</table><p>В большинстве ML-проектов используют <code>confluent-kafka</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Producer</b> отправляет сообщения в topic. Ключевые настройки:</p>
+<ul>
+<li><code>bootstrap.servers</code> — адрес брокеров</li>
+<li><code>acks</code> — подтверждение записи (<code>0</code> / <code>1</code> / <code>all</code>): влияет на надёжность и latency</li>
+<li><code>linger.ms</code> + <code>batch.size</code> — батчевая отправка для throughput</li>
+</ul>
+<p><b>Consumer</b> читает сообщения из topic. Ключевые настройки:</p>
+<ul>
+<li><code>group.id</code> — имя consumer group; сохраняет offset-ы</li>
+<li><code>auto.offset.reset</code> — что делать при отсутствии сохранённого offset-а: <code>earliest</code> (с начала) или <code>latest</code> (только новые)</li>
+<li><code>enable.auto.commit</code> — автоматический commit offset-а (удобно, но небезопасно при at-least-once)</li>
+</ul>
+
+</div>
+<h3>Producer</h3>
+<div class="code-block" data-lang="python">from confluent_kafka import Producer
+import json
+
+producer = Producer({
+    "bootstrap.servers": "kafka:9092",
+    "acks": "all",          # ждём подтверждения от всех in-sync реплик
+    "linger.ms": 5,         # небольшая пауза для батчевания
+    "retries": 5,
+})
+
+def delivery_report(err, msg):
+    if err:
+        print(f"Delivery failed: {err}")
+    else:
+        print(f"Delivered to {msg.topic()} [{msg.partition()}] @ offset {msg.offset()}")
+
+event = {
+    "user_id": 42,
+    "event_type": "click",
+    "item_id": 1001,
+    "timestamp": "2024-01-15T12:00:00Z",
+}
+
+producer.produce(
+    topic="user_events",
+    key=str(event["user_id"]),   # ключ -&gt; детерминированная партиция
+    value=json.dumps(event).encode("utf-8"),
+    callback=delivery_report,
+)
+producer.flush()  # дождаться отправки всех накопленных сообщений</div><h3>Consumer</h3>
+<div class="code-block" data-lang="python">from confluent_kafka import Consumer, KafkaException
+import json
+
+consumer = Consumer({
+    "bootstrap.servers": "kafka:9092",
+    "group.id": "feature-pipeline-v1",
+    "auto.offset.reset": "earliest",    # при старте — читать с начала
+    "enable.auto.commit": False,         # коммитим offset вручную
+})
+
+consumer.subscribe(["user_events"])
+
+try:
+    while True:
+        msg = consumer.poll(timeout=1.0)
+        if msg is None:
+            continue
+        if msg.error():
+            raise KafkaException(msg.error())
+
+        event = json.loads(msg.value().decode("utf-8"))
+        process_event(event)          # ваша логика обработки
+
+        consumer.commit(asynchronous=False)  # commit после успешной обработки
+finally:
+    consumer.close()</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Ручной commit offset-а</b> — стандартная практика для ML-пайплайнов. Если commit произошёл до реальной обработки, при сбое сообщение потеряется. Если после — при сбое до commit-а сообщение будет обработано повторно (at-least-once). Убедитесь, что обработчик идемпотентен.</p>
+<p>Для высоконагруженных consumer-ов используют multi-threading или async-подход: несколько потоков читают разные партиции, но commit-ят offset-ы в основном потоке.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://docs.confluent.io/kafka-clients/python/current/overview.html" target="_blank" rel="noopener">confluent-kafka-python docs</a></td><td>Официальная документация клиента.</td></tr>
+<tr><td><a href="https://github.com/confluentinc/confluent-kafka-python/tree/master/examples" target="_blank" rel="noopener">Confluent Python Client Examples</a></td><td>Примеры producer, consumer, avro, transactions.</td></tr>
+<tr><td><a href="https://kafka-python.readthedocs.io/" target="_blank" rel="noopener">kafka-python docs</a></td><td>Документация альтернативного чистого Python-клиента.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем указывать ключ при отправке сообщения?</b></p>
+<p>Ключ определяет, в какую партицию попадёт сообщение (по хешу). Сообщения с одним ключом попадают в одну партицию, что гарантирует их порядок.</p>
+</li>
+<li><p><b>Что означает <code>acks=&quot;all&quot;</code> и когда это нужно?</b></p>
+<p>Producer ждёт подтверждения записи от всех in-sync реплик. Это максимальная надёжность, но больше latency. Используется, когда потеря сообщения недопустима.</p>
+</li>
+<li><p><b>Почему <code>enable.auto.commit=False</code> — хорошая практика?</b></p>
+<p>Автоматический commit может произойти до того, как сообщение обработано, — тогда при сбое оно будет потеряно. Ручной commit после успешной обработки даёт чёткие at-least-once гарантии.</p>
+</li>
+<li><p><b>Что такое <code>consumer.flush()</code> у producer-а?</b></p>
+<p>Блокирующий вызов, который ждёт отправки всех накопленных в буфере сообщений. Необходим перед завершением процесса, чтобы не потерять последние события.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_schema_registry" data-interview="2">
+  <div class="name" id="kafka_schema_registry">
+    Schema Registry и контракты данных
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Schema Registry</b> — отдельный сервис, который хранит и версионирует схемы данных (Avro, Protobuf, JSON Schema) для Kafka-топиков. Producer регистрирует схему перед отправкой; consumer получает схему по ID и десериализует сообщение.</p>
+<figure style="text-align: center">
+  <img alt="sr1" src="../../images/mlops/kafka/schema-reg-1.png" width="1468" height="720" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+<p>Наиболее популярная реализация — <b>Confluent Schema Registry</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Без Schema Registry Kafka передаёт «сырые» байты. Команды договариваются о формате неформально, и при изменении поля consumer может сломаться.</p>
+<p>Schema Registry вводит <b>data contract</b>:</p>
+<ul>
+<li>схема фиксируется и версионируется</li>
+<li>несовместимые изменения (удаление обязательного поля) блокируются автоматически</li>
+<li>consumer знает, какую схему использовать, не договариваясь с producer-ом отдельно</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Совместимость схем">
+<table class="task-table">
+<thead><tr><th>Режим</th><th>Что разрешено</th></tr></thead>
+<tbody>
+<tr><td><code>BACKWARD</code></td><td>Новая схема читает данные старой (добавление полей с defaults)</td></tr>
+<tr><td><code>FORWARD</code></td><td>Старая схема читает данные новой</td></tr>
+<tr><td><code>FULL</code></td><td>Оба направления одновременно</td></tr>
+<tr><td><code>NONE</code></td><td>Нет проверки совместимости</td></tr>
+</tbody>
+</table><p><code>BACKWARD</code> — рекомендуемый default.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Avro vs Protobuf vs JSON Schema:</b></p>
+<table class="task-table">
+<thead><tr><th>Формат</th><th>Размер</th><th>Типизация</th><th>Экосистема</th></tr></thead>
+<tbody>
+<tr><td><b>Avro</b></td><td>компактный бинарный</td><td>строгая</td><td>Hadoop, Kafka де-факто стандарт</td></tr>
+<tr><td><b>Protobuf</b></td><td>компактный бинарный</td><td>строгая, gRPC-совместимый</td><td>Google, gRPC</td></tr>
+<tr><td><b>JSON Schema</b></td><td>текстовый, больше</td><td>мягкая</td><td>легкий старт, дебаггинг</td></tr>
+</tbody>
+</table><p>В ML-пайплайнах чаще используют <b>Avro</b> или <b>Protobuf</b>. JSON удобен для прототипов, но дорог в больших объёмах.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Avro-схема для события признаков пользователя:</p>
+
+</div>
+<div class="code-block" data-lang="json">{
+  "type": "record",
+  "name": "UserFeatureEvent",
+  "namespace": "com.company.ml",
+  "fields": [
+    {"name": "user_id",       "type": "long"},
+    {"name": "event_time",    "type": "string"},
+    {"name": "ctr_5min",      "type": ["null", "float"], "default": null},
+    {"name": "session_depth", "type": "int", "default": 0}
+  ]
+}</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Producer регистрирует схему и сериализует:</p>
+
+</div>
+<div class="code-block" data-lang="python">from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroSerializer
+from confluent_kafka import Producer
+
+sr_client = SchemaRegistryClient({"url": "http://schema-registry:8081"})
+avro_serializer = AvroSerializer(sr_client, schema_str=SCHEMA_JSON)
+
+producer = Producer({"bootstrap.servers": "kafka:9092"})
+producer.produce(
+    topic="user_feature_events",
+    value=avro_serializer(event_dict, SerializationContext("user_feature_events", MessageField.VALUE)),
+)</div><h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://docs.confluent.io/platform/current/schema-registry/index.html" target="_blank" rel="noopener">Confluent Schema Registry docs</a></td><td>Официальная документация Schema Registry.</td></tr>
+<tr><td><a href="https://avro.apache.org/docs/current/specification/" target="_blank" rel="noopener">Avro specification</a></td><td>Полная спецификация Apache Avro.</td></tr>
+<tr><td><a href="https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html" target="_blank" rel="noopener">Schema Evolution and Compatibility</a></td><td>Объяснение режимов совместимости схем.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен Schema Registry при работе с Kafka?</b></p>
+<p>Чтобы зафиксировать контракт данных между producer и consumer, версионировать схемы, блокировать несовместимые изменения и избегать ситуации, когда один сервис сломал чтение другого.</p>
+</li>
+<li><p><b>Что означает режим совместимости BACKWARD?</b></p>
+<p>Новая версия схемы может читать данные, сериализованные старой. Это значит, что можно добавлять новые поля с default-значениями, но нельзя удалять обязательные поля.</p>
+</li>
+<li><p><b>Чем Avro лучше JSON для ML-пайплайнов с высоким throughput?</b></p>
+<p>Avro — компактный бинарный формат; JSON — текстовый, в 2–5 раз тяжелее. При миллионах событий в секунду разница в объёме данных и скорости десериализации существенна.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="kafka_connect" data-badge-type="additional" data-interview="1">
+  <div class="name" id="kafka_connect">
+    Kafka Connect: загрузка и выгрузка данных
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Kafka Connect</b> — фреймворк для интеграции Kafka с внешними системами без написания кода producer/consumer. Connector-ы описываются JSON-конфигурацией и запускаются как отдельный кластер процессов.</p>
+<figure style="text-align: center">
+  <img alt="kafka-connect" src="../../images/mlops/kafka/kafka-connect.png" width="1600" height="900" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+  <figcaption>
+    <a href="https://developer.confluent.io/courses/kafka-connect/intro/" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+<ul>
+<li><b>Source Connector</b> — читает из внешней системы (БД, S3, Elasticsearch) и пишет в Kafka</li>
+<li><b>Sink Connector</b> — читает из Kafka и пишет во внешнюю систему</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Debezium</b> — самый популярный source connector для CDC (Change Data Capture). Он читает binary log (binlog у MySQL, WAL у PostgreSQL) и публикует каждое изменение строки как отдельное событие в Kafka.</p>
+<figure style="text-align: center">
+  <img alt="kafka-connect" src="../../images/mlops/kafka/debezium.png" width="1025" height="490" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+<p>Это позволяет:</p>
+<ul>
+<li>не нагружать продуктовую БД тяжёлыми ETL-запросами</li>
+<li>получать изменения в реальном времени (задержка — секунды)</li>
+<li>не менять код приложения, которое пишет в БД</li>
+</ul>
+<p>Популярные connector-ы:</p>
+<table class="task-table">
+<thead><tr><th>Connector</th><th>Направление</th><th>Системы</th></tr></thead>
+<tbody>
+<tr><td>Debezium PostgreSQL</td><td>Source</td><td>PostgreSQL $\to$ Kafka</td></tr>
+<tr><td>Debezium MySQL</td><td>Source</td><td>MySQL $\to$ Kafka</td></tr>
+<tr><td>JDBC Sink</td><td>Sink</td><td>Kafka $\to$ PostgreSQL, MySQL</td></tr>
+<tr><td>S3 Sink</td><td>Sink</td><td>Kafka $\to$ S3 (Parquet / JSON)</td></tr>
+<tr><td>BigQuery Sink</td><td>Sink</td><td>Kafka $\to$ BigQuery</td></tr>
+<tr><td>Elasticsearch Sink</td><td>Sink</td><td>Kafka $\to$ Elasticsearch</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Debezium-конфигурация для PostgreSQL CDC:</p>
+
+</div>
+<div class="code-block" data-lang="json">{
+  "name": "pg-users-cdc",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "replication_user",
+    "database.password": "secret",
+    "database.dbname": "production",
+    "table.include.list": "public.users,public.orders",
+    "topic.prefix": "cdc",
+    "plugin.name": "pgoutput",
+    "snapshot.mode": "initial"
+  }
+}</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Каждое изменение в таблице <code>public.users</code> будет появляться в топике <code>cdc.public.users</code> как событие с полями <code>before</code>, <code>after</code>, <code>op</code> (insert/update/delete).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Kafka Connect полезен, когда нужно интегрировать 10+ систем и не хочется писать отдельный producer/consumer для каждой. Но у connector-ов есть ограничения: сложная трансформация данных лучше делается в отдельном сервисе или Kafka Streams, а не в SMT (Single Message Transforms) Connect-а.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://docs.confluent.io/platform/current/connect/index.html" target="_blank" rel="noopener">Kafka Connect docs</a></td><td>Официальная документация Confluent Kafka Connect.</td></tr>
+<tr><td><a href="https://debezium.io/documentation/" target="_blank" rel="noopener">Debezium documentation</a></td><td>Полная документация Debezium CDC.</td></tr>
+<tr><td><a href="https://www.confluent.io/hub/" target="_blank" rel="noopener">Confluent Hub — connector catalog</a></td><td>Каталог готовых connector-ов.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Kafka Connect и зачем он нужен?</b></p>
+<p>Фреймворк для интеграции Kafka с внешними системами через JSON-конфигурацию, без написания кода. Connector-ы читают из внешних систем (source) или пишут в них (sink).</p>
+</li>
+<li><p><b>Что такое CDC и как его реализует Debezium?</b></p>
+<p>Change Data Capture — перехват всех изменений в БД. Debezium читает binary log (WAL/binlog) БД и публикует каждое INSERT/UPDATE/DELETE как событие Kafka. Это не нагружает БД и даёт изменения в реальном времени.</p>
+</li>
+<li><p><b>Когда Connect заменяет ручной producer/consumer?</b></p>
+<p>Когда интеграция стандартная (БД $\to$ Kafka $\to$ S3) и не требует сложной логики. Для нестандартной трансформации лучше написать собственный consumer или использовать Flink/Kafka Streams.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_streams_ksqldb" data-badge-type="additional" data-interview="1">
+  <div class="name" id="kafka_streams_ksqldb">
+    Kafka Streams и ksqlDB
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Kafka Streams</b> — библиотека Java/Scala для потоковой обработки данных прямо внутри Kafka-экосистемы. Читает из одних топиков, трансформирует данные, пишет в другие. Запускается как обычное JVM-приложение — отдельный кластер не нужен.</p>
+<figure style="text-align: center">
+  <img alt="ksqldb" src="../../images/mlops/kafka/ksqldb2.png" width="1200" height="587" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+<p><b>ksqlDB</b> — SQL-интерфейс поверх Kafka Streams. Позволяет писать потоковые запросы на SQL-диалекте без Java-кода.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Kafka Streams и ksqlDB занимают нишу <b>лёгкой потоковой обработки</b> внутри Kafka-кластера. В отличие от Flink или Spark Streaming, они не требуют отдельного кластера — код запускается в тех же контейнерах, что и ваш сервис.</p>
+<p>Типичные операции:</p>
+<table class="task-table">
+<thead><tr><th>Операция</th><th>Пример</th></tr></thead>
+<tbody>
+<tr><td><b>filter</b></td><td>отфильтровать события без user_id</td></tr>
+<tr><td><b>map / flatMap</b></td><td>добавить поле, развернуть массив</td></tr>
+<tr><td><b>groupBy + aggregate</b></td><td>считать скользящее окно событий</td></tr>
+<tr><td><b>join</b></td><td>соединить два топика по ключу</td></tr>
+<tr><td><b>KTable</b></td><td>материализованный вид — «текущее состояние» по ключу</td></tr>
+</tbody>
+</table><p><b>KStream</b> — неограниченная последовательность событий (append-only).
+<b>KTable</b> — последнее значение для каждого ключа (changelog, компактированный топик).</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="ksqldb" src="../../images/mlops/kafka/ksqldb.png" width="715" height="309" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Kafka Streams vs Flink">
+<table class="task-table">
+<thead><tr><th></th><th>Kafka Streams</th><th>Apache Flink</th></tr></thead>
+<tbody>
+<tr><td><b>Кластер</b></td><td>не нужен</td><td>отдельный Flink-кластер</td></tr>
+<tr><td><b>Язык</b></td><td>Java / Scala</td><td>Java / Python / SQL</td></tr>
+<tr><td><b>Сложность</b></td><td>ниже</td><td>выше</td></tr>
+<tr><td><b>Функциональность</b></td><td>базовая потоковая обработка</td><td>event time, сложные join-ы, ML-операторы</td></tr>
+<tr><td><b>Типичное применение</b></td><td>простые агрегации, routing, фильтрация</td><td>сложные feature pipeline, CEP, stateful processing</td></tr>
+</tbody>
+</table><p>Для простых online feature pipeline Kafka Streams достаточно. Для сложных скользящих окон и session-based feature engineering лучше Flink.</p>
+
+</div>
+<h3>ksqlDB-запрос — скользящее окно CTR</h3>
+<div class="code-block" data-lang="sql">-- Создаём поток из топика user_events
+CREATE STREAM user_events (
+  user_id BIGINT,
+  event_type VARCHAR,
+  item_id BIGINT
+) WITH (
+  KAFKA_TOPIC='user_events',
+  VALUE_FORMAT='AVRO'
+);
+
+-- Считаем CTR за последние 5 минут для каждого пользователя
+CREATE TABLE user_ctr_5min AS
+SELECT
+  user_id,
+  COUNT_IF(event_type = 'click') * 1.0 / COUNT(*) AS ctr,
+  WINDOWSTART AS window_start
+FROM user_events
+WINDOW TUMBLING (SIZE 5 MINUTES)
+GROUP BY user_id
+EMIT CHANGES;</div><h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://kafka.apache.org/documentation/streams/" target="_blank" rel="noopener">Kafka Streams docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://ksqldb.io/docs/" target="_blank" rel="noopener">ksqlDB docs</a></td><td>Документация ksqlDB.</td></tr>
+<tr><td><a href="https://www.confluent.io/blog/apache-flink-vs-kafka-streams/" target="_blank" rel="noopener">Kafka Streams vs Apache Flink</a></td><td>Сравнение от Confluent.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Kafka Streams отличается от Flink?</b></p>
+<p>Kafka Streams — библиотека без отдельного кластера, проще в деплое, подходит для базовых агрегаций. Flink — полноценный кластер с поддержкой сложного event time processing и ML-операторов.</p>
+</li>
+<li><p><b>Что такое KTable и чем она отличается от KStream?</b></p>
+<p>KStream — последовательность всех событий (append-only). KTable — только последнее значение для каждого ключа (materialized view, changelog).</p>
+</li>
+<li><p><b>Когда стоит использовать ksqlDB вместо написания кода?</b></p>
+<p>Для стандартных агрегаций, фильтраций и join-ов, которые легко выражаются SQL-запросом. Если нужна сложная логика или интеграция с Python ML-кодом — лучше Flink или собственный consumer.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_monitoring" data-badge-type="additional" data-interview="1">
+  <div class="name" id="kafka_monitoring">
+    Мониторинг Kafka: что важно ML Engineer
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Consumer lag</b> — разрыв между последним сообщением в партиции (log end offset) и тем, до которого consumer группа дочиталась (committed offset). Это главная метрика здоровья Kafka-пайплайна с точки зрения ML Engineer.</p>
+<figure style="text-align: center">
+  <img alt="lag" src="../../images/mlops/kafka/lag.png" width="1000" height="353" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+<p><span class="latex-copy-wrap" data-latex="$$\text{lag} = \text{log\_end\_offset} - \text{committed\_offset}$$">$$\text{lag} = \text{log\_end\_offset} - \text{committed\_offset}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML-пайплайнов мониторинг Kafka означает прежде всего слежение за тем, насколько feature pipeline и inference-сервис <b>отстают</b> от потока событий.</p>
+<p>Ключевые метрики:</p>
+<table class="task-table">
+<thead><tr><th>Метрика</th><th>Что показывает</th><th>Инструмент</th></tr></thead>
+<tbody>
+<tr><td><b>consumer_lag</b></td><td>Отставание consumer группы</td><td>Burrow, Kafka Exporter, Confluent Control Center</td></tr>
+<tr><td><b>messages_in_per_sec</b></td><td>Входящий поток событий (producer throughput)</td><td>Kafka JMX</td></tr>
+<tr><td><b>bytes_in / bytes_out</b></td><td>Нагрузка на сеть брокера</td><td>Kafka JMX</td></tr>
+<tr><td><b>under_replicated_partitions</b></td><td>Партиции без полной репликации (сигнал проблемы с брокером)</td><td>Kafka JMX</td></tr>
+<tr><td><b>active_controller_count</b></td><td>Должно быть ровно 1</td><td>Kafka JMX</td></tr>
+<tr><td><b>request_latency_ms</b></td><td>Задержка produce/fetch</td><td>Kafka JMX</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Consumer lag и ML">
+<p>Высокий lag feature pipeline означает:</p>
+<ul>
+<li>признаки в feature store устаревшие</li>
+<li>online inference принимает решения на старых данных</li>
+<li>реальное качество модели хуже ожидаемого</li>
+</ul>
+<p>Алерт на lag обычно ставится на абсолютное значение (например, &gt; 100 000 сообщений) или на <b>lag growth rate</b> — если lag не уменьшается за 5 минут, consumer не справляется.</p>
+
+</div>
+<h3>Мониторинг через kafka-python / kafkacat</h3>
+<div class="code-block" data-lang="bash"># Посмотреть lag всех consumer групп через kafkacat (kcat)
+kcat -b kafka:9092 -G feature-pipeline-v1 user_events
+
+# Через kafka-consumer-groups.sh
+kafka-consumer-groups.sh \
+  --bootstrap-server kafka:9092 \
+  --group feature-pipeline-v1 \
+  --describe</div>
+<div class="info-card-auto" data-type="example" data-title="Мониторинг через kafka-python / kafkacat">
+<p>Prometheus + Grafana — стандартный стек. <b>kafka-exporter</b> или <b>Confluent JMX Exporter</b> экспортирует метрики в Prometheus:</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># docker-compose фрагмент
+kafka-exporter:
+  image: danielqsj/kafka-exporter:latest
+  command: ["--kafka.server=kafka:9092"]
+  ports:
+    - "9308:9308"</div>
+<div class="info-card-auto" data-type="example" data-title="Мониторинг через kafka-python / kafkacat">
+<p>Dashboard <a href="https://grafana.com/grafana/dashboards/7589" target="_blank" rel="noopener">Grafana ID 7589</a> — готовый Kafka dashboard.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>ML Engineer не обязан администрировать Kafka, но должен уметь:</p>
+<ol>
+<li>Смотреть consumer lag для своих групп</li>
+<li>Понимать, когда lag растёт и почему (slow consumer, broker overload, rebalance)</li>
+<li>Ставить алерты на lag и на ошибки consumer-а</li>
+<li>Различать проблему в коде своего consumer-а и проблему в кластере</li>
+</ol>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://docs.confluent.io/platform/current/kafka/monitoring.html" target="_blank" rel="noopener">Kafka Monitoring Guide — Confluent</a></td><td>Полное руководство по метрикам Kafka.</td></tr>
+<tr><td><a href="https://github.com/danielqsj/kafka_exporter" target="_blank" rel="noopener">kafka-exporter for Prometheus</a></td><td>Популярный экспортёр метрик.</td></tr>
+<tr><td><a href="https://github.com/linkedin/Burrow" target="_blank" rel="noopener">Burrow — LinkedIn consumer lag monitoring</a></td><td>Специализированный инструмент мониторинга lag.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое consumer lag и почему это главная метрика?</b></p>
+<p>Разница между последним записанным сообщением и тем, до которого consumer дочитал. Рост lag означает, что пайплайн отстаёт: признаки устаревают, inference принимает решения на старых данных.</p>
+</li>
+<li><p><b>Как отличить медленный consumer от перегруженного брокера?</b></p>
+<p>Медленный consumer: lag растёт для одной consumer группы при нормальном <code>messages_in_per_sec</code>. Перегруженный брокер: растут <code>request_latency_ms</code>, <code>under_replicated_partitions</code>, lag у всех групп одновременно.</p>
+</li>
+<li><p><b>Что означает <code>under_replicated_partitions &gt; 0</code>?</b></p>
+<p>Одна или несколько партиций не имеют полного числа in-sync реплик. Это признак проблемы с брокером или сетью — риск потери данных при отказе лидер-брокера.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka_alternatives" data-badge-type="additional" data-interview="2">
+  <div class="name" id="kafka_alternatives">
+    Альтернативы Kafka
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Kafka — отраслевой стандарт, но не единственный вариант. ML Engineer встречает альтернативы в облачных решениях, legacy-системах и нишевых сценариях.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Сравнение">
+<table class="task-table">
+<thead><tr><th>Система</th><th>Модель</th><th>Throughput</th><th>Управляемость</th><th>Когда выбирают</th></tr></thead>
+<tbody>
+<tr><td><b>Apache Kafka</b></td><td>Pub/Sub + log</td><td>очень высокий</td><td>self-hosted или Confluent Cloud</td><td>production ML-платформы, высокий объём событий</td></tr>
+<tr><td><b>AWS Kinesis</b></td><td>Shard-based streams</td><td>высокий</td><td>полностью managed</td><td>AWS-only stack, не хочется управлять Kafka</td></tr>
+<tr><td><b>Google Pub/Sub</b></td><td>Pub/Sub</td><td>высокий</td><td>полностью managed</td><td>GCP-stack, serverless</td></tr>
+<tr><td><b>Azure Event Hubs</b></td><td>Kafka-совместимый</td><td>высокий</td><td>managed</td><td>Azure-stack; Kafka-клиент работает без изменений</td></tr>
+<tr><td><b>Apache Pulsar</b></td><td>Topic + namespace</td><td>высокий</td><td>сложнее Kafka</td><td>нужна multi-tenancy, geo-replication из коробки</td></tr>
+<tr><td><b>RabbitMQ</b></td><td>AMQP queue</td><td>средний</td><td>проще Kafka</td><td>task queues, work queues, не потоки</td></tr>
+<tr><td><b>Redis Streams</b></td><td>In-memory log</td><td>очень высокий</td><td>managed (Redis Cloud)</td><td>малый объём, уже используется Redis, простые очереди</td></tr>
+<tr><td><b>NATS JetStream</b></td><td>Pub/Sub + stream</td><td>высокий</td><td>лёгкий деплой</td><td>микросервисы, IoT, простые пайплайны</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="AWS Kinesis — ближайший managed-аналог">
+<p>Kinesis Data Streams аналогичен Kafka: shards = partitions, sequence number = offset, consumer groups = KCL applications. Ключевые отличия:</p>
+<ul>
+<li><b>Retention</b>: 1–365 дней (у Kafka — настраивается)</li>
+<li><b>Throughput</b>: 1 MB/s write и 2 MB/s read на shard (у Kafka — выше)</li>
+<li><b>Масштабирование</b>: в Kinesis надо явно добавлять shards; в Kafka добавляются партиции</li>
+<li><b>Цена</b>: managed overhead vs self-hosted Kafka на EC2</li>
+</ul>
+<p>Для AWS-first компаний Kinesis — разумный выбор, чтобы не управлять Kafka-кластером.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="RabbitMQ — другая парадигма">
+<p>RabbitMQ — классическая <b>очередь задач</b> (task queue), а не журнал событий. Ключевые отличия от Kafka:</p>
+<ul>
+<li>сообщение удаляется после обработки одним consumer-ом</li>
+<li>нет долгосрочного хранения истории</li>
+<li>сложная маршрутизация через exchanges (direct, fanout, topic, headers)</li>
+<li>проще для simple work queues, сложнее для нескольких независимых consumer-групп</li>
+</ul>
+<p>В ML RabbitMQ иногда используют для очередей задач обучения или inference-воркеров, но не для событийных пайплайнов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Redis Streams — когда всё уже на Redis">
+<p>Redis Streams добавляет журнал событий в Redis. Подходит, когда:</p>
+<ul>
+<li>объём небольшой (&lt; 1M событий/день)</li>
+<li>уже используется Redis для кэша</li>
+<li>нужна простая очередь с acknowledgement</li>
+</ul>
+<p>Не подходит, если данные не умещаются в памяти или нужна долгосрочная ретенция.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда стоит использовать AWS Kinesis вместо Kafka?</b></p>
+<p>Когда вся инфраструктура на AWS и нет ресурсов управлять Kafka-кластером. Kinesis managed, интегрирован с Lambda, Firehose, Glue — это снижает операционную нагрузку.</p>
+</li>
+<li><p><b>Чем RabbitMQ концептуально отличается от Kafka?</b></p>
+<p>RabbitMQ — очередь задач: сообщение обрабатывает один consumer, затем оно удаляется. Kafka — журнал событий: сообщения хранятся долго и могут быть прочитаны множеством независимых групп.</p>
+</li>
+<li><p><b>Когда Apache Pulsar предпочтительнее Kafka?</b></p>
+<p>Когда нужна встроенная multi-tenancy, geo-replication на уровне топиков или раздельное масштабирование хранилища и вычислений (tiered storage из коробки).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="mlops:kafka"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+  </main>
+  <script src="../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../assets/js/init-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,519 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Первые шаги</title>
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="assets/css/styles.css" rel="stylesheet" />
+    <link href="assets/css/navigation.css" rel="stylesheet" />
+    <link href="assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="assets/css/start-diagnostic.css" rel="stylesheet" />
+    <script src="assets/js/components/navigation.js"></script>
+
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<script src="assets/js/components/anchor-scroll.js"></script>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body class="start" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="assets/icons/start.svg" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Первые шаги</h1>
+            <p class="subtitle">Перед тем, как мы начнем работу</p>
+          </div>
+        </div>
+      </header>
+
+      <h2>Первым делом</h2>
+      <section class="diagnostic-panel" aria-labelledby="diagnostic-title">
+        <div class="diagnostic-panel__header">
+          <div>
+            <div class="diagnostic-panel__eyebrow">Стартовая диагностика</div>
+            <h2 class="diagnostic-panel__title" id="diagnostic-title">
+              Подбери маршрут под свой текущий уровень
+            </h2>
+            <p class="diagnostic-panel__description">
+              Ответь на тест по Python, математике, Classic ML, DL и NLP — по 14
+              вопросов на раздел, от базовых до собеседовательных. Платформа
+              покажет, что можно пропустить, что повторить и с какого раздела
+              лучше начать.
+            </p>
+          </div>
+          <div
+            class="diagnostic-panel__meta"
+            aria-label="Параметры диагностики"
+          >
+            <span class="diagnostic-pill">70 вопросов</span>
+            <span class="diagnostic-pill">20-30 минут</span>
+          </div>
+        </div>
+        <div class="diagnostic-panel__body" id="start-diagnostic">
+          <div class="diagnostic-empty">Загружаем диагностику...</div>
+        </div>
+      </section>
+
+      <!-- <div class="cards-grid"> -->
+      <!-- <a href="profile/settings.html" class="card" target="_blank">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/profile.png" alt="Профиль" />
+            </div>
+            <h3 class="card-title">Выбери имя в профиле</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Оно будет отображаться в календаре и лидерборде. Лучше назовись
+              своим именем, чтобы было удобно ориентироваться в списке студентов
+            </p>
+            <span class="card-link">Выбрать имя</span>
+          </div>
+        </a>
+        <a
+          href="https://docs.google.com/forms/d/e/1FAIpQLSc_A9TfqJEuTnzGjoUjnLzxZ2kQr5Kzyfj-Q2FPvAT3ysjz9A/viewform?usp=header"
+          class="card"
+          target="_blank"
+        >
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/form.svg" alt="Форма" />
+            </div>
+            <h3 class="card-title">Заполни форму</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Оцени свой текущий уровень знаний по разным областям по шкале 1-5
+            </p>
+            <span class="card-link">Открыть форму</span>
+          </div>
+        </a> -->
+      <!-- <a href="guide/index.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">📚</div>
+            <h3 class="card-title">Гайд по платформе</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Краткая инструкция по работе с платформой: алгоритм работы, отслеживание прогресса, поиск работы и другое
+            </p>
+            <span class="card-link">Открыть гайд</span>
+          </div>
+        </a> -->
+      <!-- </div> -->
+
+      <h2>Про совместную работу</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/chat.svg" alt="Созвоны" />
+            </div>
+            <h3 class="card-title">Созвоны</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              <b>Созвоны — раз в неделю, ~10-40 минут.</b>
+              Разбираем все вопросы, которые у тебя возникли
+            </p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/idea.svg" alt="Обратная связь" />
+            </div>
+            <h3 class="card-title">Обратная связь</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Любая
+              <b>критика, пожелания и предложения</b>
+              приветствуются
+            </p>
+          </div>
+        </div>
+        <!-- <div class="card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/time.svg" alt="Время ответа" />
+            </div>
+            <h3 class="card-title">Время ответа</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              В будни работаю, поэтому могу на несколько часов задержаться с
+              ответом (об этом я стараюсь предупреждать заранее)
+            </p>
+          </div>
+        </div> -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/question.svg" alt="Задавай вопросы" />
+            </div>
+            <h3 class="card-title">Задавай вопросы</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Чем больше вопросов ты задаешь, тем быстрее ты будешь продвигаться
+              в обучении
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="cards-grid">
+        <a href="roadmap/index.html" class="card visualization-card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/roadmap.svg" alt="RoadMap" />
+            </div>
+            <h3 class="card-title">RoadMap</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Темы снабжены <b>ссылками</b> на весь уникальный материал, который
+              ты будешь изучать
+            </p>
+            <span class="card-link">Открыть RoadMap</span>
+          </div>
+        </a>
+      </div>
+
+      <h2>Про практику: GitHub</h2>
+      <div class="cards-grid">
+        <a href="https://github.com/" class="card" target="_blank">
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/git.png" alt="GitHub" />
+            </div>
+            <h3 class="card-title">1. Регистрация GitHub</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Зарегистрируйся на GitHub, если у тебя еще нет аккаунта
+            </p>
+            <span class="card-link">Зарегистрироваться</span>
+          </div>
+        </a>
+        <a
+          href="#"
+          class="card"
+          onclick="alert(t('Скинь ссылку на GitHub в личные сообщения'))"
+        >
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/link.svg" alt="GitHub профиль" />
+            </div>
+            <h3 class="card-title">2. GitHub профиль</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Скинь ссылку на свой GitHub для добавления в приватный репозиторий
+            </p>
+            <span class="card-link">Отправить ссылку</span>
+          </div>
+        </a>
+        <a
+          href="https://git-scm.com/downloads/win"
+          class="card"
+          target="_blank"
+        >
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/download.svg" alt="Git" />
+            </div>
+            <h3 class="card-title">3. Git</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Скачай и установи Git, чтобы работать с репозиториями
+            </p>
+            <span class="card-link">Скачать Git</span>
+          </div>
+        </a>
+        <a
+          href="https://desktop.github.com/download/"
+          class="card"
+          target="_blank"
+        >
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/desktop.svg" alt="GitHub Desktop" />
+            </div>
+            <h3 class="card-title">4. GitHub Desktop</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Скачай GitHub Desktop для удобной работы с репозиториями
+            </p>
+            <span class="card-link">Скачать Desktop</span>
+          </div>
+        </a>
+        <!-- <a
+          href="https://learngitbranching.js.org/?locale=ru_RU"
+          class="card"
+          target="_blank"
+        >
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/training.svg" alt="Git тренажер" />
+            </div>
+            <h3 class="card-title">Git тренажер</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Интерактивный тренажер изучения Git. Полезен уже после знакомства
+              с git
+            </p>
+            <span class="card-link">Начать обучение</span>
+          </div>
+        </a> -->
+        <a href="github/index.html" class="card" target="_blank">
+          <div class="card-header">
+            <div class="card-icon git">
+              <img src="assets/icons/book.svg" alt="Git понятия" />
+            </div>
+            <h3 class="card-title">5. Git понятия</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Основные понятия и команды Git</p>
+            <span class="card-link">Изучить понятия</span>
+          </div>
+        </a>
+      </div>
+    </main>
+
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/components/start-diagnostic-questions.js"></script>
+    <script src="assets/js/components/start-diagnostic.js"></script>
+    <script src="authGuard.js"></script>
+  </body>
+</html>

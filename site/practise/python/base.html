@@ -1,0 +1,1622 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Python Base Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../../assets/code-styles.css">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/exercise-checker.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/exercise-checker.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/index.html">Практика</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/python.html">Python Практика</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Python Base Практика</span></li>
+        </ol>
+      </nav>
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Практика</span>
+            <span class="pill pill--soft">Python Base</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Python Base Практика</h1>
+          <p class="section-shell__desc">Практические задачи по базовому синтаксису, файлам, исключениям, ООП и стандартным инструментам Python.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Python Base</h3>
+<li class="question" data-md-source="true" data-md-id="filter_positive_even" data-difficulty="easy" data-tests="assert filter_positive_even([-2, 0, 4, 5, 3, 10, -8]) == [4, 10], &quot;Пример из задания -&gt; [4, 10]&quot;
+assert filter_positive_even([]) == [], &quot;Пустой список -&gt; пустой список&quot;
+assert filter_positive_even([-2, -4, 1, 3]) == [], &quot;Нет положительных чётных -&gt; пустой список&quot;
+assert filter_positive_even([2, 4, 6]) == [2, 4, 6], &quot;Все положительные чётные -&gt; без изменений&quot;
+assert filter_positive_even([0, 2, 4]) == [2, 4], &quot;0 не является положительным -&gt; [2, 4]&quot;
+assert filter_positive_even([-6, 7, 8, 9, 12]) == [8, 12], &quot;Смешанные значения -&gt; [8, 12]&quot;
+assert filter_positive_even([1, 3, 5, 7]) == [], &quot;Только нечётные положительные -&gt; пустой список&quot;">
+  <div class="name question-difficulty-easy" id="filter_positive_even">
+    Положительные чётные числа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить фильтрацию списков и работу с условиями (положительные и чётные числа).</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>filter_positive_even(numbers)</code>, которая принимает список целых чисел и возвращает новый список, содержащий только положительные чётные числа.</p>
+<p>Функция не должна менять исходный список: собери и верни новый список с подходящими элементами. Число подходит, если оно одновременно больше нуля и делится на <code>2</code> без остатка. Например, для <code>[-2, 0, 3, 4, 6]</code> результат должен быть <code>[4, 6]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def filter_positive_even(numbers):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="nested_loops_table" data-difficulty="easy" data-tests="assert multiplication_table(3) == [[1, 2, 3], [2, 4, 6], [3, 6, 9]], &quot;Таблица 3x3: строки [1, 2, 3], [2, 4, 6], [3, 6, 9]&quot;
+assert multiplication_table(1) == [[1]], &quot;Таблица 1x1: [[1]]&quot;
+assert multiplication_table(4) == [[1, 2, 3, 4], [2, 4, 6, 8], [3, 6, 9, 12], [4, 8, 12, 16]], &quot;Таблица 4x4: каждая строка — умножение номера строки на 1, 2, …, n&quot;">
+  <div class="name question-difficulty-easy" id="nested_loops_table">
+    Таблица умножения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить вложенные циклы и построение таблиц в виде списка списков.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>multiplication_table(n)</code>, которая возвращает таблицу умножения от 1 до <code>n</code> включительно — список списков чисел.</p>
+<p>Например, <code>multiplication_table(3)</code> должна вернуть <code>[[1, 2, 3], [2, 4, 6], [3, 6, 9]]</code>. Если вывести её построчно, получится:</p>
+<p>Внутренние списки должны быть строками таблицы: первая строка — умножение <code>1</code> на числа от <code>1</code> до <code>n</code>, вторая — умножение <code>2</code>, и так далее. Удобнее всего решить задачу двумя вложенными циклами или вложенным list comprehension. Не выводи таблицу внутри функции: она должна именно вернуть данные, чтобы их можно было дальше использовать в коде.</p>
+
+</div>
+<div class="code-block" data-lang="text">1 2 3
+2 4 6
+3 6 9</div><div class="code-block" data-lang="python">def multiplication_table(n):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="lambda_vs_def" data-difficulty="easy" data-tests="assert sort_by_length([&quot;python&quot;, &quot;ai&quot;, &quot;lambda&quot;, &quot;code&quot;]) == ['ai', 'code', 'python', 'lambda'], &quot;Пример из задания -&gt; ['ai', 'code', 'python', 'lambda']&quot;
+assert sort_by_length([]) == [], &quot;Пустой список -&gt; пустой список&quot;
+assert sort_by_length([&quot;a&quot;]) == [&quot;a&quot;], &quot;Один элемент -&gt; без изменений&quot;
+assert sort_by_length([&quot;bb&quot;, &quot;a&quot;, &quot;ccc&quot;]) == [&quot;a&quot;, &quot;bb&quot;, &quot;ccc&quot;], &quot;Длины 2, 1, 3 -&gt; сортировка 1&lt;2&lt;3&quot;
+assert sort_by_length([&quot;aa&quot;, &quot;bb&quot;, &quot;cc&quot;]) == [&quot;aa&quot;, &quot;bb&quot;, &quot;cc&quot;], &quot;Одинаковые длины -&gt; порядок сохраняется (стабильная сортировка)&quot;
+assert sort_by_length([&quot;z&quot;, &quot;ab&quot;, &quot;xyz&quot;]) == [&quot;z&quot;, &quot;ab&quot;, &quot;xyz&quot;], &quot;Длины 1, 2, 3 -&gt; уже отсортировано&quot;">
+  <div class="name question-difficulty-easy" id="lambda_vs_def">
+    Сортировка с ключом
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться использовать <code>lambda</code> в качестве ключа сортировки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>sort_by_length(words)</code>, которая сортирует список строк по длине с использованием <code>lambda</code>.</p>
+<p>Используй <code>sorted(...)</code> или метод <code>.sort(...)</code> с аргументом <code>key</code>, передав туда <code>lambda</code>, которая возвращает длину слова. Функция должна упорядочить слова от самых коротких к самым длинным. Например, <code>sort_by_length([&quot;python&quot;, &quot;ml&quot;, &quot;data&quot;])</code> должен вернуть <code>[&quot;ml&quot;, &quot;data&quot;, &quot;python&quot;]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def sort_by_length(words):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="with_file_read" data-difficulty="easy" data-tests="import tempfile as _tf, os as _os
+
+_f1 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f1.write(&quot;one\ntwo\nthree&quot;); _f1.close()
+assert read_last_line(_f1.name) == &quot;three&quot;, &quot;Последняя строка 'three' (без переноса) -&gt; 'three'&quot;
+_os.unlink(_f1.name)
+
+_f2 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f2.write(&quot;alpha\nbeta\ngamma\n&quot;); _f2.close()
+assert read_last_line(_f2.name).strip() == &quot;gamma&quot;, &quot;Последняя строка 'gamma' (с переносом) -&gt; 'gamma'&quot;
+_os.unlink(_f2.name)
+
+_f3 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f3.write(&quot;only line&quot;); _f3.close()
+assert read_last_line(_f3.name) == &quot;only line&quot;, &quot;Один строка в файле -&gt; 'only line'&quot;
+_os.unlink(_f3.name)
+
+_f4 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f4.write(&quot;x\ny\nz\n&quot;); _f4.close()
+assert read_last_line(_f4.name).strip() == &quot;z&quot;, &quot;Файл: x, y, z -&gt; последняя 'z'&quot;
+_os.unlink(_f4.name)">
+  <div class="name question-difficulty-easy" id="with_file_read">
+    Чтение последней строки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренироваться читать файлы через контекстный менеджер <code>with</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>read_last_line(path)</code>, которая с помощью <code>with</code> читает последнюю строку файла.</p>
+<p>Открой файл через контекстный менеджер, прочитай строки и верни последнюю из них. Обычно удобно убрать завершающий перевод строки через <code>.strip()</code> или <code>.rstrip(&quot;\n&quot;)</code>, чтобы результатом была сама строка, а не строка с <code>\n</code> на конце. Например, если файл заканчивается строкой <code>&quot;done\n&quot;</code>, функция должна вернуть <code>&quot;done&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def read_last_line(filename):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="exception_safe_division" data-difficulty="easy" data-tests="assert safe_divide(10, 2) == 5.0, &quot;10 / 2 -&gt; 5.0&quot;
+assert safe_divide(5, 0) == &quot;На ноль делить нельзя&quot;, &quot;5 / 0 -&gt; 'На ноль делить нельзя'&quot;
+assert safe_divide(0, 5) == 0.0, &quot;0 / 5 -&gt; 0.0&quot;
+assert safe_divide(-10, 2) == -5.0, &quot;-10 / 2 -&gt; -5.0&quot;
+assert safe_divide(0, 0) == &quot;На ноль делить нельзя&quot;, &quot;0 / 0 -&gt; 'На ноль делить нельзя'&quot;
+assert safe_divide(7, 2) == 3.5, &quot;7 / 2 -&gt; 3.5&quot;
+assert isinstance(safe_divide(1, 3), float), &quot;Результат деления без нуля должен быть float&quot;">
+  <div class="name question-difficulty-easy" id="exception_safe_division">
+    Безопасное деление
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить обработку исключений при делении.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>safe_divide(x, y)</code>, которая возвращает результат деления <code>x / y</code>, либо строку &quot;На ноль делить нельзя&quot;, если <code>y == 0</code>.</p>
+<p>Задача показывает простой случай, когда ошибочную ситуацию лучше обработать явно и вернуть понятное сообщение. Для обычных значений функция должна вести себя как деление: <code>safe_divide(10, 2)</code> возвращает <code>5.0</code>. Если знаменатель равен нулю, не давай программе упасть с <code>ZeroDivisionError</code>, а верни указанную строку.</p>
+
+</div>
+<div class="code-block" data-lang="python">def safe_divide(a, b):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="exceptions_parse_numbers" data-difficulty="medium" data-tests="assert parse_ints([&quot;1&quot;, &quot;x&quot;, &quot;2&quot;]) == [1, 2], &quot;Некорректные пропускаются&quot;
+assert parse_ints([]) == [], &quot;Пустой список&quot;
+assert parse_ints([&quot;-3&quot;, &quot;0&quot;]) == [-3, 0], &quot;Отрицательные и ноль&quot;">
+  <div class="name question-difficulty-medium" id="exceptions_parse_numbers">
+    Безопасный парсинг чисел
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать обработку исключений при преобразовании типов.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>parse_ints(values)</code>, которая возвращает список целых чисел, пропуская строки, которые нельзя преобразовать.</p>
+<p>На вход приходит список строк из внешнего источника, где часть значений может быть испорчена. Пробуй преобразовать каждое значение через <code>int(...)</code>, а ошибки преобразования обрабатывай через <code>try</code> / <code>except</code>, не останавливая всю функцию. Например, <code>parse_ints([&quot;10&quot;, &quot;x&quot;, &quot;3&quot;])</code> должен вернуть <code>[10, 3]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def parse_ints(values):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="exceptions_bank_account" data-difficulty="hard" data-tests="assert withdraw(100, 30) == 70, &quot;100 - 30 -&gt; 70&quot;
+try:
+    withdraw(100, 0)
+    assert False, &quot;withdraw(100, 0) должен выбросить ValueError&quot;
+except ValueError as e:
+    assert str(e) == &quot;amount must be positive&quot;, &quot;Нулевая сумма запрещена&quot;
+try:
+    withdraw(50, 70)
+    assert False, &quot;withdraw(50, 70) должен выбросить ValueError&quot;
+except ValueError as e:
+    assert str(e) == &quot;not enough money&quot;, &quot;Нельзя уйти в минус&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="exceptions_bank_account">
+    Списание со счёта
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить явные исключения и бизнес-правила.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>withdraw(balance, amount)</code>. Если <code>amount &lt;= 0</code>, выброси <code>ValueError(&quot;amount must be positive&quot;)</code>; если денег не хватает — <code>ValueError(&quot;not enough money&quot;)</code>.</p>
+<p>Функция моделирует снятие денег со счёта, поэтому сначала нужно проверить бизнес-правила, а уже потом считать новый баланс. При корректной операции верни остаток: например, <code>withdraw(100, 30)</code> должен вернуть <code>70</code>. Если сумма снятия нулевая, отрицательная или больше баланса, функция должна выбросить исключение с точным текстом из условия.</p>
+
+</div>
+<div class="code-block" data-lang="python">def withdraw(balance, amount):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="grade_classifier" data-difficulty="easy" data-tests="assert grade_to_text(91) == &quot;Отлично&quot;, &quot;91 -&gt; 'Отлично'&quot;
+assert grade_to_text(85) == &quot;Отлично&quot;, &quot;85 (граница снизу) -&gt; 'Отлично'&quot;
+assert grade_to_text(100) == &quot;Отлично&quot;, &quot;100 -&gt; 'Отлично'&quot;
+assert grade_to_text(84) == &quot;Хорошо&quot;, &quot;84 (граница сверху) -&gt; 'Хорошо'&quot;
+assert grade_to_text(73) == &quot;Хорошо&quot;, &quot;73 -&gt; 'Хорошо'&quot;
+assert grade_to_text(70) == &quot;Хорошо&quot;, &quot;70 (граница снизу) -&gt; 'Хорошо'&quot;
+assert grade_to_text(69) == &quot;Удовлетворительно&quot;, &quot;69 (граница сверху) -&gt; 'Удовлетворительно'&quot;
+assert grade_to_text(60) == &quot;Удовлетворительно&quot;, &quot;60 -&gt; 'Удовлетворительно'&quot;
+assert grade_to_text(50) == &quot;Удовлетворительно&quot;, &quot;50 (граница снизу) -&gt; 'Удовлетворительно'&quot;
+assert grade_to_text(49) == &quot;Неудовлетворительно&quot;, &quot;49 (граница сверху) -&gt; 'Неудовлетворительно'&quot;
+assert grade_to_text(40) == &quot;Неудовлетворительно&quot;, &quot;40 -&gt; 'Неудовлетворительно'&quot;
+assert grade_to_text(0) == &quot;Неудовлетворительно&quot;, &quot;0 -&gt; 'Неудовлетворительно'&quot;">
+  <div class="name question-difficulty-easy" id="grade_classifier">
+    Классификатор оценок
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренироваться писать условные ветвления по диапазонам значений.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>grade_to_text(score)</code>, которая принимает число от 0 до 100 и возвращает строку:</p>
+<ul>
+<li>&quot;Отлично&quot; — если 85 и выше</li>
+<li>&quot;Хорошо&quot; — если от 70 до 84</li>
+<li>&quot;Удовлетворительно&quot; — если от 50 до 69</li>
+<li>&quot;Неудовлетворительно&quot; — если ниже 50</li>
+</ul>
+<p>Здесь важно правильно расставить условия, чтобы граничные оценки попали в нужные категории. Например, <code>85</code> — уже <code>&quot;Отлично&quot;</code>, <code>84</code> — ещё <code>&quot;Хорошо&quot;</code>, а <code>50</code> — <code>&quot;Удовлетворительно&quot;</code>. Удобнее идти сверху вниз: сначала проверить самые высокие оценки, затем более низкие диапазоны.</p>
+
+</div>
+<div class="code-block" data-lang="python">def grade_to_text(score):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="conditionals_range_label" data-difficulty="medium" data-tests="assert range_label(3) == &quot;low&quot;, &quot;3 -&gt; low&quot;
+assert range_label(10) == &quot;middle&quot;, &quot;10 -&gt; middle&quot;
+assert range_label(99) == &quot;middle&quot;, &quot;99 -&gt; middle&quot;
+assert range_label(100) == &quot;high&quot;, &quot;100 -&gt; high&quot;">
+  <div class="name question-difficulty-medium" id="conditionals_range_label">
+    Метка диапазона
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить ветвления и граничные значения.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>range_label(value)</code>: меньше 10 — <code>&quot;low&quot;</code>, от 10 до 99 включительно — <code>&quot;middle&quot;</code>, 100 и больше — <code>&quot;high&quot;</code>.</p>
+<p>В этой задаче важно аккуратно обработать границы диапазонов, потому что ошибки чаще всего возникают на значениях <code>10</code>, <code>99</code> и <code>100</code>. Используй обычные <code>if</code> / <code>elif</code> / <code>else</code>, чтобы каждое число попадало ровно в одну категорию. Например, <code>range_label(9)</code> возвращает <code>&quot;low&quot;</code>, <code>range_label(10)</code> — <code>&quot;middle&quot;</code>, а <code>range_label(100)</code> — <code>&quot;high&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def range_label(value):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="timer" data-difficulty="easy" data-tests="import time as _time
+
+@timer
+def _fast():
+    return 42
+
+_res = _fast()
+assert _res == 42, &quot;Декоратор не должен изменять возвращаемое значение: _fast() -&gt; 42&quot;
+
+@timer
+def _add(a, b):
+    return a + b
+
+assert _add(2, 3) == 5, &quot;Декоратор не изменяет результат сложения: _add(2, 3) -&gt; 5&quot;
+
+_t0 = _time.perf_counter()
+@timer
+def _sleep_func():
+    _time.sleep(0.05)
+_sleep_func()
+assert _time.perf_counter() - _t0 &gt;= 0.05, &quot;Таймер должен работать — функция заняла не менее 0.05 с&quot;">
+  <div class="name question-difficulty-easy" id="timer">
+    Таймер
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться писать декораторы для измерения времени выполнения функции.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай декоратор <code>timer</code>, который подсчитывает время работы функции.</p>
+<p>Декоратор должен обернуть исходную функцию, измерить время до и после её выполнения и вернуть результат исходной функции. Для измерения удобно использовать <code>time.perf_counter()</code>, потому что он хорошо подходит для коротких промежутков времени. Например, если обернуть функцию с <code>sleep(0.1)</code>, декоратор должен выполнить её и зафиксировать ненулевую длительность.</p>
+
+</div>
+<div class="code-block" data-lang="python">import time
+from functools import wraps
+
+def timer(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        pass
+    return wrapper</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="book_shelf" data-difficulty="medium" data-tests="_shelf = BookShelf()
+assert _shelf.get_all_books() == [], &quot;Новая полка пустая&quot;
+_shelf.add_book(&quot;1984&quot;, &quot;George Orwell&quot;)
+_shelf.add_book(&quot;The Martian&quot;, &quot;Andy Weir&quot;)
+_shelf.add_book(&quot;Animal Farm&quot;, &quot;George Orwell&quot;)
+assert len(_shelf.get_all_books()) == 3, &quot;После добавления 3 книг -&gt; 3&quot;
+assert (&quot;1984&quot;, &quot;George Orwell&quot;) in _shelf.get_all_books(), &quot;('1984', 'George Orwell') должна быть на полке&quot;
+assert _shelf.get_books_by_author(&quot;George Orwell&quot;) == [(&quot;1984&quot;, &quot;George Orwell&quot;), (&quot;Animal Farm&quot;, &quot;George Orwell&quot;)], &quot;Книги Оруэлла -&gt; 2 книги&quot;
+assert _shelf.get_books_by_author(&quot;Andy Weir&quot;) == [(&quot;The Martian&quot;, &quot;Andy Weir&quot;)], &quot;Книги Уира -&gt; 1 книга&quot;
+assert _shelf.get_books_by_author(&quot;Unknown&quot;) == [], &quot;Неизвестный автор -&gt; пустой список&quot;
+_shelf.remove_book(&quot;1984&quot;)
+assert len(_shelf.get_all_books()) == 2, &quot;После удаления -&gt; 2 книги&quot;
+assert _shelf.get_books_by_author(&quot;George Orwell&quot;) == [(&quot;Animal Farm&quot;, &quot;George Orwell&quot;)], &quot;После удаления '1984' остаётся только 'Animal Farm'&quot;">
+  <div class="name question-difficulty-medium" id="book_shelf">
+    Библиотека книг
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить ООП: классы, методы, хранение и поиск данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Реализуй класс <code>BookShelf</code> с методами:</p>
+<ul>
+<li><code>add_book(title, author)</code> — добавляет книгу (хранит как кортеж);</li>
+<li><code>remove_book(title)</code> — удаляет книгу по названию;</li>
+<li><code>get_books_by_author(author)</code> — возвращает список книг указанного автора;</li>
+<li><code>get_all_books()</code> — возвращает все книги в виде списка.</li>
+</ul>
+<p>Считай, что <code>BookShelf</code> — маленькая in-memory библиотека: все книги хранятся внутри объекта, без файлов и баз данных. После добавления книги она должна появляться в общем списке и находиться по автору; после удаления по названию — исчезать из выдачи. Например, если добавить <code>(&quot;1984&quot;, &quot;George Orwell&quot;)</code>, то <code>get_books_by_author(&quot;George Orwell&quot;)</code> должен вернуть список с этой книгой.</p>
+
+</div>
+<div class="code-block" data-lang="python">class BookShelf:
+    def __init__(self):
+        pass
+
+    def add_book(self, title, author):
+        pass
+
+    def remove_book(self, title):
+        pass
+
+    def get_books_by_author(self, author):
+        pass
+
+    def get_all_books(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="generate_grid" data-difficulty="easy" data-tests="assert generate_grid(2, 3) == [[1, 2, 3], [4, 5, 6]], &quot;generate_grid(2, 3) -&gt; [[1, 2, 3], [4, 5, 6]]&quot;
+assert generate_grid(1, 4) == [[1, 2, 3, 4]], &quot;generate_grid(1, 4) -&gt; [[1, 2, 3, 4]]&quot;
+assert generate_grid(3, 3) == [[1, 2, 3], [4, 5, 6], [7, 8, 9]], &quot;generate_grid(3, 3) -&gt; 3x3 сетка&quot;
+assert generate_grid(1, 1) == [[1]], &quot;generate_grid(1, 1) -&gt; [[1]]&quot;
+assert len(generate_grid(4, 5)) == 4, &quot;generate_grid(4, 5) -&gt; 4 строки&quot;
+assert len(generate_grid(4, 5)[0]) == 5, &quot;generate_grid(4, 5) -&gt; 5 столбцов&quot;
+assert generate_grid(2, 2)[1][1] == 4, &quot;generate_grid(2, 2): последний элемент -&gt; 4&quot;">
+  <div class="name question-difficulty-easy" id="generate_grid">
+    Генерация сетки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренироваться создавать вложенные списки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>generate_grid(n, m)</code>, которая возвращает список списков ($n$ строк, $m$ столбцов), заполненный числами от $1$ по $n \cdot m$.</p>
+<p>Заполняй таблицу построчно: сначала первая строка слева направо, затем вторая и так далее. В результате должен получиться вложенный список, где каждый внутренний список — отдельная строка сетки. Например, <code>generate_grid(2, 3)</code> должен вернуть <code>[[1, 2, 3], [4, 5, 6]]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def generate_grid(rows, cols):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="comprehensions_word_lengths" data-difficulty="medium" data-tests="assert word_lengths([&quot;ai&quot;, &quot;python&quot;, &quot;ml&quot;], 3) == {&quot;python&quot;: 6}, &quot;Фильтр по длине&quot;
+assert word_lengths([], 2) == {}, &quot;Пустой список&quot;
+assert word_lengths([&quot;cat&quot;, &quot;dog&quot;], 3) == {&quot;cat&quot;: 3, &quot;dog&quot;: 3}, &quot;Граница включается&quot;">
+  <div class="name question-difficulty-medium" id="comprehensions_word_lengths">
+    Длины слов через comprehension
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить dict comprehension и фильтрацию.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>word_lengths(words, min_len)</code>, возвращающую <code>{слово: длина}</code> для слов длиной не меньше <code>min_len</code>.</p>
+<p>Функция должна пройти по списку слов, отфильтровать слишком короткие и собрать словарь через dict comprehension. Ключом должно быть само слово, а значением — его длина, посчитанная через <code>len()</code>. Например, для <code>[&quot;cat&quot;, &quot;python&quot;, &quot;ml&quot;]</code> и <code>min_len=3</code> результатом будет <code>{&quot;cat&quot;: 3, &quot;python&quot;: 6}</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def word_lengths(words, min_len):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sort_by_second_letter" data-difficulty="easy" data-tests="assert sort_by_second_letter([&quot;xz&quot;, &quot;xa&quot;, &quot;xb&quot;]) == [&quot;xa&quot;, &quot;xb&quot;, &quot;xz&quot;], &quot;Сортировка по второй букве: a &lt; b &lt; z&quot;
+assert sort_by_second_letter([]) == [], &quot;Пустой список -&gt; пустой список&quot;
+assert sort_by_second_letter([&quot;ab&quot;]) == [&quot;ab&quot;], &quot;Один элемент -&gt; без изменений&quot;
+assert sort_by_second_letter([&quot;ba&quot;, &quot;ca&quot;, &quot;da&quot;]) == [&quot;ba&quot;, &quot;ca&quot;, &quot;da&quot;], &quot;Одинаковые вторые буквы -&gt; исходный порядок (стабильная сортировка)&quot;
+assert sort_by_second_letter([&quot;dog&quot;, &quot;apple&quot;, &quot;cat&quot;]) == [&quot;cat&quot;, &quot;dog&quot;, &quot;apple&quot;], &quot;dog(o), apple(p), cat(a) -&gt; ['cat', 'dog', 'apple']&quot;
+assert sort_by_second_letter([&quot;az&quot;, &quot;bm&quot;, &quot;ca&quot;]) == [&quot;ca&quot;, &quot;bm&quot;, &quot;az&quot;], &quot;a &lt; m &lt; z -&gt; ['ca', 'bm', 'az']&quot;">
+  <div class="name question-difficulty-easy" id="sort_by_second_letter">
+    Сортировка по второй букве
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить сортировку с ключом по элементу строки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>sort_by_second_letter(words)</code>, которая сортирует список слов по второй букве.</p>
+<p>Передай в сортировку <code>key</code>, который берёт символ с индексом <code>1</code>. Считай, что в тестах слова достаточно длинные и у каждого есть вторая буква. Например, слова <code>[&quot;cat&quot;, &quot;apple&quot;, &quot;dog&quot;]</code> сортируются по буквам <code>&quot;a&quot;</code>, <code>&quot;p&quot;</code>, <code>&quot;o&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def sort_by_second_letter(words):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="count_lines" data-difficulty="medium" data-tests="import tempfile as _tf, os as _os
+
+_f1 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f1.write(&quot;hello\nworld\npython\n&quot;); _f1.close()
+assert count_lines(_f1.name) == 3, &quot;Файл из 3 строк -&gt; 3&quot;
+_os.unlink(_f1.name)
+
+_f2 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f2.write(&quot;one line&quot;); _f2.close()
+assert count_lines(_f2.name) == 1, &quot;Файл из одной строки без переноса -&gt; 1&quot;
+_os.unlink(_f2.name)
+
+_f3 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f3.write(&quot;&quot;); _f3.close()
+assert count_lines(_f3.name) == 0, &quot;Пустой файл -&gt; 0&quot;
+_os.unlink(_f3.name)
+
+_f4 = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+_f4.write(&quot;a\nb\nc\nd\ne\n&quot;); _f4.close()
+assert count_lines(_f4.name) == 5, &quot;Файл из 5 строк -&gt; 5&quot;
+_os.unlink(_f4.name)">
+  <div class="name question-difficulty-medium" id="count_lines">
+    Количество строк в файле
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренироваться читать файлы и считать строки через контекстный менеджер.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>count_lines(filename)</code>, которая возвращает количество строк в файле, используя контекстный менеджер.</p>
+<p>Открой файл через <code>with open(...)</code>, чтобы ресурс закрывался автоматически даже при ошибке. Считать нужно именно строки файла, а не непустые значения или слова внутри строк. Например, если в файле три строки, включая пустую строку посередине, функция всё равно должна вернуть <code>3</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def count_lines(filename):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="context_manager_csv_sum" data-difficulty="hard" data-tests="import tempfile as _tf, os as _os
+_f = _tf.NamedTemporaryFile(mode=&quot;w&quot;, delete=False)
+_f.write(&quot;1\n2\n\n3\n&quot;); _f.close()
+assert sum_numbers_file(_f.name) == 6, &quot;1 + 2 + 3 -&gt; 6&quot;
+_os.unlink(_f.name)">
+  <div class="name question-difficulty-hard question-hard-title" id="context_manager_csv_sum">
+    Сумма чисел из файла
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить чтение файла через <code>with</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>sum_numbers_file(filename)</code>, которая читает числа по одному в строке и возвращает сумму. Пустые строки игнорируй.</p>
+<p>Файл можно воспринимать как простой список чисел, где каждая непустая строка содержит одно значение. Открывай файл через <code>with</code>, проходи по строкам, убирай лишние пробелы и пропускай пустые строки. Например, файл со строками <code>10</code>, пустая строка и <code>5</code> должен дать сумму <code>15</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def sum_numbers_file(filename):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="point_repr_eq" data-difficulty="easy" data-tests="assert Point(1, 2) == Point(1, 2), &quot;Point(1, 2) == Point(1, 2) -&gt; True&quot;
+assert not (Point(1, 2) == Point(3, 4)), &quot;Point(1, 2) == Point(3, 4) -&gt; False&quot;
+assert Point(1, 2) != Point(1, 3), &quot;Point(1, 2) != Point(1, 3) -&gt; True&quot;
+assert repr(Point(1, 2)) == &quot;Point(1, 2)&quot;, &quot;repr(Point(1, 2)) -&gt; 'Point(1, 2)'&quot;
+assert repr(Point(0, 0)) == &quot;Point(0, 0)&quot;, &quot;repr(Point(0, 0)) -&gt; 'Point(0, 0)'&quot;
+assert repr(Point(-3, 5)) == &quot;Point(-3, 5)&quot;, &quot;repr(Point(-3, 5)) -&gt; 'Point(-3, 5)'&quot;">
+  <div class="name question-difficulty-easy" id="point_repr_eq">
+    Класс <code>Point</code> с <code>__repr__</code> и <code>__eq__</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить магические методы <code>__repr__</code> и <code>__eq__</code> в классах.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай класс <code>Point(x, y)</code>, реализуй методы <code>__repr__</code> и <code>__eq__</code>.</p>
+<p>Объект точки должен удобно печататься и корректно сравниваться с другой точкой. <code>__repr__</code> верни в предсказуемом формате, чтобы по нему было понятно, какие координаты хранятся внутри. <code>__eq__</code> должен возвращать <code>True</code>, если у двух точек совпадают <code>x</code> и <code>y</code>, например <code>Point(1, 2) == Point(1, 2)</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        pass
+
+    def __eq__(self, other):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="oop_modifiers" data-difficulty="medium" data-tests="_r1 = Rectangle.from_string(&quot;3x4&quot;)
+assert _r1.area() == 12, &quot;Rectangle.from_string('3x4').area() -&gt; 12&quot;
+assert _r1.perimeter == 14, &quot;Rectangle.from_string('3x4').perimeter -&gt; 14&quot;
+_r2 = Rectangle.unit_square()
+assert _r2.area() == 1, &quot;Rectangle.unit_square().area() -&gt; 1&quot;
+assert _r2.perimeter == 4, &quot;Rectangle.unit_square().perimeter -&gt; 4&quot;
+_r3 = Rectangle(5, 2)
+assert _r3.area() == 10, &quot;Rectangle(5, 2).area() -&gt; 10&quot;
+assert _r3.perimeter == 14, &quot;Rectangle(5, 2).perimeter -&gt; 14&quot;
+_r4 = Rectangle.from_string(&quot;10x10&quot;)
+assert _r4.area() == 100, &quot;Rectangle.from_string('10x10').area() -&gt; 100&quot;">
+  <div class="name question-difficulty-medium" id="oop_modifiers">
+    <code>@staticmethod</code>, <code>@classmethod</code>, <code>@property</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться использовать <code>@staticmethod</code>, <code>@classmethod</code> и <code>@property</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай класс <code>Rectangle</code>, у которого:</p>
+<ul>
+<li>Метод <code>area()</code> возвращает площадь</li>
+<li><code>from_string(cls, s)</code> — <b>classmethod</b>, создаёт прямоугольник из строки <code>&quot;3x4&quot;</code></li>
+<li><code>unit_square()</code> — <b>staticmethod</b>, возвращает квадрат 1$\times$1</li>
+<li><code>perimeter</code> — <b>property</b>, вычисляет периметр</li>
+</ul>
+<p>Класс должен показать разные способы описывать поведение: обычный метод работает с конкретным объектом, classmethod создаёт новый объект из строки, staticmethod не зависит от состояния, а property выглядит как атрибут. Например, <code>Rectangle.from_string(&quot;3x4&quot;).area()</code> должен вернуть <code>12</code>, а <code>Rectangle.unit_square().perimeter</code> — <code>4</code>. Не забудь хранить ширину и высоту внутри экземпляра.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        pass
+
+    @classmethod
+    def from_string(cls, s):
+        pass
+
+    @staticmethod
+    def unit_square():
+        pass
+
+    @property
+    def perimeter(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="classmethod_user_profile" data-difficulty="medium" data-tests="u = UserProfile.from_string(&quot;Ann:20&quot;)
+assert u.name == &quot;Ann&quot;, &quot;Имя&quot;
+assert u.age == 20, &quot;Возраст int&quot;
+assert u.is_adult == True, &quot;20 -&gt; adult&quot;
+assert UserProfile.from_string(&quot;Bob:17&quot;).is_adult == False, &quot;17 -&gt; not adult&quot;">
+  <div class="name question-difficulty-medium" id="classmethod_user_profile">
+    Профиль из строки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить <code>classmethod</code> и свойства.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай <code>UserProfile</code> с <code>name</code>, <code>age</code>, методом класса <code>from_string(&quot;Name:Age&quot;)</code> и свойством <code>is_adult</code>.</p>
+<p>Метод класса нужен как фабрика: он получает строку из внешнего источника и сам разбирает её на поля объекта. Например, <code>UserProfile.from_string(&quot;Anna:20&quot;)</code> должен создать профиль с именем <code>&quot;Anna&quot;</code> и возрастом <code>20</code>. Свойство <code>is_adult</code> должно вычисляться по возрасту: для <code>18</code> и старше возвращать <code>True</code>, для меньшего возраста — <code>False</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class UserProfile:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="classmethod_money" data-difficulty="hard" data-tests="m = Money.from_rubles(10.5)
+assert m.kopecks == 1050, &quot;10.5 руб -&gt; 1050 коп&quot;
+assert m.rubles == 10.5, &quot;rubles&quot;
+assert m.add(Money.from_rubles(2)).kopecks == 1250, &quot;Сложение&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="classmethod_money">
+    Деньги из копеек
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать фабричные методы и свойства.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай <code>Money</code>, хранящий сумму в копейках. Добавь <code>from_rubles(rubles)</code>, свойство <code>rubles</code> и метод <code>add(other)</code>.</p>
+<p>Идея задачи — хранить деньги во внутреннем формате без ошибок округления: внутри объекта лежит целое число копеек. <code>from_rubles(10)</code> должен создать объект на <code>1000</code> копеек, а свойство <code>rubles</code> должно возвращать значение в рублях. Метод <code>add(other)</code> должен складывать две суммы и возвращать новый объект <code>Money</code>, не ломая исходные.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Money:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="typing_annotations" data-difficulty="easy" data-tests="assert mean([1.0, 2.0, 3.0]) == 2.0, &quot;[1.0, 2.0, 3.0] -&gt; 2.0&quot;
+assert mean([5.0]) == 5.0, &quot;[5.0] -&gt; 5.0&quot;
+assert mean([0.0, 0.0, 0.0]) == 0.0, &quot;Нули -&gt; 0.0&quot;
+assert mean([-1.0, 1.0]) == 0.0, &quot;[-1.0, 1.0] -&gt; 0.0&quot;
+assert mean([2.5, 7.5]) == 5.0, &quot;[2.5, 7.5] -&gt; 5.0&quot;
+try:
+    mean([])
+    assert False, &quot;Пустой список должен вызывать ValueError или ZeroDivisionError&quot;
+except (ValueError, ZeroDivisionError):
+    pass">
+  <div class="name question-difficulty-easy" id="typing_annotations">
+    Аннотации типов, <code>annotations</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить аннотации типов и <code>from __future__ import annotations</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>mean(values)</code>, которая принимает список чисел и возвращает среднее. Используй:</p>
+<ul>
+<li>Аннотации типов (type hints)</li>
+<li><code>from __future__ import annotations</code></li>
+<li>Тип <code>list[float]</code> и возвращаемое значение <code>float</code></li>
+<li>Не забудь проверки краевых случаев (пустой список, валидные значения и т.д.)</li>
+</ul>
+<p>Функция должна быть написана так, чтобы её сигнатура сразу объясняла ожидаемые типы входа и выхода. Для обычного непустого списка верни сумму, делённую на количество элементов, например <code>mean([1.0, 2.0, 3.0]) == 2.0</code>. Для пустого списка выбери явную обработку, которая соответствует тестам: чаще всего это исключение, потому что среднего значения у пустого набора нет.</p>
+
+</div>
+<div class="code-block" data-lang="python">from __future__ import annotations
+
+def mean(values: list[float]) -&gt; float:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="typing_group_by_key" data-difficulty="medium" data-tests="assert group_by_first_letter([&quot;cat&quot;, &quot;car&quot;, &quot;dog&quot;]) == {&quot;c&quot;: [&quot;cat&quot;, &quot;car&quot;], &quot;d&quot;: [&quot;dog&quot;]}, &quot;Группировка&quot;
+assert group_by_first_letter([]) == {}, &quot;Пустой список&quot;">
+  <div class="name question-difficulty-medium" id="typing_group_by_key">
+    Группировка слов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить аннотации для коллекций.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>group_by_first_letter(words: list[str]) -&gt; dict[str, list[str]]</code>, группирующую слова по первой букве.</p>
+<p>Функция должна вернуть словарь, где ключ — первая буква слова, а значение — список всех слов, которые с неё начинаются. Сохраняй порядок слов внутри каждой группы таким, каким он был во входном списке. Например, для <code>[&quot;apple&quot;, &quot;ant&quot;, &quot;banana&quot;]</code> результат должен быть <code>{&quot;a&quot;: [&quot;apple&quot;, &quot;ant&quot;], &quot;b&quot;: [&quot;banana&quot;]}</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def group_by_first_letter(words: list[str]) -&gt; dict[str, list[str]]:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="typing_merge_profiles" data-difficulty="hard" data-tests="base = {&quot;name&quot;: &quot;Ann&quot;, &quot;age&quot;: 20}
+merged = merge_profiles(base, {&quot;age&quot;: 21})
+assert merged == {&quot;name&quot;: &quot;Ann&quot;, &quot;age&quot;: 21}, &quot;age обновился&quot;
+assert base == {&quot;name&quot;: &quot;Ann&quot;, &quot;age&quot;: 20}, &quot;base не мутирует&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="typing_merge_profiles">
+    Слияние профилей
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать типизацию словарей и отсутствие мутаций.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>merge_profiles(base: dict, updates: dict) -&gt; dict</code>: вернуть новый словарь, где <code>updates</code> переопределяет <code>base</code>.</p>
+<p>Функция похожа на обновление профиля пользователя: есть старые данные и есть новые значения, которые должны иметь приоритет. Важно вернуть новый словарь, а не менять <code>base</code> на месте, чтобы вызывающий код не получил неожиданный побочный эффект. Например, <code>merge_profiles({&quot;name&quot;: &quot;Ann&quot;, &quot;age&quot;: 20}, {&quot;age&quot;: 21})</code> должен вернуть <code>{&quot;name&quot;: &quot;Ann&quot;, &quot;age&quot;: 21}</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def merge_profiles(base: dict, updates: dict) -&gt; dict:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="functions_compose" data-difficulty="hard" data-tests="double = lambda x: x * 2
+inc = lambda x: x + 1
+assert compose(double, inc)(3) == 8, &quot;double(inc(3)) -&gt; 8&quot;
+assert compose(str, inc)(4) == &quot;5&quot;, &quot;str(inc(4)) -&gt; 5&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="functions_compose">
+    Композиция функций
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать функции как значения.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>compose(f, g)</code>, которая возвращает функцию, вычисляющую <code>f(g(x))</code>.</p>
+<p>Здесь нужно вернуть новую функцию, а не сразу посчитать значение. Когда эту новую функцию вызовут с аргументом <code>x</code>, она сначала применит <code>g</code>, а затем передаст результат в <code>f</code>. Например, если <code>f(x) = x + 1</code>, а <code>g(x) = x * 2</code>, то <code>compose(f, g)(3)</code> должен вернуть <code>7</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def compose(f, g):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="gradient_descent_1d" data-difficulty="hard" data-tests="result = gradient_descent(start=2.0, learning_rate=0.05, steps=100)
+assert abs(result) &lt; 1e-3, &quot;Минимум функции x^2 + 1/4*x^4 находится в точке 0&quot;
+
+result = gradient_descent(start=-2.0, learning_rate=0.05, steps=100)
+assert abs(result) &lt; 1e-3, &quot;К минимуму нужно сходиться и из отрицательной начальной точки&quot;
+
+result = gradient_descent(start=0.0, learning_rate=0.1, steps=10)
+assert result == 0.0, &quot;Если стартуем из минимума, x не должен измениться&quot;
+
+one_step = gradient_descent(start=1.0, learning_rate=0.1, steps=1)
+assert abs(one_step - 0.7) &lt; 1e-12, &quot;При x=1 производная равна 3, поэтому новый x = 1 - 0.1*3 = 0.7&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="gradient_descent_1d">
+    Градиентный спуск для функции одной переменной
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать производную функции, цикл и базовую формулу градиентного спуска.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Предупреждение">
+<p>На текущем этапе мы еще как бы не знаем, что такое градиентный спуск, он будет в разделе с Deep Learning. Однако полного осознания не нужно для решения данной задачи. Нужно понимать, что град. спуск. - это про численный поиск минимума функции $f(x)$. Один из популярных методов для этого - градиентный спуск, который предлагается в этой задачке реализовать. Подробнее можно почитать в Блоке 1 DL.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Рассмотрим функцию:</p>
+<p><span class="latex-copy-wrap" data-latex="$$f(x) = x^2 + \frac{1}{4}x^4$$">$$f(x) = x^2 + \frac{1}{4}x^4$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Её минимум можно найти градиентным спуском. Для этого сначала посчитай производную:</p>
+<p><span class="latex-copy-wrap" data-latex="$$f'(x) = 2x + x^3$$">$$f'(x) = 2x + x^3$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Напиши функцию <code>gradient_descent(start, learning_rate, steps)</code>, которая ищет минимум этой функции.</p>
+<ul>
+<li><code>start</code> — начальное значение <code>x</code>;</li>
+<li><code>learning_rate</code> — шаг обучения;</li>
+<li><code>steps</code> — количество шагов градиентного спуска.</li>
+</ul>
+<p>Начни с <code>x = start</code>, затем <code>steps</code> раз обнови значение по формуле:</p>
+<p><span class="latex-copy-wrap" data-latex="$$x := x - learning\_rate \cdot f'(x)$$">$$x := x - learning\_rate \cdot f'(x)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Верни итоговое значение <code>x</code>. Для этой функции минимум находится в точке <code>x = 0</code>.</p>
+<p>Смысл упражнения — увидеть, как простая итерационная формула постепенно двигает значение <code>x</code> к минимуму функции. Если начать с положительного <code>x</code>, производная будет положительной и шаг будет уменьшать <code>x</code>; если начать с отрицательного, обновления будут двигать его в сторону нуля. Например, при небольшом <code>learning_rate</code> и достаточном числе шагов результат должен стать ближе к <code>0</code>, чем исходный <code>start</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def gradient_descent(start, learning_rate, steps):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="decorators_retry" data-difficulty="medium" data-tests="calls = []
+@repeat(3)
+def ping():
+    calls.append(&quot;x&quot;)
+    return len(calls)
+assert ping() == 3, &quot;Последний результат&quot;
+assert calls == [&quot;x&quot;, &quot;x&quot;, &quot;x&quot;], &quot;Три вызова&quot;">
+  <div class="name question-difficulty-medium" id="decorators_retry">
+    Декоратор повтора
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить декораторы с параметрами.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>repeat(times)</code>, который вызывает функцию <code>times</code> раз и возвращает результат последнего вызова.</p>
+<p>Это декоратор с параметром: <code>@repeat(3)</code> означает, что при одном внешнем вызове исходная функция должна выполниться три раза. Если функция возвращает разные значения или меняет состояние, наружу нужно отдать именно результат последнего запуска. Например, при <code>times=2</code> обёртка должна вызвать функцию дважды, но вернуть только второе значение.</p>
+
+</div>
+<div class="code-block" data-lang="python">def repeat(times):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="decorators_memoize" data-difficulty="hard" data-tests="calls = {&quot;n&quot;: 0}
+@memoize
+def square(x):
+    calls[&quot;n&quot;] += 1
+    return x * x
+assert square(4) == 16, &quot;Первый вызов&quot;
+assert square(4) == 16, &quot;Кеш&quot;
+assert calls[&quot;n&quot;] == 1, &quot;Функция вызвана один раз&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="decorators_memoize">
+    Кеширующий декоратор
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать замыкания и состояние внутри декоратора.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>memoize(func)</code>, кеширующий результат вызова по аргументам.</p>
+<p>Декоратор должен запоминать результат для уже встречавшегося набора аргументов и при повторном вызове возвращать значение из кеша. Это полезно для дорогих вычислений: например, если <code>slow_square(5)</code> уже считался, второй вызов с <code>5</code> не должен заново выполнять исходную функцию. В качестве ключа кеша можно использовать кортеж позиционных аргументов.</p>
+
+</div>
+<div class="code-block" data-lang="python">def memoize(func):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="loops_diagonal_sum" data-difficulty="medium" data-tests="assert diagonal_sum([[1, 2], [3, 4]]) == 5, &quot;1 + 4 -&gt; 5&quot;
+assert diagonal_sum([[5]]) == 5, &quot;Матрица 1x1&quot;
+assert diagonal_sum([[1,0,0],[0,2,0],[0,0,3]]) == 6, &quot;1 + 2 + 3 -&gt; 6&quot;">
+  <div class="name question-difficulty-medium" id="loops_diagonal_sum">
+    Сумма главной диагонали
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать циклы по индексам и вложенные списки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>diagonal_sum(matrix)</code>, которая возвращает сумму элементов главной диагонали квадратной матрицы.</p>
+<p>Главная диагональ — это элементы, у которых номер строки совпадает с номером столбца: <code>matrix[0][0]</code>, <code>matrix[1][1]</code>, <code>matrix[2][2]</code> и так далее. Используй цикл по индексам, чтобы аккуратно пройти только по этим элементам. Например, для <code>[[1, 2], [3, 4]]</code> сумма главной диагонали равна <code>1 + 4 = 5</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def diagonal_sum(matrix):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="loops_unique_pairs" data-difficulty="hard" data-tests="assert unique_pairs([1, 2, 3]) == [(1, 2), (1, 3), (2, 3)], &quot;Пары для [1,2,3]&quot;
+assert unique_pairs([1]) == [], &quot;Один элемент -&gt; []&quot;
+assert unique_pairs([1, 1, 2]) == [(1, 1), (1, 2)], &quot;Повторяющиеся пары значений не добавляются&quot;
+assert unique_pairs([2, 1, 2]) == [(2, 1), (2, 2)], &quot;Зеркальные пары не добавляются&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="loops_unique_pairs">
+    Уникальные пары
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить вложенные циклы и научиться исключать повторяющиеся пары значений.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>unique_pairs(items)</code>, которая возвращает все уникальные неупорядоченные пары значений <code>(a, b)</code>, для которых в исходном списке есть вхождения <code>a</code> и <code>b</code>, причём выбранное вхождение <code>a</code> стоит левее выбранного вхождения <code>b</code>.</p>
+<p>Каждая пара значений должна встретиться в результате только один раз. Зеркальные пары считаются одинаковыми: если уже добавлена <code>(a, b)</code>, добавлять <code>(b, a)</code> не нужно. Сохраняй порядок первого появления пары при переборе. Удобный способ — внешний цикл по индексу первого элемента, внутренний цикл только по элементам правее него и проверка, что ни текущей, ни зеркальной пары ещё нет в результате.</p>
+<p>Например, для <code>[&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]</code> результат должен быть <code>[(&quot;a&quot;, &quot;b&quot;), (&quot;a&quot;, &quot;c&quot;), (&quot;b&quot;, &quot;c&quot;)]</code>, а для <code>[1, 1, 2]</code> — <code>[(1, 1), (1, 2)]</code>: повторная пара <code>(1, 2)</code> не добавляется.</p>
+
+</div>
+<div class="code-block" data-lang="python">def unique_pairs(items):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="module_statistics" data-difficulty="medium" data-delivery="ide" data-tests="_sp = StatsProcessor([1, 2, 3, 4, 5])
+assert _sp.get_mean() == 3.0, &quot;[1,2,3,4,5] get_mean() -&gt; 3.0&quot;
+assert _sp.get_median() == 3, &quot;[1,2,3,4,5] get_median() -&gt; 3&quot;
+
+_sp2 = StatsProcessor([2, 4, 4, 4, 5, 5, 7, 9])
+assert _sp2.get_mean() == 5.0, &quot;[2,4,4,4,5,5,7,9] get_mean() -&gt; 5.0&quot;
+assert _sp2.get_median() == 4.5, &quot;[2,4,4,4,5,5,7,9] get_median() -&gt; 4.5&quot;
+
+_sp3 = StatsProcessor([10])
+assert _sp3.get_mean() == 10.0, &quot;[10] get_mean() -&gt; 10.0&quot;
+assert _sp3.get_median() == 10, &quot;[10] get_median() -&gt; 10&quot;
+assert _sp3.get_variance() == 0.0, &quot;[10] get_variance() -&gt; 0.0&quot;">
+  <div class="name question-difficulty-medium" id="module_statistics">
+    Пакет: статистика
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить создание модулей, пакетов и <code>__init__.py</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай пакет <code>stats</code> с классом <code>StatsProcessor</code>, у которого есть методы:</p>
+<ul>
+<li><code>get_mean</code> — среднее значение</li>
+<li><code>get_median</code> — медиана</li>
+<li><code>get_variance</code> — дисперсия</li>
+</ul>
+<p>Не забудь создать <code>__init__.py</code> в папке <code>stats</code>, чтобы пакет можно было импортировать.
+Написанный пакет протестируй в другом файле <code>main.py</code>.</p>
+<p>Задача не только про сами формулы, но и про организацию кода в маленький переиспользуемый пакет. Класс должен лежать в <code>stats/stats_processor.py</code>, а в <code>main.py</code> его нужно импортировать и вызвать на тестовом списке чисел. Например, можно создать <code>StatsProcessor([1, 2, 3])</code> и проверить, что среднее равно <code>2</code>.</p>
+<p>Структура решения:</p>
+
+</div>
+<div class="code-block" data-lang="text">stats/
+├── __init__.py
+└── stats_processor.py  # тут лежит класс StatsProcessor
+main.py</div><div class="code-block" data-lang="python">class StatsProcessor:
+    def __init__(self, data):
+        self.data = data
+
+    def get_mean(self):
+        pass
+
+    def get_median(self):
+        pass
+
+    def get_variance(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="filter_even_numbers" data-difficulty="easy" data-tests="assert get_even([1, 2, 3, 4, 5, 6]) == [2, 4, 6], &quot;Базовый случай: [1, 2, 3, 4, 5, 6] -&gt; [2, 4, 6]&quot;
+assert get_even([]) == [], &quot;Пустой список -&gt; пустой список&quot;
+assert get_even([1, 3, 5]) == [], &quot;Нет чётных -&gt; пустой список&quot;
+assert get_even([2, 4, 6]) == [2, 4, 6], &quot;Все чётные -&gt; без изменений&quot;
+assert isinstance(get_even([1, 2]), list), &quot;Результат должен быть list, а не filter-объектом&quot;">
+  <div class="name question-difficulty-easy" id="filter_even_numbers">
+    Фильтрация чётных чисел
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить встроенную функцию <code>filter()</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>get_even(numbers)</code>, которая с помощью <code>filter()</code> возвращает <b>список</b> только чётных чисел.</p>
+<p>Важно использовать именно <code>filter()</code>, чтобы потренироваться передавать функцию-предикат в стандартную функцию Python. Результат <code>filter()</code> сам по себе является итератором, поэтому его нужно явно превратить в <code>list</code>. Например, <code>get_even([1, 2, 3, 4])</code> должен вернуть <code>[2, 4]</code>, а не объект <code>filter</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def get_even(numbers):
+    # используй filter() и lambda
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="reduce_product" data-difficulty="medium" data-tests="assert product([2, 3, 4]) == 24, &quot;[2, 3, 4] -&gt; 24&quot;
+assert product([1, 2, 3, 4, 5]) == 120, &quot;[1, 2, 3, 4, 5] -&gt; 120&quot;
+assert product([5]) == 5, &quot;[5] -&gt; 5&quot;
+assert product([1, 1, 1]) == 1, &quot;[1, 1, 1] -&gt; 1&quot;
+assert product([-2, 3]) == -6, &quot;[-2, 3] -&gt; -6&quot;
+assert product([2, 0, 5]) == 0, &quot;[2, 0, 5] -&gt; 0 (любой множитель 0 -&gt; 0)&quot;
+assert product([10]) == 10, &quot;[10] -&gt; 10&quot;">
+  <div class="name question-difficulty-medium" id="reduce_product">
+    Произведение всех чисел
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить <code>functools.reduce()</code> для свёртки списка.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>product(numbers)</code>, которая с помощью <code>functools.reduce()</code> возвращает произведение всех чисел в списке.</p>
+<p>Используй <code>reduce</code>, чтобы последовательно сворачивать список в одно значение: сначала перемножаются первые два числа, затем результат умножается на следующее и так далее. Для списка <code>[2, 3, 4]</code> функция должна вернуть <code>24</code>. Не забудь импортировать <code>reduce</code> из модуля <code>functools</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from functools import reduce
+
+def product(numbers):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="data_analyzer" data-difficulty="medium" data-tests="_a = DataAnalyzer([1, 2, 2, 3, 4])
+assert _a.mean() == 2.4, &quot;[1,2,2,3,4] mean -&gt; 2.4&quot;
+assert _a.median() == 2, &quot;[1,2,2,3,4] median -&gt; 2&quot;
+assert _a.mode() == [2], &quot;[1,2,2,3,4] mode -&gt; [2]&quot;
+_a2 = DataAnalyzer([1, 2, 2, 3, 3, 4])
+assert _a2.mode() == [2, 3], &quot;[1,2,2,3,3,4] mode -&gt; [2, 3]&quot;
+_a3 = DataAnalyzer([5])
+assert _a3.mean() == 5, &quot;[5] mean -&gt; 5&quot;
+assert _a3.median() == 5, &quot;[5] median -&gt; 5&quot;
+assert _a3.mode() == [5], &quot;[5] mode -&gt; [5]&quot;
+_a4 = DataAnalyzer([1, 2, 3, 4, 5])
+assert _a4.mean() == 3.0, &quot;[1,2,3,4,5] mean -&gt; 3.0&quot;
+assert _a4.median() == 3, &quot;[1,2,3,4,5] median -&gt; 3&quot;
+_a5 = DataAnalyzer([1, 2, 3, 4])
+assert _a5.median() == 2.5, &quot;[1,2,3,4] median -&gt; 2.5&quot;">
+  <div class="name question-difficulty-medium" id="data_analyzer">
+    Статистический анализатор
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить вычисление среднего, медианы и моды; работу со списками и сортировкой.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай класс <code>DataAnalyzer</code>, который принимает список чисел. Методы:</p>
+<ul>
+<li><code>mean()</code> — среднее значение;</li>
+<li><code>median()</code> — медиана;</li>
+<li><code>mode()</code> — мода (возвращает список наиболее частых элементов).</li>
+</ul>
+<p>Класс должен хранить исходные данные и давать несколько типичных статистик над одним и тем же набором чисел. <code>median()</code> должна корректно работать и для нечётной, и для чётной длины списка, а <code>mode()</code> должна вернуть все значения, которые встречаются максимальное число раз. Например, для <code>[1, 2, 2, 3]</code> среднее равно <code>2</code>, медиана тоже <code>2</code>, а мода — <code>[2]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class DataAnalyzer:
+    def __init__(self, data):
+        self.data = data
+
+    def mean(self):
+        pass
+
+    def median(self):
+        pass
+
+    def mode(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="shape_interface" data-difficulty="medium" data-tests="import math as _math
+assert Rectangle(3, 4).area() == 12, &quot;Rectangle(3, 4).area() -&gt; 12&quot;
+assert Rectangle(5, 5).area() == 25, &quot;Rectangle(5, 5).area() -&gt; 25&quot;
+assert Rectangle(1, 1).area() == 1, &quot;Rectangle(1, 1).area() -&gt; 1&quot;
+assert round(Circle(2).area(), 2) == 12.57, &quot;Circle(2).area() rounded to 2 -&gt; 12.57&quot;
+assert round(Circle(1).area(), 5) == round(_math.pi, 5), &quot;Circle(1).area() -&gt; pi&quot;
+assert round(Circle(5).area(), 2) == round(_math.pi * 25, 2), &quot;Circle(5).area() -&gt; 25*pi&quot;
+assert issubclass(Rectangle, Shape), &quot;Rectangle наследуется от Shape&quot;
+assert issubclass(Circle, Shape), &quot;Circle наследуется от Shape&quot;">
+  <div class="name question-difficulty-medium" id="shape_interface">
+    Интерфейс для геометрических фигур
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться создавать абстрактные классы с <code>abc.ABC</code> и <code>@abstractmethod</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай абстрактный класс <code>Shape</code> с методом <code>area()</code>. Реализуй классы <code>Rectangle</code> и <code>Circle</code>, которые наследуются от <code>Shape</code> и реализуют метод <code>area</code>. Используй <code>abc.ABC</code> и <code>@abstractmethod</code>.</p>
+<p>Абстрактный класс нужен, чтобы зафиксировать общий контракт: у любой фигуры обязан быть метод <code>area()</code>. Экземпляр самого <code>Shape</code> создавать не нужно, зато <code>Rectangle</code> и <code>Circle</code> должны быть обычными рабочими классами. Например, прямоугольник <code>3x4</code> должен вернуть площадь <code>12</code>, а круг может считать площадь через <code>3.14 * radius ** 2</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from abc import ABC, abstractmethod
+import math
+
+class Shape(ABC):
+    pass
+
+class Rectangle():
+    def __init__(self, width, height):
+        pass
+
+    def area(self):
+        pass
+
+class Circle():
+    def __init__(self, radius):
+        pass
+
+    def area(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="abc_notification_channels" data-difficulty="medium" data-tests="assert EmailChannel().send(&quot;hi&quot;) == &quot;email: hi&quot;, &quot;EmailChannel&quot;
+assert SmsChannel().send(&quot;hi&quot;) == &quot;sms: hi&quot;, &quot;SmsChannel&quot;
+assert [c.send(&quot;ok&quot;) for c in [EmailChannel(), SmsChannel()]] == [&quot;email: ok&quot;, &quot;sms: ok&quot;], &quot;Полиморфизм&quot;">
+  <div class="name question-difficulty-medium" id="abc_notification_channels">
+    Интерфейс уведомлений
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить общий интерфейс классов и полиморфизм.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай <code>EmailChannel</code> и <code>SmsChannel</code> с методом <code>send(message)</code>: email возвращает <code>&quot;email: &lt;message&gt;&quot;</code>, sms — <code>&quot;sms: &lt;message&gt;&quot;</code>.</p>
+<p>Представь, что в приложении есть несколько каналов уведомлений, но остальной код хочет работать с ними одинаково: просто вызвать <code>send(...)</code> и получить результат. Поэтому у обоих классов должен быть одинаковый публичный метод, а различаться должна только строка-префикс. Например, <code>EmailChannel().send(&quot;hello&quot;)</code> должен вернуть <code>&quot;email: hello&quot;</code>, а <code>SmsChannel().send(&quot;hello&quot;)</code> — <code>&quot;sms: hello&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class EmailChannel:
+    pass
+
+class SmsChannel:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="abc_shape_registry" data-difficulty="hard" data-tests="assert Square(3).area() == 9, &quot;Квадрат&quot;
+assert Circle(2).area() == 12.56, &quot;Круг&quot;
+assert total_area([Square(2), Circle(1)]) == 7.140000000000001, &quot;Сумма&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="abc_shape_registry">
+    Реестр фигур
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать единый интерфейс объектов и агрегацию.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай <code>Square(side)</code> и <code>Circle(radius)</code> с методом <code>area()</code>. Напиши <code>total_area(shapes)</code>. Для круга используй <code>3.14</code>.</p>
+<p>Здесь нужно потренироваться писать разные классы с одинаковым методом, чтобы их можно было обрабатывать одним циклом. Функция <code>total_area(shapes)</code> не должна проверять тип фигуры вручную: она просто вызывает <code>area()</code> у каждого объекта и суммирует результаты. Например, квадрат со стороной <code>2</code> даёт площадь <code>4</code>, круг с радиусом <code>1</code> — <code>3.14</code>, а вместе они дают <code>7.14</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Square:
+    pass
+
+class Circle:
+    pass
+
+def total_area(shapes):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="decorator_round_result" data-difficulty="medium" data-tests="@round_result(3)
+def _divide(a, b):
+    return a / b
+
+assert _divide(10, 3) == 3.333, &quot;10/3 округлить до 3 знаков -&gt; 3.333&quot;
+assert _divide(1, 6) == 0.167, &quot;1/6 округлить до 3 знаков -&gt; 0.167&quot;
+
+@round_result(2)
+def _sqrt(x):
+    return x ** 0.5
+
+assert _sqrt(2) == 1.41, &quot;sqrt(2) округлить до 2 знаков -&gt; 1.41&quot;
+assert _sqrt(9) == 3.0, &quot;sqrt(9) округлить до 2 знаков -&gt; 3.0&quot;
+
+@round_result(0)
+def _triple(x):
+    return x / 3
+
+assert _triple(10) == 3.0, &quot;10/3 округлить до 0 знаков -&gt; 3.0&quot;">
+  <div class="name question-difficulty-medium" id="decorator_round_result">
+    Округление результата функции
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить написание декораторов с аргументами.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши вложенный декоратор <code>round_result(ndigits)</code>, который автоматически округляет результат обёрнутой функции до указанного количества знаков после запятой.</p>
+<p>Это декоратор с параметром, поэтому сначала вызывается <code>round_result(2)</code>, а уже потом он оборачивает конкретную функцию. Внутренняя обёртка должна вызвать исходную функцию, получить её результат и применить к нему <code>round(result, ndigits)</code>. Например, функция, возвращающая <code>3.14159</code>, под <code>@round_result(2)</code> должна вернуть <code>3.14</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def round_result(ndigits):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            pass
+        return wrapper
+    return decorator</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="property_temperature" data-difficulty="medium" data-tests="_t = Temperature()
+_t.celsius = 25
+assert _t.fahrenheit == 77.0, &quot;25°C -&gt; 77.0°F&quot;
+_t.celsius = 0
+assert _t.fahrenheit == 32.0, &quot;0°C -&gt; 32.0°F&quot;
+_t.celsius = 100
+assert _t.fahrenheit == 212.0, &quot;100°C -&gt; 212.0°F&quot;
+_t.celsius = -40
+assert _t.fahrenheit == -40.0, &quot;-40°C -&gt; -40.0°F (точка совпадения шкал)&quot;
+_t.celsius = -273.15
+assert abs(_t.fahrenheit - (-459.67)) &lt; 0.01, &quot;-273.15°C -&gt; ~-459.67°F&quot;
+try:
+    _t.celsius = -300
+    assert False, &quot;Температура ниже -273.15 должна вызывать ValueError&quot;
+except ValueError:
+    pass
+try:
+    _t.celsius = -273.16
+    assert False, &quot;Температура ниже абсолютного нуля должна вызывать ValueError&quot;
+except ValueError:
+    pass
+try:
+    Temperature().fahrenheit = 100
+    assert False, &quot;fahrenheit должен быть только для чтения (AttributeError)&quot;
+except AttributeError:
+    pass">
+  <div class="name question-difficulty-medium" id="property_temperature">
+    Температура с доступом через <code>@property</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить <code>@property</code>, сеттеры и валидацию в классах.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Реализуй класс <code>Temperature</code>, в котором можно задавать и получать температуру в градусах Цельсия через атрибут <code>celsius</code>, а также получать значение в Фаренгейтах через <code>fahrenheit</code>. Атрибут <code>fahrenheit</code> должен быть только для чтения. Если задать отрицательную температуру ниже -273.15, выбрасывай <code>ValueError</code>.</p>
+<p>Используй <code>@property</code> и setter для <code>celsius</code>, чтобы валидация срабатывала и при создании объекта, и при последующем изменении температуры. Если температура при создании не указана, её значение должно быть равно <code>0°C</code>. <code>fahrenheit</code> должен вычисляться на лету по формуле <code>celsius * 9 / 5 + 32</code> и не иметь setter. Например, для <code>Temperature(0)</code> свойство <code>fahrenheit</code> должно вернуть <code>32</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Temperature:
+    def __init__(self, celsius=0):
+        self.celsius = celsius
+
+    @property
+    def celsius(self):
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value):
+        pass
+
+    @property
+    def fahrenheit(self):
+        pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="logical_operators_python" data-difficulty="easy" data-tests="assert validate_user(25, &quot;user@example.com&quot;, True) == True, &quot;Валидный активный пользователь -&gt; True&quot;
+assert validate_user(17, &quot;user@example.com&quot;, True) == False, &quot;Возраст &lt; 18 -&gt; False&quot;
+assert validate_user(25, &quot;&quot;, True) == False, &quot;Пустой email -&gt; False&quot;
+assert validate_user(25, &quot;user@example.com&quot;, False) == True, &quot;Возраст &gt; 21 и неактивен -&gt; True&quot;
+assert validate_user(19, &quot;user@example.com&quot;, False) == False, &quot;Неактивен и возраст &lt; 21 -&gt; False&quot;
+assert validate_user(100, &quot;a@b.com&quot;, True) == False, &quot;Возраст &gt;= 100 -&gt; False&quot;
+assert validate_user(22, &quot;invalid-email&quot;, True) == False, &quot;Email без '@' -&gt; False&quot;
+assert validate_user(18, &quot;a@b.com&quot;, True) == False, &quot;Возраст ровно 18 не проходит (&gt; 18 строго) -&gt; False&quot;
+assert validate_user(19, &quot;a@b.com&quot;, True) == True, &quot;Возраст 19, активен -&gt; True&quot;">
+  <div class="name question-difficulty-easy" id="logical_operators_python">
+    Проверка валидности пользователя
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить логические операторы <code>and</code>, <code>or</code>, <code>not</code> и сравнения.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай функцию <code>validate_user(age, email, is_active)</code>, которая проверяет валидность пользователя:</p>
+<ul>
+<li>Возраст должен быть больше 18 <b>И</b> меньше 100</li>
+<li>Email должен содержать <code>&quot;@&quot;</code> <b>И</b> не быть пустой строкой</li>
+<li>Пользователь должен быть активным <b>ИЛИ</b> иметь возраст больше 21</li>
+</ul>
+<p>Используй операторы <code>and</code>, <code>or</code>, <code>not</code>, <code>==</code>, <code>!=</code>, <code>is</code>.</p>
+<p>Функция должна вернуть один итоговый <code>bool</code>: пользователь валиден только если все правила вместе дают положительный результат. Обрати внимание, что последняя проверка допускает неактивного пользователя, но только если ему больше <code>21</code>. Например, пользователь <code>age=22</code>, <code>email=&quot;a@b.com&quot;</code>, <code>is_active=False</code> проходит проверку, а пользователь с пустым email — нет.</p>
+
+</div>
+<div class="code-block" data-lang="python">def validate_user(age: int, email: str, is_active: bool) -&gt; bool:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="logical_access_policy" data-difficulty="medium" data-tests="assert can_access(&quot;admin&quot;, True, False) == True, &quot;admin&quot;
+assert can_access(&quot;user&quot;, True, True) == True, &quot;user с 2FA&quot;
+assert can_access(&quot;user&quot;, True, False) == False, &quot;user без 2FA&quot;
+assert can_access(&quot;guest&quot;, True, True) == False, &quot;guest&quot;">
+  <div class="name question-difficulty-medium" id="logical_access_policy">
+    Политика доступа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить <code>and</code>, <code>or</code>, <code>not</code> в правилах доступа.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>can_access(role, is_active, has_2fa)</code>: admin входит, если активен; user — если активен и есть 2FA; остальные не входят.</p>
+<p>Функция должна возвращать булево значение, а не строку с объяснением. Для роли <code>&quot;admin&quot;</code> достаточно активного аккаунта, для роли <code>&quot;user&quot;</code> нужны и активность, и включённая двухфакторная аутентификация. Например, <code>can_access(&quot;user&quot;, True, False)</code> должен вернуть <code>False</code>, а <code>can_access(&quot;admin&quot;, True, False)</code> — <code>True</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def can_access(role, is_active, has_2fa):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="logical_feature_flags" data-difficulty="hard" data-tests="assert feature_enabled(False, True, 0, 99) == True, &quot;staff&quot;
+assert feature_enabled(True, False, 30, 10) == True, &quot;beta внутри rollout&quot;
+assert feature_enabled(True, False, 30, 40) == False, &quot;beta вне rollout&quot;
+assert feature_enabled(False, False, 100, 99) == True, &quot;rollout 100&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="logical_feature_flags">
+    Фича-флаги
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать сложные булевы выражения.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>feature_enabled(is_beta, is_staff, rollout_percent, user_percent)</code>. Staff видит всегда, beta — если <code>user_percent &lt; rollout_percent</code>, остальные — только при rollout 100.</p>
+<p>Такая логика похожа на постепенное включение новой фичи в продукте. Сначала проверь самый сильный доступ: сотрудники (<code>is_staff</code>) должны видеть фичу независимо от остальных параметров. Затем обработай beta-пользователей по проценту rollout, а для обычных пользователей верни <code>True</code> только когда <code>rollout_percent == 100</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def feature_enabled(is_beta, is_staff, rollout_percent, user_percent):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="filter_unique_sorted" data-difficulty="hard" data-tests="assert unique_positive_sorted([3, -1, 3, 2, 0, 2]) == [2, 3], &quot;Уникальные положительные&quot;
+assert unique_positive_sorted([]) == [], &quot;Пустой список&quot;
+assert unique_positive_sorted([-3, 0]) == [], &quot;Положительных нет&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="filter_unique_sorted">
+    Уникальные положительные
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить фильтрацию, уникализацию и сортировку.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>unique_positive_sorted(numbers)</code>, которая возвращает отсортированный список уникальных положительных чисел.</p>
+<p>Сначала оставь только числа больше нуля, затем убери повторы и отсортируй результат по возрастанию. Исходный порядок входного списка сохранять не нужно, потому что итог должен быть именно отсортированным. Например, <code>unique_positive_sorted([3, -1, 3, 2, 0])</code> должен вернуть <code>[2, 3]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def unique_positive_sorted(numbers):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="modules_text_stats" data-difficulty="medium" data-tests="assert text_stats(&quot;hello world&quot;) == {&quot;chars&quot;: 11, &quot;words&quot;: 2, &quot;lines&quot;: 1}, &quot;Одна строка&quot;
+assert text_stats(&quot;a b\nc&quot;) == {&quot;chars&quot;: 5, &quot;words&quot;: 3, &quot;lines&quot;: 2}, &quot;Две строки&quot;
+assert text_stats(&quot;&quot;) == {&quot;chars&quot;: 0, &quot;words&quot;: 0, &quot;lines&quot;: 0}, &quot;Пустой текст&quot;">
+  <div class="name question-difficulty-medium" id="modules_text_stats">
+    Мини-статистика текста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать декомпозицию в функцию-утилиту.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>text_stats(text)</code>, которая возвращает словарь с количеством символов <code>chars</code>, слов <code>words</code> и строк <code>lines</code>.</p>
+<p>Функция должна собрать несколько простых метрик по одной строке текста. <code>chars</code> — это длина всей строки, <code>words</code> можно посчитать через разбиение по пробельным символам, а <code>lines</code> — по количеству строк в тексте. Например, для <code>&quot;hello world&quot;</code> ожидается словарь с <code>chars: 11</code>, <code>words: 2</code>, <code>lines: 1</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def text_stats(text):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="modules_slugify" data-difficulty="hard" data-tests="assert slugify(&quot;Hello World&quot;) == &quot;hello-world&quot;, &quot;Пробел -&gt; дефис&quot;
+assert slugify(&quot;Python 3.12!&quot;) == &quot;python-312&quot;, &quot;Символы удаляются&quot;
+assert slugify(&quot;  A  B  &quot;) == &quot;a-b&quot;, &quot;Пробелы схлопываются&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="modules_slugify">
+    Функция slugify
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить переиспользуемые функции-утилиты.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>slugify(text)</code>: lower-case, пробелы в дефисы, оставить только латинские буквы, цифры и дефисы.</p>
+<p>Такая функция нужна, чтобы превращать заголовки в безопасные URL-фрагменты или имена файлов. Сначала приведи строку к нижнему регистру, затем замени пробелы на дефисы и отфильтруй все символы, кроме <code>a-z</code>, <code>0-9</code> и <code>-</code>. Например, <code>slugify(&quot;Hello Python 3!&quot;)</code> должен вернуть <code>&quot;hello-python-3&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def slugify(text):
+    pass</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

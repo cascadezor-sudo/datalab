@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Schmidt ML — интерактивная платформа для системной подготовки к собеседованиям по Machine Learning, Python, математике, DL, NLP и MLOps."
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <meta
+      property="og:title"
+      content="Schmidt ML — интерактивная платформа подготовки к ML-собеседованиям"
+    />
+    <meta
+      property="og:description"
+      content="Структурированный маршрут, материалы в формате вопросов, тесты и отслеживание прогресса — в одном месте."
+    />
+    <meta property="og:type" content="website" />
+    <title>DataLab — платформа подготовки к ML-собеседованиям</title>
+
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/public-home.css" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<script>
+      window.skipNavigation = true;
+    </script>
+    <script src="assets/js/components/config-loader.js"></script>
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+    <script src="assets/js/components/achievement-api.js"></script>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+
+  <body class="public-home">
+    <header class="public-shell public-nav">
+      <a class="public-brand" href="/" aria-label="Schmidt ML — главная">
+        <img
+          class="public-brand__mark"
+          src="favicon.svg"
+          alt=""
+          width="34"
+          height="34"
+          aria-hidden="true"
+        />
+        <span>DataLab</span>
+      </a>
+
+      <nav class="public-nav__actions" aria-label="Основная навигация">
+        <!-- <a class="public-nav__link" href="#inside">Что внутри</a> -->
+        <button
+          class="public-button public-button--student public-button--small public-nav-login"
+          type="button"
+          data-open-login
+        >
+          Ученикам — войти
+        </button>
+        <a
+          class="public-button public-button--primary public-button--small public-nav__access"
+          href="https://ian-schmidt.github.io/schmidtml-lending/#platform-access"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Получить доступ
+        </a>
+      </nav>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section class="public-shell public-hero" aria-labelledby="hero-title">
+        <div>
+          <!-- <div class="public-eyebrow">Самостоятельный доступ к платформе</div> -->
+          <h1 id="hero-title">Подготовка к ML <span>без хаоса</span></h1>
+          <p class="public-hero__lead">
+            Системный маршрут от математики и Python до Deep Learning, NLP и
+            MLOps. Изучайте темы в формате реальных вопросов, проверяйте себя
+            тестами и наблюдайте прогресс в одном месте.
+          </p>
+          <button class="public-student-entry" type="button" data-open-login>
+            <span class="public-student-entry__icon" aria-hidden="true"
+              >↗</span
+            >
+            <span class="public-student-entry__copy">
+              <strong>Уже учитесь у меня?</strong>
+              <small>Войдите в платформу и продолжайте обучение</small>
+            </span>
+            <span class="public-student-entry__action">Войти</span>
+          </button>
+          <div class="public-hero__actions">
+            <a
+              class="public-button public-button--primary"
+              href="https://ian-schmidt.github.io/schmidtml-lending/#platform-access"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Получить доступ
+            </a>
+            <!-- <a class="public-button public-button--secondary" href="#inside">
+              Что внутри?
+            </a> -->
+          </div>
+          <p class="public-hero__note">
+            Доступ к материалам и инструментам платформы возможен без
+            менторского сопровождения, но можно и с ним. Подробнее в
+            <a
+              href="https://ian-schmidt.github.io/schmidtml-lending"
+              target="_blank"
+              rel="noopener noreferrer"
+              >лендинге</a
+            >.
+          </p>
+        </div>
+
+        <div class="public-preview" aria-label="Пример материала на платформе">
+          <img
+            src="images/guide/пример-вопроса-из-материала.webp"
+            alt="Материал Schmidt ML по матрицам: формулы, схемы и навигация по вопросам"
+          />
+          <div class="public-preview__badge">
+            <strong>Не просто конспект</strong>
+            Каждый вопрос можно изучить, отметить пройденным и добавить в личный
+            прогресс.
+          </div>
+        </div>
+      </section>
+
+      <!-- <div class="public-topics" aria-label="Темы платформы">
+        <span>Математика</span>
+        <span>Python</span>
+        <span>Classic ML</span>
+        <span>Deep Learning</span>
+        <span>NLP</span>
+        <span>Agents</span>
+        <span>MLOps</span>
+        <span>CV</span>
+        <span>RecSys</span>
+        <span>Time Series</span>
+        <span>Git</span>
+        <span>Linux</span>
+        <span>Docker</span>
+        <span>MLflow</span>
+      </div> -->
+
+      <!-- <section
+        class="public-shell public-section"
+        id="inside"
+        aria-labelledby="inside-title"
+      >
+        <div class="public-section__head">
+          <p class="public-kicker">Что внутри</p>
+          <h2 id="inside-title">Один рабочий контур вместо десятков вкладок</h2>
+          <p class="public-section__intro">
+            Платформа помогает не собирать ещё одну коллекцию материалов, а
+            последовательно проходить нужные темы и видеть, что уже закреплено.
+          </p>
+        </div>
+
+        <div class="public-feature-grid">
+          <article class="public-feature">
+            <div class="public-feature__icon" aria-hidden="true">⌁</div>
+            <h3>Структурированный маршрут</h3>
+            <p>
+              Понятная карта тем: от базы до продвинутых разделов. Видно, что
+              проходить сейчас и куда двигаться дальше.
+            </p>
+          </article>
+          <article class="public-feature">
+            <div class="public-feature__icon" aria-hidden="true">?</div>
+            <h3>Вопросы как на интервью</h3>
+            <p>
+              Теория организована вокруг формулировок, которые встречаются на
+              технических собеседованиях, а не вокруг абстрактных глав учебника.
+            </p>
+          </article>
+          <article class="public-feature">
+            <div class="public-feature__icon" aria-hidden="true">✓</div>
+            <h3>Закрепление и прогресс</h3>
+            <p>
+              Отмечайте изученное, оценивайте сложность, проходите тесты и
+              возвращайтесь к материалу через интервальное повторение.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="public-shell public-section public-section--compact">
+        <div class="public-showcase">
+          <div class="public-showcase__image">
+            <img
+              src="images/guide/интерактивный-роадмап.png"
+              alt="Интерактивная карта обучения Schmidt ML с разделами ML, NLP, MLOps и практикой"
+              loading="lazy"
+            />
+          </div>
+          <div class="public-showcase__copy">
+            <p class="public-kicker">Маршрут перед глазами</p>
+            <h2>Понимайте не только что учить, но и зачем</h2>
+            <p>
+              Интерактивный roadmap связывает фундамент, специализации и
+              практику. Можно посмотреть на весь путь целиком или
+              сфокусироваться на ближайшем разделе.
+            </p>
+            <ul class="public-checks">
+              <li>Материалы по ключевым направлениям ML-разработки</li>
+              <li>Теоретический минимум и практические задачи</li>
+              <li>Персональная история прохождения и повторение</li>
+            </ul>
+          </div>
+        </div>
+      </section> -->
+
+      <section
+        class="public-shell public-section"
+        aria-labelledby="access-title"
+      >
+        <div class="public-access">
+          <div class="public-access__copy">
+            <p class="public-kicker">Начать обучение</p>
+            <h2 id="access-title">
+              Всё необходимое для самостоятельной подготовки
+            </h2>
+            <p>
+              Узнайте стоимость и состав доступа на отдельной странице. Если
+              захотите уточнить детали перед покупкой — напишите мне лично в
+              Telegram.
+            </p>
+            <a
+              class="public-button public-button--primary"
+              href="https://ian-schmidt.github.io/schmidtml-lending/#platform-access"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Описание и условия доступа
+            </a>
+          </div>
+
+          <form class="public-login" id="login" novalidate>
+            <h3 id="login-title">Уже есть доступ?</h3>
+            <p class="public-login__hint">
+              Войдите и продолжайте с того места, где остановились.
+            </p>
+
+            <div class="public-field">
+              <label for="email">Электронная почта</label>
+              <input
+                id="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                required
+              />
+            </div>
+            <div class="public-field">
+              <label for="password">Пароль</label>
+              <input
+                id="password"
+                type="password"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+
+            <div
+              class="public-field"
+              id="code-field"
+              style="display: none"
+              hidden
+            >
+              <label for="code">Код из письма</label>
+              <input
+                id="code"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxlength="6"
+              />
+              <p class="public-login__hint" id="code-hint"></p>
+            </div>
+
+            <button
+              class="public-button public-button--primary"
+              id="login-btn"
+              type="submit"
+            >
+              Войти в платформу
+            </button>
+            <div
+              class="public-login__error"
+              id="error"
+              role="alert"
+              aria-live="polite"
+            ></div>
+            <button
+              class="public-login__help public-login__resend"
+              id="resend-code"
+              type="button"
+              style="display: none"
+              hidden
+            >
+              Отправить код ещё раз
+            </button>
+            <a
+              class="public-login__help"
+              href="https://t.me/versechorus"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Не получается войти? Напишите в Telegram
+            </a>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <div
+      class="public-login-modal"
+      id="login-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="login-title"
+      hidden
+    >
+      <button
+        class="public-login-modal__backdrop"
+        type="button"
+        data-close-login
+        aria-label="Закрыть окно входа"
+      ></button>
+      <div class="public-login-modal__panel">
+        <button
+          class="public-login-modal__close"
+          type="button"
+          data-close-login
+          aria-label="Закрыть окно входа"
+        >
+          ×
+        </button>
+        <div id="login-modal-content"></div>
+      </div>
+    </div>
+
+    <footer class="public-footer">
+      <div class="public-shell public-footer__inner">
+        <div class="public-footer__brand">
+          <a class="public-brand" href="/">
+            <img
+              class="public-brand__mark"
+              src="favicon.svg"
+              alt=""
+              width="34"
+              height="34"
+              aria-hidden="true"
+            />
+            <span>DataLab</span>
+          </a>
+        </div>
+
+        <nav class="public-footer__links" aria-label="Документы и контакты">
+          <a
+            href="https://docs.google.com/document/d/1gNHGkaqSr-HMGU-XqWD5bo-Hv_iDsLt8"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Публичная оферта: самостоятельное обучение
+          </a>
+          <a
+            href="https://docs.google.com/document/d/11JIH1VCvG3OhcilpLWC0eKDKColzcxTj"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Публичная оферта: менторство
+          </a>
+          <a
+            href="https://docs.google.com/document/d/1Flu0cW8AkHm7kxoIVySf_M2LPx9vawyX"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Политика конфиденциальности
+          </a>
+
+          <a
+            href="https://t.me/versechorus"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Telegram
+          </a>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      function getRedirectTarget() {
+        const lastPage = sessionStorage.getItem("last_page_before_auth");
+        sessionStorage.removeItem("last_page_before_auth");
+        if (
+          lastPage &&
+          lastPage.startsWith("/") &&
+          lastPage !== "/" &&
+          lastPage !== "/index.html"
+        ) {
+          return lastPage;
+        }
+        return "/main.html";
+      }
+
+      async function initializeFirebase() {
+        const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      }
+
+      document.addEventListener("DOMContentLoaded", async () => {
+        const form = document.getElementById("login");
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const loginButton = document.getElementById("login-btn");
+        const errorElement = document.getElementById("error");
+        const loginModal = document.getElementById("login-modal");
+        const modalContent = document.getElementById("login-modal-content");
+        const formHome = form.parentElement;
+        const formNextSibling = form.nextSibling;
+        let loginTrigger = null;
+
+        function openLoginModal(event) {
+          loginTrigger = event.currentTarget;
+          modalContent.appendChild(form);
+          loginModal.hidden = false;
+          document.body.classList.add("public-modal-open");
+          requestAnimationFrame(() => emailInput.focus());
+        }
+
+        function closeLoginModal() {
+          if (loginModal.hidden) return;
+          formHome.insertBefore(form, formNextSibling);
+          loginModal.hidden = true;
+          document.body.classList.remove("public-modal-open");
+          loginTrigger?.focus();
+        }
+
+        document.querySelectorAll("[data-open-login]").forEach((button) => {
+          button.addEventListener("click", openLoginModal);
+        });
+        document.querySelectorAll("[data-close-login]").forEach((button) => {
+          button.addEventListener("click", closeLoginModal);
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") closeLoginModal();
+        });
+
+        function clearError() {
+          errorElement.textContent = "";
+        }
+
+        const codeField = document.getElementById("code-field");
+        const codeInput = document.getElementById("code");
+        const codeHint = document.getElementById("code-hint");
+        const resendButton = document.getElementById("resend-code");
+        let pendingSid = null;
+
+        function resetLoginButton() {
+          loginButton.disabled = false;
+          loginButton.innerHTML = pendingSid
+            ? "Подтвердить"
+            : 'Войти в платформу <span aria-hidden="true">→</span>';
+        }
+
+        // Прячем через style, а не одним атрибутом hidden: у .public-field в
+        // CSS стоит display:grid, он перебивает hidden, а правило-противовес
+        // живёт в том же файле — с устаревшим public-home.css из кеша человек
+        // видел пароль и «Код из письма» на одном экране.
+        function setHidden(element, hidden) {
+          element.hidden = hidden;
+          element.style.display = hidden ? "none" : "";
+        }
+
+        const loginTitle = document.getElementById("login-title");
+        const loginHint = loginTitle.nextElementSibling;
+        const passwordStepText = [
+          loginTitle.textContent,
+          loginHint.textContent,
+        ];
+
+        // Два экрана одной формы: пароль → код. На втором нет ни почты, ни
+        // пароля: код просят только после того, как письмо действительно ушло.
+        function showCodeStep(sid, maskedEmail) {
+          pendingSid = sid;
+          for (const input of [emailInput, passwordInput]) {
+            setHidden(input.closest(".public-field"), Boolean(sid));
+          }
+          setHidden(codeField, !sid);
+          setHidden(resendButton, !sid);
+          loginTitle.textContent = sid
+            ? "Подтвердите вход"
+            : passwordStepText[0];
+          loginHint.textContent = sid
+            ? "Вы входите с нового устройства."
+            : passwordStepText[1];
+          codeHint.textContent = sid
+            ? `Мы отправили код на ${maskedEmail}, он действует 10 минут.`
+            : "";
+          codeInput.value = "";
+          resetLoginButton();
+          if (sid) codeInput.focus();
+        }
+
+        // Случайная метка браузера: по ней сервер отличает знакомое устройство
+        // от нового. Без localStorage метка одноразовая — код спросят каждый раз.
+        function getDeviceId() {
+          const fresh = Array.from(
+            crypto.getRandomValues(new Uint8Array(24)),
+            (b) => b.toString(16).padStart(2, "0"),
+          ).join("");
+          try {
+            const stored = localStorage.getItem("login_device_id");
+            if (stored) return stored;
+            localStorage.setItem("login_device_id", fresh);
+          } catch (_) {
+            // приватный режим
+          }
+          return fresh;
+        }
+
+        // achievementApi.call — общий клиент callable; error.code несёт статус сервера.
+        const callLogin = (name, data) =>
+          window.achievementApi.call(name, data);
+
+        async function finishLogin(token) {
+          await firebase.auth().signInWithCustomToken(token);
+          window.location.href = getRedirectTarget();
+        }
+
+        function showLoginError(error) {
+          console.error("Login session failed:", error);
+          // Текст с сервера — по-русски и для человека; без error.code это
+          // обрыв сети, а его сообщение техническое.
+          errorElement.textContent = error.code
+            ? error.message
+            : "Вход временно недоступен. Проверьте сеть и попробуйте ещё раз.";
+          // Пароль вводили слишком давно — сервер просит начать сначала.
+          if (error.code === "UNAUTHENTICATED") showCodeStep(null);
+          resetLoginButton();
+        }
+
+        async function startSession() {
+          try {
+            const result = await callLogin("startLoginSession", {
+              deviceId: getDeviceId(),
+            });
+            if (result.status === "challenge")
+              showCodeStep(result.sid, result.email);
+            else await finishLogin(result.token);
+          } catch (error) {
+            showLoginError(error);
+          }
+        }
+
+        async function confirmCode() {
+          const code = codeInput.value.trim();
+          if (!/^\d{6}$/.test(code)) {
+            errorElement.textContent = "Введите 6 цифр из письма.";
+            return;
+          }
+          loginButton.disabled = true;
+          loginButton.textContent = "Проверяем…";
+          try {
+            const result = await callLogin("confirmLoginSession", {
+              sid: pendingSid,
+              code,
+            });
+            await finishLogin(result.token);
+          } catch (error) {
+            showLoginError(error);
+          }
+        }
+
+        emailInput.addEventListener("input", clearError);
+        passwordInput.addEventListener("input", clearError);
+        codeInput.addEventListener("input", clearError);
+
+        try {
+          await initializeFirebase();
+
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            clearError();
+
+            if (pendingSid) {
+              await confirmCode();
+              return;
+            }
+
+            if (!emailInput.value || !passwordInput.value) {
+              errorElement.textContent = "Введите электронную почту и пароль.";
+              return;
+            }
+
+            loginButton.disabled = true;
+            loginButton.textContent = "Входим…";
+
+            try {
+              await firebase
+                .auth()
+                .signInWithEmailAndPassword(
+                  emailInput.value,
+                  passwordInput.value,
+                );
+            } catch (error) {
+              console.error("Login failed:", error);
+              errorElement.textContent =
+                "Не удалось войти. Проверьте почту и пароль или напишите мне.";
+              resetLoginButton();
+              return;
+            }
+            await startSession();
+          });
+
+          resendButton.addEventListener("click", () => {
+            clearError();
+            startSession();
+          });
+
+          firebase.auth().onAuthStateChanged(async (user) => {
+            if (!user) return;
+            // Пароль даёт токен без sid: это ещё не вход, а право запросить
+            // сессию. Пускаем дальше только подтверждённую (см. authGuard.js).
+            const { claims } = await user.getIdTokenResult();
+            if (!claims.sid) return;
+
+            const userData = {
+              email: user.email,
+              uid: user.uid,
+              tokenExpiry: Date.now() + 60 * 60 * 1000,
+            };
+            localStorage.setItem("auth_token", "valid");
+            localStorage.setItem("auth_user", JSON.stringify(userData));
+            window.location.href = getRedirectTarget();
+          });
+        } catch (error) {
+          console.error("Failed to initialize login page:", error);
+          errorElement.textContent =
+            "Вход временно недоступен. Попробуйте обновить страницу.";
+        }
+      });
+    </script>
+  </body>
+</html>

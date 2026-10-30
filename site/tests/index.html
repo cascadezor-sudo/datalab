@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Тесты курса</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+      integrity="sha384-GvrOXuhMATgEsSwCs4smul74iXGOixntILdUW9XmUC6+HX0sLNAK3q71HotJqlAn"
+      crossorigin="anonymous"
+    />
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"
+      integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"
+      integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05"
+      crossorigin="anonymous"
+    ></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/quiz.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/skeleton-loader.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1>Тесты курса</h1>
+            <p class="subtitle">
+              Проверьте свои знания с помощью интерактивных тестов
+            </p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../roadmap/index.html" class="page-header-button"
+              >Продолжить обучение</a
+            >
+          </div>
+        </div>
+      </header>
+
+      <div class="quiz-intro">
+        <p>
+          Проверьте свои знания с помощью интерактивных тестов. Тесты
+          разблокируются по мере изучения материала.
+        </p>
+
+        <div class="quiz-stats">
+          <div class="quiz-stat-item">
+            <span class="quiz-stat-number" id="total-quizzes">—</span>
+            <span class="quiz-stat-label">Всего тестов</span>
+          </div>
+          <div class="quiz-stat-item">
+            <span class="quiz-stat-number" id="completed-quizzes">—</span>
+            <span class="quiz-stat-label">Пройдено</span>
+          </div>
+          <div class="quiz-stat-item">
+            <span class="quiz-stat-number" id="available-quizzes">—</span>
+            <span class="quiz-stat-label">Доступно</span>
+          </div>
+          <div class="quiz-stat-item">
+            <span class="quiz-stat-number" id="average-score">—</span>
+            <span class="quiz-stat-label">Средний прогресс</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="quiz-filters">
+        <h3>Фильтры</h3>
+        <div class="quiz-filter-buttons">
+          <button class="quiz-filter-btn active" data-filter="all">
+            Все тесты
+          </button>
+          <button class="quiz-filter-btn" data-filter="not-completed">
+            Не пройдены
+          </button>
+          <button class="quiz-filter-btn" data-filter="completed">
+            Пройденные
+          </button>
+          <button class="quiz-filter-btn" data-filter="locked">
+            Заблокированные
+          </button>
+        </div>
+
+        <div class="quiz-category-filters">
+          <h4>По категориям:</h4>
+          <div class="quiz-category-buttons">
+            <button class="quiz-category-btn active" data-category="all">
+              Все
+            </button>
+            <button class="quiz-category-btn" data-category="ml">ML</button>
+            <button class="quiz-category-btn" data-category="python">
+              Python
+            </button>
+            <button class="quiz-category-btn" data-category="math">
+              Математика
+            </button>
+            <button class="quiz-category-btn" data-category="mlops">
+              MLOps
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="quiz-catalog"></div>
+    </main>
+
+    <style>
+      /* Используем стиль как у лидерборда */
+      body {
+        background: var(--bg-color, #f7f7f9);
+        color: var(--text-primary, #1e293b);
+      }
+
+      .quiz-intro {
+        background: var(--surface-glass-bg);
+        -webkit-backdrop-filter: var(--surface-glass-blur);
+        backdrop-filter: var(--surface-glass-blur);
+        border: 1px solid var(--surface-glass-border);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 20px 0;
+        box-shadow: var(--surface-glass-shadow);
+      }
+
+      .quiz-intro > p {
+        display: none; /* Скрываем дублирующееся описание */
+      }
+
+      .quiz-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 20px;
+      }
+
+      .quiz-stat-item {
+        text-align: center;
+        padding: 20px;
+        background: var(--surface-glass-bg);
+        -webkit-backdrop-filter: var(--surface-glass-blur);
+        backdrop-filter: var(--surface-glass-blur);
+        border: 1px solid var(--surface-glass-border);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        box-shadow: var(--surface-glass-shadow);
+      }
+
+      .quiz-stat-item:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
+      }
+
+      .quiz-stat-number {
+        display: block;
+        font-size: 32px;
+        font-weight: 700;
+        background: linear-gradient(90deg, var(--brand), var(--accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 8px;
+      }
+
+      .quiz-stat-label {
+        font-size: 14px;
+        color: var(--text-secondary, #64748b);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .quiz-filters {
+        background: var(--surface-glass-bg);
+        -webkit-backdrop-filter: var(--surface-glass-blur);
+        backdrop-filter: var(--surface-glass-blur);
+        border: 1px solid var(--surface-glass-border);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 20px 0;
+        box-shadow: var(--surface-glass-shadow);
+      }
+
+      .quiz-filters h3 {
+        margin: 0 0 16px 0;
+        color: var(--text-primary, #1e293b);
+        font-weight: 700;
+      }
+
+      .quiz-filters h4 {
+        margin: 20px 0 12px 0;
+        color: var(--text-primary, #1e293b);
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .quiz-filter-buttons,
+      .quiz-category-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .quiz-filter-btn,
+      .quiz-category-btn {
+        padding: 8px 16px;
+        border: 1px solid var(--surface-glass-border);
+        border-radius: 8px;
+        background: var(--surface-glass-bg);
+        -webkit-backdrop-filter: var(--surface-glass-blur);
+        backdrop-filter: var(--surface-glass-blur);
+        color: var(--text-primary, #1e293b);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 14px;
+        font-weight: 500;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+
+      .quiz-filter-btn:hover,
+      .quiz-category-btn:hover {
+        background: color-mix(in srgb, var(--brand) 8%, transparent);
+        border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+      }
+
+      .quiz-filter-btn.active,
+      .quiz-category-btn.active {
+        background: color-mix(in srgb, var(--brand) 10%, transparent);
+        color: var(--brand);
+        border-color: var(--brand);
+        font-weight: 600;
+        box-shadow: 0 2px 4px color-mix(in srgb, var(--brand) 15%, transparent);
+      }
+
+      .quiz-help {
+        background: var(--surface-glass-bg);
+        -webkit-backdrop-filter: var(--surface-glass-blur);
+        backdrop-filter: var(--surface-glass-blur);
+        border: 1px solid var(--surface-glass-border);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 20px 0;
+        box-shadow: var(--surface-glass-shadow);
+      }
+
+      .quiz-help h3 {
+        margin: 0 0 20px 0;
+        color: var(--text-primary, #1e293b);
+        font-weight: 700;
+      }
+
+      .quiz-help-content {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+      }
+
+      .quiz-help-item {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 16px;
+        background: color-mix(in srgb, var(--brand) 5%, transparent);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .quiz-help-item:hover {
+        background: color-mix(in srgb, var(--brand) 10%, transparent);
+        transform: translateX(4px);
+      }
+
+      .quiz-help-icon {
+        font-size: 28px;
+        flex-shrink: 0;
+      }
+
+      .quiz-help-item strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--text-primary, #1e293b);
+        font-weight: 700;
+      }
+
+      .quiz-help-item p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--text-secondary, #64748b);
+        line-height: 1.6;
+      }
+
+      @media (max-width: 768px) {
+        .quiz-stats {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+
+        .quiz-filter-buttons,
+        .quiz-category-buttons {
+          flex-direction: column;
+        }
+
+        .quiz-filter-btn,
+        .quiz-category-btn {
+          width: 100%;
+          text-align: center;
+        }
+
+        .quiz-help-content {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+
+    <script>
+      // Инициализация системы тестов
+      document.addEventListener("DOMContentLoaded", async () => {
+        // Show quiz skeletons while loading
+        SkeletonLoader.show("quiz", "#quiz-catalog", 6);
+        SkeletonLoader.show("stat", ".quiz-stats", 4);
+
+        try {
+          // Загружаем конфигурацию Firebase
+          const configResponse = await fetch("/config/firebase-config.json");
+          const firebaseConfig = await configResponse.json();
+
+          // Инициализируем систему тестов
+          await window.quizSystem.initialize(firebaseConfig);
+          SkeletonLoader.hide("#quiz-catalog");
+
+          // Обновляем статистику
+          updateQuizStats();
+
+          // Добавляем обработчики фильтров
+          setupFilters();
+
+          openRequestedQuizFromUrl();
+        } catch (error) {
+          console.error("Failed to initialize quiz system:", error);
+        }
+      });
+
+      function updateQuizStats() {
+        // Restore original stat cards HTML if skeleton was shown
+        const statsEl = document.querySelector(".quiz-stats");
+        if (statsEl && statsEl.dataset.skActive) {
+          const original = statsEl.dataset.skOriginal;
+          if (original) statsEl.innerHTML = original;
+          SkeletonLoader.hide(".quiz-stats");
+        }
+
+        const registry = window.quizSystem.quizRegistry;
+        const results = window.quizSystem.quizResults;
+
+        let totalQuizzes = registry.size;
+        let completedQuizzes = 0;
+        let availableQuizzes = 0;
+        let totalScore = 0;
+        let scoreCount = 0;
+
+        console.log("UpdateQuizStats: Starting calculation", {
+          registrySize: registry.size,
+        });
+
+        registry.forEach((quizInfo, quizId) => {
+          const isUnlocked = window.quizSystem.isQuizUnlocked(quizInfo);
+          const lastResult = window.quizSystem.getLastQuizResult(quizId);
+          const threshold = window.quizSystem.getQuizThreshold(quizInfo);
+          const bestPassingResult = window.quizSystem.getBestPassingQuizResult(
+            quizId,
+            threshold,
+          );
+
+          console.log(`UpdateQuizStats: Quiz ${quizId}`, {
+            isUnlocked,
+            hasResult: !!lastResult,
+            lastResult: lastResult,
+            score: lastResult ? lastResult.score : null,
+            unlockType: quizInfo.unlockType,
+          });
+
+          if (isUnlocked) {
+            availableQuizzes++;
+          }
+
+          if (bestPassingResult) {
+            completedQuizzes++;
+          }
+
+          if (lastResult) {
+            const quizScore = lastResult.score || 0;
+            console.log(
+              `Adding score for ${quizId}: ${quizScore}, total before: ${totalScore}`,
+            );
+            totalScore += quizScore;
+            scoreCount++;
+          }
+        });
+
+        console.log("UpdateQuizStats: Results", {
+          totalQuizzes,
+          completedQuizzes,
+          availableQuizzes,
+          averageScore:
+            scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) : 0,
+        });
+
+        document.getElementById("total-quizzes").textContent = totalQuizzes;
+        document.getElementById("completed-quizzes").textContent =
+          completedQuizzes;
+        document.getElementById("available-quizzes").textContent =
+          availableQuizzes;
+
+        const averageScore =
+          scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) : 0;
+        document.getElementById("average-score").textContent =
+          averageScore + "%";
+      }
+
+      let activeStatusFilter = "all";
+      let activeCategoryFilter = "all";
+
+      function setupFilters() {
+        document.querySelectorAll(".quiz-filter-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document
+              .querySelectorAll(".quiz-filter-btn")
+              .forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            activeStatusFilter = btn.dataset.filter;
+            applyQuizFilters();
+          });
+        });
+
+        document.querySelectorAll(".quiz-category-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document
+              .querySelectorAll(".quiz-category-btn")
+              .forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            activeCategoryFilter = btn.dataset.category;
+            applyQuizFilters();
+          });
+        });
+
+        document.addEventListener("quiz-catalog:rendered", applyQuizFilters);
+        applyQuizFilters();
+      }
+
+      function applyQuizFilters() {
+        const catalogItems = document.querySelectorAll(".quiz-catalog-item");
+
+        catalogItems.forEach((item) => {
+          const status = item.dataset.status;
+          const matchesStatus =
+            activeStatusFilter === "all" ||
+            (activeStatusFilter === "not-completed" &&
+              (status === "not-started" || status === "not-passed")) ||
+            (activeStatusFilter === "completed" && status === "passed") ||
+            (activeStatusFilter === "locked" && status === "locked");
+          const matchesCategory =
+            activeCategoryFilter === "all" ||
+            item.dataset.category === activeCategoryFilter;
+
+          item.style.display = matchesStatus && matchesCategory ? "" : "none";
+        });
+      }
+
+      function openRequestedQuizFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const quizId = params.get("quiz");
+        if (!quizId) return;
+
+        const quizInfo = window.quizSystem.quizRegistry.get(quizId);
+        const card = Array.from(
+          document.querySelectorAll(".quiz-catalog-item"),
+        ).find((item) => item.dataset.quizId === quizId);
+        if (card) {
+          card.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+
+        if (!quizInfo) return;
+        if (!window.quizSystem.isQuizUnlocked(quizInfo)) {
+          window.quizSystem.showError(
+            t("Тест заблокирован. Завершите изучение материала для разблокировки."),
+          );
+          return;
+        }
+        window.quizSystem.startQuiz(quizId);
+      }
+    </script>
+
+    <script src="../authGuard.js"></script>
+  </body>
+</html>

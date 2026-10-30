@@ -1,0 +1,1666 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Github Base</title>
+
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/css/info-cards.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/components/info-cards.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/quiz.js"></script>
+    <script src="../assets/js/components/block-tests.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Basics</span>
+            <span class="pill pill--soft">GitHub</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Github Basics</h1>
+          <p class="section-shell__desc">Основы Git: коммиты, ветки, слияние, удалённые репозитории.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Блок 1</h3>
+        <!-- md:replace:git:start -->
+<li class="question" data-md-source="true" data-md-id="git" data-interview="3">
+  <div class="name" id="git">
+    Git
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Git — это система управления версиями, которая позволяет отслеживать изменения в коде, сохранять историю разработки и работать над проектом в команде.</p>
+<figure style="text-align: center">
+  <img alt="Git logo" src="../images/github/git-logo.png" width="800" height="600" loading="lazy" decoding="async" style="max-width: 200px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><b><a href="https://www.youtube.com/watch?v=SEvR78OhGtw" target="_blank" rel="noopener">Git. Большой практический выпуск</a></b> <em>Артем Матяшов</em> / <code>video</code> / intro / Rus / 98 min</td><td>Хорошая стартовая точка. После просмотра можно спокойно начать работу с Git</td></tr>
+<tr><td></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Git отличается от GitHub?</b></p>
+<p>Git — локальная система контроля версий; GitHub — хостинг репозиториев и инструменты совместной работы поверх Git.</p>
+</li>
+<li><p><b>Зачем фиксировать историю изменений, а не просто копировать папку проекта?</b></p>
+<p>Можно откатиться к любой версии, сравнить правки, работать параллельно в ветках и видеть, кто и зачем менял код.</p>
+</li>
+<li><p><b>Что хранится в каталоге <code>.git</code>?</b></p>
+<p>Объекты коммитов, ссылки на ветки и теги, конфигурация репозитория — вся история и метаданные.</p>
+</li>
+<li><p><b>Почему Git полезен в команде, а не только соло?</b></p>
+<p>Общий remote, ветки и PR позволяют синхронизировать работу без перезаписи файлов друг друга.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git:end -->
+
+        <!-- md:replace:github-desktop:start -->
+<li class="question" data-md-source="true" data-md-id="github-desktop" data-interview="1">
+  <div class="name" id="github-desktop">
+    GitHub Desktop
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><a href="https://desktop.github.com/download/" target="_blank" rel="noopener">GitHub Desktop</a> — официальное приложение с графическим интерфейсом для работы с Git и GitHub без командной строки.</p>
+<figure style="text-align: center">
+  <img alt="GitHub Desktop" src="../images/github/github-desktop.png" width="1914" height="1314" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Если вы предпочитаете визуальный интерфейс, хотите быстро видеть диффы и управлять ветками без терминала.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Можно перетащить проект в окно GitHub Desktop, сделать commit, выбрать ветку и нажать <em>Push origin</em>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>GitHub Desktop поддерживает drag-and-drop, автоматические синхронизации и интеграцию с редакторами кода.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Меняет ли GitHub Desktop логику Git под капотом?</b></p>
+<p>Нет — это GUI над теми же коммитами, ветками и remotes; репозиторий остаётся совместимым с CLI.</p>
+</li>
+<li><p><b>Что удобнее делать в Desktop новичку?</b></p>
+<p>Визуально смотреть diff, переключать ветки, коммитить и пушить без запоминания флагов.</p>
+</li>
+<li><p><b>Можно ли после работы в Desktop продолжить в терминале?</b></p>
+<p>Да — <code>.git</code> один и тот же; команды <code>git status</code> покажут те же изменения.</p>
+</li>
+<li><p><b>Чего Desktop обычно не заменяет полностью?</b></p>
+<p>Сложный rebase, разрешение тяжёлых конфликтов, скрипты CI и продвинутую автоматизацию.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:github-desktop:end -->
+
+        <!-- md:replace:github-vscode-extensions:start -->
+<li class="question" data-md-source="true" data-md-id="github-vscode-extensions" data-interview="1">
+  <div class="name" id="github-vscode-extensions">
+    Полезные расширения для VS Code
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Расширения (extensions) в VS Code позволяют добавить поддержку языков, систем контроля версий, форматирования и интеграции с платформами вроде GitHub или Jupyter.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Расширения">
+<table class="task-table">
+<thead><tr><th>Название</th><th>Описание</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td><b>GitHub</b></td><td>Официальное расширение для интеграции с GitHub: Issues, репозитории, организации прямо из редактора.</td><td>Если активно работаете с GitHub-репозиториями без перехода в браузер.</td></tr>
+<tr><td><b>GitLens</b></td><td>Показывает историю изменений в коде, авторов строк, коммиты.</td><td>Для глубокого анализа истории коммитов и отслеживания авторства.</td></tr>
+<tr><td><b>GitHub Actions</b></td><td>Просмотр и перезапуск CI/CD-воркфлоу прямо из VS Code.</td><td>Если используете GitHub Actions и хотите управлять ими из редактора.</td></tr>
+<tr><td><b>GitHub Pull Requests</b></td><td>Создание, комментирование и мёрдж Pull Requests из редактора.</td><td>Удобно для ревью и комментариев прямо в VS Code.</td></tr>
+<tr><td><b>Jupyter</b></td><td>Поддержка Jupyter Notebook (<code>.ipynb</code>) — запуск ячеек, вывод графиков.</td><td>При работе с данными и ML-экспериментами в формате Notebook.</td></tr>
+<tr><td><b>Python</b></td><td>Официальное расширение Microsoft: подсветка, автодополнение, отладка, linting.</td><td>Основное расширение для Python-разработки.</td></tr>
+<tr><td><b>Rainbow CSV</b></td><td>Подсвечивает столбцы в CSV/TSV-файлах разными цветами.</td><td>Если часто работаете с табличными данными.</td></tr>
+<tr><td><b>YAML</b></td><td>Поддержка синтаксиса YAML, подсказки по ключам и валидация схем.</td><td>При работе с конфигами, CI/CD и Docker-описаниями.</td></tr>
+<tr><td><b>Even Better TOML</b></td><td>Расширенная подсветка и валидация TOML-файлов.</td><td>Для проектов с Poetry, Pydantic или конфигами в TOML.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Все перечисленные расширения можно установить через <b>Marketplace</b> прямо в VS Code: откройте панель Extensions (<code>Ctrl + Shift + X</code>) и введите название плагина. Рекомендуется также включить автообновление расширений.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем расширение GitHub Pull Requests в VS Code?</b></p>
+<p>Смотреть и комментировать PR, проходить review не выходя из редактора.</p>
+</li>
+<li><p><b>Что даёт GitLens поверх встроенного Git в VS Code?</b></p>
+<p>Blame, история строки, сравнение веток и наглядная аннотация авторов.</p>
+</li>
+<li><p><b>Зачем расширение GitHub Actions в репозитории с CI?</b></p>
+<p>Просмотр статусов workflow и логов запусков рядом с кодом.</p>
+</li>
+<li><p><b>Меняют ли расширения сами коммиты в <code>.git</code>?</b></p>
+<p>Нет — они вызывают Git или API GitHub; история остаётся стандартной.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:github-vscode-extensions:end -->
+        
+        <!-- md:replace:github-vs-gitlab:start -->
+<li class="question" data-md-source="true" data-md-id="github-vs-gitlab" data-interview="1">
+  <div class="name" id="github-vs-gitlab">
+    Отличия GitHub и GitLab
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>GitHub</b> и <b>GitLab</b> — это платформы для хостинга репозиториев Git, управления версиями, CI/CD и совместной разработки. Обе поддерживают схожие функции, но различаются по архитектуре, философии и возможностям кастомизации.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Сравнение">
+<table class="task-table">
+<thead><tr><th>Параметр</th><th>GitHub</th><th>GitLab</th></tr></thead>
+<tbody>
+<tr><td><b>Основная цель</b></td><td>Фокус на сообществе, open-source и коллаборации</td><td>Фокус на DevOps, CI/CD и корпоративной инфраструктуре</td></tr>
+<tr><td><b>Тип платформы</b></td><td>Проприетарная (принадлежит Microsoft)</td><td>Open-source, можно развернуть на своём сервере</td></tr>
+<tr><td><b>CI/CD</b></td><td>Через <b>GitHub Actions</b></td><td>Встроенный <b>GitLab CI/CD</b> — один из самых зрелых инструментов</td></tr>
+<tr><td><b>Развёртывание</b></td><td>Хостится в облаке, self-host только через GitHub Enterprise</td><td>Облачный сервис и self-host (GitLab CE / EE)</td></tr>
+<tr><td><b>Pull / Merge Requests</b></td><td><b>Pull Requests</b></td><td><b>Merge Requests</b> — аналогичный механизм</td></tr>
+<tr><td><b>Управление задачами</b></td><td>Issues, Projects, Discussions</td><td>Полноценные Agile-инструменты: доски, спринты, milestones</td></tr>
+<tr><td><b>Интеграции</b></td><td>VS Code, Copilot, Actions Marketplace</td><td>Jira, Kubernetes, Prometheus, CI/CD-пайплайны</td></tr>
+<tr><td><b>Приватные репозитории</b></td><td>Бесплатны для отдельных пользователей</td><td>Бесплатны во всех версиях, включая self-hosted</td></tr>
+<tr><td><b>Когда выбирать</b></td><td>Open-source, стартапы, public-проекты</td><td>Корпоративные проекты, DevOps-пайплайны, собственный сервер</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><b>GitHub</b> — проще в использовании, идеально подходит для открытых проектов и интеграции с экосистемой Microsoft.</li>
+<li><b>GitLab</b> — мощнее в плане CI/CD, контроля доступа и автономного развёртывания.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Обязательно ли менять Git при переходе с GitHub на GitLab?</b></p>
+<p>Нет — Git локальный; меняется хостинг, CI и интерфейс (PR $\leftrightarrow$ MR).</p>
+</li>
+<li><p><b>Чем GitHub Actions отличается от GitLab CI на уровне идеи?</b></p>
+<p>Оба запускают pipeline по событиям в репозитории; синтаксис и встроенность в платформу разные.</p>
+</li>
+<li><p><b>Когда чаще выбирают self-hosted GitLab?</b></p>
+<p>Нужен полный контроль внутри периметра компании и единый DevOps-стек на своих серверах.</p>
+</li>
+<li><p><b>Что остаётся одинаковым на обеих платформах?</b></p>
+<p>Модель репозитория, ветки, merge/rebase, code review и интеграция с issue-трекером.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:github-vs-gitlab:end -->
+
+        <!-- md:replace:diff:start -->
+<li class="question" data-md-source="true" data-md-id="diff" data-interview="1">
+  <div class="name" id="diff">
+    Diff
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Diff (от &quot;difference&quot; — различие) — это процесс сравнения двух версий файлов, позволяющий увидеть, какие строки были добавлены, удалены или изменены.</p>
+<figure style="text-align: center">
+  <img alt="Diff" src="../images/github/diff.png" width="1986" height="1074" loading="lazy" decoding="async" style="max-width: 750px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В системах контроля версий команда <code>git diff</code> позволяет посмотреть, какие изменения были сделаны в рабочих файлах относительно сохранённой версии.</p>
+<ul>
+<li>Строки, которые были добавлены, отмечаются знаком <code>+</code> (зелёным цветом).</li>
+<li>Удалённые строки — знаком <code>-</code> (красным цветом).</li>
+<li>Изменённые строки отображаются как удаление старой и добавление новой строки.</li>
+</ul>
+<p>Diff можно применять к отдельным файлам, папкам, диапазонам коммитов и для просмотра разницы между ветками.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Diff используют для обзора изменений перед коммитом, при код-ревью, при разрешении конфликтов слияния или для поиска ошибок, попавших в код.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<ul>
+<li><code>git diff</code> — показать текущие незакоммиченные изменения.</li>
+<li><code>git diff HEAD~1 HEAD</code> — сравнить два последних коммита.</li>
+<li><code>git diff main feature/branch</code> — показать различия между двумя ветками.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что показывает <code>git diff</code> без аргументов?</b></p>
+<p>Разницу между рабочим каталогом и индексом — что изменено, но ещё не застейджено.</p>
+</li>
+<li><p><b>Чем <code>git diff --staged</code> отличается от обычного <code>git diff</code>?</b></p>
+<p><code>--staged</code> сравнивает индекс с последним коммитом — что уже готово к коммиту.</p>
+</li>
+<li><p><b>Как посмотреть diff между двумя коммитами?</b></p>
+<p><code>git diff &lt;старый&gt; &lt;новый&gt;</code> или <code>git show &lt;коммит&gt;</code> для одного коммита.</p>
+</li>
+<li><p><b>Зачем смотреть diff перед коммитом?</b></p>
+<p>Чтобы не закоммитить отладочный код, секреты или случайные правки в чужих файлах.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:diff:end -->
+        
+        <!-- md:replace:install:start -->
+<li class="question" data-md-source="true" data-md-id="install" data-interview="1">
+  <div class="name" id="install">
+    Установка и настройка Git
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Начальная конфигурация Git нужна, чтобы коммиты подписывались вашим именем и email, а формат вывода и поведение команд были удобными.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Сразу после установки Git на новом компьютере или сервере.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git --version
+git config --global user.name "Ваше Имя"
+git config --global user.email "you@example.com"
+git config --global init.defaultBranch main
+git config --global pull.rebase false
+git config --list --show-origin</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Без имени и email Git не позволит создать коммит. Параметр <code>init.defaultBranch</code> задаёт имя основной ветки по умолчанию.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем настраивать <code>user.name</code> и <code>user.email</code>?</b></p>
+<p>Эти поля попадают в метаданные каждого коммита и идентифицируют автора в истории.</p>
+</li>
+<li><p><b>Что делает <code>git config --global init.defaultBranch main</code>?</b></p>
+<p>Новые репозитории по умолчанию создают основную ветку с именем <code>main</code>.</p>
+</li>
+<li><p><b>Чем отличается <code>--global</code> от локальной настройки в репозитории?</b></p>
+<p><code>--global</code> действует для всех репозиториев пользователя; локальный <code>git config</code> без флага переопределяет глобальный только в текущем проекте.</p>
+</li>
+<li><p><b>Как проверить, что Git установлен и настроен?</b></p>
+<p><code>git --version</code> и <code>git config --list --show-origin</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:install:end -->
+        
+        <!-- md:replace:repo-init:start -->
+<li class="question" data-md-source="true" data-md-id="repo-init" data-interview="1">
+  <div class="name" id="repo-init">
+    Инициализация репозитория
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Репозиторий Git — это папка проекта с поддиректорией <code>.git</code>, где хранится вся история изменений.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Начало нового проекта или перенос существующего кода под контроль версий.</p>
+
+</div>
+<div class="code-block" data-lang="bash">mkdir my-project &amp;&amp; cd my-project
+git init
+ls -la .git</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Если сейчас тебя смущают команды Linux, то можешь глянуть <a href="../linux/basics.html" target="_blank" rel="noopener">Linux Basics</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>После <code>git init</code> в каталоге появится скрытая папка <code>.git</code>, содержащая объекты, ссылки и настройку.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что создаёт команда <code>git init</code>?</b></p>
+<p>Пустой репозиторий Git: каталог <code>.git</code> с начальной веткой и без коммитов.</p>
+</li>
+<li><p><b>Чем <code>git init</code> отличается от <code>git clone</code>?</b></p>
+<p><code>init</code> начинает репозиторий с нуля локально; <code>clone</code> копирует уже существующий remote со всей историей.</p>
+</li>
+<li><p><b>Почему первый коммит иногда называют «initial commit»?</b></p>
+<p>До него в репозитории нет зафиксированной истории — это корень дерева коммитов.</p>
+</li>
+<li><p><b>Что увидит <code>git status</code> сразу после <code>git init</code> в пустой папке?</b></p>
+<p>Сообщение, что ветка создана, но коммитов ещё нет; неотслеживаемые файлы, если они уже лежат в каталоге.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:repo-init:end -->
+
+        <h3>Блок 2</h3>
+        <!-- md:replace:git-status:start -->
+<li class="question" data-md-source="true" data-md-id="git-status" data-interview="1">
+  <div class="name" id="git-status">
+    <code>git status</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git status</code> показывает состояние рабочей директории и индекса (staging area).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Чтобы понять, какие файлы изменены, добавлены или ожидают коммита.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git status</div><figure style="text-align: center">
+  <img alt="git status" src="../images/github/status.png" width="700" height="225" loading="lazy" decoding="async" style="max-width: 550px; width: 100%; height: auto" />
+</figure>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие три состояния файла показывает <code>git status</code>?</b></p>
+<p>Отслеживаемый/неотслеживаемый, изменённый в рабочем каталоге, подготовленный к коммиту (staged).</p>
+</li>
+<li><p><b>Что означает «Changes to be committed»?</b></p>
+<p>Файлы уже в индексе и войдут в следующий <code>git commit</code>.</p>
+</li>
+<li><p><b>Как узнать текущую ветку из терминала?</b></p>
+<p>Первая строка вывода <code>git status</code> или <code>git branch --show-current</code>.</p>
+</li>
+<li><p><b>Почему <code>git status</code> — первая команда при «что-то пошло не так»?</b></p>
+<p>Она показывает, на какой ветке вы находитесь и какие файлы в каком состоянии — без догадок.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git-status:end -->
+
+        <!-- md:replace:git-add:start -->
+<li class="question" data-md-source="true" data-md-id="git-add" data-interview="1">
+  <div class="name" id="git-add">
+    <code>git add</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git add</code> добавляет изменения из рабочей директории в индекс (staging area) для подготовки к коммиту.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>После изменения или создания файлов, которые хотите включить в следующий коммит.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git add file.txt       # добавить конкретный файл
+git add .              # добавить все изменения в текущей директории
+git add *.py           # добавить все .py файлы</div><p>Изменили <code>index.html</code> и <code>style.css</code> $\to$ <code>git add index.html style.css</code>.</p>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>git add</code> с точки зрения трёх деревьев Git?</b></p>
+<p>Копирует выбранные изменения из рабочего каталога в индекс (staging area).</p>
+</li>
+<li><p><b>Чем <code>git add file.py</code> отличается от <code>git add .</code>?</b></p>
+<p>Первая команда стейджит один файл; вторая — все изменения в текущем каталоге и подкаталогах.</p>
+</li>
+<li><p><b>Можно ли частично добавить правки внутри одного файла?</b></p>
+<p>Да, через <code>git add -p</code> (интерактивный выбор hunks).</p>
+</li>
+<li><p><b>Попадёт ли в коммит файл, который вы изменили, но не добавили через <code>git add</code>?</b></p>
+<p>Нет — в коммит идёт только то, что уже в индексе.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git-add:end -->
+
+        <!-- md:replace:commit:start -->
+<li class="question" data-md-source="true" data-md-id="commit" data-interview="2">
+  <div class="name" id="commit">
+    <code>git commit</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Коммит — это зафиксированный снимок состояния проекта в определённый момент времени с сообщением, автором и уникальным идентификатором (hash).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Каждый раз, когда завершена логическая единица работы (фикс бага, добавление фичи, изменение документации).</p>
+
+</div>
+<div class="code-block" data-lang="bash">git commit -m "Краткое и понятное сообщение"</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Названия коммитам надо давать так, чтобы из истории легко понять, что сделано. Лучше написать <code>&quot;Fix login redirect bug&quot;</code> или <code>&quot;Add user profile API&quot;</code>, чем <code>&quot;upd&quot;</code>, <code>&quot;fix&quot;</code>, <code>&quot;add&quot;</code> без дополнительных объяснений.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое коммит в Git?</b></p>
+<p>Неизменяемый снимок дерева файлов с сообщением, автором, датой и ссылкой на родительский коммит.</p>
+</li>
+<li><p><b>Зачем писать осмысленное сообщение коммита?</b></p>
+<p>Через месяцы по <code>git log</code> должно быть понятно, зачем была сделана правка, без чтения всего diff.</p>
+</li>
+<li><p><b>Чем <code>git commit -m &quot;...&quot;</code> отличается от коммита без <code>-m</code>?</b></p>
+<p>С флагом сообщение передаётся сразу; без него откроется редактор для ввода текста.</p>
+</li>
+<li><p><b>Можно ли изменить уже созданный коммит, не трогая файлы?</b></p>
+<p>Да, локально — <code>git commit --amend</code> (осторожно, если коммит уже запушен).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:commit:end -->
+        
+        <!-- md:replace:branches:start -->
+<li class="question" data-md-source="true" data-md-id="branches" data-interview="3">
+  <div class="name" id="branches">
+    Ветки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Ветка — это указатель на определённый коммит, позволяющий вести параллельную разработку, не мешая основной линии.</p>
+<figure style="text-align: center">
+  <img alt="Branches" src="../images/github/branches.png" width="645" height="385" loading="lazy" decoding="async" style="max-width: 400px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для изоляции разработки фич, исправлений или экспериментов.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git branch                      # список веток
+git checkout -b feature/login   # создать ветку от текущей</div><p>Ветка <code>main</code> — стабильная версия; <code>feature/cart</code> — разработка корзины покупок.</p>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое ветка в Git на самом деле?</b></p>
+<p>Подвижный указатель на коммит; новые коммиты сдвигают указатель ветки вперёд.</p>
+</li>
+<li><p><b>Зачем вести фичу в отдельной ветке, а не в <code>main</code>?</b></p>
+<p>Изоляция работы, параллельная разработка и ревью через PR без блокировки основной линии.</p>
+</li>
+<li><p><b>Что произойдёт с веткой <code>feature/x</code> после успешного merge в <code>main</code>?</b></p>
+<p>Указатель <code>main</code> продвинется; <code>feature/x</code> можно удалить, история коммитов останется в <code>main</code>.</p>
+</li>
+<li><p><b>Как посмотреть список локальных веток?</b></p>
+<p><code>git branch</code> или <code>git branch -a</code> вместе с remote-tracking ветками.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:branches:end -->
+        
+        <!-- md:replace:git-checkout:start -->
+<li class="question" data-md-source="true" data-md-id="git-checkout" data-interview="2">
+  <div class="name" id="git-checkout">
+    <code>git checkout</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git checkout</code> переключает HEAD на другую ветку или коммит; флаг <code>-b</code> создаёт ветку и сразу переходит в неё.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Чтобы переключиться между ветками или начать разработку новой фичи в отдельной ветке.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git checkout develop         # перейти в существующую ветку
+git checkout -b feature/chat # создать и перейти</div><p><code>git checkout -b fix/login-bug</code> создаёт ветку для фикса багов логина.</p>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>git checkout main</code>?</b></p>
+<p>Переключает HEAD и рабочий каталог на ветку <code>main</code>.</p>
+</li>
+<li><p><b>Что делает <code>git checkout -b feature/login</code>?</b></p>
+<p>Создаёт ветку <code>feature/login</code> от текущего коммита и сразу переключается на неё.</p>
+</li>
+<li><p><b>Почему Git может отказать в checkout при незакоммиченных изменениях?</b></p>
+<p>Переключение перезапишет файлы; Git защищает от потери несохранённой работы (нужен commit, stash или discard).</p>
+</li>
+<li><p><b>Чем <code>git switch</code> связан с <code>git checkout</code>?</b></p>
+<p><code>git switch</code> — более узкая современная команда только для переключения веток; <code>checkout</code> умеет и ветки, и отдельные файлы.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git-checkout:end -->
+        
+        <h3>Блок 3</h3>
+        <!-- md:replace:fetch-pull:start -->
+<li class="question" data-md-source="true" data-md-id="fetch-pull" data-interview="3">
+  <div class="name" id="fetch-pull">
+    <code>git fetch</code> и <code>git pull</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git fetch</code> получает новые данные с удалённого репозитория, но не сливает их в текущую ветку.<br><code>git pull</code> = <code>git fetch</code> + автоматическое слияние или rebase в текущую ветку.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li><code>fetch</code> — когда хотите посмотреть, что изменилось, без изменения своей ветки.</li>
+<li><code>pull</code> — когда готовы подтянуть изменения в свою ветку.</li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="bash">git fetch origin main  # посмотреть, что нового на удалённом main
+git pull origin main   # подтянуть и слить в локальный main</div><p>Вы работаете над фичей, но хотите убедиться, что ваша ветка свежая: <code>git pull origin feature/x</code>.</p>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Обновляет ли <code>git fetch</code> ваши локальные файлы в рабочем каталоге?</b></p>
+<p>Нет — только скачивает объекты и обновляет remote-tracking ветки; рабочие файлы не трогает.</p>
+</li>
+<li><p><b>Из чего состоит <code>git pull</code>?</b></p>
+<p><code>git fetch</code> плюс слияние (merge) или rebase в текущую ветку — зависит от настроек.</p>
+</li>
+<li><p><b>Когда безопаснее сначала <code>fetch</code>, а не сразу <code>pull</code>?</b></p>
+<p>Когда хотите посмотреть чужие коммиты (<code>git log origin/main</code>) до слияния в свою ветку.</p>
+</li>
+<li><p><b>Что может пойти не так после <code>git pull</code> при параллельных правках?</b></p>
+<p>Merge-конфликт, если вы и коллега меняли одни и те же строки.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:fetch-pull:end -->
+        
+        
+        <!-- md:replace:basic-cycle:start -->
+<li class="question" data-md-source="true" data-md-id="basic-cycle" data-interview="3">
+  <div class="name" id="basic-cycle">
+    Базовый алгоритм работы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Изменения проходят через индекс (staging area) перед фиксацией в истории — это позволяет контролировать, что попадёт в коммит.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git status
+git add &lt;файл&gt;            # добавить конкретный файл
+git add .                 # добавить все изменения в каталоге
+git commit -m "Краткое сообщение коммита"
+git log --oneline --graph --decorate -n 5</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><code>git add</code> готовит изменения к коммиту, <code>git commit</code> записывает их в историю с сообщением.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем рабочий каталог отличается от индекса (staging area)?</b></p>
+<p>В рабочем каталоге вы редактируете файлы; в индексе лежит снимок того, что попадёт в следующий коммит.</p>
+</li>
+<li><p><b>Какой минимальный цикл сохраняет одну правку в историю?</b></p>
+<p>Изменить файл $\to$ <code>git add</code> $\to$ <code>git commit</code> $\to$ при необходимости <code>git push</code>.</p>
+</li>
+<li><p><b>Зачем смотреть <code>git status</code> перед коммитом?</b></p>
+<p>Чтобы убедиться, что в коммит попадут нужные файлы, а лишние — нет.</p>
+</li>
+<li><p><b>Что произойдёт, если сделать <code>git commit</code> без <code>git add</code>?</b></p>
+<p>Новые или изменённые файлы не попадут в коммит, если они не были ранее застейджены.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:basic-cycle:end -->
+        
+        <!-- md:replace:gitignore:start -->
+<li class="question" data-md-source="true" data-md-id="gitignore" data-interview="2">
+  <div class="name" id="gitignore">
+    <code>.gitignore</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Файл <code>.gitignore</code> перечисляет пути и маски, которые Git не должен отслеживать (сборки, секреты, временные файлы).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Сразу при старте проекта, чтобы мусор не попал в репозиторий.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Игнорирование <code>.venv</code> предотвращает случайную публикацию виртуальной среды, <code>.pth</code> — весов моделей и т.д.</p>
+<figure style="text-align: center">
+  <img alt=".gitignore" src="../images/github/gitignore.png" width="430" height="462" loading="lazy" decoding="async" style="max-width: 350px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Влияет ли <code>.gitignore</code> на уже отслеживаемые файлы?</b></p>
+<p>Нет — для них нужно сначала убрать из индекса (<code>git rm --cached</code>), иначе ignore не сработает.</p>
+</li>
+<li><p><b>Зачем игнорировать <code>.venv/</code> и артефакты сборки?</b></p>
+<p>Они воспроизводимы локально, раздувают репозиторий и не должны попадать в историю.</p>
+</li>
+<li><p><b>Можно ли закоммитить секрет, если он прописан в <code>.gitignore</code> слишком поздно?</b></p>
+<p>Да, если файл уже был в Git — ignore не удалит его из истории автоматически.</p>
+</li>
+<li><p><b>Где обычно лежит корневой <code>.gitignore</code>?</b></p>
+<p>В корне репозитория; правила применяются рекурсивно к подкаталогам.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gitignore:end -->
+        
+        <h3>Блок 4</h3>
+        <!-- md:replace:history:start -->
+<li class="question" data-md-source="true" data-md-id="history" data-badge-type="additional" data-interview="2">
+  <div class="name" id="history">
+    Просмотр истории и различий
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Историю можно просматривать по-разному: кратко, с графом веток, с указанием авторов, диффов и т.д.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git log --oneline -5     # покажет 5 последних коммитов
+git show HEAD
+git diff                 # несохранённые изменения
+git diff --staged        # то, что уже в индексе</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда нужно понять, что изменилось, кто и когда внёс правки.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что выводит <code>git log --oneline</code>?</b></p>
+<p>Краткий список коммитов: укороченный hash и первая строка сообщения.</p>
+</li>
+<li><p><b>Зачем нужен <code>git log --graph</code>?</b></p>
+<p>Визуально показывает ветвления, merge и rebase в истории.</p>
+</li>
+<li><p><b>Чем <code>git show HEAD</code> полезен при разборе последнего коммита?</b></p>
+<p>Показывает метаданные коммита и полный diff изменений этого коммита.</p>
+</li>
+<li><p><b>Как найти, кто последним менял строку в файле?</b></p>
+<p><code>git blame &lt;файл&gt;</code> — построчная привязка к коммитам и авторам.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:history:end -->
+        
+        <!-- md:replace:merge-conflicts:start -->
+<li class="question" data-md-source="true" data-md-id="merge-conflicts" data-interview="3">
+  <div class="name" id="merge-conflicts">
+    Слияние и разрешение конфликтов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git merge</code> объединяет изменения из другой ветки. При конфликте Git помечает конфликтующие участки в файлах.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git checkout main
+git merge feature/login</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если одна и та же строка изменена по-разному в двух ветках, возникает конфликт, который нужно решить вручную.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда возникает merge-конфликт?</b></p>
+<p>Когда Git не может автоматически совместить правки в одних и тех же участках файла из двух веток.</p>
+</li>
+<li><p><b>Как выглядят маркеры конфликта в файле?</b></p>
+<p>Блоки <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code>, <code>=======</code>, <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> с версиями «нашей» и «их» стороны.</p>
+</li>
+<li><p><b>Что делать после ручного исправления конфликта?</b></p>
+<p>Удалить маркеры, проверить код, <code>git add</code> исправленные файлы и завершить merge/rebase коммитом.</p>
+</li>
+<li><p><b>Можно ли отменить merge, который ещё не закоммичен?</b></p>
+<p>Да — <code>git merge --abort</code> (или <code>git rebase --abort</code> при конфликте в rebase).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:merge-conflicts:end -->
+        
+        <!-- md:replace:remotes:start -->
+<li class="question" data-md-source="true" data-md-id="remotes" data-interview="2">
+  <div class="name" id="remotes">
+    Удалённый репозиторий
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Основные команды при работе с удалёнными репозиториями: <code>origin</code> (имя удалённого), <code>fetch</code> (загрузить изменения), <code>pull</code> (загрузить и объединить), <code>push</code> (отправить свои коммиты на сервер).</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Удалённый репозиторий — это копия вашего проекта на сервере (например, GitHub), используемая для совместной работы.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git remote add origin https://github.com/user/repo.git
+git remote -v            # проверить, что remote добавлен
+git push -u origin main  # первый пуш и установка upstream
+...
+git fetch origin         # получить обновления
+git pull origin          # получить и слить в текущую ветку</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда связываете локальный проект с GitHub или подтягиваете изменения коллег.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое remote в Git?</b></p>
+<p>Именованная ссылка на URL репозитория на сервере (обычно <code>origin</code> на GitHub).</p>
+</li>
+<li><p><b>Зачем нужен <code>git push -u origin main</code> при первом пуше?</b></p>
+<p>Отправляет коммиты на сервер и настраивает upstream, чтобы дальше хватало <code>git push</code> / <code>git pull</code>.</p>
+</li>
+<li><p><b>Чем <code>git fetch</code> отличается от <code>git push</code>?</b></p>
+<p><code>fetch</code> только скачивает объекты с remote; <code>push</code> отправляет ваши локальные коммиты на remote.</p>
+</li>
+<li><p><b>Как посмотреть настроенные remotes?</b></p>
+<p><code>git remote -v</code> — имена и URL для fetch/push.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:remotes:end -->
+        
+        <h3>Блок 5</h3>
+        <!-- md:replace:clone-fork:start -->
+<li class="question" data-md-source="true" data-md-id="clone-fork" data-interview="2">
+  <div class="name" id="clone-fork">
+    Клонирование и форки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git clone</code> копирует существующий репозиторий. Форк — ваша копия чужого репозитория в аккаунте GitHub.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git clone https://github.com/owner/project.git
+cd project
+git remote -v
+# Для форка: форкните на GitHub, затем:
+git clone https://github.com/yourname/project.git
+git remote add upstream https://github.com/owner/project.git
+git fetch upstream
+git merge upstream/main</div><figure style="text-align: center">
+  <img alt="Fork" src="../images/github/fork.png" width="803" height="260" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+  <figcaption>
+    Форк можно сделать без головной боли на GitHub через UI
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем fork на GitHub отличается от <code>git clone</code>?</b></p>
+<p>Fork — копия репозитория в вашем аккаунте на сервере; clone — локальная копия на диск.</p>
+</li>
+<li><p><b>Зачем при работе с чужим проектом добавлять remote <code>upstream</code>?</b></p>
+<p>Чтобы подтягивать обновления из оригинального репозитория, не смешивая их с вашим fork на GitHub.</p>
+</li>
+<li><p><b>Какой типичный порядок: fork $\to$ clone $\to$ правки $\to$ PR?</b></p>
+<p>Форк на GitHub $\to$ <code>git clone</code> своего fork $\to$ ветка $\to$ push в свой fork $\to$ PR в upstream.</p>
+</li>
+<li><p><b>Содержит ли <code>git clone</code> всю историю коммитов?</b></p>
+<p>Да, по умолчанию клонируется полная история и настраивается <code>origin</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:clone-fork:end -->
+        
+        <!-- md:replace:pull-request:start -->
+<li class="question" data-md-source="true" data-md-id="pull-request" data-interview="3">
+  <div class="name" id="pull-request">
+    Pull Request (PR)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>PR — запрос на добавление ваших изменений в целевую ветку репозитория, с обсуждением и проверками.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Каждый раз, когда завершаете задачу в отдельной ветке и хотите объединить её в <code>main</code> или релиз-ветку.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Залейте ветку на GitHub (<code>git push origin feature/x</code>) $\to$ откройте PR $\to$ дождитесь review и CI $\to$ merge.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Кроме обозначения PR можно встретить термин &quot;Merge Request&quot; (MR). Это одно и то же, просто исторически в GitLab используется термин &quot;Merge Request&quot;, а в GitHub — &quot;Pull Request&quot;.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен Pull Request, если можно пушить прямо в <code>main</code>?</b></p>
+<p>Ревью, обсуждение, CI-проверки и контролируемое слияние до попадания кода в общую ветку.</p>
+</li>
+<li><p><b>Что проверяют в PR кроме кода?</b></p>
+<p>Тесты CI, конфликты с целевой веткой, описание изменений, связанные issues.</p>
+</li>
+<li><p><b>Чем PR на GitHub похож на Merge Request в GitLab?</b></p>
+<p>Это одна и та же идея: запрос на слияние ветки с ревью и автоматическими проверками.</p>
+</li>
+<li><p><b>Что даёт фраза <code>Closes #42</code> в описании PR?</b></p>
+<p>После merge связанный issue #42 может автоматически закрыться.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:pull-request:end -->
+        
+        <!-- md:replace:tags-releases:start -->
+<li class="question" data-md-source="true" data-md-id="tags-releases" data-badge-type="additional" data-interview="2">
+  <div class="name" id="tags-releases">
+    Теги и релизы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Теги помечают конкретные коммиты (версии). Релизы на GitHub оформляют заметки об изменениях и артефакты сборок.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git tag -a v1.0.0 -m "New version 1.0.0: new feature added.."
+git push origin v1.0.0</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>При выпуске стабильной версии, чтобы её можно было легко найти и скачать.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем тег отличается от ветки?</b></p>
+<p>Тег — фиксированная метка на коммите (обычно версия); ветка двигается с новыми коммитами.</p>
+</li>
+<li><p><b>Зачем аннотированный тег <code>git tag -a v1.0.0</code>?</b></p>
+<p>Хранит сообщение, автора и дату — удобнее для релизов, чем лёгкий тег без метаданных.</p>
+</li>
+<li><p><b>Что добавляет GitHub Release поверх git-тега?</b></p>
+<p>Release notes, прикреплённые бинарники и страницу загрузки для пользователей.</p>
+</li>
+<li><p><b>Достаточно ли создать тег только локально?</b></p>
+<p>Нет — коллеги и CI увидят его после <code>git push origin v1.0.0</code> (или <code>git push --tags</code>).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:tags-releases:end -->
+        
+        <!-- md:replace:undo:start -->
+<li class="question" data-md-source="true" data-md-id="undo" data-badge-type="additional" data-interview="2">
+  <div class="name" id="undo">
+    Отмена изменений
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git restore</code> откатывает файлы, <code>git reset</code> двигает указатель ветки, <code>git revert</code> создаёт обратный коммит.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Отменить незастейдженные изменения в файле
+git restore &lt;файл&gt;
+
+# Убрать файл из индекса, но оставить правки в рабочем каталоге
+git restore --staged &lt;файл&gt;
+
+# Перемотать ветку назад (осторожно!)
+git reset --soft HEAD~1
+
+# Создать обратный коммит (без переписывания истории)
+git revert &lt;hash&gt;</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p><code>revert</code> — безопасен в общих ветках; <code>reset --soft</code> — только локально.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем <code>git restore &lt;файл&gt;</code> отличается от <code>git reset --hard</code>?</b></p>
+<p><code>restore</code> откатывает содержимое файла; <code>reset --hard</code> двигает ветку и сбрасывает индекс и рабочий каталог целиком.</p>
+</li>
+<li><p><b>Что делает <code>git restore --staged &lt;файл&gt;</code>?</b></p>
+<p>Убирает файл из индекса, но оставляет правки в рабочем каталоге.</p>
+</li>
+<li><p><b>Почему в общей ветке предпочитают <code>git revert</code>, а не <code>reset</code>?</b></p>
+<p><code>revert</code> добавляет новый коммит-отмену и не переписывает опубликованную историю.</p>
+</li>
+<li><p><b>Что делает <code>git reset --soft HEAD~1</code>?</b></p>
+<p>Отменяет последний коммит, оставляя изменения в индексе — удобно поправить сообщение или состав коммита локально.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:undo:end -->
+        
+        <!-- md:replace:stash:start -->
+<li class="question" data-md-source="true" data-md-id="stash" data-badge-type="additional" data-interview="2">
+  <div class="name" id="stash">
+    Временное сохранение изменений
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git stash</code> прячет незакоммиченные изменения, чтобы быстро переключиться на другую задачу.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git stash push -m "WIP: набросок"
+git switch main
+# позже...
+git switch feature/x
+git stash list
+git stash apply stash@{0}    # применить, но оставить в списке
+git stash drop stash@{0}     # удалить запись
+# или сразу забрать и удалить:
+git stash pop</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>git stash push</code>?</b></p>
+<p>Временно убирает незакоммиченные изменения с рабочего каталога, оставляя чистое дерево.</p>
+</li>
+<li><p><b>Чем <code>git stash pop</code> отличается от <code>git stash apply</code>?</b></p>
+<p><code>pop</code> применяет stash и удаляет его из списка; <code>apply</code> оставляет копию в stash.</p>
+</li>
+<li><p><b>Когда stash удобнее, чем WIP-коммит?</b></p>
+<p>Нужно срочно переключить ветку или подтянуть hotfix, не оформляя полусырой коммит в историю.</p>
+</li>
+<li><p><b>Как посмотреть сохранённые stash?</b></p>
+<p><code>git stash list</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:stash:end -->
+
+        <h3>Блок 6</h3>
+        <!-- md:replace:git-flow:start -->
+<li class="question" data-md-source="true" data-md-id="git-flow" data-interview="3">
+  <div class="name" id="git-flow">
+    Git Flow: модель ветвления
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Git Flow — это простая модель ветвления, где есть основная ветка <code>main</code>, релизные ветки <code>release/*</code> и feature-ветки для разработки.</p>
+<figure style="text-align: center">
+  <img alt="Git Flow" src="../images/github/flow.png" width="1085" height="572" loading="lazy" decoding="async" style="max-width: 600px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<ul>
+<li><code>main</code> — основная ветка, содержит стабильный код</li>
+<li><code>release/X.Y.Z</code> — ветки для подготовки релизов</li>
+<li><code>feature/*</code> — ветки для разработки новых функций</li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="bash"># Создание релизной ветки от main
+git checkout -b r1.2.0
+
+# Создание feature-ветки от релизной
+git checkout -b feature/x r1.2.0
+
+# Работа над фичей и коммиты
+git add .
+git commit -m "Add new feature"
+
+# Пуш feature-ветки в origin
+git push -u origin feature/x
+
+# Создание pull request через терминал (gh cli)
+gh pr create --base r1.2.0 --head feature/x --title "Add new feature" --body "Description"</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для организации процесса разработки в команде, где нужен контроль над релизами и изолированная разработка новых функций.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие долгоживущие ветки типичны для Git Flow?</b></p>
+<p><code>main</code> (прод), <code>develop</code> (интеграция), плюс временные <code>feature/*</code>, <code>release/*</code>, <code>hotfix/*</code>.</p>
+</li>
+<li><p><b>Зачем ветка <code>release/*</code> в Git Flow?</b></p>
+<p>Стабилизация версии: только багфиксы и подготовка релиза без новых фич.</p>
+</li>
+<li><p><b>От какой ветки обычно ответвляют <code>feature/*</code> в классическом Git Flow?</b></p>
+<p>От <code>develop</code>, а не от <code>main</code>.</p>
+</li>
+<li><p><b>Для какого типа команд Git Flow часто избыточен?</b></p>
+<p>Для частых деплоев и сильного CI — проще trunk-based с короткими ветками.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git-flow:end -->
+
+        <!-- md:replace:trunk-based-development:start -->
+<li class="question" data-md-source="true" data-md-id="trunk-based-development" data-interview="2">
+  <div class="name" id="trunk-based-development">
+    Trunk-Based Development (TBD)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Trunk-Based Development — модель ветвления, при которой все разработчики работают с одной основной веткой (trunk, обычно <code>main</code>). Ветки создаются только на короткое время для изоляции изменений и быстро вливаются обратно.</p>
+<figure style="text-align: center">
+  <img alt="Trunk-Based Development" src="../images/github/tbd.png" width="1308" height="436" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+  <figcaption>
+    Trunk-Based Development. Есть основная ветка (trunk), на которой всегда есть стабильный код. Короткоживущие ветки (feature, fix) создаются от trunk, живут недолго, мержатся обратно небольшими инкрементами.
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<ul>
+<li><code>main</code> — единственная долгоживущая ветка, всегда в состоянии &quot;готово к деплою&quot;</li>
+<li>Короткоживущие ветки (feature, fix) — создаются от <code>main</code>, живут 1–2 дня, мержатся обратно небольшими инкрементами</li>
+<li>Требуется сильный CI/CD: автоматические тесты и быстрая обратная связь при каждом коммите в trunk</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Подходит для команд с частыми деплоями, хорошим покрытием тестами и желанием минимизировать merge-конфликты. Альтернатива Git Flow при более простом процессе.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое trunk в TBD?</b></p>
+<p>Одна основная ветка (<code>main</code>), в которую регулярно и небольшими порциями вливают изменения.</p>
+</li>
+<li><p><b>Как долго должны жить feature-ветки в TBD?</b></p>
+<p>Часы или 1–2 дня — чем короче, тем меньше merge-конфликтов и расхождения с trunk.</p>
+</li>
+<li><p><b>Что должно защищать trunk от поломок при частых merge?</b></p>
+<p>Автоматические тесты и CI на каждый коммит или PR.</p>
+</li>
+<li><p><b>Чем TBD проще Git Flow в ежедневной работе?</b></p>
+<p>Меньше долгоживущих веток и релизных церемоний — один поток интеграции.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:trunk-based-development:end -->
+
+        <!-- md:replace:flow-vs-tbd:start -->
+<li class="question" data-md-source="true" data-md-id="flow-vs-tbd" data-interview="2">
+  <div class="name" id="flow-vs-tbd">
+    Git Flow vs TBD
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Сравнение подходов">
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Описание</th><th>Особенности</th></tr></thead>
+<tbody>
+<tr><td><b>Git Flow</b></td><td>Модель ветвления с основной веткой <code>main</code>, релизными ветками и feature-ветками.</td><td>Есть <code>release/*</code> ветки; релиз — отдельный этап; feature могут разрабатываться параллельно неделями.</td></tr>
+<tr><td><b>Trunk-Based Development</b></td><td>Все изменения быстро интегрируются в одну основную ветку. Ветки используются краткосрочно.</td><td>Единственная долгоживущая ветка — <code>main</code>; feature-ветки живут 1–2 дня; обязательны CI и автотесты.</td></tr>
+<tr><td><b>Ключевое различие</b></td><td>Git Flow оптимизирует процесс вокруг релизов, Trunk-Based — вокруг непрерывной интеграции.</td><td>Git Flow $\to$ контроль и изоляция; TBD $\to$ скорость, минимальный merge debt.</td></tr>
+<tr><td><b>Когда выбирать</b></td><td>Зависит от зрелости CI/CD, частоты деплоев и требований к стабильности.</td><td><b>Git Flow</b>: редкие релизы; <b>TBD</b>: частые деплои, сильный CI.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Вывод">
+<p>Trunk-Based Development снижает интеграционный долг и ускоряет feedback, но требует зрелой инженерной культуры.<br>Git Flow проще внедрить, но хуже масштабируется при частых релизах.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда Git Flow уместнее TBD?</b></p>
+<p>Редкие релизы, несколько поддерживаемых версий, нужна явная стабилизация в <code>release/*</code>.</p>
+</li>
+<li><p><b>Когда выбирают TBD вместо Git Flow?</b></p>
+<p>Частые деплои, сильный CI/CD и готовность мержить маленькие PR несколько раз в день.</p>
+</li>
+<li><p><b>Что общего у обоих подходов?</b></p>
+<p>Фичи не должны месяцами жить изолированно без интеграции с основной линией.</p>
+</li>
+<li><p><b>Можно ли формально использовать «Git Flow», но с короткими ветками?</b></p>
+<p>Да — на практике команды гибридизируют: имена веток из Flow, ритм ближе к TBD.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:flow-vs-tbd:end -->
+        
+        
+        <!-- md:replace:issues:start -->
+<li class="question" data-md-source="true" data-md-id="issues" data-interview="1">
+  <div class="name" id="issues">
+    Issues: задачи и баг-репорты
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Issues — встроённая система отслеживания задач на GitHub с метками, исполнителями, чек-листами и ссылками на PR.</p>
+<figure style="text-align: center">
+  <img alt="Issues" src="../images/github/issues.png" width="1180" height="865" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для постановки задач, обсуждения багов и связывания работы с конкретными изменениями в коде.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В описании PR укажите <code>Closes #42</code>, чтобы при мерже автоматически закрыть задачу №42.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем issue отличается от коммита?</b></p>
+<p>Issue — задача или обсуждение на платформе; коммит — изменение в истории Git.</p>
+</li>
+<li><p><b>Зачем labels и assignees в issues?</b></p>
+<p>Классификация (bug, enhancement) и явное назначение ответственного.</p>
+</li>
+<li><p><b>Как связать PR с задачей автоматически?</b></p>
+<p>Упомянуть issue в описании PR (<code>Closes #N</code>, <code>Fixes #N</code>).</p>
+</li>
+<li><p><b>Можно ли вести баг-трекинг только через issues без внешнего Jira?</b></p>
+<p>Да — для многих open-source и небольших команд GitHub Issues достаточно.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:issues:end -->
+
+        <!-- md:replace:rebase:start -->
+<li class="question" data-md-source="true" data-md-id="rebase" data-badge-type="additional" data-interview="3">
+  <div class="name" id="rebase">
+    Переписывание истории
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git rebase</code> — это способ переместить коммиты из одной ветки на новую базу (другую точку истории), переписывая историю.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Чтобы сделать историю линейной перед merge в <code>main</code> или подтянуть свежие изменения без merge-коммитов.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Обновить свою ветку с main
+git switch feature/x
+git fetch origin
+git rebase origin/main
+
+# При конфликтах:
+# 1. Разрешите конфликты в файлах
+git add &lt;файлы&gt;
+git rebase --continue
+
+# Отменить процесс:
+git rebase --abort</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Rebase переписывает историю, поэтому опасно использовать его для общих веток, где уже есть чужие коммиты.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>git rebase main</code> в feature-ветке?</b></p>
+<p>Переносит ваши коммиты поверх актуального <code>main</code>, переписывая их базу.</p>
+</li>
+<li><p><b>Чем rebase отличается от merge при подтягивании <code>main</code>?</b></p>
+<p>Rebase даёт линейную историю без merge-коммита; merge сохраняет ветвление и точку слияния.</p>
+</li>
+<li><p><b>Почему опасно делать rebase уже запушенной общей ветки?</b></p>
+<p>Меняются hash коммитов — коллегам придётся разбираться с расхождением истории и force-push.</p>
+</li>
+<li><p><b>Как продолжить rebase после исправления конфликта?</b></p>
+<p><code>git add</code> файлы $\to$ <code>git rebase --continue</code>; отмена — <code>git rebase --abort</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:rebase:end -->
+        
+        <!-- md:replace:readme-license:start -->
+<li class="question" data-md-source="true" data-md-id="readme-license" data-interview="1">
+  <div class="name" id="readme-license">
+    <code>README</code> и <code>LICENSE</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>README.md</code> объясняет, что делает проект и как им пользоваться; <code>LICENSE</code> определяет условия использования кода.</p>
+<figure style="text-align: center">
+  <img alt="README" src="../images/github/readme.png" width="820" height="528" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Всегда. Это первое, что видит пользователь/коллега при открытии репозитория.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем в репозитории нужен <code>README.md</code>?</b></p>
+<p>Объясняет назначение проекта, установку и быстрый старт — первое, что видит новый участник.</p>
+</li>
+<li><p><b>Что определяет файл <code>LICENSE</code>?</b></p>
+<p>Юридические условия: можно ли использовать, модифицировать и распространять код.</p>
+</li>
+<li><p><b>Чем рискует проект без лицензии?</b></p>
+<p>Правовой статус кода неясен — формально использование и форк могут быть ограничены по умолчанию.</p>
+</li>
+<li><p><b>Почему README и LICENSE коммитят вместе с кодом?</b></p>
+<p>Они часть «публичного контракта» репозитория и должны версионироваться вместе с проектом.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:readme-license:end -->
+                
+        <!-- md:replace:lfs:start -->
+<li class="question" data-md-source="true" data-md-id="lfs" data-interview="2">
+  <div class="name" id="lfs">
+    Крупные файлы и Git LFS
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Git LFS хранит большие бинарные файлы вне обычной истории Git, оставляя в репо только указатели.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Установка клиента LFS и инициализация в репо
+git lfs install
+git lfs track "*.psd"
+git add .gitattributes
+git add path/to/large.psd
+git commit -m "Track large assets with LFS"</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда нужны большие бинарники (медиа/модели), которые плохо диффятся и раздувают репозиторий.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что хранит Git LFS в самом репозитории вместо большого файла?</b></p>
+<p>Указатель (pointer) — небольшой текстовый файл; бинарник лежит на LFS-сервере.</p>
+</li>
+<li><p><b>Зачем LFS для моделей и медиа?</b></p>
+<p>Обычный Git плохо диффит бинарники и раздувает <code>.git</code> при каждой новой версии весов.</p>
+</li>
+<li><p><b>Что делает <code>git lfs track &quot;*.pth&quot;</code>?</b></p>
+<p>Добавляет правило в <code>.gitattributes</code>, чтобы matching-файлы шли через LFS.</p>
+</li>
+<li><p><b>Нужен ли установленный <code>git-lfs</code> у всех, кто клонирует репозиторий?</b></p>
+<p>Да — без клиента LFS при checkout могут остаться только pointer-файлы вместо реальных данных.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:lfs:end -->
+      
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="github:basics"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+</body></html>

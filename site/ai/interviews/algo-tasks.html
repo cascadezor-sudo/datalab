@@ -1,0 +1,366 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Задачки с алго-собесов</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/interview-algo-tasks.css" rel="stylesheet" />
+    <link href="../../assets/code-styles.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/runnable-code-block.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="interviews">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="../../assets/icons/training.svg" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Задачки с алго-собесов</h1>
+            <p class="subtitle">Задачи с алгоритмических собеседований: компания, сложность, подход и исполняемый код</p>
+          </div>
+          <div class="page-header-cta">
+            <button class="page-header-button" id="algoTaskCreate" type="button" hidden>Добавить задачу</button>
+            <button class="page-header-button" id="algoTasksRefresh" type="button">Обновить</button>
+            <a class="page-header-button" href="../../ai/interviews/index.html">К разделу Интервью</a>
+          </div>
+        </div>
+      </header>
+
+      <section class="interview-algo-filters" id="algoTasksFilters" aria-label="Фильтры задач" hidden>
+        <div class="interview-algo-filter-block">
+          <div class="interview-algo-filter-heading">
+            <h2>Компания</h2>
+            <p>Выберите компанию, чтобы увидеть её задачи</p>
+          </div>
+          <div class="interview-algo-chips" id="algoCompanyFilter" role="group" aria-label="Фильтр по компании"></div>
+        </div>
+
+        <div class="interview-algo-filter-row">
+          <div class="interview-algo-filter-block">
+            <div class="interview-algo-filter-heading">
+              <h2>Сложность</h2>
+            </div>
+            <div class="interview-algo-chips" id="algoDifficultyFilter" role="group" aria-label="Фильтр по сложности"></div>
+          </div>
+
+          <label class="interview-algo-field" for="algoApproachFilter">
+            Подход
+            <select id="algoApproachFilter">
+              <option value="all">Все подходы</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <p class="interview-algo-summary" id="algoTasksSummary" aria-live="polite"></p>
+
+      <div class="interview-algo-grid" id="algoTasksList" aria-live="polite"></div>
+
+      <div class="interview-algo-pagination" id="algoTasksPagination" hidden>
+        <p class="interview-algo-pagination-summary" id="algoTasksPaginationSummary"></p>
+        <button class="interview-algo-show-more" id="algoTasksShowMore" type="button">Загрузить ещё 5</button>
+      </div>
+    </main>
+
+    <dialog class="interview-algo-modal" id="algoTaskModal">
+      <form id="algoTaskForm" method="dialog">
+        <header class="interview-algo-modal-header">
+          <div>
+            <p class="interview-algo-modal-kicker">Алго-задача</p>
+            <h2 id="algoTaskModalTitle">Новая задача</h2>
+          </div>
+          <button class="interview-algo-icon-btn" id="algoTaskModalClose" type="button" aria-label="Закрыть">×</button>
+        </header>
+
+        <input id="algoTaskId" type="hidden" />
+
+        <div class="interview-algo-form-grid">
+          <label class="interview-algo-field interview-algo-field--wide" for="algoTaskTitle">
+            Название
+            <input id="algoTaskTitle" type="text" maxlength="160" required placeholder="Например, Слияние отсортированных списков" />
+          </label>
+
+          <label class="interview-algo-field" for="algoTaskCompany">
+            Компания
+            <input id="algoTaskCompany" type="text" list="algoTaskCompanies" maxlength="80" required placeholder="VK" />
+            <datalist id="algoTaskCompanies"></datalist>
+          </label>
+
+          <label class="interview-algo-field" for="algoTaskDifficulty">
+            Сложность
+            <select id="algoTaskDifficulty" required>
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+
+          <fieldset class="interview-algo-field interview-algo-field--wide interview-algo-approaches">
+            <legend>Подход</legend>
+            <div class="interview-algo-approach-options" id="algoTaskApproaches"></div>
+          </fieldset>
+
+          <label class="interview-algo-field interview-algo-field--wide" for="algoTaskCondition">
+            Условие
+            <textarea id="algoTaskCondition" rows="7" maxlength="8000" required placeholder="Абзацы разделяются пустой строкой. Код внутри текста оборачивается в `обратные кавычки`."></textarea>
+          </label>
+
+          <label class="interview-algo-field interview-algo-field--wide" for="algoTaskSolution">
+            Решение (Python)
+            <textarea id="algoTaskSolution" rows="14" maxlength="12000" required spellcheck="false" placeholder="def merge(a, b):&#10;    ..."></textarea>
+          </label>
+        </div>
+
+        <p class="interview-algo-modal-error" id="algoTaskModalError" role="alert" hidden></p>
+
+        <footer class="interview-algo-modal-footer">
+          <button class="interview-algo-danger-btn" id="algoTaskDelete" type="button" hidden>Удалить</button>
+          <div class="interview-algo-modal-actions">
+            <button class="interview-algo-secondary-btn" id="algoTaskCancel" type="button">Отмена</button>
+            <button class="interview-algo-primary-btn" id="algoTaskSubmit" type="submit">Сохранить</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../authGuard.js"></script>
+    <script src="../../assets/js/components/staff-api.js"></script>
+    <script src="../../assets/js/interview-algo-tasks.js"></script>
+    <script src="../../assets/js/interview-algo-tasks-page.js"></script>
+  </body>
+</html>

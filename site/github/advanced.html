@@ -1,0 +1,531 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Github Advanced</title>
+
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Advanced</span>
+            <span class="pill pill--soft">GitHub</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Github Advanced</h1>
+          <p class="section-shell__desc">Продвинутые темы: reflog, подмодули, конфликты, CI/CD и практика работы с репозиторием.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Блок 7</h3>
+        <!-- md:replace:reflog:start -->
+<li class="question" data-md-source="true" data-md-id="reflog" data-badge-type="additional" data-interview="1">
+  <div class="name" id="reflog">
+    Восстановление потерянных коммитов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git reflog</code> хранит историю перемещений HEAD и позволяет вернуть коммиты, которые больше не видны в обычной истории.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>После случайного <code>reset --hard</code> или переписывания истории, чтобы восстановить потерянную работу.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git reflog
+# Найдите нужный hash
+git checkout &lt;hash&gt;
+# или верните ветку на него
+git reset --hard &lt;hash&gt;</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что записывает <code>git reflog</code>?</b></p>
+<p>Журнал перемещений HEAD и checkout — даже если коммит «исчез» из <code>git log</code>.</p>
+</li>
+<li><p><b>Поможет ли reflog после <code>git reset --hard</code>?</b></p>
+<p>Да — можно найти hash до сброса и вернуться <code>git reset --hard &lt;hash&gt;</code>.</p>
+</li>
+<li><p><b>Хранится ли reflog вечно?</b></p>
+<p>Нет — записи со временем истекают (по умолчанию ~90 дней для unreachable).</p>
+</li>
+<li><p><b>Чем reflog отличается от обычной истории ветки?</b></p>
+<p>Reflog локальный для вашего репозитория; на remote его нет — коллеги не восстановят ваш reset через reflog.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:reflog:end -->
+        
+        <!-- md:replace:cherry-pick:start -->
+<li class="question" data-md-source="true" data-md-id="cherry-pick" data-interview="2">
+  <div class="name" id="cherry-pick">
+    Перенос отдельных коммитов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git cherry-pick</code> копирует конкретные коммиты в текущую ветку без слияния всей истории.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда нужно забрать конкретную правку из другой ветки или PR.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Добавить один коммит
+git cherry-pick &lt;hash&gt;
+
+# Несколько коммитов
+git cherry-pick &lt;hash1&gt; &lt;hash2&gt;</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем <code>cherry-pick</code> отличается от <code>merge</code>?</b></p>
+<p>Берёт один или несколько конкретных коммитов, а не всю историю ветки.</p>
+</li>
+<li><p><b>Почему после cherry-pick hash коммита другой?</b></p>
+<p>Создаётся новый коммит с тем же diff, но другим родителем и контекстом.</p>
+</li>
+<li><p><b>Когда cherry-pick уместен для hotfix?</b></p>
+<p>Нужно перенести уже готовый фикс из <code>main</code> в <code>release/1.2</code> без слияния всей ветки.</p>
+</li>
+<li><p><b>Что делать при конфликте в cherry-pick?</b></p>
+<p>Исправить файлы, <code>git add</code>, <code>git cherry-pick --continue</code> или <code>--abort</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:cherry-pick:end -->
+        
+        
+        <!-- md:replace:squash:start -->
+<li class="question" data-md-source="true" data-md-id="squash" data-badge-type="additional" data-interview="2">
+  <div class="name" id="squash">
+    Squash
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Squash объединяет несколько коммитов в один, упрощая историю перед merge.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Перед отправкой PR, чтобы убрать &quot;шум&quot; из истории разработки.</p>
+
+</div>
+<div class="code-block" data-lang="bash">git rebase -i HEAD~5
+# В интерактивном режиме пометьте коммиты как 'squash' (s)
+# Объедините сообщения, сохраните и закройте</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает squash коммитов?</b></p>
+<p>Объединяет несколько коммитов в один с общим итоговым diff.</p>
+</li>
+<li><p><b>Зачем squash перед merge PR?</b></p>
+<p>Убрать «WIP», «fix typo» и оставить в <code>main</code> одну осмысленную единицу изменений.</p>
+</li>
+<li><p><b>Как сделать интерактивный squash локально?</b></p>
+<p><code>git rebase -i HEAD~N</code> и пометить коммиты как <code>squash</code> / <code>fixup</code>.</p>
+</li>
+<li><p><b>Теряется ли содержимое правок при squash?</b></p>
+<p>Нет — меняется только структура истории, итоговый код тот же (если конфликтов не было).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:squash:end -->
+        
+        <!-- md:replace:git-filter-repo:start -->
+<li class="question" data-md-source="true" data-md-id="git-filter-repo" data-badge-type="additional" data-interview="1">
+  <div class="name" id="git-filter-repo">
+    Удаление файлов из истории
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>git filter-repo</code> позволяет полностью удалить файлы из истории Git.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда случайно закоммилили большие файлы или секреты.</p>
+
+</div>
+<div class="code-block" data-lang="bash">pip install git-filter-repo
+git filter-repo --path секретный_файл.txt --invert-paths</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем <code>git filter-repo</code> отличается от удаления файла в новом коммите?</b></p>
+<p>Переписывает всю историю — файл исчезает из старых коммитов, а не только из HEAD.</p>
+</li>
+<li><p><b>Когда это нужно для секретов?</b></p>
+<p>Если ключ уже попал в Git — одного <code>.gitignore</code> мало, секрет остаётся в старых коммитах.</p>
+</li>
+<li><p><b>Почему после filter-repo всем нужен fresh clone или force-push?</b></p>
+<p>Hash всех затронутых коммитов меняется — история несовместима со старыми клонами.</p>
+</li>
+<li><p><b>Что делать после вычищения секрета из истории?</b></p>
+<p>Ротировать сам секрет — он мог быть скопирован до очистки.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:git-filter-repo:end -->
+           
+        <!-- md:replace:protected-branches:start -->
+<li class="question" data-md-source="true" data-md-id="protected-branches" data-interview="1">
+  <div class="name" id="protected-branches">
+    Protected branches
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Protected Branches запрещают прямые пуши и требуют прохождения проверок перед merge.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для защиты основной ветки от случайных или небезопасных изменений.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В GitHub $\to$ Settings $\to$ Branches $\to$ Branch protection rules $\to$ запретить force-push, требовать review и успешные CI.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что блокирует protected branch на GitHub?</b></p>
+<p>Прямой push (и часто force-push) в ветку без PR и прохождения правил.</p>
+</li>
+<li><p><b>Зачем требовать approving review?</b></p>
+<p>Чтобы в <code>main</code> попадал код, который хотя бы один человек осознанно проверил.</p>
+</li>
+<li><p><b>Что даёт требование «passing CI» перед merge?</b></p>
+<p>Нельзя слить PR, пока тесты workflow не зелёные.</p>
+</li>
+<li><p><b>Можно ли обойти protection без прав администратора?</b></p>
+<p>Обычно нет — это организационная гарантия качества, а не подсказка Git.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:protected-branches:end -->
+
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="github:advanced"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+</body></html>

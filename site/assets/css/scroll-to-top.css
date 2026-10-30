@@ -1,0 +1,260 @@
+/* ===== SCROLL TO TOP BUTTON STYLING ===== */
+
+:root {
+  --scroll-btn-size: 56px;
+  --scroll-btn-border-radius: 16px;
+  --scroll-btn-shadow: 0 8px 32px
+    color-mix(in srgb, var(--brand) 28%, transparent);
+  --scroll-btn-shadow-hover: 0 12px 40px
+    color-mix(in srgb, var(--brand) 36%, transparent);
+  --scroll-btn-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Light theme colors */
+  --scroll-btn-bg: var(--gradient-primary);
+  --scroll-btn-bg-hover: var(--gradient-brand);
+  --scroll-btn-text: #ffffff;
+  --scroll-btn-border: rgba(255, 255, 255, 0.2);
+  --scroll-btn-border-hover: rgba(255, 255, 255, 0.3);
+}
+
+/* Dark theme */
+[data-theme="dark"] body,
+[data-theme="dark"] .interviews {
+  --scroll-btn-bg: var(--gradient-pop);
+  --scroll-btn-bg-hover: var(--gradient-brand);
+  --scroll-btn-text: #ffffff;
+  --scroll-btn-border: rgba(255, 255, 255, 0.15);
+  --scroll-btn-border-hover: rgba(255, 255, 255, 0.25);
+}
+
+#scrollToTopBtn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: var(--scroll-btn-size);
+  height: var(--scroll-btn-size);
+  border-radius: var(--scroll-btn-border-radius);
+  z-index: 9999;
+
+  margin: 0;
+  padding: 0;
+
+  background: var(--scroll-btn-bg);
+  border: 2px solid var(--scroll-btn-border);
+  color: var(--scroll-btn-text);
+
+  display: none; /* скрыта по умолчанию */
+  align-items: center;
+  justify-content: center;
+
+  box-shadow: var(--scroll-btn-shadow);
+  backdrop-filter: blur(10px);
+
+  cursor: pointer;
+  user-select: none;
+
+  transition: var(--scroll-btn-transition);
+  transform: translateY(20px) scale(0.9);
+  opacity: 0;
+
+  overflow: hidden;
+  animation: pulseGlow 2.5s infinite;
+}
+
+#scrollToTopBtn svg {
+  width: 24px;
+  height: 24px;
+  stroke: white;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#scrollToTopBtn:hover {
+  background: var(--scroll-btn-bg-hover);
+  border-color: var(--scroll-btn-border-hover);
+  box-shadow: var(--scroll-btn-shadow-hover);
+  transform: translateY(0) scale(1.1);
+}
+
+#scrollToTopBtn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+#scrollToTopBtn:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent),
+    var(--scroll-btn-shadow);
+}
+
+/* Когда кнопка видима */
+#scrollToTopBtn[style*="display: block"] {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+/* Glow-анимация */
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--brand-secondary) 40%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 12px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  :root {
+    --scroll-btn-size: 48px;
+  }
+  #scrollToTopBtn {
+    bottom: 16px;
+    right: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --scroll-btn-size: 44px;
+  }
+  #scrollToTopBtn {
+    bottom: 12px;
+    right: 12px;
+  }
+}
+
+/* High contrast */
+@media (prefers-contrast: high) {
+  #scrollToTopBtn {
+    border-width: 3px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #scrollToTopBtn {
+    transition: opacity 0.2s ease;
+    animation: none;
+  }
+  #scrollToTopBtn:hover {
+    transform: none;
+  }
+}
+
+/* ===== GO BACK BUTTON STYLING ===== */
+
+#goBackBtn {
+  position: fixed;
+  bottom: 24px;
+  right: 96px; /* Располагаем слева от кнопки "Наверх" */
+  width: var(--scroll-btn-size);
+  height: var(--scroll-btn-size);
+  border-radius: var(--scroll-btn-border-radius);
+  z-index: 9999;
+
+  margin: 0;
+  padding: 0;
+
+  background: var(--scroll-btn-bg);
+  border: 2px solid var(--scroll-btn-border);
+  color: var(--scroll-btn-text);
+
+  display: flex; /* Всегда видима */
+  align-items: center;
+  justify-content: center;
+
+  box-shadow: var(--scroll-btn-shadow);
+  backdrop-filter: blur(10px);
+
+  cursor: pointer;
+  user-select: none;
+
+  transition: var(--scroll-btn-transition);
+  transform: translateY(0) scale(1);
+  opacity: 1;
+
+  overflow: hidden;
+}
+
+#goBackBtn svg {
+  width: 24px;
+  height: 24px;
+  stroke: white;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#goBackBtn:hover {
+  background: var(--scroll-btn-bg-hover);
+  border-color: var(--scroll-btn-border-hover);
+  box-shadow: var(--scroll-btn-shadow-hover);
+  transform: translateY(0) scale(1.1);
+}
+
+#goBackBtn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+#goBackBtn:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent),
+    var(--scroll-btn-shadow);
+}
+
+/* Responsive для кнопки возврата */
+@media (max-width: 768px) {
+  #goBackBtn {
+    bottom: 16px;
+    right: 80px; /* Адаптируем под меньший размер кнопки */
+  }
+}
+
+@media (max-width: 480px) {
+  #goBackBtn {
+    bottom: 12px;
+    right: 68px; /* Адаптируем под меньший размер кнопки */
+  }
+}
+
+/* High contrast для кнопки возврата */
+@media (prefers-contrast: high) {
+  #goBackBtn {
+    border-width: 3px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Reduced motion для кнопки возврата */
+@media (prefers-reduced-motion: reduce) {
+  #goBackBtn {
+    transition: opacity 0.2s ease;
+  }
+  #goBackBtn:hover {
+    transform: none;
+  }
+}
+
+/* Print */
+@media print {
+  #scrollToTopBtn,
+  #goBackBtn {
+    display: none !important;
+  }
+}

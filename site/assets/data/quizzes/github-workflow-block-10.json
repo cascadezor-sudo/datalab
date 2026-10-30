@@ -1,0 +1,88 @@
+{
+  "id": "github:workflow:block-10",
+  "title": "GitHub Actions · Блок 10: reusable workflow, path-фильтры и таймауты",
+  "description": "Итоговая проверка по блоку 10: workflow_call, передача inputs и секретов, paths и paths-ignore в монорепо, timeout-minutes, continue-on-error и retries.",
+  "timeLimitSec": 480,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b10_workflow_call",
+      "type": "single",
+      "q": "Какой триггер делает workflow переиспользуемым — вызываемым из других workflow?",
+      "options": [
+        "`workflow_dispatch`",
+        "`on: workflow_call`",
+        "`schedule`",
+        "`pull_request_target`"
+      ],
+      "answer": [1],
+      "explain": "Вызываемый файл объявляет `on: workflow_call` со своими `inputs` и `secrets`. `workflow_dispatch` — это ручной запуск из UI."
+    },
+    {
+      "id": "b10_call_syntax",
+      "type": "single",
+      "q": "Как вызвать reusable workflow из другого workflow?",
+      "options": [
+        "Шагом `- run: ./.github/workflows/reusable.yml`",
+        "Скопировать его jobs в свой файл",
+        "Добавить его имя в `on:`",
+        "Job с `uses: ./.github/workflows/reusable.yml` и блоками `with:` и `secrets:`"
+      ],
+      "answer": [3],
+      "explain": "Reusable workflow подключается на уровне job, а не step. Параметры идут в `with:`, секреты — в `secrets:` (или `secrets: inherit`)."
+    },
+    {
+      "id": "b10_dry",
+      "type": "single",
+      "q": "Какую проблему решают переиспользуемые workflow в монорепо с десятком пакетов?",
+      "options": [
+        "Общие шаги lint и test меняют в одном месте, а не в десяти копиях YAML",
+        "Они ускоряют каждый отдельный step",
+        "Они отменяют необходимость в секретах",
+        "Они запрещают параллельный запуск jobs"
+      ],
+      "answer": [0],
+      "explain": "Это DRY для CI: логика сборки и тестов централизована, обновление — в одном файле."
+    },
+    {
+      "id": "b10_paths",
+      "type": "single",
+      "q": "В `on.push` задано `paths: [\"packages/api/**\", \".github/workflows/monorepo.yml\"]`. Коммит меняет только `docs/README.md`. Что будет?",
+      "options": [
+        "Workflow запустится, но пропустит все steps",
+        "Workflow упадёт с ошибкой фильтра",
+        "Workflow не запустится: изменённые файлы не подходят под шаблоны",
+        "Workflow запустится как обычно: `paths` влияет только на PR"
+      ],
+      "answer": [2],
+      "explain": "Path-фильтр запускает workflow, только если изменились файлы по шаблонам. Сам файл workflow включают в список, чтобы правка CI тоже проверялась."
+    },
+    {
+      "id": "b10_paths_ignore_risk",
+      "type": "single",
+      "q": "Чем опасны слишком агрессивные `paths-ignore`?",
+      "options": [
+        "Workflow начнёт запускаться на каждый коммит",
+        "Можно пропустить поломку, если общий конфиг влияет на несколько пакетов",
+        "GitHub заблокирует репозиторий за превышение лимита",
+        "Перестанут работать секреты"
+      ],
+      "answer": [1],
+      "explain": "Изменение в общем файле может сломать пакет, чьи файлы не менялись, — а его проверки не запустятся."
+    },
+    {
+      "id": "b10_timeouts",
+      "type": "multi",
+      "q": "Что верно про `timeout-minutes` и `continue-on-error`? Выберите все подходящие варианты.",
+      "options": [
+        "`timeout-minutes` останавливает зависший job, чтобы он не занимал runner бесконечно",
+        "`continue-on-error: true` на step автоматически повторяет упавший шаг",
+        "Чем больше `timeout-minutes`, тем раньше вы узнаете о зависании",
+        "`continue-on-error: true` на step даёт workflow идти дальше, даже если шаг упал"
+      ],
+      "answer": [0, 3],
+      "explain": "Таймаут экономит минуты и ускоряет обратную связь; слишком большой — наоборот. `continue-on-error` не повторяет шаг, а игнорирует его падение — для некритичных проверок."
+    }
+  ]
+}

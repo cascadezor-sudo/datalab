@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мои достижения</title>
+  <link href="assets/css/tokens.css" rel="stylesheet">
+  <link href="assets/css/task-table.css" rel="stylesheet">
+  <link href="assets/css/skeleton.css" rel="stylesheet">
+  <link href="assets/css/comparison-cards.css" rel="stylesheet">
+  <link href="assets/css/styles.css" rel="stylesheet">
+  <link href="assets/css/pages-modern.css" rel="stylesheet">
+  <link href="assets/css/navigation.css" rel="stylesheet">
+  <link href="assets/css/daily-reports.css" rel="stylesheet">
+  <link href="assets/css/achievement-notifications.css" rel="stylesheet">
+  <link href="assets/css/fonts.css" rel="stylesheet" />
+<style>
+    /* Achievement Filters Styles */
+    .achievements-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .achievements-filters {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: var(--card-bg);
+      border: 2px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 14px;
+    }
+
+    .filter-btn:hover {
+      border-color: #6a5acd;
+      background: rgba(106, 90, 205, 0.05);
+      transform: translateY(-1px);
+    }
+
+    .filter-btn.active {
+      background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+      border-color: #6a5acd;
+      color: white;
+      box-shadow: 0 2px 8px rgba(106, 90, 205, 0.3);
+    }
+
+    .filter-btn.active:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(106, 90, 205, 0.4);
+    }
+
+    /* Dark theme support */
+    [data-theme="dark"] .filter-btn {
+      background: var(--card-bg);
+      border-color: var(--border-color);
+      color: var(--text-primary);
+    }
+
+    [data-theme="dark"] .filter-btn:hover {
+      border-color: #6a5acd;
+      background: rgba(106, 90, 205, 0.1);
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      .achievements-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .achievements-filters {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .filter-btn {
+        flex: 1;
+        min-width: 0;
+        text-align: center;
+      }
+    }
+
+    /* Achievement card filtering */
+    .achievement-card.hidden {
+      display: none;
+    }
+
+    .achievement-card.is-filtered-out {
+      display: none !important;
+    }
+
+    /* Special styles for different achievement categories */
+    
+    /* Progress achievements - Blue theme */
+    .achievement-card.progress {
+      border: 2px solid #3b82f6;
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05));
+      position: relative;
+    }
+
+    .achievement-card.progress::before {
+      content: '📚 ПРОГРЕСС';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, #3b82f6, #60a5fa);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    }
+
+    .achievement-card.progress .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.4));
+    }
+
+    /* Consistency achievements - Green theme */
+    .achievement-card.consistency {
+      border: 2px solid #10b981;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+      position: relative;
+    }
+
+    .achievement-card.consistency::before {
+      content: '🔥 РЕГУЛЯРНОСТЬ';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, #10b981, #34d399);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+
+    .achievement-card.consistency .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.4));
+    }
+
+    /* Volume achievements - Purple theme */
+    .achievement-card.volume {
+      border: 2px solid var(--brand);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 10%, transparent), color-mix(in srgb, var(--brand) 5%, transparent));
+      position: relative;
+    }
+
+    .achievement-card.volume::before {
+      content: '📊 ОБЪЁМ';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, var(--brand), var(--primary-2));
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--brand) 28%, transparent);
+    }
+
+    .achievement-card.volume .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px color-mix(in srgb, var(--brand) 36%, transparent));
+    }
+
+    /* Special achievements - Gold theme */
+    .achievement-card.special {
+      border: 2px solid #f59e0b;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05));
+      position: relative;
+    }
+
+    .achievement-card.special::before {
+      content: '⭐ ОСОБЫЕ';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, #f59e0b, #fbbf24);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    }
+
+    .achievement-card.special .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));
+    }
+
+    /* Discount achievements - Orange theme */
+    .achievement-card.discount {
+      border: 2px solid #ff6b35;
+      background: linear-gradient(135deg, rgba(255, 107, 53, 0.1), rgba(255, 107, 53, 0.05));
+      position: relative;
+    }
+
+    .achievement-card.discount::before {
+      content: '💰 СКИДКА';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, #ff6b35, #ff8c42);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+    }
+
+    .achievement-card.discount .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px rgba(255, 107, 53, 0.4));
+    }
+
+    /* Quiz achievements — warm secondary accent */
+    .achievement-card.quiz {
+      border: 2px solid var(--brand-secondary);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--brand-secondary) 10%, transparent), color-mix(in srgb, var(--brand-secondary) 5%, transparent));
+      position: relative;
+    }
+
+    .achievement-card.quiz::before {
+      content: '📝 ТЕСТЫ';
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: linear-gradient(135deg, var(--brand-secondary), color-mix(in srgb, var(--brand-secondary), white 18%));
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--brand-secondary) 28%, transparent);
+    }
+
+    .achievement-card.quiz .achievement-card-icon {
+      font-size: 2.5em;
+      filter: drop-shadow(0 0 8px color-mix(in srgb, var(--brand-secondary) 36%, transparent));
+    }
+
+    .achievement-card .achievement-card-icon {
+      width: 3rem;
+      height: 3rem;
+      color: var(--brand-primary, #6a5acd);
+      flex: 0 0 auto;
+    }
+
+    .achievement-card { content-visibility: auto; contain-intrinsic-size: 220px; }
+
+    .achievement-card[data-tier="gold"] .achievement-card-icon,
+    .achievement-card[data-tier="platinum"] .achievement-card-icon { color: var(--brand-secondary, #d97706); }
+
+    /* The category used to be repeated in a bright, clipped pseudo-label above every card.
+       Keep the category colour, but let the actual achievement and its SVG carry the visual weight. */
+    .achievement-card {
+      --achievement-accent: #665dd4;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--achievement-accent) 34%, var(--border-color, #ded9cf)) !important;
+      background: color-mix(in srgb, var(--card-bg, #fff) 95%, var(--achievement-accent)) !important;
+      box-shadow: 0 8px 22px rgb(24 26 42 / 8%) !important;
+    }
+
+    .achievement-card::before {
+      content: none !important;
+      display: none !important;
+    }
+
+    .achievement-card.progress { --achievement-accent: #3478d7; }
+    .achievement-card.consistency { --achievement-accent: #209667; }
+    .achievement-card.volume { --achievement-accent: #7a62cf; }
+    .achievement-card.special { --achievement-accent: #b87820; }
+    .achievement-card.discount { --achievement-accent: #d25f48; }
+    .achievement-card.quiz { --achievement-accent: #8c5e9e; }
+
+    .achievement-card .achievement-card-icon,
+    .achievement-card.progress .achievement-card-icon,
+    .achievement-card.consistency .achievement-card-icon,
+    .achievement-card.volume .achievement-card-icon,
+    .achievement-card.special .achievement-card-icon,
+    .achievement-card.discount .achievement-card-icon,
+    .achievement-card.quiz .achievement-card-icon,
+    .achievement-card[data-tier="gold"] .achievement-card-icon,
+    .achievement-card[data-tier="platinum"] .achievement-card-icon {
+      width: 3.5rem;
+      height: 3.5rem;
+      padding: .55rem;
+      color: var(--achievement-accent);
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--achievement-accent) 11%, transparent);
+      filter: drop-shadow(0 5px 8px color-mix(in srgb, var(--achievement-accent) 22%, transparent));
+    }
+
+    [data-theme="dark"] .achievement-card {
+      border-color: color-mix(in srgb, var(--achievement-accent) 55%, #675c52) !important;
+      background: color-mix(in srgb, #201711 91%, var(--achievement-accent)) !important;
+      box-shadow: 0 9px 26px rgb(0 0 0 / 23%) !important;
+    }
+
+    /* Тир достижения — то, за что платит кошелёк (achievementTiers в
+       wallet-config.json). Категория остаётся в цвете рамки и иконки, тир —
+       металл: кольцо вокруг иконки, верхняя кромка карточки и бейдж с суммой.
+       Те же переменные красят легенду над списком. */
+    [data-tier="bronze"] { --tier-color: #b26d38; --tier-color-2: #e3a878; }
+    [data-tier="silver"] { --tier-color: #76838f; --tier-color-2: #c9d3dc; }
+    [data-tier="gold"] { --tier-color: #c48f16; --tier-color-2: #f5d060; }
+    [data-tier="platinum"] { --tier-color: #3f93ad; --tier-color-2: #b9ecf7; }
+
+    [data-theme="dark"] [data-tier="bronze"] { --tier-color: #c9814a; --tier-color-2: #f0bb8c; }
+    [data-theme="dark"] [data-tier="silver"] { --tier-color: #9aa8b4; --tier-color-2: #dfe6ec; }
+    [data-theme="dark"] [data-tier="gold"] { --tier-color: #e0a62a; --tier-color-2: #ffe07a; }
+    [data-theme="dark"] [data-tier="platinum"] { --tier-color: #5fb6d0; --tier-color-2: #cdf4fc; }
+
+    .achievement-card[data-tier] {
+      border-top: 3px solid var(--tier-color) !important;
+      padding-top: 40px;
+    }
+
+    .achievement-card[data-tier] .achievement-card-icon {
+      filter: none;
+      box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--tier-color-2) 70%, var(--card-bg, #fff)),
+        0 0 0 5px var(--tier-color),
+        0 6px 14px color-mix(in srgb, var(--tier-color) 30%, transparent);
+    }
+
+    .achievement-card-tier,
+    .achievement-tier-chip {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      /* Тёмный текст: белый на светлом краю серебра и платины давал 1.3:1. */
+      color: #1f1a14;
+      background: linear-gradient(135deg, var(--tier-color-2), var(--tier-color));
+      box-shadow: 0 2px 6px color-mix(in srgb, var(--tier-color) 35%, transparent);
+    }
+
+    .achievement-card-tier {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+    }
+
+    .achievement-card-tier .coin-icon,
+    .achievement-tier-chip .coin-icon {
+      width: 1.3em;
+      height: 1.3em;
+      vertical-align: -0.3em;
+    }
+
+    .achievement-card-tier .coin-icon svg,
+    .achievement-tier-chip .coin-icon svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .achievement-locked .achievement-card-tier {
+      opacity: 0.75;
+    }
+
+    .achievements-tier-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .achievement-tier-chip {
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+  </style>
+  
+  <!-- Firebase SDK -->
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  
+  <script src="assets/js/components/config-loader.js"></script>
+  <script src="assets/js/components/skeleton-loader.js"></script>
+  <script src="assets/js/components/achievement-catalog.js"></script>
+  <script src="assets/js/components/achievement-api.js"></script>
+  <script src="assets/js/components/achievement-notifications.js"></script>
+  <script src="assets/js/components/auto-unlock.js"></script>
+  <script src="assets/js/components/achievements-page.js"></script>
+
+  <script>
+    // Initialize Firebase
+    async function initializeFirebase() {
+      // Superseded by achievements-page.js: this keeps legacy markup inert while
+      // avoiding the 68 KB client evaluator and its full-history Firebase reads.
+      return;
+      try {
+        const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+
+        // Show skeletons immediately while Firebase loads
+        SkeletonLoader.show('achievement', '#achievements-container', 9);
+
+        firebase.auth().onAuthStateChanged(async (user) => {
+          if (user) {
+            await window.dailyReportsSystem.initialize(firebaseConfig);
+            await window.gamificationSystem.initialize(firebaseConfig);
+            await loadAchievements();
+            await loadProgress();
+          } else {
+            window.location.href = '/index.html';
+          }
+        });
+        
+      } catch (error) {
+        console.error('Failed to initialize Firebase:', error);
+      }
+    }
+    
+    // Load achievements
+    async function loadAchievements() {
+      try {
+        await window.gamificationSystem.displayUserAchievements('achievements-container');
+        SkeletonLoader.hide('#achievements-container');
+        setupAchievementFilters();
+      } catch (error) {
+        console.error('Error loading achievements:', error);
+        SkeletonLoader.hide('#achievements-container');
+      }
+    }
+
+    // Setup achievement filters
+    function setupAchievementFilters() {
+      const filterButtons = document.querySelectorAll('.filter-btn');
+      const achievementCards = document.querySelectorAll('.achievement-card');
+
+      // Set default filter to 'all'
+      filterAchievements('all', achievementCards);
+
+      filterButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          // Remove active class from all buttons
+          filterButtons.forEach(btn => btn.classList.remove('active'));
+          // Add active class to clicked button
+          button.classList.add('active');
+
+          const filter = button.getAttribute('data-filter');
+          filterAchievements(filter, achievementCards);
+        });
+      });
+    }
+
+    // Filter achievements by category
+    function filterAchievements(category, cards) {
+      const container = document.getElementById('achievements-container');
+      if (!container) return;
+      
+      // Если выбрана категория "Все", сортируем по категориям и статусу
+      if (category === 'all') {
+        // Определяем порядок категорий
+        const categoryOrder = ['progress', 'consistency', 'volume', 'special', 'discount'];
+        
+        // Собираем все карточки и сортируем их
+        const allCards = Array.from(cards);
+        const sortedCards = allCards.sort((a, b) => {
+          const categoryA = a.getAttribute('data-category');
+          const categoryB = b.getAttribute('data-category');
+          
+          // Проверяем статус разблокированности
+          const isUnlockedA = a.classList.contains('achievement-unlocked');
+          const isUnlockedB = b.classList.contains('achievement-unlocked');
+          
+          // Сначала сортируем по статусу: разблокированные сначала
+          if (isUnlockedA !== isUnlockedB) {
+            return isUnlockedB - isUnlockedA; // true (разблокированные) идут первыми
+          }
+          
+          // Затем сортируем по категориям
+          const indexA = categoryOrder.indexOf(categoryA);
+          const indexB = categoryOrder.indexOf(categoryB);
+          
+          // Если категория не найдена в списке, помещаем в конец
+          const finalIndexA = indexA === -1 ? categoryOrder.length : indexA;
+          const finalIndexB = indexB === -1 ? categoryOrder.length : indexB;
+          
+          return finalIndexA - finalIndexB;
+        });
+        
+        // Переставляем карточки в DOM в отсортированном порядке
+        sortedCards.forEach(card => {
+          container.appendChild(card);
+          card.classList.remove('hidden');
+        });
+      } else {
+        // Для конкретных категорий используем обычную фильтрацию
+        cards.forEach(card => {
+          const cardCategory = card.getAttribute('data-category');
+          
+          if (cardCategory === category) {
+            card.classList.remove('hidden');
+          } else {
+            card.classList.add('hidden');
+          }
+        });
+      }
+    }
+    
+    // Load progress
+    async function loadProgress() {
+      try {
+        const stats = await window.gamificationSystem.getUserStats();
+        displayProgress(stats);
+      } catch (error) {
+        console.error('Error loading progress:', error);
+      }
+    }
+    
+    // Display progress
+    function displayProgress(stats) {
+      const container = document.getElementById('progress-container');
+      if (!container) return;
+      
+      // Скрываем дублирующую статистику, так как она уже есть на главной странице
+      container.innerHTML = '';
+    }
+    
+    // Initialize when DOM is loaded
+    document.addEventListener('DOMContentLoaded', initializeFirebase);
+    
+    
+  </script>
+  <script src="assets/js/firebase-mock.js"></script>
+</head>
+<body class="main" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <header class="page-header">
+      <div class="page-header-content">
+        <div class="page-header-text">
+          <h1>Мои достижения</h1>
+          <p class="subtitle">Отслеживай свой прогресс и получай награды</p>
+          <div id="achievements-progress-container" class="achievements-progress-inline">
+            <!-- Progress will be loaded here -->
+          </div>
+        </div>
+        <div class="page-header-cta">
+          <a href="profile.html" class="page-header-button">Назад к профилю</a>
+        </div>
+      </div>
+    </header>
+
+    <div class="achievements-page">
+      <div id="progress-container" class="progress-section">
+        <!-- Progress will be loaded here -->
+      </div>
+
+      <div class="achievements-section">
+        <div class="achievements-header">
+          <!-- <h2 class="section-title">Разблокированные достижения</h2> -->
+          <div class="achievements-filters">
+            <button class="filter-btn active" type="button" data-filter="all" aria-pressed="true" aria-controls="achievements-container">Все</button>
+            <button class="filter-btn" type="button" data-filter="progress" aria-pressed="false" aria-controls="achievements-container">Прогресс</button>
+            <button class="filter-btn" type="button" data-filter="consistency" aria-pressed="false" aria-controls="achievements-container">Регулярность</button>
+            <button class="filter-btn" type="button" data-filter="volume" aria-pressed="false" aria-controls="achievements-container">Объём</button>
+            <!-- <button class="filter-btn" data-filter="style">Стиль</button> -->
+            <button class="filter-btn" type="button" data-filter="special" aria-pressed="false" aria-controls="achievements-container">Особые</button>
+            <button class="filter-btn" type="button" data-filter="discount" aria-pressed="false" aria-controls="achievements-container">Скидки</button>
+            <button class="filter-btn" type="button" data-filter="quiz" aria-pressed="false" aria-controls="achievements-container">Тесты</button>
+          </div>
+          <div id="achievements-tier-legend" class="achievements-tier-legend" role="group" aria-label="Тиры достижений и награда в градах"></div>
+        </div>
+        <div id="achievements-container" class="achievements-list">
+          <!-- Achievements will be loaded here -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/js/components/navigation.js"></script>
+  <script src="authGuard.js"></script>
+</body>
+</html>

@@ -1,0 +1,2039 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Вопросы по Python</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../assets/code-styles.css" rel="stylesheet" />
+    <link href="../assets/css/cards.css" rel="stylesheet" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Интервью</span>
+            <span class="pill pill--soft">Python</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Вопросы по Python</h1>
+          <p class="section-shell__desc">Вопросы по Python с собеседований.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:replace:py_types-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_types-interview">
+  <div class="name" id="py_types-interview">
+    Какие типы данных есть в Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Встроенные типы удобно перечислять группами — так ответ звучит структурно, а не как случайный список.</p>
+<ul>
+<li><b>Числовые:</b> <code>int</code> (произвольной точности — переполнения нет), <code>float</code> (двойная точность IEEE 754), <code>complex</code>.</li>
+<li><b>Логический:</b> <code>bool</code>. Формально подкласс <code>int</code>, поэтому <code>True == 1</code> и <code>sum([True, True])</code> даёт 2.</li>
+<li><b>Последовательности:</b> <code>str</code> (неизменяемая последовательность кодпоинтов Unicode), <code>list</code> (изменяемая), <code>tuple</code> (неизменяемая), <code>range</code> (ленивая арифметическая прогрессия, не хранит элементы).</li>
+<li><b>Множества:</b> <code>set</code> (изменяемое), <code>frozenset</code> (неизменяемое и хешируемое).</li>
+<li><b>Отображения:</b> <code>dict</code> — сопоставление ключ → значение; с Python 3.7 порядок вставки гарантирован спецификацией.</li>
+<li><b>Двоичные:</b> <code>bytes</code> (неизменяемая), <code>bytearray</code> (изменяемая), <code>memoryview</code> (представление чужого буфера без копирования).</li>
+<li><b>Особые:</b> <code>NoneType</code> с единственным значением <code>None</code>, <code>Ellipsis</code> (<code>...</code>), <code>NotImplemented</code>.</li>
+</ul>
+<p>Поперёк этой классификации идёт вторая, не менее важная: деление на <b>изменяемые и неизменяемые</b> — именно оно определяет, что может быть ключом словаря и что произойдёт при передаче объекта в функцию. См. <a href="../bank/python.html#py_mutability-interview" target="_blank" rel="noopener">изменяемые и неизменяемые типы</a> и <a href="../python/base.html#datatypes_python" target="_blank" rel="noopener">типы данных</a>.</p>
+<p>И третья особенность, которую стоит назвать: <b>в Python всё — объект</b>, включая функции, классы, модули и сами типы. <code>int</code> — это объект класса <code>type</code>, у функции есть атрибуты, класс можно положить в список. См. <a href="../python/base.html#everything_is_object" target="_blank" rel="noopener">в Python всё — объект</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">print(type(42), type(3.14), type("s"), type(None))
+print(isinstance(True, int))            # True — bool наследует int
+print(2 ** 200)                         # int неограничен
+print(0.1 + 0.2 == 0.3)                 # False — двоичная плавающая точка
+print(range(10**9)[:5])                 # range ленив: срез — снова range, элементы не создаются</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что ещё стоит упомянуть, если спросят «а из стандартной библиотеки?»">
+<p>Часто вопрос продолжается: «а какие структуры используете на практике?». Полезные ответы:</p>
+<ul>
+<li><code>collections.Counter</code> — подсчёт частот, <code>most_common(k)</code>;</li>
+<li><code>collections.defaultdict</code> — словарь с фабрикой значений, избавляет от <code>if key not in d</code>;</li>
+<li><code>collections.deque</code> — очередь с $\mathcal{O}(1)$ на обоих концах (у списка <code>pop(0)</code> — $\mathcal{O}(n)$);</li>
+<li><code>heapq</code> — приоритетная очередь на списке, top-$k$ за $\mathcal{O}(n \log k)$;</li>
+<li><code>array.array</code> — компактный массив чисел одного типа, когда NumPy избыточен;</li>
+<li><code>decimal.Decimal</code> и <code>fractions.Fraction</code> — точная арифметика для денег и дробей;</li>
+<li><code>datetime</code>, <code>pathlib.Path</code>, <code>enum.Enum</code>, <code>typing.NamedTuple</code>, <code>dataclasses.dataclass</code>.</li>
+</ul>
+<p>Это переводит ответ из «перечислил встроенные типы» в «понимаю, чем пользоваться в задаче».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Подводные камни, о которых спрашивают следом">
+<p><b><code>float</code> и точность.</b> <code>0.1 + 0.2 != 0.3</code>, потому что десятичные дроби не представимы точно в двоичной системе. Сравнивать вещественные числа надо через <code>math.isclose</code>, а деньги считать в <code>Decimal</code> или в целых копейках.</p>
+<p><b><code>bool</code> — это <code>int</code>.</b> <code>isinstance(True, int)</code> истинно, <code>True + True == 2</code>, и <code>{1: &quot;a&quot;, True: &quot;b&quot;}</code> — словарь из одного элемента.</p>
+<p><b>Изменяемое как значение по умолчанию</b> — <code>def f(x=[])</code>; см. <a href="../bank/python.html#mutable-default-argument-interview" target="_blank" rel="noopener">отдельный разбор</a>.</p>
+<p><b><code>str</code> — это не байты.</b> <code>str</code> хранит кодпоинты Unicode, <code>bytes</code> — байты; преобразование всегда требует явного указания кодировки (<code>s.encode(&quot;utf-8&quot;)</code>). Ошибка <code>UnicodeDecodeError</code> при чтении файла почти всегда означает, что кодировку угадали неправильно, а не что «файл битый».</p>
+<p><b>Аннотации типов не проверяются в рантайме.</b> <code>def f(x: int)</code> спокойно примет строку — типы нужны статическому анализатору и людям; см. <a href="../python/base.html#typing_annotations" target="_blank" rel="noopener"><code>typing</code>, аннотации</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_types-interview:end -->
+
+        <!-- md:replace:py_mutability-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_mutability-interview">
+  <div class="name" id="py_mutability-interview">
+    Какие типы изменяемые / неизменяемые?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Изменяемые (mutable):</b> <code>list</code>, <code>dict</code>, <code>set</code>, <code>bytearray</code>, а также экземпляры обычных пользовательских классов (у них можно менять атрибуты). Их состояние меняется «на месте», <code>id()</code> при этом не меняется.</p>
+<p><b>Неизменяемые (immutable):</b> <code>int</code>, <code>float</code>, <code>complex</code>, <code>bool</code>, <code>str</code>, <code>bytes</code>, <code>tuple</code>, <code>frozenset</code>, <code>range</code>, <code>None</code>. Любая «модификация» на деле создаёт новый объект; старый остаётся нетронутым.</p>
+<p>Проверить различие проще всего через <code>id()</code>:</p>
+<div class="code-block" data-lang="python">lst = [1, 2]; before = id(lst)
+lst.append(3); print(id(lst) == before)   # True — тот же объект
+
+s = "ab"; before = id(s)
+s += "c";  print(id(s) == before)         # False — новый объект</div><p>Почему это важно на практике — три следствия:</p>
+<ol>
+<li><b>Хешируемость.</b> Ключами словаря и элементами множества могут быть только неизменяемые (точнее — хешируемые) объекты. Подробнее — <a href="../bank/python.html#dict-keys-interview" target="_blank" rel="noopener">что может быть ключом словаря</a>.</li>
+<li><b>Разделяемое состояние.</b> Изменяемый объект, переданный в функцию или сохранённый в двух местах, меняется для всех владельцев сразу. Это же лежит в основе проблемы <a href="../bank/python.html#mutable-default-argument-interview" target="_blank" rel="noopener">изменяемого аргумента по умолчанию</a>.</li>
+<li><b>Копирование.</b> Для неизменяемых копия не нужна вовсе; для изменяемых приходится выбирать между поверхностным и глубоким копированием.</li>
+</ol>
+<p>См. <a href="../python/base.html#datatypes_python" target="_blank" rel="noopener">типы данных: изменяемые и неизменяемые</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">a = "qwerty"
+# a[1] = "o"                  # TypeError: 'str' object does not support item assignment
+b = a[:1] + "o" + a[2:]       # создаётся новая строка
+print(a, b)                   # qwerty qowrty</div>
+<div class="info-card-auto" data-type="explanation" data-title="Неизменяемость поверхностная">
+<p>Кортеж нельзя изменить, но объекты <b>внутри</b> него — можно, если они изменяемы:</p>
+<div class="code-block" data-lang="python">t = ([1, 2], "x")
+t[0].append(3)          # разрешено: меняем список, а не кортеж
+print(t)                # ([1, 2, 3], 'x')
+# hash(t)               # TypeError: unhashable type: 'list'</div><p>Отсюда следствие: кортеж хешируем <b>только если хешируемы все его элементы</b>. Ровно поэтому <code>frozenset</code> требует, чтобы элементы были хешируемыми, а <code>@dataclass(frozen=True)</code> не спасает от мутации вложенного списка.</p>
+<p>Ещё коварный случай — <code>t[0] += [3]</code>: он одновременно <b>изменит</b> список и бросит <code>TypeError</code>, потому что <code>+=</code> сначала мутирует объект через <code>__iadd__</code>, а затем пытается присвоить результат обратно в кортеж.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что часто путают">
+<p><b>«Строка меняется, потому что <code>s += &quot;c&quot;</code> работает».</b> Нет: создаётся новый объект и имя перепривязывается. Практическое следствие — склейка строк в цикле квадратична; используйте <code>&quot;&quot;.join(parts)</code>.</p>
+<p><b>«Неизменяемость означает потокобезопасность».</b> Для самого объекта — да, но перепривязка имени и составные операции безопасности не дают.</p>
+<p><b><code>is</code> вместо <code>==</code> для неизменяемых.</b> Кеширование малых <code>int</code> и интернирование строк делают <code>is</code> случайно истинным; полагаться на это нельзя, см. <a href="../bank/python.html#py_is_eq-interview" target="_blank" rel="noopener"><code>is</code> против <code>==</code></a>.</p>
+<p><b>Изменяемый объект как атрибут класса.</b> <code>class A: items = []</code> — список общий для всех экземпляров, ровно та же ловушка, что с аргументом по умолчанию. Инициализировать нужно в <code>__init__</code> или через <code>field(default_factory=list)</code>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_mutability-interview:end -->
+
+        <!-- md:replace:py_is_eq-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_is_eq-interview">
+  <div class="name" id="py_is_eq-interview">
+    В чём отличие <code>is</code> от <code>==</code>?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><code>==</code> сравнивает <b>значения</b> и вызывает метод <code>__eq__</code>, который класс может переопределить. <code>is</code> сравнивает <b>идентичность</b> — совпадают ли <code>id()</code> объектов, то есть один ли это объект в памяти. <code>is</code> нельзя переопределить, и он всегда работает за константное время.</p>
+<p>Отсюда правило употребления:</p>
+<ul>
+<li><code>==</code> — для содержательного сравнения: числа, строки, коллекции, доменные объекты.</li>
+<li><code>is</code> — только для синглтонов: <code>x is None</code>, <code>x is True</code>, <code>x is False</code>, <code>x is NotImplemented</code>, а также для проверок вроде «это тот же самый объект, что я положил в кэш».</li>
+</ul>
+<p>Два объекта могут быть равны, но не идентичны (два одинаковых списка) — и наоборот, идентичный объект почти всегда равен сам себе, кроме <code>float(&quot;nan&quot;)</code>, для которого <code>x == x</code> ложно, а <code>x is x</code> истинно.</p>
+<p>Подробнее — <a href="../python/base.html#equality_vs_identity" target="_blank" rel="noopener"><code>==</code>, <code>!=</code>, <code>is</code></a> и <a href="../python/base.html#none_is" target="_blank" rel="noopener"><code>None</code>: почему проверять через <code>is</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">a = [1, 2, 3]
+b = [1, 2, 3]
+c = a
+print(a == b, a is b)    # True False  — равны, но это разные объекты
+print(a == c, a is c)    # True True   — одно и то же имя объекта
+
+nan = float("nan")
+print(nan == nan, nan is nan)   # False True</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему &lt;code&gt;a is b&lt;/code&gt; иногда «неожиданно» True">
+<p>CPython кеширует некоторые неизменяемые объекты, и из-за этого <code>is</code> порой совпадает с <code>==</code> — но полагаться на это нельзя, это деталь реализации:</p>
+<div class="code-block" data-lang="python">a, b = 256, 256
+print(a is b)            # True  — малые int (-5..256) закешированы
+a, b = 257, 257
+print(a is b)            # True в одной строке REPL/скрипта, False при раздельном создании
+
+s1, s2 = "hello", "hello"
+print(s1 is s2)          # True — интернирование строк-идентификаторов
+s3 = "hello world!"
+s4 = "hello world!"
+print(s3 is s4)          # может быть False — строка с пробелами не интернируется автоматически</div><p>Небольшие целые от −5 до 256 создаются при старте интерпретатора и переиспользуются; короткие строки, похожие на идентификаторы, интернируются; литералы внутри одного блока кода схлопываются компилятором в одну константу. Всё это оптимизации, которые различаются между версиями и реализациями Python.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические ошибки">
+<p><b><code>if x is 5</code> вместо <code>if x == 5</code>.</b> Работает случайно на малых числах и ломается на больших. С Python 3.8 интерпретатор выдаёт <code>SyntaxWarning: &quot;is&quot; with a literal</code>; линтеры (<code>ruff</code>, правило <code>F632</code>) ловят это же.</p>
+<p><b><code>if x == None</code>.</b> Формально работает, но <code>None</code> — синглтон, и правильная проверка <code>x is None</code>: она быстрее и не может быть перехвачена чужим <code>__eq__</code>. Особенно важно с numpy и pandas, где <code>arr == None</code> вернёт <b>массив</b> булей, а не один булев, и <code>if</code> упадёт с <code>ValueError: truth value of an array is ambiguous</code>.</p>
+<p><b><code>if flag is True</code>.</b> Избыточно и опасно: значение <code>1</code> равно <code>True</code>, но не идентично ему. Пишут просто <code>if flag</code>.</p>
+<p><b><code>is</code> для проверки типа.</b> Для сравнения типов используют <code>isinstance(x, T)</code>, а не <code>type(x) is T</code>, — иначе перестанут работать наследники; см. <a href="../python/advanced.html#isinstance" target="_blank" rel="noopener"><code>isinstance</code></a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_is_eq-interview:end -->
+
+        <!-- md:replace:py_list_vs_numpy-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_list_vs_numpy-interview">
+  <div class="name" id="py_list_vs_numpy-interview">
+    Список Python vs массив NumPy
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Различия идут от устройства памяти и определяют всё остальное.</p>
+<p><b>Как лежат данные.</b> <code>list</code> — массив <b>указателей</b> на разбросанные по куче Python-объекты. <code>np.ndarray</code> — непрерывный блок «сырых» чисел одного <code>dtype</code> плюс метаданные <code>shape</code> и <code>strides</code>. Отсюда разница в памяти: миллион <code>int</code> в списке — примерно 36 МБ (8 байт указателя + 28 байт объекта), в <code>np.int64</code> — 8 МБ.</p>
+<p><b>Как выполняются операции.</b> <code>[x * 10 for x in a]</code> — это Python-цикл: на каждый элемент интерпретатор разыменовывает указатель, определяет тип, ищет метод <code>__mul__</code>, создаёт новый объект. <code>arr * 10</code> — один вызов в C, который проходит непрерывный блок памяти, часто с использованием SIMD-инструкций процессора. Типичное ускорение — 10–100 раз.</p>
+<p><b>Что умеет сверх этого NumPy.</b> Broadcasting (операции над массивами разной формы без явных циклов), многомерность и <code>reshape</code>/<code>transpose</code> без копирования данных, срезы как <b>представления</b>, а не копии, булеву и fancy-индексацию, линейную алгебру, статистику, FFT, генераторы случайных чисел.</p>
+<p><b>В чём выигрывает список.</b> Гетерогенность (разные типы в одной коллекции), дешёвое добавление и удаление с конца, отсутствие фиксированного <code>dtype</code> и переполнения, работа с произвольными объектами. Подробнее — <a href="../python/advanced.html#numpy-vs-lists" target="_blank" rel="noopener">разница массивов <code>numpy</code> и <code>list</code></a> и <a href="../python/base.html#numpy_basics" target="_blank" rel="noopener"><code>numpy</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import numpy as np
+
+x = np.array([1, 2, 3])
+print(x * 10)                    # [10 20 30] — векторизация
+print(x[x &gt; 1])                  # [2 3] — булева маска
+print(np.arange(6).reshape(2, 3) + np.array([10, 20, 30]))  # broadcasting
+
+a = np.arange(10)
+view = a[2:5]                    # представление, не копия
+view[0] = 99
+print(a[2])                      # 99 — изменился исходный массив</div>
+<div class="info-card-auto" data-type="explanation" data-title="Представление или копия — источник неочевидных багов">
+<p>Обычный срез NumPy (<code>a[2:5]</code>, <code>a[::2]</code>, <code>a.T</code>, <code>a.reshape(...)</code>) возвращает <b>view</b>: новый объект с другими <code>strides</code>, но с тем же буфером данных. Запись в него меняет исходный массив. Это сделано ради скорости — копирование гигабайтного массива при каждом срезе было бы неприемлемо.</p>
+<p>Копию возвращают fancy-индексация (<code>a[[1, 3, 5]]</code>), булева маска (<code>a[a &gt; 0]</code>) и явный <code>a.copy()</code>. Проверить принадлежность буфера можно через <code>arr.base is not None</code>.</p>
+<p>Со списками всё наоборот и проще: <code>lst[2:5]</code> — всегда новый список (правда, поверхностный: вложенные объекты общие, см. <a href="../bank/python.html#shallow-deep-copy-interview" target="_blank" rel="noopener">shallow и deep copy</a>).</p>
+<p>Практическое правило: если функция получает массив и не должна менять аргумент, делайте <code>arr = np.asarray(arr).copy()</code> либо явно документируйте, что работаете на месте.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки типов и производительности">
+<p><b>Переполнение.</b> Python-<code>int</code> неограничен, а <code>np.int32</code>/<code>np.int64</code> — нет: <code>np.array([2**31 - 1], dtype=np.int32) + 1</code> даст отрицательное число. В NumPy 2.x такие переполнения при скалярных операциях стали ошибкой, но внутри массивов молчаливое обёртывание остаётся.</p>
+<p><b>Апкаст к <code>object</code>.</b> <code>np.array([1, &quot;a&quot;])</code> создаст массив строк, а <code>np.array([1, [2, 3]])</code> — массив объектов, где вся векторизация теряется и скорость падает до уровня списка. Всегда проверяйте <code>arr.dtype</code>.</p>
+<p><b>Рост массива в цикле.</b> У <code>ndarray</code> нет <code>append</code> в смысле списка: <code>np.append</code> каждый раз создаёт <b>новый</b> массив и копирует всё — цикл превращается в $\mathcal{O}(n^2)$. Правильно: накопить в списке и один раз сделать <code>np.array(...)</code>, либо заранее выделить <code>np.empty(n)</code> и заполнять по индексу.</p>
+<p><b>Смешивание циклов и NumPy.</b> <code>for i in range(len(arr)): arr[i] += 1</code> медленнее, чем чистый список: к затратам Python-цикла добавляется упаковка каждого элемента в объект. Если появился цикл по элементам массива — почти наверняка есть векторная запись.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_list_vs_numpy-interview:end -->
+
+        <!-- md:replace:py_packages-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_packages-interview">
+  <div class="name" id="py_packages-interview">
+    Какие есть способы установки пакетов в Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>pip</b> — стандартный установщик. Ставит пакеты с PyPI, из git-репозитория, из локального каталога, из wheel-файла. Умеет разрешать зависимости, но не управляет окружениями и не фиксирует их состояние сам по себе — для этого нужен <code>requirements.txt</code> или lock-файл.</p>
+<p><b>conda / mamba</b> — менеджер пакетов <b>и</b> окружений, который ставит не только Python-библиотеки, но и системные зависимости: CUDA toolkit, MKL, компиляторы, GDAL. Именно поэтому он до сих пор популярен в ML: не нужно отдельно решать вопрос с драйверами и нативными библиотеками. Минус — тяжеловесность и медленное разрешение зависимостей (ускоряется переходом на <code>mamba</code> или <code>micromamba</code>).</p>
+<p><b>uv</b> — современный установщик и менеджер проектов на Rust, совместимый с pip по интерфейсу. Работает на порядок быстрее за счёт параллельной загрузки и глобального кэша с жёсткими ссылками, ставит и сам интерпретатор Python, генерирует <code>uv.lock</code> и работает с <code>pyproject.toml</code> как источником истины. Сейчас это дефолтный выбор для нового проекта.</p>
+<p><b>poetry / pdm / pipenv</b> — менеджеры проектов предыдущего поколения: <code>pyproject.toml</code> плюс собственный lock-файл и виртуальное окружение.</p>
+<p>Отдельно: <b>pipx</b> — для установки CLI-утилит (<code>ruff</code>, <code>black</code>, <code>dvc</code>) в изолированные окружения, чтобы они не смешивались с зависимостями проекта.</p>
+<p>Подробнее — <a href="../python/advanced.html#virtual-environments" target="_blank" rel="noopener">виртуальные окружения</a> и <a href="../python/advanced.html#pyproject-uv" target="_blank" rel="noopener"><code>pyproject.toml</code> для <code>uv</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="bash">python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+
+uv venv &amp;&amp; uv pip install -r requirements.txt      # то же самое, быстрее
+uv add torch                                        # добавит в pyproject.toml + uv.lock
+uv sync                                             # воспроизвести окружение из lock
+
+conda create -n ml python=3.11 &amp;&amp; conda activate ml
+conda install -c conda-forge numpy pandas</div>
+<div class="info-card-auto" data-type="explanation" data-title="Воспроизводимость: &lt;code&gt;requirements.txt&lt;/code&gt; против lock-файла">
+<p><code>requirements.txt</code> с незакреплёнными версиями (<code>torch</code>, <code>pandas&gt;=2.0</code>) описывает <b>намерение</b>, а не состояние: через месяц та же команда установит другие версии, и эксперимент перестанет воспроизводиться. Транзитивные зависимости он не фиксирует вовсе.</p>
+<p>Промышленный подход — разделять два файла:</p>
+<ul>
+<li><b>что нужно проекту</b> — <code>pyproject.toml</code> (или <code>requirements.in</code>) с широкими ограничениями;</li>
+<li><b>что именно установлено</b> — lock-файл (<code>uv.lock</code>, <code>poetry.lock</code>, <code>requirements.txt</code>, сгенерированный <code>uv pip compile</code> / <code>pip-compile</code>) с точными версиями и хешами всех зависимостей, включая транзитивные.</li>
+</ul>
+<p>В образ и в CI ставится строго из lock-файла. Это же требование лежит в основе воспроизводимости ML-экспериментов: код, данные и окружение должны быть зафиксированы одинаково строго.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Специфика ML-зависимостей">
+<p><b>PyTorch и CUDA.</b> <code>pip install torch</code> с PyPI тянет сборку под определённую версию CUDA. Если на машине другой драйвер, всё установится и упадёт только в рантайме на <code>torch.cuda.is_available() == False</code>. Правильно — ставить с индекса, соответствующего версии CUDA: <code>pip install torch --index-url https://download.pytorch.org/whl/cu121</code>.</p>
+<p><b>Смешивание pip и conda.</b> Установка pip-пакета поверх conda-окружения ломает учёт зависимостей: conda не видит того, что поставил pip, и при следующем <code>conda install</code> может перезаписать файлы. Правило — сначала всё, что можно, через conda, pip только в конце и одним проходом.</p>
+<p><b>Размер образа.</b> Слой с <code>torch</code> и CUDA-библиотеками легко занимает 5–8 ГБ. Помогают CPU-only сборки для сервисов инференса, <a href="../ai/mlops/docker.html#docker-multi-stage-build" target="_blank" rel="noopener">multi-stage build</a> и <code>--no-cache-dir</code> у pip.</p>
+<p><b><code>pip install</code> без версии в Dockerfile</b> сводит на нет весь <a href="../ai/mlops/docker.html#docker-build-cache" target="_blank" rel="noopener">кэш сборки</a> и делает образ невоспроизводимым — сегодня и через полгода соберутся разные образы из одного и того же Dockerfile.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_packages-interview:end -->
+
+        <!-- md:replace:list-vs-numpy-vs-torch:start -->
+<li class="question" data-md-source="true" data-md-id="list-vs-numpy-vs-torch">
+  <div class="name" id="list-vs-numpy-vs-torch">
+    Чем отличаются <code>list</code>, <code>numpy.ndarray</code>, <code>torch.Tensor</code>?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три контейнера с разным устройством памяти и разным набором возможностей.</p>
+<p><b><code>list</code></b> — динамический массив <b>указателей</b> на Python-объекты. Элементы могут быть разных типов, каждый — полноценный объект с заголовком (для <code>int</code> это 28 байт против 8 у C-шного <code>int64</code>). Данные разбросаны по куче, поэтому обход плохо ложится в кэш процессора, а любая арифметика идёт через Python-цикл с диспетчеризацией на каждый элемент. Гибко, но медленно и расточительно по памяти.</p>
+<p><b><code>numpy.ndarray</code></b> — непрерывный блок памяти с единым <code>dtype</code> плюс метаданные (<code>shape</code>, <code>strides</code>). Все операции выполняются в скомпилированном C-коде над всем массивом сразу — это <b>векторизация</b>; на типовых задачах выигрыш в 10–100 раз. Дают broadcasting, срезы без копирования (view), линейную алгебру, статистику, свёртки FFT. Работает на CPU. См. <a href="../python/advanced.html#numpy-vs-lists" target="_blank" rel="noopener">разница массивов <code>numpy</code> и <code>list</code></a>.</p>
+<p><b><code>torch.Tensor</code></b> — то же непрерывное хранилище, но с двумя добавками: <b>устройство</b> (<code>cpu</code> / <code>cuda</code> / <code>mps</code>), то есть данные могут лежать в видеопамяти, и <b>автоматическое дифференцирование</b> — при <code>requires_grad=True</code> тензор запоминает граф операций, и <code>loss.backward()</code> считает градиенты по всем участвовавшим тензорам.</p>
+<p>Правило выбора: <code>list</code> — гетерогенные коллекции и логика на уровне Python; <code>numpy</code> — численные расчёты на CPU и весь научный стек; <code>torch</code> — обучение моделей, GPU, автодифф.</p>
+
+</div>
+<div class="code-block" data-lang="python"># list: поэлементно в Python
+a = [1, 2, 3]
+b = [x * 10 for x in a]
+
+# numpy: векторизация
+import numpy as np
+x = np.array([1, 2, 3], dtype=np.float32)
+y = x * 10                     # [10. 20. 30.] — цикл внутри C
+
+# torch: устройство + автодифф
+import torch
+t = torch.tensor([1., 2., 3.], requires_grad=True)
+loss = (t * 10).sum()
+loss.backward()
+print(t.grad)                  # tensor([10., 10., 10.])</div>
+<div class="info-card-auto" data-type="explanation" data-title="Переходы между ними и когда происходит копирование">
+<p><code>torch.from_numpy(arr)</code> и <code>tensor.numpy()</code> <b>разделяют одну и ту же память</b> — изменение одного объекта видно в другом. Это удобно (нулевая стоимость) и опасно (неожиданные мутации). <code>torch.tensor(arr)</code>, наоборот, всегда копирует.</p>
+<p>Совместное использование памяти работает только для CPU-тензоров: для тензора на GPU <code>.numpy()</code> бросит ошибку, нужно сначала <code>.cpu()</code>. Полный безопасный путь из графа в NumPy — <code>t.detach().cpu().numpy()</code>: <code>detach</code> отцепляет от графа вычислений, <code>cpu</code> переносит из видеопамяти.</p>
+<p>Внутри NumPy тоже важно различать <b>view и copy</b>: срез <code>a[1:5]</code> — представление (изменение отразится на исходном массиве), а <code>a[[1,2,3]]</code> (fancy indexing) и <code>a.copy()</code> — копия. Непонимание этого — источник трудноуловимых багов в препроцессинге.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические ловушки">
+<p><b><code>.item()</code> в цикле обучения.</b> Обращение к элементу GPU-тензора синхронизирует CPU и GPU; вызов <code>loss.item()</code> на каждом шаге ради логирования заметно замедляет обучение. Накапливайте на GPU и снимайте значение раз в N шагов.</p>
+<p><b>Утечка графа.</b> <code>total_loss += loss</code> вместо <code>total_loss += loss.item()</code> удерживает весь граф вычислений всех батчей — память растёт до OOM. Классическая ошибка.</p>
+<p><b>dtype.</b> NumPy по умолчанию делает <code>float64</code>, PyTorch — <code>float32</code>. При смешивании легко получить молчаливый апкаст и удвоенное потребление памяти или, наоборот, ошибку несовпадения типов в слое.</p>
+<p><b>Смешивание Python-цикла и тензоров.</b> Обход <code>for i in range(len(t))</code> по тензору убивает всю выгоду: каждая итерация — вызов ядра и синхронизация. Почти всегда есть векторная альтернатива.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:list-vs-numpy-vs-torch:end -->
+
+
+        <!-- md:replace:threads-vs-processes-interview:start -->
+<li class="question" data-md-source="true" data-md-id="threads-vs-processes-interview">
+  <div class="name" id="threads-vs-processes-interview">
+    В чем отличия потоков и процессов?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Процесс</b> — исполняемая программа со своим изолированным адресным пространством, таблицей файловых дескрипторов и набором ресурсов, выданных операционной системой. Процессы не видят память друг друга: чтобы обменяться данными, нужен IPC — пайпы, сокеты, разделяемая память, очереди.</p>
+<p><b>Поток</b> — единица планирования <b>внутри</b> процесса. Потоки одного процесса делят кучу, глобальные переменные, открытые файлы и загруженные библиотеки; у каждого своё только: стек, регистры и счётчик команд.</p>
+<p>Сравнение по существенным осям:</p>
+<table class="task-table">
+<thead><tr><th></th><th>Потоки</th><th>Процессы</th></tr></thead>
+<tbody>
+<tr><td>Память</td><td>общая</td><td>изолированная</td></tr>
+<tr><td>Стоимость создания</td><td>низкая (~МБ стека)</td><td>высокая (копия/новое адресное пространство)</td></tr>
+<tr><td>Переключение контекста</td><td>дешевле</td><td>дороже (смена таблиц страниц, промах TLB)</td></tr>
+<tr><td>Обмен данными</td><td>напрямую по ссылке</td><td>через IPC с сериализацией</td></tr>
+<tr><td>Отказоустойчивость</td><td>падение потока обычно валит весь процесс</td><td>падение процесса изолировано</td></tr>
+<tr><td>Отладка</td><td>сложнее (гонки, дедлоки)</td><td>проще, состояние изолировано</td></tr>
+</tbody>
+</table><p>Одной фразой: потоки дешевле и удобнее для обмена данными, процессы безопаснее и по-настоящему параллельны. В Python к этому добавляется <a href="../bank/python.html#gil_interview-interview" target="_blank" rel="noopener">GIL</a>, из-за которого выбор смещается в сторону процессов для CPU-bound задач.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как это выглядит со стороны ОС">
+<p>Ядро Linux не различает потоки и процессы принципиально: и то и другое — задачи (<code>task_struct</code>), созданные системным вызовом <code>clone</code> с разным набором флагов. Флаг <code>CLONE_VM</code> означает «делить адресное пространство» и превращает новую задачу в поток; без него получается процесс. Поэтому <code>ps -eLf</code> показывает потоки как строки с общим <code>PID</code> и разными <code>LWP</code>.</p>
+<p><code>fork()</code> создаёт процесс копированием, но с <b>copy-on-write</b>: страницы физически не дублируются, пока кто-то в них не запишет. Отсюда практическое следствие — дочерний процесс стартует быстро, но память начинает расти по мере записи. В Python это особенно заметно из-за счётчиков ссылок: даже простое чтение объекта меняет <code>ob_refcnt</code>, то есть трогает страницу и вызывает её копирование. Именно поэтому «форкнуть процесс с большим датасетом и ничего не тратить» не работает так хорошо, как хотелось бы.</p>
+<p>Промежуточные модели, о которых полезно знать: <b>зелёные потоки / корутины</b> (планируются в user space самим приложением, ещё дешевле ОС-потоков — это <code>asyncio</code>) и <b>пул процессов с общей памятью</b> (<code>multiprocessing.shared_memory</code>, <code>mmap</code>), когда данные большие, а копировать их нельзя.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что стоит добавить, чтобы ответ не звучал заученно">
+<p>Практическая иллюстрация лучше определения. Например: браузер использует <b>процесс на вкладку</b> именно ради изоляции — упавшая страница не должна ронять весь браузер; внутри вкладки работают потоки, потому что им нужно быстро обмениваться данными с общим DOM.</p>
+<p>Второе: «потоки легче» — верно про создание, но не про сопровождение. Разделяемая память означает гонки данных, которые воспроизводятся через раз и ловятся тяжело; изолированные процессы этой категории багов лишены в принципе.</p>
+<p>Третье, специфичное для Python: не путайте уровни. GIL — ограничение <b>интерпретатора CPython</b>, а не операционной системы; потоки Python — настоящие ОС-потоки, просто исполнение байткода между ними сериализовано. Формулировка «в Python нет настоящих потоков» неверна.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:threads-vs-processes-interview:end -->
+
+
+        <!-- md:replace:what-is-async:start -->
+<li class="question" data-md-source="true" data-md-id="what-is-async">
+  <div class="name" id="what-is-async">
+    Что такое асинхронные запросы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Асинхронные запросы — это неблокирующие операции ввода-вывода, выполняемые конкурентно <b>в одном потоке</b> с помощью событийного цикла (event loop) и корутин.</p>
+<p>Идея: обычный синхронный вызов <code>requests.get(url)</code> останавливает поток до прихода ответа — всё это время процессор простаивает. В асинхронной модели корутина на <code>await</code> <b>отдаёт управление</b> event loop, который тут же запускает другую готовую задачу; когда ядро ОС сообщает, что данные пришли (через <code>epoll</code>/<code>kqueue</code>/IOCP), loop возобновляет корутину с того же места.</p>
+<p>Что важно понимать про модель:</p>
+<ul>
+<li>Это <b>конкурентность, а не параллелизм</b>: в каждый момент исполняется ровно один кусок Python-кода. Ускорение берётся из того, что ожидание перестало быть простоем, а не из использования нескольких ядер.</li>
+<li>Переключение задач стоит доли микросекунды против десятков микросекунд у потоков ОС, а задача не требует мегабайта стека. Поэтому десятки тысяч одновременных операций — норма.</li>
+<li>Планирование <b>кооперативное</b>: задача уступает управление только на <code>await</code>. Один синхронный вызов (тяжёлый расчёт, <code>time.sleep</code>, <code>requests</code>) блокирует весь loop и все остальные задачи.</li>
+</ul>
+<p>В Python это <code>asyncio</code> плюс синтаксис <code>async def</code> / <code>await</code>. См. <a href="../python/advanced.html#async_await" target="_blank" rel="noopener">асинхронные функции</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import asyncio, aiohttp, time
+
+async def fetch(session, url):
+    async with session.get(url) as resp:
+        return await resp.text()
+
+async def main(urls):
+    async with aiohttp.ClientSession() as s:
+        return await asyncio.gather(*(fetch(s, u) for u in urls))
+
+# 100 запросов по 1 секунде выполнятся примерно за 1 секунду, а не за 100
+# asyncio.run(main(urls))</div>
+<div class="info-card-auto" data-type="explanation" data-title="Где это действительно выигрывает">
+<p>Асинхронность окупается там, где <b>время ожидания много больше времени счёта</b> и одновременных ожиданий много: HTTP-клиенты и API-шлюзы, запросы к БД и Redis, чтение из очередей, WebSocket-соединения, прокси и веб-сервисы (FastAPI, aiohttp).</p>
+<p>Численный ориентир: 100 запросов по 1 секунде синхронно займут 100 секунд, в 10 потоках — около 10, асинхронно — около 1. При этом 10 000 одновременных соединений в потоках невозможны (10 ГБ стеков), а в asyncio — рядовая нагрузка.</p>
+<p>Полезные инструменты: <code>asyncio.gather</code> — запустить и дождаться всех; <code>asyncio.Semaphore</code> — ограничить конкурентность; <code>asyncio.TaskGroup</code> (3.11+) — структурная конкурентность с корректной отменой при ошибке; <code>asyncio.timeout</code> — дедлайн на блок кода; <code>asyncio.to_thread</code> — вынести синхронный вызов в поток, не блокируя loop.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чем асинхронность не является">
+<p><b>Не ускоряет вычисления.</b> CPU-bound задача внутри корутины блокирует event loop целиком: пока считается, ни одна другая задача не выполнится. Для счёта нужны процессы; см. <a href="../python/advanced.html#comparison_concurrency" target="_blank" rel="noopener">сравнение подходов к конкурентности</a>.</p>
+<p><b>Один синхронный вызов отравляет весь сервис.</b> <code>requests</code>, <code>psycopg2</code> без async-режима, <code>time.sleep</code>, чтение большого файла через обычный <code>open</code> — всё это останавливает loop. Либо берите асинхронный аналог (<code>httpx</code>, <code>asyncpg</code>, <code>aiofiles</code>), либо оборачивайте в <code>await asyncio.to_thread(...)</code>.</p>
+<p><b>Асинхронность заразна.</b> <code>await</code> можно писать только внутри <code>async def</code>; чтобы вызвать корутину из синхронного кода, нужен <code>asyncio.run</code>. Поэтому переход на async обычно затрагивает всю цепочку вызовов, а не одну функцию.</p>
+<p><b>Забытый <code>await</code>.</b> Вызов <code>fetch(url)</code> без <code>await</code> создаёт объект корутины и ничего не выполняет; Python выдаст <code>RuntimeWarning: coroutine was never awaited</code> — но только в конце, и причину придётся искать. Отдельно: <code>asyncio.create_task(...)</code> нужно сохранять в переменную, иначе задачу может собрать сборщик мусора.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:what-is-async:end -->
+
+        <!-- md:replace:what-is-coroutines:start -->
+<li class="question" data-md-source="true" data-md-id="what-is-coroutines">
+  <div class="name" id="what-is-coroutines">
+    Что такое корутины?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Корутина — функция, исполнение которой можно <b>приостановить и возобновить</b> с сохранением состояния: локальных переменных и точки, где остановились. В отличие от обычной функции, у которой один вход и один выход, у корутины точек приостановки может быть много.</p>
+<p>В Python корутина объявляется как <code>async def</code>, а точка приостановки обозначается <code>await</code>. Важная деталь: <b>вызов корутины не выполняет её тело</b> — он создаёт объект корутины, который потом нужно передать event loop (через <code>asyncio.run</code>, <code>await</code>, <code>asyncio.create_task</code> или <code>gather</code>).</p>
+<p>Механически это надстройка над генераторами: приостановка реализована тем же способом — кадр функции не уничтожается, а замораживается. Разница в назначении: генератор отдаёт <b>значения</b> наружу, корутина отдаёт <b>управление</b> планировщику.</p>
+<p>Зачем это нужно: пока корутина ждёт ответа сети или диска, поток не простаивает — event loop исполняет другие готовые корутины. Так один поток обслуживает тысячи одновременных операций ввода-вывода без затрат на потоки ОС. См. <a href="../python/advanced.html#async_await" target="_blank" rel="noopener">асинхронные функции</a> и <a href="../bank/python.html#what-is-async" target="_blank" rel="noopener">что такое асинхронные запросы</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import asyncio
+
+async def work(name, delay):
+    print(f"{name}: старт")
+    await asyncio.sleep(delay)      # отдаём управление loop, поток не блокируется
+    print(f"{name}: готово")
+    return name
+
+async def main():
+    coro = work("a", 1)             # тело ещё НЕ выполнено — это объект корутины
+    print(type(coro))               # &lt;class 'coroutine'&gt;
+    results = await asyncio.gather(coro, work("b", 1), work("c", 1))
+    return results
+
+# asyncio.run(main())   # три задачи по секунде завершатся примерно за 1 секунду</div>
+<div class="info-card-auto" data-type="explanation" data-title="Корутина, задача и future">
+<p>Три понятия, которые постоянно путают:</p>
+<ul>
+<li><b>Корутина</b> — объект, описывающий <em>что</em> нужно сделать. Сама по себе она пассивна.</li>
+<li><b>Task</b> — корутина, <b>отданная</b> event loop на исполнение (<code>asyncio.create_task</code>). Она начинает выполняться сразу, параллельно с текущим кодом, и её можно отменить (<code>task.cancel()</code>).</li>
+<li><b>Future</b> — низкоуровневый объект-обещание результата; <code>Task</code> является его подклассом.</li>
+</ul>
+<p>Отсюда практическое различие: <code>await work()</code> — «выполнить и дождаться» (последовательно), а <code>t = asyncio.create_task(work()); ...; await t</code> — «запустить в фоне и забрать результат позже» (конкурентно). Написать три <code>await</code> подряд и удивляться, что нет ускорения, — типичная ошибка новичка; нужен <code>gather</code> или <code>TaskGroup</code>.</p>
+<p>Историческая справка, которую иногда спрашивают: до Python 3.5 корутины писали на генераторах — <code>@asyncio.coroutine</code> плюс <code>yield from</code>. Синтаксис <code>async</code>/<code>await</code> появился именно как явная замена этой конструкции, чтобы отличать «генератор значений» от «корутины».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические правила">
+<p><b>Не блокируйте loop.</b> Любой синхронный вызов внутри корутины останавливает все задачи: <code>time.sleep</code> вместо <code>asyncio.sleep</code>, <code>requests</code> вместо <code>httpx</code>, тяжёлый numpy-расчёт. Для синхронного кода есть <code>await asyncio.to_thread(f, ...)</code>, для CPU-bound — пул процессов через <code>loop.run_in_executor</code>.</p>
+<p><b>Сохраняйте ссылку на Task.</b> <code>asyncio.create_task(...)</code> без присваивания может быть собран сборщиком мусора до завершения — задача просто исчезнет. Держите ссылку или используйте <code>asyncio.TaskGroup</code> (3.11+), который вдобавок корректно отменяет остальные задачи при ошибке в одной.</p>
+<p><b>Обрабатывайте отмену.</b> <code>CancelledError</code> — это <code>BaseException</code>; голый <code>except Exception</code> его не поймает (и хорошо), но <code>try/finally</code> для освобождения ресурсов нужен.</p>
+<p><b><code>gather(..., return_exceptions=True)</code></b>, если нужно получить результаты остальных задач, когда одна упала; по умолчанию исключение всплывает сразу.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:what-is-coroutines:end -->
+
+        <!-- md:replace:async-vs-mp-vs-mt-interview:start -->
+<li class="question" data-md-source="true" data-md-id="async-vs-mp-vs-mt-interview">
+  <div class="name" id="async-vs-mp-vs-mt-interview">
+    Что выбрать: асинхронные запросы, <code>multiprocessing</code> или <code>threading</code>?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Выбор определяется одним вопросом: <b>на что уходит время — на ожидание или на вычисления</b>.</p>
+<ul>
+<li><b><code>asyncio</code></b> — I/O-bound задачи с большим числом одновременных ожиданий: HTTP-запросы, БД, брокеры очередей, сокеты. Всё живёт в одном потоке, переключение между задачами стоит доли микросекунды, поэтому десятки тысяч одновременных операций — норма. Требование: вся библиотека должна быть асинхронной; один синхронный вызов блокирует весь event loop.</li>
+<li><b><code>threading</code></b> — тот же I/O-bound, но когда асинхронного API нет (<code>requests</code>, драйверы БД, <code>boto3</code>) или нужен фоновый воркер/таймер. Поток стоит около мегабайта стека, поэтому счёт идёт на десятки-сотни, а не на тысячи. Из-за <a href="../python/advanced.html#gil" target="_blank" rel="noopener">GIL</a> CPU-bound код потоки не ускоряют.</li>
+<li><b><code>multiprocessing</code></b> — CPU-bound: numpy-вычисления в чистом Python, обработка изображений и аудио, парсинг, тяжёлый препроцессинг. Каждый процесс имеет свой интерпретатор и свой GIL, поэтому параллелизм настоящий. Плата — накладные расходы: старт процесса, сериализация аргументов и результатов через <code>pickle</code>, отдельная память под каждую копию данных.</li>
+</ul>
+<p>Соответствующие разделы теории: <a href="../python/advanced.html#threading" target="_blank" rel="noopener"><code>threading</code></a>, <a href="../python/advanced.html#multiprocessing" target="_blank" rel="noopener"><code>multiprocessing</code></a>, <a href="../python/advanced.html#async_await" target="_blank" rel="noopener"><code>async</code>/<code>await</code></a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Практические паттерны">
+<ul>
+<li><b>Сеть и диск</b> $\to$ сначала <code>asyncio</code>; если библиотека синхронная — <code>ThreadPoolExecutor</code>.</li>
+<li><b>Тяжёлая CPU-работа на чистом Python</b> $\to$ <code>ProcessPoolExecutor</code>.</li>
+<li><b>Смешанная нагрузка</b> $\to$ event loop для I/O плюс <code>loop.run_in_executor(process_pool, ...)</code> для CPU-частей: так тяжёлый расчёт не блокирует цикл.</li>
+<li><b>Числодробилка через NumPy/PyTorch/scikit-learn</b> $\to$ часто вообще не нужен параллелизм на уровне Python: эти библиотеки отпускают GIL внутри C-кода и сами используют несколько ядер через BLAS/OpenMP. Прежде чем городить пул процессов, стоит проверить, не проще ли векторизовать вычисление.</li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="python"># ThreadPoolExecutor — I/O через синхронное API
+from concurrent.futures import ThreadPoolExecutor
+import requests
+
+def get(url): return requests.get(url, timeout=10).text
+with ThreadPoolExecutor(max_workers=32) as ex:
+    pages = list(ex.map(get, urls))
+
+# ProcessPoolExecutor — CPU-bound
+from concurrent.futures import ProcessPoolExecutor
+def heavy(x): return sum(i * i for i in range(x))
+with ProcessPoolExecutor() as ex:
+    results = list(ex.map(heavy, [10_000_000] * 8))</div>
+<div class="info-card-auto" data-type="warning" data-title="Грабли &lt;code&gt;multiprocessing&lt;/code&gt;">
+<p>На macOS и Windows по умолчанию используется метод старта <code>spawn</code>: дочерний процесс импортирует модуль заново. Поэтому код запуска обязан быть под <code>if __name__ == &quot;__main__&quot;:</code>, иначе получится бесконечное порождение процессов. Все аргументы и результаты должны быть picklable — лямбды, локальные функции и открытые соединения не пройдут.</p>
+<p>Ещё два практических момента: число процессов имеет смысл брать по числу физических ядер (<code>os.cpu_count()</code>), а не «побольше» — лишние процессы только конкурируют за кэш; и если каждый воркер поднимает NumPy/PyTorch с многопоточным BLAS, произойдёт <b>oversubscription</b> (8 процессов × 8 потоков = 64 потока на 8 ядрах), из-за чего всё станет медленнее. Лечится переменными <code>OMP_NUM_THREADS=1</code> / <code>torch.set_num_threads(1)</code> внутри воркеров.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:async-vs-mp-vs-mt-interview:end -->
+
+        <!-- md:replace:two-pointers-problem-interview:start -->
+<li class="question" data-md-source="true" data-md-id="two-pointers-problem-interview">
+  <div class="name" id="two-pointers-problem-interview">
+    Задача по &quot;двойным указателям&quot; (two pointers) с решением
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Условие">
+<p>Дан <b>отсортированный</b> по неубыванию массив целых чисел $A$ длины $n$ и число $T$. Требуется найти пару индексов $(i, j)$, $i &lt; j$, такую что $A_i + A_j = T$, или сообщить, что такой пары нет. Ограничения: $\mathcal{O}(n)$ по времени и $\mathcal{O}(1)$ по дополнительной памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ставим два указателя на концы: $L = 0$, $R = n - 1$, и сравниваем сумму $s = A_L + A_R$ с целью $T$:</p>
+<ul>
+<li>$s = T$ — ответ найден;</li>
+<li>$s &lt; T$ — сумму нужно увеличить; единственный способ, не теряя решений, — сдвинуть <b>левый</b> указатель вправо ($A_L$ минимален среди оставшихся);</li>
+<li>$s &gt; T$ — сумму нужно уменьшить, сдвигаем <b>правый</b> указатель влево.</li>
+</ul>
+<p>Цикл идёт, пока $L &lt; R$. За каждую итерацию расстояние между указателями сокращается на единицу, значит итераций не больше $n$ — отсюда $\mathcal{O}(n)$ и $\mathcal{O}(1)$ памяти.</p>
+<p><b>Почему это корректно.</b> Ключевой аргумент, который и хочет услышать интервьюер: сдвигая $L$ при $s &lt; T$, мы отбрасываем все пары вида $(L, k)$ для $k \le R$. Но $A_L + A_k \le A_L + A_R = s &lt; T$ для любого такого $k$ (массив отсортирован), то есть ни одна из отброшенных пар не могла быть ответом. Симметрично для правого указателя. Значит, никакое решение не теряется.</p>
+<p>См. <a href="../python/algorithms.html#two-pointers" target="_blank" rel="noopener">два указателя</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def two_sum_sorted(A, T):
+    L, R = 0, len(A) - 1
+    while L &lt; R:
+        s = A[L] + A[R]
+        if s == T:
+            return L, R
+        if s &lt; T:
+            L += 1
+        else:
+            R -= 1
+    return None
+
+A = [-5, -2, 0, 3, 4, 9, 11]
+print(two_sum_sorted(A, 7))    # (1, 5): -2 + 9
+print(two_sum_sorted(A, 100))  # None</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что делать, если массив не отсортирован">
+<p>Тогда два указателя неприменимы напрямую, и есть два пути:</p>
+<ul>
+<li><b>Отсортировать</b> — $\mathcal{O}(n \log n)$ по времени, $\mathcal{O}(1)$ дополнительной памяти (или $\mathcal{O}(n)$, если исходные индексы важны и приходится сортировать пары <code>(значение, индекс)</code>).</li>
+<li><b>Хеш-множество</b> — один проход: для каждого $x$ проверяем, встречался ли уже $T - x$. Это $\mathcal{O}(n)$ по времени, но $\mathcal{O}(n)$ по памяти, зато возвращает индексы в исходном порядке.</li>
+</ul>
+<div class="code-block" data-lang="python">def two_sum_hash(A, T):
+    seen = {}
+    for i, x in enumerate(A):
+        if T - x in seen:
+            return seen[T - x], i
+        seen[x] = i
+    return None</div><p>Выбор — классический размен «время против памяти». Если массив уже отсортирован, два указателя строго лучше: та же линейность без затрат памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Куда обычно уводит разговор дальше">
+<p>Two pointers — это семейство приёмов, и интервьюер часто просит соседнюю задачу:</p>
+<ul>
+<li><b>3Sum</b> — зафиксировать первый элемент и запустить два указателя на остатке: $\mathcal{O}(n^2)$;</li>
+<li><b>Удаление дубликатов in-place</b> и <b>перенос нулей в конец</b> — вариант «медленный/быстрый указатель» (<code>slow</code>/<code>fast</code>);</li>
+<li><b>Слияние двух отсортированных массивов</b> — по указателю на каждый;</li>
+<li><b>Container With Most Water</b> — та же схема сжатия с концов, но с другим критерием сдвига;</li>
+<li><b>Скользящее окно</b> — родственный приём, где оба указателя идут в одну сторону; см. <a href="../python/algorithms.html#sliding-window" target="_blank" rel="noopener">скользящее окно</a>;</li>
+<li><b>Обнаружение цикла в связном списке</b> (алгоритм Флойда «заяц и черепаха») — два указателя с разной скоростью.</li>
+</ul>
+<p>Граничные случаи, которые стоит проговорить: пустой массив и массив из одного элемента (цикл просто не выполнится), дубликаты (условие $i &lt; j$ соблюдается автоматически, потому что $L &lt; R$), переполнение при сложении — в Python неактуально, но в C++/Java об этом спросят.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:two-pointers-problem-interview:end -->
+
+        <!-- md:replace:py_dict_vs_list_lookup-interview:start -->
+<li class="question" data-md-source="true" data-md-id="py_dict_vs_list_lookup-interview">
+  <div class="name" id="py_dict_vs_list_lookup-interview">
+    Где поиск быстрее: словарь или список?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>В словаре — в среднем $\mathcal{O}(1)$, в списке — $\mathcal{O}(n)$.</p>
+<p><code>x in list</code> выполняет линейный перебор со сравнением <code>==</code> на каждом шаге: в худшем случае (элемента нет) просматриваются все $n$ элементов. <code>x in dict</code> (и <code>x in set</code>) вычисляет хеш ключа, сразу переходит в нужный слот хеш-таблицы и делает обычно одно сравнение. Время не зависит от размера коллекции: поиск в словаре на миллион элементов стоит столько же, сколько на десяти.</p>
+<p>Цена — память и требования к элементам: словарь и множество занимают в несколько раз больше места (таблица держится заполненной не более чем на 2/3) и требуют, чтобы ключи были <a href="../bank/python.html#dict-keys-interview" target="_blank" rel="noopener">хешируемыми</a>.</p>
+<p>Практическое следствие, которое и проверяет вопрос: <b>проверка вхождения в список внутри цикла — это скрытый $\mathcal{O}(n \cdot m)$</b>. Замена списка на множество в такой конструкции — самая дешёвая и самая частая оптимизация в Python-коде; на десятках тысяч элементов она даёт ускорение в сотни раз. См. <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица: <code>dict</code> и <code>set</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import timeit
+
+items = list(range(100_000))
+s = set(items)
+d = {x: True for x in items}
+
+# элемента нет — худший случай для списка
+print(timeit.timeit("99_999_999 in items", globals=globals(), number=100))  # ~0.9 c
+print(timeit.timeit("99_999_999 in s",     globals=globals(), number=100))  # ~0.00002 c</div><div class="code-block" data-lang="python"># антипаттерн: O(n*m)
+bad  = [x for x in big_list if x in other_list]
+# правильно: O(n+m)
+other = set(other_list)
+good = [x for x in big_list if x in other]</div>
+<div class="info-card-auto" data-type="explanation" data-title="Когда список всё-таки уместен">
+<p>Разница проявляется на размере. На 5–20 элементах линейный поиск обычно <b>быстрее</b>: нет затрат на хеширование и на построение таблицы, а данные лежат подряд и попадают в кэш процессора. Если коллекция маленькая и создаётся заново на каждой итерации, кортеж или список выигрывают.</p>
+<p>Список незаменим, когда важен порядок и нужны дубликаты, когда элементы нехешируемы (списки, словари, numpy-массивы), а также когда нужен доступ по индексу — в словаре его нет.</p>
+<p>Отдельный случай — <b>отсортированный</b> список: <code>bisect</code> даёт поиск за $\mathcal{O}(\log n)$ без затрат памяти на хеш-таблицу и вдобавок отвечает на вопросы «ближайший меньший/больший», на которые словарь ответить не может.</p>
+<p>Ещё нюанс: если проверок будет всего одна-две, а список большой, построение множества ($\mathcal{O}(n)$ плюс аллокации) может не окупиться. Множество строят, когда проверок много.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что часто путают">
+<p><code>set</code> и <code>dict</code> по скорости поиска эквивалентны — это одна и та же хеш-таблица. Если значения не нужны, берите <code>set</code>: он экономит память. Конструкция <code>{x: True for x in items}</code> вместо <code>set(items)</code> — распространённая избыточность.</p>
+<p><code>x in dict</code> проверяет вхождение среди <b>ключей</b>, а не значений. <code>x in dict.values()</code> — это снова линейный поиск $\mathcal{O}(n)$; если нужен обратный поиск, стройте обратный словарь.</p>
+<p><code>list.index(x)</code> и <code>list.count(x)</code> тоже линейны, а <code>list.remove(x)</code> — линеен вдвойне (поиск плюс сдвиг).</p>
+<p>И про худший случай: у словаря он теоретически $\mathcal{O}(n)$ — при массовых коллизиях. Для встроенных типов это практически недостижимо, но с плохим пользовательским <code>__hash__</code> вполне реально; подробнее — <a href="../bank/python.html#dict-o1-to-on-interview" target="_blank" rel="noopener">когда <code>dict</code> деградирует</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:py_dict_vs_list_lookup-interview:end -->
+
+        <!-- md:replace:pandas_loc_iloc-interview:start -->
+<li class="question" data-md-source="true" data-md-id="pandas_loc_iloc-interview">
+  <div class="name" id="pandas_loc_iloc-interview">
+    Разница между <code>loc</code> и <code>iloc</code> в pandas
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><code>loc</code> работает с <b>метками</b> — значениями индекса и именами столбцов. <code>iloc</code> работает с <b>целочисленными позициями</b>, как обычный список Python.</p>
+<p>Разница не только в том, что подставлять, но и в семантике среза:</p>
+<ul>
+<li><code>df.loc[&quot;b&quot;:&quot;d&quot;]</code> включает обе границы — это диапазон меток.</li>
+<li><code>df.iloc[1:4]</code> исключает правую границу — это обычный Python-срез.</li>
+</ul>
+<p>Эта асимметрия смущает, но логична: у меток нет понятия «следующая после последней», поэтому включающий срез — единственный осмысленный вариант.</p>
+<p>Обе индексации принимают одинаковые формы: скаляр, список, срез, булеву маску, а также пару <code>[строки, столбцы]</code>. Дополнительно <code>loc</code> понимает callable: <code>df.loc[lambda d: d.age &gt; 30, [&quot;name&quot;]]</code> — удобно в цепочках методов, где промежуточный DataFrame не имеет имени.</p>
+<p>Отдельно стоят <code>at</code> и <code>iat</code> — быстрые версии для доступа к <b>одной</b> ячейке: <code>df.at[&quot;y&quot;, &quot;a&quot;]</code>, <code>df.iat[1, 0]</code>. Они заметно быстрее в циклах, потому что не строят промежуточных объектов.</p>
+
+</div>
+<div class="code-block" data-lang="python">import pandas as pd
+df = pd.DataFrame({"a": [10, 20, 30], "b": [1, 2, 3]}, index=["x", "y", "z"])
+
+print(df.loc["y", "a"])      # 20  — по метке
+print(df.iloc[1, 0])         # 20  — по позиции
+print(df.loc["x":"y"])       # обе границы включены
+print(df.iloc[0:2])          # правая граница исключена
+print(df.loc[df.a &gt; 15])     # булева маска работает только в loc</div>
+<div class="info-card-auto" data-type="explanation" data-title="Главная ловушка — целочисленный индекс">
+<p>Если индекс сам состоит из чисел, метка и позиция перестают совпадать, и код начинает молча возвращать не то:</p>
+<div class="code-block" data-lang="python">df = pd.DataFrame({"a": [10, 20, 30]}, index=[3, 1, 2])
+print(df.loc[1])    # строка с меткой 1 -&gt; a = 20
+print(df.iloc[1])   # вторая строка по счёту -&gt; a = 20 (совпало случайно)
+print(df.loc[3])    # a = 10
+print(df.iloc[0])   # a = 10</div><p>После <code>df = df[df.x &gt; 0]</code> или <code>df.sort_values(...)</code> индекс остаётся «дырявым» (<code>[0, 3, 7, ...]</code>), и <code>df.loc[1]</code> бросит <code>KeyError</code>, хотя строк много. Практическое правило: после фильтрации или сортировки, если индекс не несёт смысла, делайте <code>reset_index(drop=True)</code>. И никогда не полагайтесь на то, что метки совпадают с позициями.</p>
+<p>Голое <code>df[...]</code> — третий, самый неоднозначный способ: <code>df[&quot;a&quot;]</code> берёт <b>столбец</b>, <code>df[0:2]</code> берёт <b>строки</b> по позиции, <code>df[df.a &gt; 0]</code> берёт строки по маске. Именно из-за этой неоднозначности в рабочем коде предпочитают явные <code>loc</code>/<code>iloc</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="&lt;code&gt;SettingWithCopyWarning&lt;/code&gt; и chained indexing">
+<p>Классическая ошибка — присваивание через две индексации подряд:</p>
+<div class="code-block" data-lang="python">df[df.a &gt; 15]["b"] = 0        # SettingWithCopyWarning; исходный df может не измениться
+df.loc[df.a &gt; 15, "b"] = 0    # правильно: одна операция, гарантированная запись</div><p>Причина в том, что <code>df[df.a &gt; 15]</code> возвращает объект, который может быть копией, а может — представлением; присваивание в него не обязано попасть в исходный DataFrame. Единственный надёжный способ — <b>одна</b> операция <code>loc</code> с указанием и строк, и столбцов.</p>
+<p>В pandas 3.0 включён Copy-on-Write, где семантика стала строгой: chained assignment просто не действует на исходный объект (без предупреждения о неопределённости). Тем более стоит писать через <code>loc</code> сразу.</p>
+<p>И про производительность: <code>for i in range(len(df)): df.iloc[i, 0] ...</code> — антипаттерн. Векторизованная операция над столбцом на два-три порядка быстрее; см. <a href="../python/base.html#pandas_basics" target="_blank" rel="noopener"><code>pandas</code></a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:pandas_loc_iloc-interview:end -->
+
+        <!-- md:replace:context_manager-interview:start -->
+<li class="question" data-md-source="true" data-md-id="context_manager-interview">
+  <div class="name" id="context_manager-interview">
+    Зачем нужен контекстный менеджер?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Контекстный менеджер решает одну задачу: гарантировать, что <b>парное действие выполнится обязательно</b> — открыли/закрыли, захватили/освободили, включили/выключили, — даже если внутри блока произошло исключение или сработал <code>return</code>.</p>
+<p>Механика: объект реализует два метода. <code>__enter__</code> вызывается на входе в блок <code>with</code> и возвращает то, что попадает в переменную после <code>as</code>; <code>__exit__(exc_type, exc_value, traceback)</code> вызывается на выходе <b>в любом случае</b> — при нормальном завершении, при исключении, при <code>return</code>, <code>break</code> и <code>continue</code>. Это ровно то же, что <code>try/finally</code>, но короче, невозможно забыть и переиспользуемо.</p>
+<p>Если <code>__exit__</code> вернёт истинное значение, исключение считается обработанным и подавляется; обычно возвращают <code>None</code>, чтобы исключение всплывало дальше.</p>
+<p>Типичные применения: файлы, сетевые соединения и курсоры БД, блокировки (<code>threading.Lock</code>), транзакции, временные каталоги, замер времени, временное изменение глобального состояния. Подробнее — <a href="../python/base.html#context_manager_with" target="_blank" rel="noopener">контекстный менеджер <code>with</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python"># файл закроется гарантированно, даже если внутри исключение
+with open("file.txt", "r") as f:
+    data = f.read()
+
+# инференс без построения графа градиентов
+import torch
+with torch.no_grad():
+    preds = model(x)
+
+# несколько менеджеров сразу
+with open("in.txt") as src, open("out.txt", "w") as dst:
+    dst.write(src.read())</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как написать свой: класс и &lt;code&gt;@contextmanager&lt;/code&gt;">
+<p>Полный вариант — класс с <code>__enter__</code>/<code>__exit__</code>. Короткий — декоратор <code>contextlib.contextmanager</code> над функцией-генератором: всё до <code>yield</code> выполняется на входе, всё после — на выходе. Чтобы выходная часть отработала и при исключении, тело оборачивают в <code>try/finally</code>.</p>
+<div class="code-block" data-lang="python">from contextlib import contextmanager
+import time
+
+@contextmanager
+def timer(name):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        print(f"{name}: {time.perf_counter() - t0:.3f}s")
+
+with timer("train epoch"):
+    ...</div><p>Полезное из <code>contextlib</code>: <code>suppress(FileNotFoundError)</code> вместо пустого <code>except</code>, <code>ExitStack</code> для динамического числа менеджеров (например, открыть список файлов), <code>closing(obj)</code> для объектов, у которых есть только <code>.close()</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Где это важно в ML">
+<p><code>torch.no_grad()</code> — не просто «чтобы не считать градиенты»: без него на валидации и инференсе PyTorch строит граф вычислений и удерживает промежуточные активации, из-за чего видеопамять растёт с каждым батчем и прогон падает с OOM. Это одна из самых частых ошибок новичков.</p>
+<p>Второй момент: <code>with</code> <b>не проглатывает</b> исключение сам по себе. Формулировка «<code>with</code> нужен, чтобы код не падал» неверна — он нужен, чтобы ресурс освободился, когда код падает. Исключение по-прежнему всплывёт наверх.</p>
+<p>Третий: в асинхронном коде нужен <code>async with</code> и методы <code>__aenter__</code>/<code>__aexit__</code> — обычный <code>with</code> на асинхронном ресурсе (например, <code>aiohttp.ClientSession</code>) работать не будет.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:context_manager-interview:end -->
+
+        <!-- md:replace:threading_vs_mp-interview:start -->
+<li class="question" data-md-source="true" data-md-id="threading_vs_mp-interview">
+  <div class="name" id="threading_vs_mp-interview">
+    Многопоточность vs мультипроцессинг
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b><code>threading</code>.</b> Потоки живут внутри одного процесса и делят адресное пространство: любой объект доступен всем потокам без сериализации. Создание потока дёшево (доли миллисекунды, около мегабайта стека), переключение — тоже. Но в CPython исполнение байткода сериализуется <a href="../bank/python.html#gil_interview-interview" target="_blank" rel="noopener">GIL</a>, поэтому CPU-bound код потоки не ускоряют. Зато GIL отпускается на время ввода-вывода и внутри C-расширений — значит, для I/O-bound и для NumPy/PyTorch потоки работают полноценно.</p>
+<p><b><code>multiprocessing</code>.</b> Каждый процесс — отдельный интерпретатор со своей памятью и своим GIL, поэтому параллелизм настоящий и упирается только в число ядер. Плата: старт процесса стоит десятки-сотни миллисекунд, аргументы и результаты передаются через <code>pickle</code> (это и время, и ограничение на то, что вообще можно передать), а общая память требует явных средств — <code>multiprocessing.shared_memory</code>, <code>Value</code>, <code>Array</code>, <code>Manager</code>.</p>
+<p>Короткое правило: <b>ждём — потоки, считаем — процессы</b>. Более точное: если горячий участок отпускает GIL (сеть, диск, C-код), берите потоки; если он крутится в чистом Python — процессы.</p>
+<p>См. <a href="../python/advanced.html#threading" target="_blank" rel="noopener"><code>threading</code></a>, <a href="../python/advanced.html#multiprocessing" target="_blank" rel="noopener"><code>multiprocessing</code></a>, <a href="../python/advanced.html#comparison_concurrency" target="_blank" rel="noopener">сравнение подходов к конкурентности</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python"># CPU-bound -&gt; процессы
+from multiprocessing import Pool
+def f(x): return sum(i * i for i in range(x))
+
+if __name__ == "__main__":          # обязательно при spawn (macOS, Windows)
+    with Pool() as p:
+        print(p.map(f, [10**6] * 8))
+
+# I/O-bound -&gt; потоки
+from concurrent.futures import ThreadPoolExecutor
+import requests
+with ThreadPoolExecutor(max_workers=32) as ex:
+    pages = list(ex.map(lambda u: requests.get(u, timeout=10).text, urls))</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что выбрать в ML-пайплайне">
+<p><code>torch.utils.data.DataLoader(num_workers=N)</code> использует <b>процессы</b> — потому что декодирование JPEG, аугментации на PIL и парсинг на чистом Python упирались бы в GIL. Цена — каждый воркер держит свою копию датасета; если в <code>__init__</code> лежит большой Python-объект (список из миллионов словарей), память умножается на <code>N</code>. Обходят это через <code>numpy</code>-массивы, memory-mapped файлы или <code>IterableDataset</code>.</p>
+<p>Обратный случай: копирование тензоров на GPU, <code>pin_memory</code>, вызовы cuDNN и BLAS — всё это C-код, отпускающий GIL, поэтому здесь потоки работают, а процессы были бы избыточны.</p>
+<p>Частая ошибка — <b>oversubscription</b>: 8 процессов, в каждом NumPy с 8 потоками OpenMP на 8-ядерной машине даёт 64 потока, которые дерутся за кэш, и всё становится медленнее однопоточного варианта. Лечится <code>OMP_NUM_THREADS=1</code> / <code>torch.set_num_threads(1)</code> внутри воркеров.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Грабли обеих моделей">
+<p><b>Процессы.</b> Метод старта <code>spawn</code> (по умолчанию на macOS и Windows, а с Python 3.14 — и на Linux) заново импортирует модуль, поэтому код запуска обязан быть под <code>if __name__ == &quot;__main__&quot;</code>, иначе получится бесконечное порождение процессов. Всё передаваемое должно быть picklable: лямбды, локальные функции, открытые файлы и соединения не пройдут. Метод <code>fork</code> дешевле, но небезопасен в связке с потоками и может приводить к дедлокам в CUDA и в некоторых C-библиотеках.</p>
+<p><b>Потоки.</b> Разделяемая память означает гонки: <code>counter += 1</code> из нескольких потоков теряет инкременты, потому что это не атомарная операция. Нужны <code>Lock</code>, <code>Queue</code> или атомарные структуры. Отладка таких багов тяжела — они воспроизводятся не всегда.</p>
+<p><b>Общее.</b> Ни та, ни другая модель не ускорит задачу, узкое место которой — диск или сеть провайдера. Прежде чем распараллеливать, профилируйте: см. <a href="../python/advanced.html#profiling_python" target="_blank" rel="noopener">профилирование</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:threading_vs_mp-interview:end -->
+
+        <!-- md:replace:gil_interview-interview:start -->
+<li class="question" data-md-source="true" data-md-id="gil_interview-interview">
+  <div class="name" id="gil_interview-interview">
+    Что такое GIL?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>GIL (Global Interpreter Lock)</b> — глобальный мьютекс в CPython, который позволяет исполнять байткод только одному потоку одновременно. Даже на 16-ядерной машине чистый Python-код в 8 потоках будет выполняться по сути последовательно, с накладными расходами на переключение.</p>
+<p>Зачем он нужен: управление памятью в CPython построено на <b>подсчёте ссылок</b>, и счётчик <code>ob_refcnt</code> есть у каждого объекта. Без глобальной блокировки каждое изменение счётчика пришлось бы делать атомарно, что замедлило бы однопоточный код (а это подавляющее большинство программ) и потребовало бы блокировок на уровне отдельных объектов — с риском дедлоков. GIL — размен: простая и быстрая однопоточность и простой C-API взамен параллелизма потоков.</p>
+<p>Важно: GIL <b>отпускается</b> во время блокирующих операций — сетевого и файлового ввода-вывода, <code>time.sleep</code>, а также внутри C-расширений, которые явно это делают (NumPy, PyTorch, <code>lxml</code>, сжатие, хеширование). Поэтому:</p>
+<ul>
+<li><b>I/O-bound</b> код потоки ускоряют нормально: пока один поток ждёт ответа сети, GIL держит другой.</li>
+<li><b>CPU-bound</b> код на чистом Python потоки не ускоряют; нужен <a href="../python/advanced.html#multiprocessing" target="_blank" rel="noopener"><code>multiprocessing</code></a>, векторизация через NumPy или вынос горячего участка в C/Cython/Numba.</li>
+</ul>
+<p>Подробнее — <a href="../python/advanced.html#gil" target="_blank" rel="noopener">GIL</a> и <a href="../python/advanced.html#comparison_concurrency" target="_blank" rel="noopener">сравнение подходов к конкурентности</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это редко мешает в ML">
+<p>Практически весь тяжёлый счёт в ML-коде происходит внутри C/CUDA-ядер NumPy, PyTorch и scikit-learn, а они отпускают GIL на время вычисления. Матричное умножение на 8 ядрах через BLAS работает параллельно независимо от GIL — интерпретатор в этот момент простаивает и никому не мешает.</p>
+<p>Именно поэтому <code>DataLoader</code> в PyTorch по умолчанию использует <b>процессы</b> (<code>num_workers</code>), а не потоки: аугментации и парсинг на чистом Python и PIL — как раз тот случай, когда GIL был бы узким местом. А вот <code>pin_memory</code> и копирование на GPU выполняются в потоке — там GIL отпущен.</p>
+<p>Практический вывод: прежде чем бороться с GIL, стоит профилировать (<a href="../python/advanced.html#profiling_python" target="_blank" rel="noopener">профилирование</a>). Часто окажется, что горячий участок — это Python-цикл, который правильнее векторизовать, а не распараллелить.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что стоит знать про будущее GIL">
+<p>С Python 3.13 существует официальная <b>free-threaded</b> сборка (PEP 703, флаг <code>--disable-gil</code>, интерпретатор <code>python3.13t</code>), где GIL отсутствует. Это экспериментальная опция: однопоточный код в ней немного медленнее, а C-расширения должны быть явно помечены как совместимые — экосистема ещё догоняет. В обычной сборке CPython GIL на месте.</p>
+<p>Параллельно в 3.12+ развиваются <b>субинтерпретаторы</b> с собственным GIL (PEP 684, PEP 734) — промежуточный вариант между потоками и процессами.</p>
+<p>Два частых заблуждения: «GIL есть в языке Python» — нет, это деталь реализации CPython; в Jython и IronPython его нет, в PyPy есть. И «GIL делает Python однопоточным» — нет, потоки создаются настоящие, ОС-ные, и для I/O работают полноценно; ограничена лишь одновременность исполнения байткода.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gil_interview-interview:end -->
+
+        <!-- md:replace:order_sublist-interview:start -->
+<li class="question" data-md-source="true" data-md-id="order_sublist-interview">
+  <div class="name" id="order_sublist-interview">
+    Отсортировать подсписок по порядку из внешнего списка
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Условие">
+<p>Даны массивы $N$ и $K$ без повторов, причём $K \subseteq N$. Нужно упорядочить элементы $K$ в том же порядке, в каком они идут в $N$.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ключевая идея: «порядок как в $N$» — это не сортировка по значению, а сортировка по <b>позиции в другом списке</b>. Отсюда два эквивалентных по сложности решения; выбор между ними определяется соотношением размеров.</p>
+<p><b>Решение 1 — один проход по $N$ с фильтром.</b> Превращаем $K$ во множество (проверка вхождения за $\mathcal{O}(1)$) и идём по $N$, забирая элементы, которые есть в $K$. Порядок получается автоматически, потому что мы идём в порядке $N$. Сложность $\mathcal{O}(|N| + |K|)$ по времени, $\mathcal{O}(|K|)$ по памяти.</p>
+<p><b>Решение 2 — сортировка $K$ по ключу-позиции.</b> Строим словарь <code>pos = {v: i for i, v in enumerate(N)}</code> и сортируем $K$ по <code>pos[x]</code>. Сложность $\mathcal{O}(|N| + |K|\log|K|)$.</p>
+<p>Первое асимптотически лучше и его стоит назвать основным. Второе полезно, когда $K$ сильно меньше $N$ и словарь позиций уже построен заранее (например, переиспользуется для многих запросов): тогда каждый запрос стоит $\mathcal{O}(|K|\log|K|)$ без прохода по всему $N$.</p>
+<p>Наивное решение <code>sorted(K, key=N.index)</code> формально верно, но даёт $\mathcal{O}(|N| \cdot |K|)$ — <code>list.index</code> каждый раз выполняет линейный поиск. Это ровно та ошибка, ради которой задачу и дают.</p>
+
+</div>
+<div class="code-block" data-lang="python">def order_by_reference(N, K):
+    k_set = set(K)
+    return [x for x in N if x in k_set]          # O(|N| + |K|)
+
+def order_by_position(N, K):
+    pos = {v: i for i, v in enumerate(N)}
+    return sorted(K, key=pos.__getitem__)        # O(|N| + |K| log |K|)
+
+N = [5, 3, 8, 1, 2]
+K = [1, 8, 5]
+print(order_by_reference(N, K))                  # [5, 8, 1]
+print(order_by_position(N, K))                   # [5, 8, 1]</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что меняется, если снять ограничения">
+<p><b>Повторы в $N$.</b> Словарь <code>pos</code> при построении оставит последнюю позицию; если нужна первая — стройте его как <code>pos.setdefault(v, i)</code>. Решение с фильтром выдаст элемент столько раз, сколько он встречается в $N$.</p>
+<p><b>Повторы в $K$.</b> Первое решение их потеряет (множество схлопнет дубли). Тогда берут <code>Counter(K)</code> и выводят каждый элемент нужное число раз.</p>
+<p><b>$K \not\subseteq N$.</b> Элементы, которых нет в $N$, первое решение молча выбросит, второе упадёт с <code>KeyError</code>. Обычно их договариваются складывать в конец: <code>key=lambda x: pos.get(x, len(N))</code>.</p>
+<p><b>Элементы нехешируемы</b> (например, списки). Тогда словарь и множество не построить: остаётся сортировка по ключу из внешнего индекса или приведение к хешируемому виду (кортежи).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Как отвечать сильно">
+<p>Задача проверяет не знание синтаксиса, а рефлекс «линейный поиск внутри цикла — это квадрат». Хорошая структура ответа: (1) назвать наивное решение и его сложность, (2) объяснить, что именно в нём дорого, (3) предложить замену поиска на хеш-структуру, (4) уточнить граничные случаи — повторы, элементы вне $N$, пустые входы.</p>
+<p>Полезно также спросить, что важнее: время или память. Если $N$ огромен, а $K$ мал и это единственный запрос, второе решение выигрывает по памяти лишь при уже готовом индексе — иначе словарь на весь $N$ дороже множества на $K$.</p>
+<p>Связанная теория: <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица</a>, <a href="../python/algorithms.html#algorithmic-complexity-memory" target="_blank" rel="noopener">алгоритмическая сложность</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:order_sublist-interview:end -->
+
+        <!-- md:replace:dict-keys-interview:start -->
+<li class="question" data-md-source="true" data-md-id="dict-keys-interview">
+  <div class="name" id="dict-keys-interview">
+    Что может быть ключом словаря в Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ключом может быть любой <b>хешируемый</b> объект. Хешируемый — значит, у него есть <code>__hash__</code>, возвращающий целое число, которое <b>не меняется за время жизни объекта</b>, и есть <code>__eq__</code>, согласованный с хешем.</p>
+<p>Формально требований два, и оба обязательны:</p>
+<ol>
+<li><code>hash(obj)</code> не должен меняться (иначе объект «потеряется»: словарь будет искать его в другом слоте, чем тот, куда положил).</li>
+<li>Если <code>a == b</code>, то обязательно <code>hash(a) == hash(b)</code>. Обратное не требуется — разные объекты могут иметь одинаковый хеш, это <a href="../bank/python.html#collision-resolution-interview" target="_blank" rel="noopener">коллизия</a>, и она разрешается автоматически.</li>
+</ol>
+<p><b>Можно:</b> <code>int</code>, <code>float</code>, <code>bool</code>, <code>str</code>, <code>bytes</code>, <code>tuple</code> (если все элементы хешируемы), <code>frozenset</code>, <code>None</code>, функции, классы, модули и экземпляры обычных пользовательских классов (по умолчанию хешируются по <code>id</code>).</p>
+<p><b>Нельзя:</b> <code>list</code>, <code>dict</code>, <code>set</code>, <code>bytearray</code> — у них <code>__hash__ = None</code>, попытка даёт <code>TypeError: unhashable type</code>. Причина не в «изменяемости как таковой», а в том, что их <code>__eq__</code> сравнивает содержимое: хеш пришлось бы менять вместе с содержимым, что нарушило бы требование (1).</p>
+<p>Подробнее — <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица: <code>dict</code> и <code>set</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">d = {
+    "x": 1,
+    (1, 2): "кортеж из неизменяемых — ок",
+    frozenset({1, 2}): "ок",
+    3.0: "внимание: 3.0 == 3, поэтому перезапишет ключ 3",
+}
+# d[[1, 2]] = 3          # TypeError: unhashable type: 'list'
+# d[(1, [2])] = 3        # TypeError: кортеж хешируем только если хешируемы элементы</div>
+<div class="info-card-auto" data-type="explanation" data-title="Свой класс как ключ">
+<p>По умолчанию экземпляры пользовательского класса хешируются по адресу в памяти, а сравниваются по идентичности — то есть два «одинаковых по содержимому» объекта будут разными ключами. Если это не то, что нужно, определяют <code>__eq__</code> и <code>__hash__</code> <b>вместе</b> и по одному и тому же набору полей:</p>
+<div class="code-block" data-lang="python">class Point:
+    def __init__(self, x, y): self.x, self.y = x, y
+    def __eq__(self, other):
+        return isinstance(other, Point) and (self.x, self.y) == (other.x, other.y)
+    def __hash__(self):
+        return hash((self.x, self.y))</div><p>Важная деталь: если определить только <code>__eq__</code>, Python <b>автоматически выставит</b> <code>__hash__ = None</code>, и объект перестанет быть хешируемым. Это сделано намеренно — чтобы нельзя было случайно получить пару методов, нарушающую инвариант.</p>
+<p>Готовое решение — <code>@dataclass(frozen=True)</code>: он сгенерирует согласованные <code>__eq__</code> и <code>__hash__</code> и запретит изменение полей.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки, которые любят на собеседовании">
+<p><code>True == 1 == 1.0</code> — все три дают один и тот же хеш, поэтому <code>{1: &quot;a&quot;, True: &quot;b&quot;, 1.0: &quot;c&quot;}</code> превращается в словарь из <b>одного</b> элемента <code>{1: &#39;c&#39;}</code>: ключ остаётся первым, а значение перезаписывается последним.</p>
+<p>Кортеж хешируем только если хешируемы все его элементы: <code>(1, [2])</code> использовать нельзя.</p>
+<p>Мутировать объект, уже лежащий в словаре как ключ (например, менять поле, участвующее в <code>__hash__</code>), — способ навсегда потерять запись: она останется в памяти, но <code>d[key]</code> её не найдёт.</p>
+<p><code>float(&#39;nan&#39;)</code> как ключ ведёт себя странно: <code>nan != nan</code>, поэтому один и тот же объект найдётся (сравнение по <code>is</code> идёт первым), а новый такой же — нет.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dict-keys-interview:end -->
+
+        <!-- md:replace:append-complexity-interview:start -->
+<li class="question" data-md-source="true" data-md-id="append-complexity-interview">
+  <div class="name" id="append-complexity-interview">
+    Какова алгоритмическая сложность <code>append()</code> в списке?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><code>list.append(x)</code> работает за <b>амортизированное</b> $\mathcal{O}(1)$. Слово «амортизированное» здесь ключевое, и именно его ждёт интервьюер.</p>
+<p><code>list</code> в CPython — динамический массив указателей. Он хранит два числа: <code>len</code> (сколько элементов занято) и <code>allocated</code> (сколько ячеек выделено под буфер). Пока <code>len &lt; allocated</code>, <code>append</code> просто записывает указатель в свободную ячейку и увеличивает счётчик — это несколько машинных инструкций, честное $\mathcal{O}(1)$.</p>
+<p>Когда буфер закончился, происходит <b>realloc</b>: выделяется буфер большего размера, и старые указатели копируются — это $\mathcal{O}(n)$ для конкретного вызова. Но растёт буфер не на единицу, а <b>пропорционально текущему размеру</b> (в CPython примерно на 12,5 %, формула <code>new_allocated = len + (len &gt;&gt; 3) + 6</code>). Из-за геометрического роста дорогие перевыделения случаются всё реже: суммарная стоимость $n$ вызовов <code>append</code> есть $\mathcal{O}(n)$, то есть в среднем $\mathcal{O}(1)$ на вызов.</p>
+<p>Подробнее про оценки сложности — <a href="../python/advanced.html#complexity" target="_blank" rel="noopener">алгоритмическая сложность</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему рост именно геометрический">
+<p>Если бы буфер расширялся на фиксированное число ячеек (скажем, на 1 или на 10), перевыделение случалось бы каждые $k$ вставок, и суммарная стоимость $n$ вставок стала бы $\mathcal{O}(n^2)$ — построение списка из миллиона элементов заняло бы минуты вместо миллисекунд. Умножение размера на константу $&gt; 1$ — единственный способ получить амортизированное $\mathcal{O}(1)$; это общий приём, он же используется в <code>std::vector</code> в C++ и в <code>ArrayList</code> в Java.</p>
+<p>Обратная сторона — перерасход памяти: список почти всегда занимает больше, чем нужно под его элементы. Проверить это можно через <code>sys.getsizeof</code> — размер прыгает ступеньками, а не растёт на 8 байт с каждым <code>append</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что часто путают">
+<p><code>list.insert(0, x)</code> и <code>list.pop(0)</code> — это $\mathcal{O}(n)$: все элементы сдвигаются. Если нужна очередь с быстрыми операциями с обоих концов, берут <code>collections.deque</code>, у которого <code>appendleft</code>/<code>popleft</code> — $\mathcal{O}(1)$.</p>
+<p><code>list.pop()</code> (с конца) — $\mathcal{O}(1)$, а <code>list.remove(value)</code> — $\mathcal{O}(n)$, потому что сначала выполняется линейный поиск.</p>
+<p>И ещё: <code>a += [x]</code> и <code>a.append(x)</code> эквивалентны по сложности, а вот <code>a = a + [x]</code> в цикле — это $\mathcal{O}(n^2)$, потому что каждый раз создаётся новый список.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:append-complexity-interview:end -->
+
+        <!-- md:replace:list-vs-tuple-speed-interview:start -->
+<li class="question" data-md-source="true" data-md-id="list-vs-tuple-speed-interview">
+  <div class="name" id="list-vs-tuple-speed-interview">
+    Что быстрее — список или кортеж?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Кортеж немного быстрее и заметно компактнее, но разница невелика, и на собеседовании важнее объяснить <b>почему</b>, а не назвать «кортеж».</p>
+<p><b>Память.</b> У списка есть запас ёмкости под будущие <code>append</code> и отдельное поле <code>allocated</code>, поэтому он занимает больше: <code>sys.getsizeof([1,2,3])</code> — 88 байт против 64 у <code>(1,2,3)</code>. Разница растёт с числом элементов из-за over-allocation.</p>
+<p><b>Создание.</b> Литерал кортежа из констант вычисляется на этапе компиляции и складывается в константы кода (<code>LOAD_CONST</code>), тогда как литерал списка каждый раз собирается инструкциями <code>BUILD_LIST</code>. Плюс CPython держит <b>пул переиспользуемых кортежей</b> малого размера. Отсюда основной выигрыш — на создании, а не на чтении.</p>
+<p><b>Доступ и итерация.</b> Здесь разница минимальна: и там, и там — индексация в массив указателей. На микробенчмарках кортеж выигрывает единицы процентов.</p>
+<p><b>Функциональные различия важнее скорости.</b> Кортеж хешируем (если хешируемы элементы), поэтому годится в качестве ключа словаря и элемента множества; список — нет. Кортеж безопасно передавать как значение по умолчанию и хранить как константу — он не изменится незаметно.</p>
+
+</div>
+<div class="code-block" data-lang="python">import sys, timeit
+print(sys.getsizeof([1, 2, 3]), sys.getsizeof((1, 2, 3)))   # 88 64
+
+print(timeit.timeit("(1, 2, 3, 4, 5)"))          # ~0.01 c — LOAD_CONST
+print(timeit.timeit("[1, 2, 3, 4, 5]"))          # ~0.04 c — BUILD_LIST
+
+t, l = (1, 2, 3), [1, 2, 3]
+print(timeit.timeit("t[1]", globals=globals()))  # разница на доступе минимальна
+print(timeit.timeit("l[1]", globals=globals()))</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как правильно замерять">
+<p>Если в ответе приводите бенчмарк, важно сравнивать одно и то же. Типичная ошибка — сравнить итерацию по генератору и по списку (<code>setup=&quot;t=(i for i in range(1000))&quot;</code> создаёт <b>генератор</b>, а не кортеж, и после первого прохода он исчерпан) — тогда цифры получаются абсурдными.</p>
+<p>Правильный <code>setup</code> для кортежа — <code>t=tuple(range(1000))</code>. И измерять надо с <code>timeit</code> в несколько повторов, беря минимум: разброс из-за планировщика ОС и turbo-boost легко превышает измеряемый эффект.</p>
+<p>Общий совет: не выбирайте между <code>list</code> и <code>tuple</code> по скорости. Разница в единицы процентов на реальном коде не видна, а вот случайно изменённый список, переданный в чужую функцию, — вполне.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Когда кортеж действительно важен">
+<p>Ключ словаря и элемент множества: <code>d[(user_id, date)]</code> — стандартный приём, со списком он невозможен.</p>
+<p>Неизменяемость как контракт: возвращая кортеж, вы сообщаете вызывающему, что структура не предназначена для модификации. <code>namedtuple</code> и <code>@dataclass(frozen=True)</code> развивают эту идею с именованным доступом — см. <a href="../python/advanced.html#namedtuple" target="_blank" rel="noopener"><code>NamedTuple</code></a>.</p>
+<p>Оговорка: неизменяемость кортежа <b>поверхностная</b>. <code>t = ([1, 2], 3)</code> — сам кортеж менять нельзя, но вложенный список можно, и <code>hash(t)</code> при этом упадёт с <code>TypeError</code>. Соответственно, кортеж со списком внутри ключом словаря быть не может.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:list-vs-tuple-speed-interview:end -->
+
+        <!-- md:replace:arg-pass-interview:start -->
+<li class="question" data-md-source="true" data-md-id="arg-pass-interview">
+  <div class="name" id="arg-pass-interview">
+    Как в Python передаются аргументы: по ссылке или по значению?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ни то, ни другое в классическом смысле. Правильная формулировка — <b>pass by object reference</b> (иногда говорят «call by sharing»): в функцию передаётся ссылка на объект, но сама ссылка передаётся по значению.</p>
+<p>Что это означает на практике:</p>
+<ul>
+<li>Имя параметра внутри функции — <b>новая локальная переменная</b>, изначально указывающая на тот же объект, что и аргумент снаружи.</li>
+<li>Если внутри функции объект <b>мутируют</b> (<code>list.append</code>, <code>dict[key] = ...</code>, изменение атрибута), изменения видны снаружи — объект-то один.</li>
+<li>Если внутри функции параметру <b>присваивают</b> новое значение (<code>b = 10</code>, <code>b += 10</code> для числа), локальное имя просто перепривязывается к другому объекту; переменная снаружи продолжает указывать на старый. Никакого эффекта наружу нет.</li>
+</ul>
+<p>Поэтому наблюдаемое поведение полностью определяется не механизмом передачи, а <b>изменяемостью типа</b>: <code>list</code>, <code>dict</code>, <code>set</code>, экземпляры классов — изменяемые; <code>int</code>, <code>float</code>, <code>str</code>, <code>tuple</code>, <code>frozenset</code> — нет. Подробнее — <a href="../python/advanced.html#argument-passing" target="_blank" rel="noopener">передача аргументов в функции</a> и <a href="../python/base.html#datatypes_python" target="_blank" rel="noopener">изменяемые и неизменяемые типы</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def f(a, b):
+    a.append(10)   # мутация -&gt; видна снаружи
+    b += 10        # перепривязка имени -&gt; не видна снаружи
+
+L, x = [1, 2], 5
+f(L, x)
+print(L, x)  # [1, 2, 10] 5</div>
+<div class="info-card-auto" data-type="explanation" data-title="Коварный случай: &lt;code&gt;+=&lt;/code&gt; у списка">
+<p><code>b += 10</code> для числа — это перепривязка, а <code>a += [10]</code> для списка — это <b>мутация на месте</b>: список реализует <code>__iadd__</code>, который эквивалентен <code>a.extend([10])</code>. То есть один и тот же оператор <code>+=</code> ведёт себя по-разному в зависимости от типа, и именно на этом строят каверзные вопросы.</p>
+<p>Отсюда же известная ловушка с кортежем: <code>t = ([1], 2); t[0] += [3]</code> одновременно <b>изменит</b> вложенный список и бросит <code>TypeError</code> — потому что <code>+=</code> сначала успешно мутирует список, а потом пытается присвоить результат обратно в неизменяемый кортеж.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Как отвечать сильно">
+<p>Слабый ответ — «по ссылке». Он неверен: при передаче по ссылке присваивание <code>b = 10</code> внутри функции меняло бы переменную снаружи (как <code>&amp;</code> в C++), а в Python не меняет.</p>
+<p>Сильный ответ строится в три шага: (1) назвать модель — object reference; (2) провести границу между <b>мутацией</b> и <b>присваиванием</b>; (3) привести пример с изменяемым и неизменяемым аргументом. Полезно сразу упомянуть связанную практическую проблему — <a href="../bank/python.html#mutable-default-argument-interview" target="_blank" rel="noopener">изменяемый аргумент по умолчанию</a>: это прямое следствие той же модели.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:arg-pass-interview:end -->
+
+        <!-- md:replace:constructors-interview:start -->
+<li class="question" data-md-source="true" data-md-id="constructors-interview">
+  <div class="name" id="constructors-interview">
+    Есть ли в Python конструкторы и деструкторы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Да, но устроены они иначе, чем в C++ или Java.</p>
+<p><b>Создание объекта разделено на два шага.</b> <code>__new__(cls, ...)</code> — статический метод, который <b>создаёт и возвращает</b> объект; <code>__init__(self, ...)</code> — метод, который <b>инициализирует</b> уже созданный объект и обязан вернуть <code>None</code>. Вызов <code>Demo(&quot;obj&quot;)</code> разворачивается в <code>type.__call__</code>, который выполняет <code>obj = Demo.__new__(Demo, &quot;obj&quot;)</code> и затем, если <code>obj</code> является экземпляром <code>Demo</code>, вызывает <code>obj.__init__(&quot;obj&quot;)</code>.</p>
+<p>В 99 % случаев переопределяют только <code>__init__</code>. <code>__new__</code> нужен, когда объект должен быть создан особым образом: наследование от неизменяемых типов (<code>int</code>, <code>str</code>, <code>tuple</code> — там менять уже поздно в <code>__init__</code>), синглтоны, пулы объектов, кастомные метаклассы.</p>
+<p><b>Деструктора в привычном смысле нет.</b> <code>__del__</code> вызывается не в момент выхода из области видимости, а когда сборщик мусора освобождает объект. CPython использует подсчёт ссылок, поэтому обычно это происходит сразу после исчезновения последней ссылки, — но это деталь реализации, а не гарантия языка. Подробнее — <a href="../python/advanced.html#constructors_destructors" target="_blank" rel="noopener">конструкторы и деструкторы</a> и <a href="../python/advanced.html#garbage_collector" target="_blank" rel="noopener">сборщик мусора</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Demo:
+    def __new__(cls, *args):
+        print("__new__: создаётся объект")
+        return super().__new__(cls)
+    def __init__(self, name):
+        print(f"__init__: инициализация {name}")
+    def __del__(self):
+        print("__del__: объект освобождён")
+
+x = Demo("obj")
+del x          # __del__ отработает здесь — но только потому, что ссылок больше нет</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему &lt;code&gt;__del__&lt;/code&gt; не годится для освобождения ресурсов">
+<p>Момент вызова <code>__del__</code> не определён: объект может попасть в <b>цикл ссылок</b> и дожить до срабатывания generational GC, а при завершении интерпретатора <code>__del__</code> может не быть вызван вовсе. Исключение, брошенное внутри <code>__del__</code>, не всплывает наружу — оно печатается в <code>stderr</code> и игнорируется, что превращает отладку в мучение.</p>
+<p>Правильный инструмент для освобождения ресурсов — <b>контекстный менеджер</b> (<code>__enter__</code>/<code>__exit__</code>) или <code>try/finally</code>: они дают детерминированный момент закрытия. Именно поэтому файлы открывают через <code>with open(...)</code>, а не полагаются на то, что объект файла когда-нибудь соберётся. См. <a href="../python/base.html#context_manager_with" target="_blank" rel="noopener">контекстный менеджер <code>with</code></a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что часто спрашивают дальше">
+<p>«Что будет, если <code>__new__</code> вернёт объект другого класса?» — <code>__init__</code> не вызовется вовсе, потому что возвращённый объект не является экземпляром <code>cls</code>. Это регулярный источник багов при попытке сделать синглтон.</p>
+<p>«Зачем <code>__init__</code> возвращает <code>None</code>?» — если вернуть что-то другое, <code>type.__call__</code> бросит <code>TypeError</code>. Инициализатор не создаёт объект, он его настраивает.</p>
+<p>«Как сделать альтернативный конструктор?» — не через <code>__new__</code>, а через <code>@classmethod</code>: <code>Point.from_string(&quot;1,2&quot;)</code>. Это идиоматичный способ, см. <a href="../python/base.html#alt_constructors_classmethod" target="_blank" rel="noopener">альтернативные конструкторы</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:constructors-interview:end -->
+
+        <!-- md:replace:hash-func-interview:start -->
+<li class="question" data-md-source="true" data-md-id="hash-func-interview">
+  <div class="name" id="hash-func-interview">
+    Что такое хэш-функция и где она используется?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Хеш-функция — детерминированное отображение объекта произвольного размера в число фиксированной длины. Ключевые свойства: одинаковый вход всегда даёт одинаковый выход; разные входы <b>могут</b> дать одинаковый выход (коллизия) — это неизбежно, потому что входов бесконечно много, а выходов конечное число; хорошая функция распределяет значения равномерно, так что коллизии редки и не образуют кластеров.</p>
+<p>В Python это протокол <code>__hash__</code>, вызываемый встроенной <code>hash()</code>. Именно на нём построены <code>dict</code> и <code>set</code>: индекс слота вычисляется из хеша, поэтому поиск, вставка и удаление стоят в среднем $\mathcal{O}(1)$ вместо $\mathcal{O}(n)$ линейного перебора.</p>
+<p>Требование согласованности: если <code>a == b</code>, то <code>hash(a) == hash(b)</code>. Обратное неверно. Нарушение этого правила ломает <code>dict</code> не по скорости, а по корректности.</p>
+<p>Где применяются хеши за пределами словарей:</p>
+<ul>
+<li><b>Проверка целостности и дедупликация</b> — SHA-256 файла как его отпечаток; так работают Docker-слои, git-объекты, кэши датасетов.</li>
+<li><b>Шардирование</b> — <code>hash(user_id) % n_shards</code> определяет, на какой сервер идёт запрос; consistent hashing уменьшает переезды при изменении числа шардов.</li>
+<li><b>Вероятностные структуры</b> — Bloom filter, HyperLogLog, MinHash / LSH для быстрого поиска похожих документов.</li>
+<li><b>ML: hashing trick</b> — <code>sklearn.feature_extraction.FeatureHasher</code> отображает признаки произвольной кардинальности в фиксированное число колонок без хранения словаря; так обрабатывают категории, которых заранее не знаешь.</li>
+<li><b>Криптография</b> — подписи, пароли (там нужны специальные медленные функции: bcrypt, argon2, а не SHA).</li>
+</ul>
+<p>Подробнее — <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица: <code>dict</code> и <code>set</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">print(hash(42), hash("abc"))          # хеш строки меняется между запусками
+print(hash((1, 2)))                   # кортеж хешируем
+# print(hash([1, 2]))                 # TypeError: unhashable type: 'list'
+
+import hashlib
+print(hashlib.sha256(b"data").hexdigest()[:16])  # стабильно всегда и везде</div>
+<div class="info-card-auto" data-type="explanation" data-title="Встроенный &lt;code&gt;hash()&lt;/code&gt; против &lt;code&gt;hashlib&lt;/code&gt;">
+<p>Это разные инструменты, и путать их — типичная ошибка.</p>
+<p><code>hash()</code> оптимизирован под скорость и используется только внутри процесса. Для <code>str</code> и <code>bytes</code> он <b>рандомизирован</b>: соль генерируется при старте интерпретатора (управляется <code>PYTHONHASHSEED</code>), поэтому <code>hash(&quot;abc&quot;)</code> различается между запусками. Это защита от hash-flooding — атаки, при которой злоумышленник шлёт заранее подобранные коллизии и превращает $O(1)$ в $O(n)$.</p>
+<p>Отсюда правило: <b>никогда не сохраняйте <code>hash()</code> за пределы процесса</b> — в файл, в БД, в имя кэш-файла, в ключ Redis. После рестарта значение будет другим, и кэш «протухнет» молча. Для стабильного отпечатка берут <code>hashlib.sha256</code> / <code>md5</code> (для некриптографических задач подойдут и быстрые <code>xxhash</code>, <code>blake3</code>).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про ML и утечку признаков">
+<p>Hashing trick удобен, но у него есть цена: коллизии складывают разные категории в одну колонку. При 2^18 колонок и миллионе уникальных значений коллизии неизбежны, и модель теряет часть сигнала. Размер пространства подбирается по кривой качества, а не «на глаз»; в CTR-задачах типичны 2^20–2^24.</p>
+<p>Второе: если для сплита train/test используется хеширование идентификатора (<code>hash(user_id) % 10 &lt; 8</code>), берите <b>стабильную</b> функцию из <code>hashlib</code>. С встроенным <code>hash()</code> сплит развалится при следующем запуске, и одни и те же пользователи окажутся то в train, то в test — это прямая утечка.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:hash-func-interview:end -->
+
+        <!-- md:replace:collision-resolution-interview:start -->
+<li class="question" data-md-source="true" data-md-id="collision-resolution-interview">
+  <div class="name" id="collision-resolution-interview">
+    Как решаются коллизии в словарях Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Коллизия — ситуация, когда два разных ключа претендуют на один слот хэш-таблицы. Это неизбежно: хэш — большое число, а слотов конечное количество, и индекс берётся как <code>hash(key) &amp; (size - 1)</code>, то есть по младшим битам.</p>
+<p>CPython решает коллизии <b>открытой адресацией</b> (open addressing), а не цепочками списков, как учат в классических курсах. Если слот занят, интерпретатор пробует следующий по псевдослучайной последовательности проб; она использует <b>все биты хэша</b>, а не только младшие, поэтому ключи, совпавшие по младшим битам, быстро расходятся:</p>
+<div class="code-block" data-lang="text">perturb = hash
+j = hash &amp; mask
+пока слот занят:
+    j = (5 * j + 1 + perturb) &amp; mask
+    perturb &gt;&gt;= 5</div><p>При каждой пробе сравнивается сначала сохранённый хэш (дешёвое сравнение целых), и только при совпадении хэшей — сами ключи через <code>__eq__</code>. Именно поэтому коллизия хэша обычно стоит одно лишнее сравнение int, а не вызов дорогого <code>__eq__</code>.</p>
+<p>Таблица никогда не заполняется полностью: при заполнении примерно на <b>2/3</b> происходит resize с перехэшированием всех элементов. Свободное место — то, что удерживает среднее число проб близким к единице, а сложность операций — в $\mathcal{O}(1)$ в среднем ($\mathcal{O}(n)$ в худшем случае). Подробнее — <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица: <code>dict</code> и <code>set</code></a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему открытая адресация, а не цепочки">
+<p>Цепочки требуют отдельного объекта-списка на каждый занятый слот: это лишние аллокации и, главное, прыжки по памяти — каждый переход по указателю с высокой вероятностью промахивается мимо кэша процессора. Открытая адресация держит данные в одном непрерывном массиве, поэтому пробы попадают в уже загруженную кэш-линию и работают заметно быстрее.</p>
+<p>С Python 3.7 <code>dict</code> вдобавок <b>разделён на две части</b>: компактный массив записей <code>(hash, key, value)</code> в порядке вставки и отдельный индексный массив слотов. Это экономит память (индексы занимают 1–4 байта вместо 24) и попутно даёт гарантированное сохранение порядка вставки — то самое свойство, которое стало частью спецификации языка.</p>
+<p>Удаление реализуется не обнулением слота, а установкой маркера-«надгробия» (<code>DUMMY</code>): иначе цепочка проб оборвалась бы и следующий за удалённым элемент стал бы недоступен.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про пользовательские &lt;code&gt;__hash__&lt;/code&gt;">
+<p>Практический риск коллизий возникает не со встроенными типами, а с собственными классами. Если <code>__hash__</code> возвращает константу или значение с плохим распределением (например, <code>hash(self.category)</code> для поля с тремя значениями), все объекты сваливаются в одну область проб, и <code>dict</code> деградирует до линейного поиска с дорогими <code>__eq__</code>.</p>
+<p>Правило: реализуйте <code>__hash__</code> как <code>hash((self.a, self.b))</code> — по тому же набору полей, что участвует в <code>__eq__</code>. Нарушение инварианта «<code>a == b</code> $\Rightarrow$ <code>hash(a) == hash(b)</code>» ломает словарь не по производительности, а по корректности: объект «теряется» в нём.</p>
+<p>Отдельно: строки в Python хэшируются с <b>hash randomization</b> (соль задаётся при старте процесса, <code>PYTHONHASHSEED</code>) — это защита от DoS-атак подобранными коллизиями. Следствие — <code>hash(&quot;abc&quot;)</code> различается между запусками, поэтому его нельзя использовать как стабильный идентификатор в файлах и БД; для этого берут <code>hashlib.sha256</code>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:collision-resolution-interview:end -->
+
+        <!-- md:replace:iterators-vs-generators-interview:start -->
+<li class="question" data-md-source="true" data-md-id="iterators-vs-generators-interview">
+  <div class="name" id="iterators-vs-generators-interview">
+    Отличие генераторов и итераторов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Полезно развести три понятия, которые часто смешивают.</p>
+<p><b>Итерируемый объект (iterable)</b> — тот, у которого есть <code>__iter__</code>. По нему можно пройти циклом <code>for</code>. Списки, строки, словари, файлы — итерируемые.</p>
+<p><b>Итератор (iterator)</b> — объект с <code>__next__</code> <b>и</b> <code>__iter__</code> (возвращающим самого себя). Он хранит позицию обхода и выдаёт элементы по одному, а закончив — бросает <code>StopIteration</code>. Итератор всегда итерируемый, обратное неверно: <code>iter([1,2,3])</code> даёт итератор, сам список — нет.</p>
+<p><b>Генератор (generator)</b> — частный случай итератора, созданный функцией с <code>yield</code> или генераторным выражением. Python сам генерирует для него <code>__iter__</code>, <code>__next__</code> и логику <code>StopIteration</code>, а состояние (локальные переменные и точка исполнения) сохраняется между вызовами автоматически.</p>
+<p>То есть: <b>каждый генератор — итератор, но не каждый итератор — генератор</b>. Разница не в возможностях, а в способе записи: класс на 12 строк против функции на 3. Подробнее — <a href="../python/base.html#iterators_generators" target="_blank" rel="noopener">итераторы и генераторы</a>, примеры кода — <a href="../bank/python.html#examples-iterators-generators-interview" target="_blank" rel="noopener">здесь</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">lst = [1, 2, 3]
+it = iter(lst)                  # итератор поверх списка
+
+print(hasattr(lst, "__next__"))  # False — список не итератор
+print(hasattr(it,  "__next__"))  # True
+
+def gen():                       # генератор
+    yield 1; yield 2
+
+import types, collections.abc as abc
+print(isinstance(gen(), abc.Iterator))         # True
+print(isinstance(gen(), types.GeneratorType))  # True
+print(isinstance(it,   types.GeneratorType))   # False — итератор, но не генератор</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что генератор умеет сверх обычного итератора">
+<p>У генератора есть двусторонний интерфейс, которого нет у произвольного итератора:</p>
+<ul>
+<li><code>gen.send(value)</code> — возобновить исполнение, передав значение <b>внутрь</b>: выражение <code>x = yield</code> вернёт его. На этом механизме исторически строились корутины до <code>async</code>/<code>await</code>.</li>
+<li><code>gen.throw(exc)</code> — возбудить исключение в точке <code>yield</code>.</li>
+<li><code>gen.close()</code> — бросить <code>GeneratorExit</code>, чтобы генератор корректно освободил ресурсы (именно так работает <code>contextlib.contextmanager</code>).</li>
+<li><code>yield from other</code> — делегировать другому генератору с корректной передачей значений и исключений.</li>
+</ul>
+<p>Это и есть содержательный ответ на «зачем нужен генератор, если есть итератор»: не только краткость записи, но и управляемая двусторонняя связь.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические следствия">
+<p>Итератор (и генератор) <b>одноразовый</b>: после исчерпания повторный обход даёт пустоту. Классическая ошибка — сохранить <code>zip(a, b)</code> или <code>map(f, xs)</code> в переменную и пройти по ней дважды; во второй раз результат пуст. Если нужен многократный обход, материализуйте в список или сделайте объект, чей <code>__iter__</code> возвращает <b>новый</b> итератор при каждом вызове.</p>
+<p>У итератора нет <code>len()</code> и индексации. Для взятия среза используют <code>itertools.islice</code>, для «заглянуть на элемент вперёд» — <code>next(it)</code> с сохранением значения или <code>itertools.tee</code> (осторожно: он буферизует).</p>
+<p>И частая ловушка: класс, чей <code>__iter__</code> возвращает <code>self</code>, нельзя вложенно обходить — два вложенных цикла <code>for</code> разделят одну позицию. Правильный паттерн для коллекции — <code>__iter__</code>, возвращающий свежий объект-итератор.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:iterators-vs-generators-interview:end -->
+
+        <!-- md:replace:examples-iterators-generators-interview:start -->
+<li class="question" data-md-source="true" data-md-id="examples-iterators-generators-interview">
+  <div class="name" id="examples-iterators-generators-interview">
+    Примеры итераторов и генераторов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Есть три уровня, и на собеседовании полезно показать все три — от самого явного к самому идиоматичному.</p>
+<p><b>1. Итератор «руками».</b> Класс реализует протокол итератора: <code>__iter__</code> возвращает сам объект, <code>__next__</code> отдаёт следующий элемент и бросает <code>StopIteration</code>, когда элементы кончились. Именно это исполняет цикл <code>for</code> под капотом.</p>
+<p><b>2. Генератор через <code>yield</code>.</b> Функция с <code>yield</code> при вызове не выполняется, а возвращает объект-генератор. Каждый <code>next()</code> исполняет тело до следующего <code>yield</code> и <b>замораживает</b> состояние — локальные переменные, позицию исполнения. <code>StopIteration</code> возбуждается автоматически при выходе из функции. Это те же 15 строк класса, записанные в три.</p>
+<p><b>3. Генераторное выражение.</b> Синтаксис списочного включения в круглых скобках: ничего не вычисляется заранее, элементы производятся по требованию.</p>
+<p>Ключевое отличие от списка — <b>ленивость и память</b>: генератор хранит только текущее состояние, а не все элементы, поэтому им можно обрабатывать поток любого размера. Подробнее — <a href="../python/base.html#iterators_generators" target="_blank" rel="noopener">итераторы и генераторы</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python"># 1. Итератор вручную
+class Counter:
+    def __init__(self, n):
+        self.i, self.n = 0, n
+    def __iter__(self):
+        return self
+    def __next__(self):
+        if self.i &gt;= self.n:
+            raise StopIteration
+        self.i += 1
+        return self.i
+
+print(list(Counter(3)))       # [1, 2, 3]
+
+# 2. Генератор через yield — то же самое
+def counter(n):
+    for i in range(1, n + 1):
+        yield i
+
+print(list(counter(3)))       # [1, 2, 3]
+
+# 3. Генераторное выражение
+gen = (i * i for i in range(5))
+print(next(gen), next(gen))   # 0 1</div>
+<div class="info-card-auto" data-type="explanation" data-title="Практический пример: чтение большого файла">
+<p>Именно ленивость делает генераторы рабочим инструментом, а не синтаксическим украшением. Конвейер из генераторов обрабатывает файл в сотни гигабайт при постоянном потреблении памяти — данные текут через него по одной строке:</p>
+<div class="code-block" data-lang="python">def read_lines(path):
+    with open(path) as f:
+        for line in f:          # файловый объект сам по себе итератор
+            yield line.rstrip("\n")
+
+def parse(lines):
+    for line in lines:
+        if line and not line.startswith("#"):
+            yield line.split("\t")
+
+def only_positive(rows):
+    for row in rows:
+        if float(row[2]) &gt; 0:
+            yield row
+
+for row in only_positive(parse(read_lines("huge.tsv"))):
+    ...   # ни на одном шаге в памяти нет всего файла</div><p>Такой же принцип лежит в основе <code>torch.utils.data.IterableDataset</code> и потоковых режимов Hugging Face <code>datasets</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чем генератор отличается от списка на практике">
+<p>Генератор <b>одноразовый</b>: после полного прохода он исчерпан, повторный <code>for</code> по нему не даст ничего. Список можно обходить сколько угодно раз. Это ловушка при отладке — напечатали <code>list(gen)</code>, а следующий цикл получил пустоту.</p>
+<p>У генератора нет <code>len()</code> и нет индексации: <code>gen[3]</code> — <code>TypeError</code>. Если нужен $k$-й элемент, берут <code>itertools.islice</code>.</p>
+<p><code>yield from subgen</code> делегирует другому генератору (и корректно пробрасывает значения и исключения), а <code>gen.send(value)</code>, <code>gen.throw()</code> и <code>gen.close()</code> превращают генератор в корутину — исторически именно на этом механизме были построены <a href="../bank/python.html#what-is-coroutines" target="_blank" rel="noopener">корутины</a> до появления <code>async</code>/<code>await</code>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:examples-iterators-generators-interview:end -->
+
+        <!-- md:replace:nested-decorator-interview:start -->
+<li class="question" data-md-source="true" data-md-id="nested-decorator-interview">
+  <div class="name" id="nested-decorator-interview">
+    Что такое вложенный декоратор и зачем он нужен?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>«Вложенный декоратор» (он же декоратор с аргументами) — это функция, которая принимает параметры и <b>возвращает декоратор</b>. То есть добавляется ещё один уровень вложенности по сравнению с обычным декоратором.</p>
+<p>Разница видна в синтаксисе применения:</p>
+<ul>
+<li>Обычный декоратор: <code>@log</code> — здесь <code>log</code> получает функцию и возвращает обёртку. Один уровень.</li>
+<li>Декоратор с аргументами: <code>@repeat(3)</code> — сначала <b>вызывается</b> <code>repeat(3)</code>, он возвращает декоратор, и уже тот применяется к функции. Три уровня: <code>repeat</code> → <code>decorator</code> → <code>wrapper</code>.</li>
+</ul>
+<p>Зачем это нужно: параметризовать поведение обёртки. Число повторов, таймаут, уровень логирования, TTL кэша, требуемая роль пользователя, имя метрики — всё это параметры, которые хочется задавать в точке применения, а не хардкодить в декораторе.</p>
+<p>Отдельно: термином «вложенные декораторы» иногда называют <b>стек</b> декораторов — несколько подряд над одной функцией. Они применяются снизу вверх: при <code>@a</code> над <code>@b</code> над <code>def f</code> получится <code>a(b(f))</code>. Подробнее — <a href="../python/base.html#decorators_nested" target="_blank" rel="noopener">вложенные декораторы</a> и <a href="../python/base.html#decorators_python" target="_blank" rel="noopener">декораторы</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import functools, time
+
+def repeat(n):                                  # 1: принимает параметр
+    def decorator(func):                        # 2: принимает функцию
+        @functools.wraps(func)                  # сохраняет __name__, __doc__, сигнатуру
+        def wrapper(*args, **kwargs):           # 3: подменяет вызов
+            for _ in range(n):
+                result = func(*args, **kwargs)
+            return result
+        return wrapper
+    return decorator
+
+@repeat(3)
+def hi(name): print("hi", name)
+
+hi("Ann")            # напечатает трижды
+print(hi.__name__)   # 'hi' — благодаря functools.wraps</div>
+<div class="info-card-auto" data-type="explanation" data-title="Практический пример: retry с backoff">
+<p>Самый частый реальный случай — параметризованный повтор при сетевой ошибке. Обратите внимание, что все настройки живут в замыкании и не засоряют сигнатуру самой функции:</p>
+<div class="code-block" data-lang="python">def retry(attempts=3, delay=1.0, exceptions=(Exception,)):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions:
+                    if i == attempts - 1:
+                        raise
+                    time.sleep(delay * 2 ** i)
+        return wrapper
+    return decorator
+
+@retry(attempts=5, delay=0.5, exceptions=(TimeoutError,))
+def fetch(url): ...</div><p>Тот же приём — за декораторами <code>@app.route(&quot;/predict&quot;)</code> во Flask, <code>@pytest.mark.parametrize(...)</code>, <code>@lru_cache(maxsize=128)</code>, <code>@task(retries=3)</code> в оркестраторах.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<p><b>Забыть <code>functools.wraps</code>.</b> Без него обёртка «съедает» <code>__name__</code>, <code>__doc__</code>, аннотации и <code>__wrapped__</code>. Ломаются <code>help()</code>, отладка, автодокументация, а фреймворки вроде FastAPI и pytest, читающие сигнатуру, начинают вести себя неправильно.</p>
+<p><b>Перепутать <code>@repeat</code> и <code>@repeat()</code>.</b> Если декоратор написан с параметрами, применять его без скобок нельзя: <code>@repeat</code> передаст саму функцию в качестве <code>n</code>, и ошибка вылезет далеко от места причины. Универсальный декоратор, работающий и так и так, пишут через проверку <code>if func is None</code> плюс <code>functools.partial</code> — но проще завести чёткое соглашение.</p>
+<p><b>Порядок в стеке.</b> <code>@timing</code> над <code>@cache</code> и <code>@cache</code> над <code>@timing</code> дают разный результат: в первом случае измеряется в том числе попадание в кэш, во втором — только реальные вычисления. Для декораторов авторизации и логирования порядок тоже критичен.</p>
+<p><b>Состояние в замыкании общее для всех вызовов.</b> Если внутри <code>decorator</code> завести счётчик, он будет один на функцию, а не на вызов — иногда это то, что нужно, иногда источник гонок в многопоточном коде.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:nested-decorator-interview:end -->
+
+        <!-- md:replace:abstract-classes-interview:start -->
+<li class="question" data-md-source="true" data-md-id="abstract-classes-interview">
+  <div class="name" id="abstract-classes-interview">
+    Зачем нужны абстрактные классы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Абстрактный класс — базовый класс, который задаёт <b>контракт</b>: список методов, обязательных для всех наследников, но не реализует их (или реализует лишь частично). В Python он делается через модуль <code>abc</code>: класс наследуется от <code>ABC</code>, а обязательные методы помечаются декоратором <code>@abstractmethod</code>.</p>
+<p>Ключевое свойство: класс с хотя бы одним нереализованным абстрактным методом <b>нельзя инстанцировать</b> — попытка создать объект падает с <code>TypeError: Can&#39;t instantiate abstract class ... with abstract method area</code>. Ошибка возникает в момент создания объекта, а не когда до недостающего метода дойдёт исполнение, — то есть проблема обнаруживается раньше и в понятном месте.</p>
+<p>Зачем это нужно на практике: когда в проекте есть несколько взаимозаменяемых реализаций одной идеи (несколько источников данных, несколько бэкендов хранилища, несколько стратегий предобработки), абстрактный класс фиксирует общий интерфейс в одном месте. Новый разработчик, добавляя реализацию, сразу видит, что обязан реализовать, а вызывающий код может работать с любой реализацией, не зная её конкретного типа. Подробнее — <a href="../python/advanced.html#abc" target="_blank" rel="noopener">абстрактные классы (<code>abc</code>)</a> и <a href="../python/base.html#oop_principles" target="_blank" rel="noopener">принципы ООП</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from abc import ABC, abstractmethod
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -&gt; float:
+        ...
+
+class Circle(Shape):
+    def __init__(self, r): self.r = r
+    def area(self) -&gt; float: return 3.14159 * self.r ** 2
+
+# Shape()  # TypeError: Can't instantiate abstract class Shape
+print(Circle(2).area())  # 12.56636</div>
+<div class="info-card-auto" data-type="explanation" data-title="Чем отличается от Protocol">
+<p><code>ABC</code> — это <b>номинальная</b> типизация: наследник обязан явно унаследоваться от базового класса. <code>typing.Protocol</code> — <b>структурная</b> («утиная»): подходит любой класс с нужными методами, наследование не требуется, а проверка выполняется статически (mypy), а не в рантайме.</p>
+<p>Практическое правило: <code>ABC</code> берут, когда реализации пишутся внутри вашего проекта и есть общий код, который хочется положить в базовый класс. <code>Protocol</code> — когда нужно описать интерфейс для <b>чужих</b> классов, которые вы не контролируете (например, «объект, у которого есть <code>.predict()</code>»), или когда не хочется навязывать иерархию наследования.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки на собеседовании">
+<p><code>@abstractmethod</code> работает <b>только</b> в связке с метаклассом <code>ABCMeta</code> — то есть при наследовании от <code>ABC</code> (или явном <code>metaclass=ABCMeta</code>). Если просто написать декоратор в обычном классе, он не даст никакого эффекта: объект создастся, и метод вернёт <code>None</code>.</p>
+<p>Второе: <code>@abstractmethod</code> должен быть <b>самым нижним</b> декоратором. Правильный порядок — <code>@property</code> (или <code>@classmethod</code>, <code>@staticmethod</code>) сверху, <code>@abstractmethod</code> под ним; наоборот работать не будет.</p>
+<p>Третье: абстрактный класс может иметь реализацию по умолчанию и вызываться через <code>super()</code>. Утверждение «абстрактный метод обязан быть пустым» — распространённое заблуждение.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:abstract-classes-interview:end -->
+
+        <!-- md:replace:dataclass-vs-pydantic-interview:start -->
+<li class="question" data-md-source="true" data-md-id="dataclass-vs-pydantic-interview">
+  <div class="name" id="dataclass-vs-pydantic-interview">
+    Зачем нужны <code>dataclass</code> и <code>Pydantic BaseModel</code>?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Оба инструмента избавляют от шаблонного кода при описании «класса данных», но решают разные задачи.</p>
+<p><b><code>@dataclass</code></b> (stdlib) по аннотациям полей генерирует <code>__init__</code>, <code>__repr__</code>, <code>__eq__</code>, при <code>order=True</code> — операторы сравнения, при <code>frozen=True</code> — неизменяемость и <code>__hash__</code>. Аннотации типов при этом <b>не проверяются</b>: <code>UserDC(&quot;Ann&quot;, &quot;30&quot;)</code> спокойно создаст объект со строкой в поле <code>age: int</code>. Типы здесь — контракт для разработчика и статического анализатора (mypy), а не для рантайма.</p>
+<p><b><code>pydantic.BaseModel</code></b> делает то же самое плюс <b>валидацию и приведение типов во время выполнения</b>: <code>UserPM(name=&quot;Ann&quot;, age=&quot;30&quot;)</code> вернёт объект с <code>age=30</code> (int), а <code>age=&quot;abc&quot;</code> бросит <code>ValidationError</code> с точным указанием поля и причины. Сверху — сериализация (<code>model_dump()</code>, <code>model_dump_json()</code>), разбор вложенных структур, кастомные валидаторы (<code>@field_validator</code>), генерация JSON Schema и настройки через <code>Field(ge=0, max_length=64)</code>.</p>
+<p>Правило выбора: <code>dataclass</code> — для <b>внутренних</b> структур, где данные вы формируете сами и уже уверены в их типах (конфиги в коде, промежуточные записи, ключи кэша). <code>BaseModel</code> — на <b>границе доверия</b>: HTTP-запросы, ответы внешних API, YAML/JSON-конфиги, сообщения из очереди, аргументы CLI. Подробнее — <a href="../python/advanced.html#dataclass" target="_blank" rel="noopener"><code>@dataclass</code></a> и <a href="../python/advanced.html#pydantic_basemodel" target="_blank" rel="noopener">Pydantic <code>BaseModel</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from dataclasses import dataclass
+from pydantic import BaseModel, Field, ValidationError
+
+@dataclass
+class UserDC:
+    name: str
+    age: int
+
+class UserPM(BaseModel):
+    name: str
+    age: int = Field(ge=0, le=150)
+
+print(UserDC("Ann", "30"))            # UserDC(name='Ann', age='30') — типы не проверены
+print(UserPM(name="Ann", age="30"))   # name='Ann' age=30 — строка приведена к int
+try:
+    UserPM(name="Ann", age=-5)
+except ValidationError as e:
+    print(e)                          # Input should be greater than or equal to 0</div>
+<div class="info-card-auto" data-type="explanation" data-title="Цена валидации и когда она мешает">
+<p>Создание объекта Pydantic дороже, чем <code>dataclass</code>: даже в Pydantic v2, где ядро переписано на Rust, это десятки-сотни наносекунд против единиц. На границе сервиса это ничто по сравнению с сетью. А вот внутри горячего цикла — например, если оборачивать в модель каждую строку датасета на миллион записей — валидация станет заметной статьёй расхода. Там берут <code>dataclass</code> со <code>__slots__</code> либо <code>NamedTuple</code>.</p>
+<p>Отсюда практический паттерн: <b>валидировать один раз на входе</b>, дальше внутри системы передавать уже проверенные объекты и не перепроверять их на каждом слое.</p>
+<p>Промежуточный вариант — <code>pydantic.dataclasses.dataclass</code>: синтаксис dataclass с валидацией Pydantic, удобно когда не хочется менять существующие сигнатуры.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические детали">
+<p>Изменяемое значение по умолчанию в <code>dataclass</code> запрещено: <code>tags: list = []</code> бросит <code>ValueError</code> ещё при определении класса. Нужно <code>field(default_factory=list)</code> — это защита ровно от <a href="../bank/python.html#mutable-default-argument-interview" target="_blank" rel="noopener">той же проблемы, что с mutable default argument</a>.</p>
+<p>Pydantic v1 и v2 несовместимы по API: <code>.dict()</code> → <code>.model_dump()</code>, <code>.parse_obj()</code> → <code>.model_validate()</code>, <code>@validator</code> → <code>@field_validator</code>, <code>class Config</code> → <code>model_config</code>. На собеседовании стоит уточнить версию, а в проекте — не смешивать их.</p>
+<p>По умолчанию Pydantic v2 в «умном» режиме приводит <code>&quot;30&quot;</code> к <code>30</code>, но не приведёт <code>&quot;abc&quot;</code>. Если нужна строгая проверка без приведения, задаётся <code>model_config = ConfigDict(strict=True)</code>. Также по умолчанию <b>лишние поля во входных данных молча игнорируются</b> — если важно ловить опечатки в конфигах, ставьте <code>extra=&quot;forbid&quot;</code>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dataclass-vs-pydantic-interview:end -->
+              <!-- md:inject:start -->
+<li class="question" data-md-source="true" data-md-id="async-bulk-download-interview">
+  <div class="name" id="async-bulk-download-interview">
+    Как эффективно скачать 100 тысяч файлов по URL?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Задача <b>I/O-bound</b>: почти всё время процесс ждёт сеть, а не считает. Значит, нужен не пул процессов, а конкурентность — асинхронный HTTP-клиент (<code>aiohttp</code>, <code>httpx</code>) либо пул потоков, если библиотека синхронная. Подробнее про выбор — <a href="../python/advanced.html#comparison_concurrency" target="_blank" rel="noopener">сравнение подходов к конкурентности</a>.</p>
+<p>Каркас решения:</p>
+<ol>
+<li><b>Одна сессия на весь прогон.</b> <code>aiohttp.ClientSession</code> переиспользует TCP-соединения и TLS-хендшейки; создание клиента на каждый запрос — самая частая причина, почему «асинхронно» получается медленнее синхронного варианта.</li>
+<li><b>Ограниченная конкурентность.</b> <code>asyncio.Semaphore(N)</code> или фиксированный пул воркеров. Запустить 100 000 корутин разом нельзя: кончатся файловые дескрипторы и память, а сервер начнёт отдавать <code>429</code>.</li>
+<li><b>Потоковая подача URL и потоковая запись.</b> URL читаются из файла построчно, тело ответа пишется на диск чанками (<code>async for chunk in resp.content.iter_chunked(...)</code>), а не через <code>await resp.read()</code> — иначе большие файлы съедят память.</li>
+<li><b>Таймауты, retry, backoff.</b> У каждого запроса <code>ClientTimeout</code> (отдельно на соединение и на чтение); повтор только для сетевых ошибок и <code>5xx</code>/<code>429</code>, с экспоненциальной задержкой и <b>jitter</b>.</li>
+<li><b>Идемпотентное возобновление.</b> Имя файла детерминированно выводится из URL (например, хеш), уже скачанные пропускаются. Прогон на 100 тысяч файлов обязательно упадёт хотя бы раз — он должен продолжаться, а не начинаться заново.</li>
+<li><b>Проверка результата.</b> Статус-код, <code>Content-Length</code>/размер на диске, при наличии — контрольная сумма. Запись сначала во временный файл и <code>os.replace</code> в конце, чтобы не оставлять обрезанных файлов.</li>
+</ol>
+
+</div>
+<div class="code-block" data-lang="python">import asyncio, aiohttp, hashlib, os
+from pathlib import Path
+
+async def fetch_one(session, sem, url, out_dir: Path):
+    name = hashlib.sha256(url.encode()).hexdigest()
+    dst = out_dir / name
+    if dst.exists():           # идемпотентное возобновление
+        return
+    async with sem:            # ограничение конкурентности
+        for attempt in range(4):
+            try:
+                async with session.get(url) as r:
+                    r.raise_for_status()
+                    tmp = dst.with_suffix(".part")
+                    with tmp.open("wb") as f:
+                        async for chunk in r.content.iter_chunked(1 &lt;&lt; 16):
+                            f.write(chunk)
+                    os.replace(tmp, dst)   # атомарная публикация
+                    return
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                await asyncio.sleep(2 ** attempt + os.urandom(1)[0] / 255)
+
+async def main(urls, out_dir=Path("data"), limit=64):
+    out_dir.mkdir(exist_ok=True)
+    sem = asyncio.Semaphore(limit)
+    timeout = aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=60)
+    conn = aiohttp.TCPConnector(limit=limit, ttl_dns_cache=300)
+    async with aiohttp.ClientSession(timeout=timeout, connector=conn) as s:
+        await asyncio.gather(*(fetch_one(s, sem, u, out_dir) for u in urls))</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как подбирать уровень конкурентности">
+<p>Оптимальное <code>limit</code> не выводится из формулы — оно упирается в самое узкое место: лимиты сервера (<code>429</code>, бан по IP), полосу канала, число файловых дескрипторов (<code>ulimit -n</code>), IOPS диска и — на большом числе мелких файлов — скорость DNS-резолвинга.</p>
+<p>Практический подход: замерить пропускную способность на 1000 URL при <code>limit</code> 16, 64, 256 и взять точку, после которой скорость перестаёт расти, а доля ошибок начинает. Обычно это десятки, а не тысячи. Для мелких файлов узким местом часто оказывается создание файлов на диске, а не сеть, — тогда выгоднее складывать результаты в один архив или в формат вроде WebDataset, чем в 100 тысяч отдельных файлов.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про вежливость к серверу и наблюдаемость">
+<p>Скачивание 100 тысяч файлов с одного домена без ограничения скорости — это фактически нагрузочный тест чужого сервиса. Нужен rate limit (запросов в секунду), уважение к <code>Retry-After</code> в ответе <code>429</code>, осмысленный <code>User-Agent</code> и проверка <code>robots.txt</code>, если это публичный веб.</p>
+<p>И обязательно логирование по каждому URL: статус, размер, число попыток. Без него после прогона невозможно ответить на вопрос «а всё ли скачалось» — а он всегда возникает. Прогресс удобно показывать через <code>tqdm</code>, но считать надо завершённые задачи, а не запущенные.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="batch-inference-overload-interview">
+  <div class="name" id="batch-inference-overload-interview">
+    Как защищать batch inference сервис от перегрузки?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Базовая идея: сервис должен <b>отказывать быстро и предсказуемо</b>, а не накапливать работу, которую всё равно не успеет сделать. Слои защиты выстраиваются от входа к вычислениям.</p>
+<p><b>Bounded queue.</b> Очередь входящих запросов имеет фиксированный максимум. Когда он достигнут, новый запрос получает <code>429 Too Many Requests</code> или <code>503</code> с <code>Retry-After</code> — сразу, а не через минуту ожидания. Безразмерная очередь превращает перегрузку в рост latency и в конечном счёте в OOM.</p>
+<p><b>Ограничение конкурентности и параметров батча.</b> Одновременно обрабатывается не более $N$ батчей; у динамического батчинга задаются <code>max_batch_size</code> и <code>max_wait_ms</code> — иначе под нагрузкой батчи разрастаются и p99 взлетает.</p>
+<p><b>Дедлайны.</b> Запрос несёт бюджет времени. Перед постановкой в очередь и перед запуском инференса проверяется, не истёк ли он: считать батч, результат которого клиент уже не ждёт, — чистая потеря GPU.</p>
+<p><b>Backpressure наружу.</b> Если сервис читает из очереди (Kafka, SQS), он просто перестаёт забирать новые сообщения — нагрузка копится в брокере, который для этого и предназначен. Для синхронного HTTP аналог — rate limit на уровне gateway.</p>
+<p><b>Timeouts, retry с jitter, circuit breaker</b> на вызовах зависимостей (feature store, БД), чтобы медленная зависимость не выела все воркеры.</p>
+<p><b>Приоритеты и graceful degradation.</b> Пользовательский трафик обслуживается раньше фонового; при перегрузке допустим упрощённый ответ — кэш, лёгкая модель, дефолтное значение.</p>
+<p><b>Autoscaling по правильной метрике.</b> Масштабировать по глубине очереди и p95 latency, а не по CPU: GPU-сервис может быть загружен на 100 % при 20 % CPU. И помнить, что GPU-реплика поднимается минуты, поэтому load shedding — не запасной вариант, а обязательный.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что мониторить">
+<p>Минимальный набор дашбордов: p50/p95/p99 latency <b>отдельно</b> для времени в очереди и времени инференса (иначе непонятно, где узкое место), throughput в запросах и в примерах в секунду, текущая длина очереди и <b>возраст</b> самого старого элемента, средний фактический размер батча, доля отклонённых запросов, GPU utilization и потребление видеопамяти, число OOM и рестартов пода.</p>
+<p>Возраст головы очереди — самая ранняя метрика перегрузки: он начинает расти задолго до того, как вырастет p99, и до того, как что-то упадёт.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Почему retry делает хуже">
+<p>Повторы увеличивают нагрузку ровно тогда, когда система уже не справляется, — это положительная обратная связь. Особенно опасны retry на нескольких уровнях сразу: клиент повторяет 3 раза, gateway 3 раза, сервис 3 раза — до 27 запросов на один пользовательский.</p>
+<p>Правила: retry делается <b>на одном уровне</b>, с ограниченным бюджетом (не более 10 % от основного трафика), с экспоненциальной задержкой и обязательным jitter, и никогда — для запроса, у которого уже истёк общий дедлайн. Ответ <code>429</code> от перегруженного сервиса нужно уважать, а не ретраить немедленно.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="container-secrets-interview">
+  <div class="name" id="container-secrets-interview">
+    Как передавать секреты в Docker и Kubernetes?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Главный принцип: секрет попадает в контейнер <b>в момент запуска</b>, а не в момент сборки, и никогда не оказывается внутри образа или в git.</p>
+<p><b>Куда нельзя.</b> В <code>Dockerfile</code> через <code>ENV</code> или <code>ARG</code> — значение сохраняется в слое образа и видно любому, кто выполнит <code>docker history</code>. В <code>COPY .env .</code> — файл остаётся в слое, даже если следующей строкой сделать <code>RUN rm .env</code>: слои неизменяемы, удаление в следующем слое лишь прячет файл. В <code>git</code> — включая приватные репозитории, потому что история хранится вечно и разлетается по форкам и CI-кэшам. Подробнее про <a href="../ai/mlops/docker.html#image-layers" target="_blank" rel="noopener">слои образа</a> и <a href="../ai/mlops/docker.html#docker-secrets" target="_blank" rel="noopener">секреты в Docker</a>.</p>
+<p><b>Как можно.</b></p>
+<ul>
+<li><em>Локально и в Compose:</em> <code>docker run --env-file</code>, <code>env_file:</code> или Docker secrets (файл монтируется в <code>/run/secrets/...</code>).</li>
+<li><em>На этапе сборки, если секрет действительно нужен</em> (например, токен приватного PyPI): BuildKit-механизм <code>RUN --mount=type=secret,id=pip</code> — секрет доступен только внутри одной инструкции <code>RUN</code> и в слой не попадает.</li>
+<li><em>В Kubernetes:</em> объект <code>Secret</code>, смонтированный как <b>файл</b> (том), а не как переменная окружения; либо CSI Secrets Store Driver / External Secrets Operator, которые тянут значения напрямую из внешнего менеджера.</li>
+<li><em>В проде:</em> источник истины — secret manager (Vault, AWS Secrets Manager, GCP Secret Manager), а Kubernetes-объекты синхронизируются с ним.</li>
+</ul>
+<p><b>Что требуется вокруг.</b> <code>Secret</code> в Kubernetes хранит значение в <b>base64, а не в шифре</b> — это кодирование, не защита; нужно включать encryption at rest в etcd. Плюс RBAC (кто вообще может читать секреты в namespace), ротация без пересборки образа, аудит доступа и запрет логировать конфиг целиком.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Файл против переменной окружения">
+<p>Переменные окружения удобны, но протекают: они видны в <code>/proc/&lt;pid&gt;/environ</code> любому процессу с теми же правами, попадают в дампы падений, в вывод <code>docker inspect</code> и в отладочные хендлеры, печатающие <code>os.environ</code>. Дочерние процессы наследуют их автоматически.</p>
+<p>Смонтированный файл лучше по трём причинам: права доступа задаются на уровне файловой системы (<code>0400</code> и нужный <code>runAsUser</code>), значение не наследуется дочерними процессами и — главное — Kubernetes <b>обновляет содержимое тома</b> при изменении <code>Secret</code>, тогда как переменная окружения фиксируется на момент старта пода. Поэтому приложение, умеющее перечитывать файл, поддерживает ротацию без рестарта.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические грабли">
+<p><code>.dockerignore</code> — обязателен: без него <code>COPY . .</code> затянет в образ <code>.env</code>, <code>.git</code>, <code>~/.aws</code>, <code>kaggle.json</code> и локальные чекпоинты. См. <a href="../ai/mlops/docker.html#dockerignore" target="_blank" rel="noopener"><code>.dockerignore</code></a>.</p>
+<p>Второе: контейнер не должен работать от root. Секрет с правами <code>0400</code>, принадлежащий root, читается любым процессом внутри контейнера, если тот тоже root; см. <a href="../ai/mlops/docker.html#docker-non-root-user" target="_blank" rel="noopener">запуск не от root</a>.</p>
+<p>Третье, специфичное для ML: токены Hugging Face, W&amp;B и ключи облачных хранилищ часто оседают в артефактах экспериментов — в логах <code>wandb</code>, в сохранённом <code>config.yaml</code>, в ноутбуках. Проверять надо не только образ, но и то, что вы публикуете как результат обучения. Полезно поставить сканер (<code>gitleaks</code>, <code>trufflehog</code>) в CI.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dict-o1-to-on-interview">
+  <div class="name" id="dict-o1-to-on-interview">
+    Когда доступ к dict в Python превращается из $O(1)$ в $O(n)$?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>$O(1)$ у <code>dict</code> — это <b>средняя амортизированная</b> оценка, а не гарантия. Она держится на двух допущениях: хеши распределены равномерно и таблица заполнена не более чем на 2/3. Когда допущения ломаются, сложность деградирует.</p>
+<p>Реальные сценарии деградации:</p>
+<p><b>Плохой пользовательский <code>__hash__</code>.</b> Если метод возвращает константу или значение с малым числом различных исходов (<code>hash(self.status)</code> для поля из трёх значений), все ключи выстраиваются в одну последовательность проб. Поиск превращается в линейный перебор, причём с вызовом <code>__eq__</code> на каждом шаге — то есть $O(n)$ с большой константой.</p>
+<p><b>Дорогой <code>__eq__</code>.</b> Даже при нормальном распределении хешей: если сравнение ключей само по себе стоит $O(k)$ (длинные строки с общим префиксом, вложенные кортежи), итоговая стоимость операции умножается на $k$.</p>
+<p><b>Resize.</b> При заполнении примерно на 2/3 таблица перестраивается и все элементы перехешируются — эта конкретная вставка стоит $O(n)$. Амортизированно это по-прежнему $O(1)$, потому что размер удваивается, но отдельный вызов может «затормозить», и в latency-чувствительном сервисе это видно в хвосте распределения.</p>
+<p><b>Целенаправленная атака (hash flooding).</b> Злоумышленник подбирает ключи с одинаковым хешем и отправляет их в сервис, который складывает их в словарь, — получается $O(n^2)$ на обработке запроса. Именно от этого защищает <b>hash randomization</b> для строк и bytes: соль генерируется при старте процесса, поэтому заранее подобрать коллизии нельзя.</p>
+<p>Для встроенных типов на практике проблема почти не встречается; она приходит вместе с собственными классами. Подробнее — <a href="../python/algorithms.html#hash-table" target="_blank" rel="noopener">хеш-таблица</a> и <a href="../python/advanced.html#complexity" target="_blank" rel="noopener">алгоритмическая сложность</a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class BadKey:
+    def __init__(self, v): self.v = v
+    def __hash__(self): return 42          # все ключи в одну цепочку проб
+    def __eq__(self, o): return self.v == o.v
+
+d = {BadKey(i): i for i in range(20_000)}  # вставка стала квадратичной</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как проверить, что дело в хешах">
+<p>Простой диагностический приём: посчитать <code>len({hash(k) for k in keys})</code> и сравнить с <code>len(keys)</code>. Если различных хешей ощутимо меньше, чем ключей, — распределение плохое.</p>
+<p>Второй приём — сравнить время на одном и том же наборе, обернув ключи в <code>tuple</code> из тех же полей. Если словарь с кортежами работает быстро, а с вашим классом медленно, виноват <code>__hash__</code>.</p>
+<p>Правильная реализация почти всегда одна и та же: <code>def __hash__(self): return hash((self.a, self.b))</code> по тому же набору полей, что и в <code>__eq__</code>. Хеш кортежа в CPython качественный, изобретать своё смешивание битов не нужно.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что часто путают">
+<p>«Коллизии в <code>dict</code> разрешаются цепочками» — нет, в CPython это <b>открытая адресация</b> с псевдослучайной последовательностью проб, использующей все биты хеша.</p>
+<p>«Из-за коллизий <code>dict</code> часто работает за $O(n)$» — нет, для встроенных типов это исключительная ситуация; амортизированное $O(1)$ выполняется на практике очень надёжно.</p>
+<p>И обратное заблуждение: «<code>in</code> для списка тоже быстрый». <code>x in list</code> — всегда $O(n)$; замена списка на <code>set</code>/<code>dict</code> в проверке вхождения внутри цикла — самая частая и самая дешёвая оптимизация в Python-коде.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-container-state-interview">
+  <div class="name" id="docker-container-state-interview">
+    Контейнер остановили или удалили: потеряются ли код и данные?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ответ зависит от того, что именно произошло, и от того, где лежат данные.</p>
+<p>Контейнер — это <b>образ (неизменяемые слои, read-only) плюс тонкий writable-слой</b> поверх них. Всё, что процесс внутри записал в файловую систему контейнера, попадает в этот writable-слой. См. <a href="../ai/mlops/docker.html#image-layers" target="_blank" rel="noopener">слои образа</a>.</p>
+<ul>
+<li><b><code>docker stop</code> / <code>docker start</code>.</b> Останавливается только процесс. Writable-слой остаётся на диске, после <code>start</code> все файлы на месте. Теряется лишь то, что жило в оперативной памяти: кэши в процессе, незаписанные буферы, состояние соединений.</li>
+<li><b><code>docker rm</code> (или <code>docker run --rm</code>).</b> Writable-слой удаляется вместе с контейнером — всё, что было записано внутрь и не вынесено наружу, исчезает безвозвратно.</li>
+<li><b>Код из образа не теряется никогда.</b> Он лежит в read-only слоях образа; <code>docker run</code> из того же образа поднимет новый контейнер с тем же кодом. Именно поэтому контейнеры считают <b>одноразовыми</b> (cattle, а не pets).</li>
+</ul>
+<p>Отсюда правило: всё, что должно пережить контейнер, хранится <b>вне</b> его файловой системы — в <a href="../ai/mlops/docker.html#docker-volumes" target="_blank" rel="noopener">volume</a>, bind mount или внешнем хранилище (S3, БД). Volume существует независимо от жизненного цикла контейнера и не удаляется вместе с ним (для удаления нужен <code>docker volume rm</code> или <code>docker rm -v</code>). Bind mount — это просто каталог хоста, с ним ничего не случится в принципе.</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker stop app &amp;&amp; docker start app     # данные writable-слоя на месте
+docker rm app                           # writable-слой удалён
+
+docker run -v mydata:/app/data image    # named volume: переживёт контейнер
+docker run -v $(pwd)/data:/app/data i   # bind mount: каталог хоста
+docker run --rm image                   # контейнер удалится сразу после выхода</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему писать в контейнер — плохая идея даже когда «работает»">
+<p>Writable-слой реализован через copy-on-write (overlay2): изменение одного байта в файле из образа копирует <b>весь файл</b> в верхний слой. Для больших файлов — чекпоинтов, датасетов, индексов — это дорого и по времени, и по диску.</p>
+<p>Дальше: этот слой не переносится между хостами, не резервируется штатными средствами и не масштабируется — при трёх репликах сервиса будет три расходящихся состояния. В Kubernetes всё то же самое, но острее: под может быть пересоздан планировщиком в любой момент, и его файловая система исчезнет вместе с ним. Данные там живут в PersistentVolume или во внешнем хранилище.</p>
+<p>Практическое следствие для ML: датасеты, чекпоинты, кэши весов (<code>HF_HOME</code>, <code>TORCH_HOME</code>) и логи выносят в volume или в объектное хранилище. Иначе каждый рестарт заново скачивает несколько гигабайт весов.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про место на диске">
+<p>Удалённые контейнеры не всегда освобождают место: остаются образы, dangling-слои, тома и кэш сборки. На машине для обучения это регулярно приводит к «No space left on device» посреди эпохи.</p>
+<p>Диагностика — <code>docker system df</code>; уборка — <code>docker system prune</code> (безопасно) и <code>docker system prune -a --volumes</code> (удалит и неиспользуемые тома — перед запуском убедитесь, что в них нет нужных данных). Отдельно стоит помнить, что <code>docker builder prune</code> чистит <a href="../ai/mlops/docker.html#docker-build-cache" target="_blank" rel="noopener">кэш сборки</a>, который на ML-образах легко занимает десятки гигабайт.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="external-counting-sort-interview">
+  <div class="name" id="external-counting-sort-interview">
+    Как отсортировать файл на 100 ГБ из символов ограниченного алфавита?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ключ к задаче — <b>ограниченный алфавит</b>. Как только это сказано, сортировка сравнениями не нужна вовсе: отсортированный результат полностью определяется тем, сколько раз встретился каждый символ.</p>
+<p>Алгоритм — <b>counting sort</b> в два прохода:</p>
+<ol>
+<li>Читаем файл чанками (например, по 8–64 МБ) и накапливаем счётчики в массиве размера $|\Sigma|$. Ни одна часть файла в памяти не задерживается.</li>
+<li>Пишем выходной файл: для каждого символа в порядке возрастания выводим его <code>count[c]</code> раз, тоже блоками.</li>
+</ol>
+<p>Сложность: время $O(n + |\Sigma|)$, дополнительная память $O(|\Sigma|)$ — то есть константа, не зависящая от 100 ГБ. Для сравнения, внешняя сортировка слиянием дала бы $O(n \log n)$ сравнений плюс запись и чтение промежуточных отрезков — несколько лишних проходов по 100 ГБ диска.</p>
+<p>Практически всё упирается в <b>I/O</b>: 100 ГБ читаются один раз и 100 ГБ пишутся один раз, поэтому нижняя граница времени — это скорость диска. Оптимизировать имеет смысл размер буфера и, при чтении по байтам, — использование <code>bytes.count()</code> или <code>collections.Counter</code> над <code>bytes</code>, а не цикл на чистом Python.</p>
+
+</div>
+<div class="code-block" data-lang="python">from collections import Counter
+
+def counting_sort_file(src: str, dst: str, chunk: int = 1 &lt;&lt; 24) -&gt; None:
+    counts = Counter()
+    with open(src, "rb") as f:                 # проход 1: только счётчики
+        while block := f.read(chunk):
+            counts.update(block)               # C-уровень, без Python-цикла
+
+    with open(dst, "wb") as out:               # проход 2: запись блоками
+        for code in sorted(counts):
+            left = counts[code]
+            piece = bytes([code]) * min(left, chunk)
+            while left &gt; 0:
+                n = min(left, chunk)
+                out.write(piece[:n])
+                left -= n</div>
+<div class="info-card-auto" data-type="explanation" data-title="Когда приём обобщается">
+<p>Counting sort работает не только с символами. Он применим всегда, когда ключ — целое число из небольшого известного диапазона: возрасты, оценки от 1 до 5, дни года, идентификаторы категорий, квантованные значения.</p>
+<p>Два родственных приёма из того же семейства «сортировок без сравнений»: <b>bucket sort</b> (разложить по корзинам по старшим разрядам, отсортировать каждую отдельно — так устроена и внешняя сортировка по ключу) и <b>radix sort</b> (последовательные counting sort по разрядам, $O(d \cdot n)$ для $d$-разрядных ключей).</p>
+<p>Если бы алфавит был не ограничен — например, файл из строк переменной длины, — правильным ответом стала бы <b>внешняя сортировка слиянием</b>: читаем куски, помещающиеся в RAM, сортируем их в памяти, пишем на диск, затем сливаем $k$ отсортированных потоков через <code>heapq.merge</code>. Стоит упомянуть это как альтернативу: интервьюер обычно проверяет, понимаете ли вы, почему в данном случае она не нужна.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="На что обратить внимание в ответе">
+<p>Первое, что стоит спросить вслух: «символы — это байты или Unicode-кодпоинты?». Для байтов $|\Sigma| = 256$ и всё тривиально; для UTF-8 придётся декодировать чанки с учётом того, что символ может быть разрезан границей блока (лечится <code>io.TextIOWrapper</code> или <code>codecs.iterdecode</code>).</p>
+<p>Второе: не пытайтесь строить строку в памяти. <code>&quot;&quot;.join(...)</code> на 100 ГБ — мгновенный OOM; выход пишется потоково.</p>
+<p>Третье, про «сортировку строк» и «сортировку символов»: если требуется отсортировать <b>строки</b> файла, а не символы, задача другая — это внешняя сортировка слиянием. Уточнить постановку до начала решения здесь ценится выше, чем скорость кодирования.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="kafka-delivery-semantics-interview">
+  <div class="name" id="kafka-delivery-semantics-interview">
+    Какие delivery semantics есть в Kafka?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три уровня гарантий доставки, и различаются они, по сути, <b>моментом фиксации offset относительно обработки сообщения</b>.</p>
+<p><b>At-most-once («не более одного раза»).</b> Consumer коммитит offset <em>до</em> обработки. Если он упадёт между коммитом и обработкой, сообщение потеряно — повторно оно не придёт. Дублей не бывает. Уместно там, где потеря дешевле дубля: метрики, телеметрия, некритичные логи.</p>
+<p><b>At-least-once («не менее одного раза»).</b> Offset коммитится <em>после</em> успешной обработки. Падение между обработкой и коммитом приводит к повторной доставке — возможны дубли, но потерь нет. Это <b>режим по умолчанию</b> и правильный выбор для большинства задач.</p>
+<p><b>Exactly-once.</b> Kafka обеспечивает его через idempotent producer (<code>enable.idempotence=true</code>: брокер отбрасывает повторы по producer ID и sequence number) и <b>транзакции</b>, которые атомарно объединяют запись в топики и коммит offset&#39;ов. Consumer читает с <code>isolation.level=read_committed</code>. Важное ограничение: гарантия действует <b>внутри Kafka</b> — в схеме «прочитал из топика → обработал → записал в топик».</p>
+<p>Подробнее — <a href="../ai/mlops/kafka.html#kafka_delivery" target="_blank" rel="noopener">гарантии доставки и retention</a> и <a href="../ai/mlops/kafka.html#kafka_core_concepts" target="_blank" rel="noopener">основные понятия Kafka</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему exactly-once не распространяется на внешнюю БД">
+<p>Как только результат обработки уходит наружу — в PostgreSQL, в S3, в HTTP-вызов, — транзакция Kafka его не покрывает: нет распределённого коммита между Kafka и чужой системой. Между записью в БД и коммитом offset остаётся окно, в котором падение даёт повтор.</p>
+<p>Поэтому «exactly once» на практике почти всегда строится как <b>at-least-once + идемпотентность на стороне потребителя</b>:</p>
+<ul>
+<li>у каждого события есть устойчивый <code>event_id</code> (или ключ + offset), по которому запись дедуплицируется;</li>
+<li>вместо <code>INSERT</code> используется <code>UPSERT</code> / <code>INSERT ... ON CONFLICT DO NOTHING</code>;</li>
+<li>либо применяется <b>transactional outbox</b>: обработка и запись offset попадают в одну транзакцию БД, и она же становится источником истины;</li>
+<li>либо операция по природе идемпотентна (перезапись значения, <code>SET</code>, а не <code>INCREMENT</code>).</li>
+</ul>
+<p>Формулировка, которую ждут на собеседовании: «effectively once = at-least-once доставка плюс идемпотентная обработка».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что ломает гарантии на практике">
+<p><b>Автокоммит.</b> <code>enable.auto.commit=true</code> коммитит offset по таймеру, независимо от того, обработано сообщение или нет. Это не at-least-once и не at-most-once, а «как повезёт». Для контролируемых гарантий его выключают и коммитят вручную.</p>
+<p><b>Настройки producer.</b> <code>acks=1</code> (по умолчанию в старых клиентах) подтверждает запись, как только её принял лидер партиции; при падении лидера до репликации данные теряются. Для «без потерь» нужны <code>acks=all</code>, <code>min.insync.replicas &gt;= 2</code> и <code>retries</code> вместе с включённой идемпотентностью — иначе повторы producer&#39;а сами создадут дубли и могут переставить порядок.</p>
+<p><b>Ребаланс.</b> Долгая обработка сообщения дольше <code>max.poll.interval.ms</code> приводит к исключению consumer&#39;а из группы, ребалансу и повторной выдаче тех же сообщений другому инстансу — типичный источник «внезапных» дублей в ML-пайплайнах, где инференс на батче занимает минуты. Лечится уменьшением <code>max.poll.records</code>, вынесением тяжёлой работы в отдельный пул и увеличением интервала.</p>
+<p><b>Порядок.</b> Kafka гарантирует порядок только внутри партиции. Если для сущности важна последовательность событий, все её события должны идти с одним ключом.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mutable-default-argument-interview">
+  <div class="name" id="mutable-default-argument-interview">
+    Почему нельзя использовать изменяемый объект как значение по умолчанию в функции?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Потому что значения по умолчанию вычисляются <b>один раз — в момент определения функции</b>, а не при каждом вызове. Результат сохраняется в атрибуте <code>func.__defaults__</code> и переиспользуется всеми вызовами, где аргумент не передан явно.</p>
+<p>Для неизменяемых значений (<code>0</code>, <code>None</code>, <code>&quot;abc&quot;</code>) это незаметно. Но если по умолчанию стоит список или словарь, все вызовы работают с <b>одним и тем же объектом</b>, и мутации накапливаются между ними: функция «помнит» предыдущие вызовы, чего никто не ожидает.</p>
+<p>Стандартное решение — часовой <code>None</code>: в качестве значения по умолчанию ставится <code>None</code>, а новый объект создаётся внутри тела функции. Тогда каждый вызов получает свой контейнер.</p>
+<p>Проблема касается всех изменяемых объектов: <code>list</code>, <code>dict</code>, <code>set</code>, экземпляров классов с изменяемым состоянием, а также объектов, которые вычисляются при определении (<code>datetime.now()</code> в аргументе по умолчанию зафиксируется на момент импорта модуля — ещё одна разновидность той же ошибки).</p>
+
+</div>
+<div class="code-block" data-lang="python">def add_item(x, items=[]):      # ловушка
+    items.append(x)
+    return items
+
+print(add_item(1))              # [1]
+print(add_item(2))              # [1, 2]  — а ожидали [2]
+print(add_item.__defaults__)    # ([1, 2],) — объект живёт в самой функции</div><div class="code-block" data-lang="python">def add_item(x, items=None):    # правильный паттерн
+    if items is None:
+        items = []
+    items.append(x)
+    return items
+
+print(add_item(1))              # [1]
+print(add_item(2))              # [2]</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему так сделано и когда это полезно">
+<p>Это прямое следствие того, что <code>def</code> — исполняемая инструкция: при её выполнении создаётся объект функции, и выражения из сигнатуры вычисляются тут же. Альтернатива (вычислять умолчания при каждом вызове, как в Ruby) стоила бы производительности и породила бы вопрос, в каком пространстве имён их вычислять.</p>
+<p>У поведения есть и полезная сторона — им намеренно пользуются для кэша, привязанного к функции, и для «замораживания» значения из замыкания:</p>
+<div class="code-block" data-lang="python">def fib(n, _cache={0: 0, 1: 1}):        # мемоизация без внешнего состояния
+    if n not in _cache:
+        _cache[n] = fib(n - 1) + fib(n - 2)
+    return _cache[n]
+
+fns = [lambda x, k=k: x * k for k in range(3)]   # k фиксируется, а не берётся из замыкания</div><p>Первый приём сегодня лучше писать через <code>functools.lru_cache</code>, но понимать механику всё равно нужно — на собеседовании про неё спрашивают.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="На что обратить внимание">
+<p>Проверять надо именно <code>if items is None</code>, а не <code>if not items</code>: пустой список, переданный явно, — валидный аргумент, и <code>not []</code> истинно, так что второй вариант молча подменит переданный объект новым. См. <a href="../python/base.html#none_is" target="_blank" rel="noopener"><code>None</code>: почему проверять через <code>is</code></a>.</p>
+<p>В <code>@dataclass</code> эта ошибка запрещена на уровне языка: <code>tags: list = []</code> бросит <code>ValueError</code> при определении класса, нужно <code>field(default_factory=list)</code>.</p>
+<p>Линтеры ловят проблему автоматически: правило <code>B006</code> в <code>flake8-bugbear</code> и <code>ruff</code> (<code>mutable-argument-default</code>). Включить его — дешевле, чем полагаться на внимательность; см. <a href="../python/advanced.html#linters-and-ruff" target="_blank" rel="noopener">линтеры</a>.</p>
+<p>И отдельная разновидность: <code>def f(ts=datetime.now())</code> — время зафиксируется на момент импорта. Нужен либо <code>None</code>-часовой, либо <code>default_factory</code>.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="shallow-deep-copy-interview">
+  <div class="name" id="shallow-deep-copy-interview">
+    Чем отличается shallow copy от deep copy в Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Shallow copy</b> (<code>copy.copy</code>, <code>list(x)</code>, <code>x[:]</code>, <code>dict(x)</code>, <code>x.copy()</code>) создаёт новый внешний контейнер, но кладёт в него <b>те же самые ссылки</b> на вложенные объекты. Внешний уровень независим, внутренние — общие.</p>
+<p><b>Deep copy</b> (<code>copy.deepcopy</code>) рекурсивно копирует и контейнер, и всё, на что он ссылается, на любую глубину. Результат полностью независим от оригинала.</p>
+<p>Разница видна только на <b>вложенных изменяемых</b> объектах. Для плоского списка чисел или строк оба варианта дают одно и то же, потому что копировать неизменяемые элементы бессмысленно — <code>deepcopy</code> их и не копирует, а переиспользует.</p>
+<p>Правило выбора: shallow copy достаточно, когда вложенные объекты неизменяемы или вы точно не собираетесь их менять; deepcopy нужен, когда копия должна жить своей жизнью, — например, снимок конфига перед экспериментом, откат состояния, изоляция аргумента от вызывающего кода.</p>
+<p>См. <a href="../python/advanced.html#copy_deepcopy" target="_blank" rel="noopener">копирование изменяемых объектов: <code>copy</code> и <code>deepcopy</code></a>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import copy
+
+a = [[1, 2], [3, 4]]
+b = copy.copy(a)        # shallow: b — новый список, но элементы те же объекты
+c = copy.deepcopy(a)    # deep: всё скопировано
+
+a[0].append(99)
+print(b)                # [[1, 2, 99], [3, 4]] — изменение "просочилось"
+print(c)                # [[1, 2], [3, 4]]
+
+a.append([5])
+print(len(b), len(c))   # 2 2 — внешний уровень у копий независим</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как &lt;code&gt;deepcopy&lt;/code&gt; справляется с циклами и что он ломает">
+<p><code>deepcopy</code> ведёт словарь <code>memo</code> уже скопированных объектов по их <code>id</code>. Благодаря этому он корректно обрабатывает <b>циклические ссылки</b> (<code>a.append(a)</code>) и сохраняет разделяемость: если один и тот же объект встречается в структуре дважды, в копии он тоже будет одним объектом, а не двумя.</p>
+<p>Поведение можно настроить: класс может определить <code>__deepcopy__(self, memo)</code> и <code>__copy__(self)</code>, а <code>__reduce__</code> / <code>__getstate__</code> влияют и на копирование, и на pickle. По умолчанию <code>deepcopy</code> копирует объект по <code>__dict__</code>, что для многих объектов бессмысленно или разрушительно:</p>
+<ul>
+<li>открытые файлы, сокеты, соединения с БД — скопировать нельзя, будет ошибка или нерабочий дубликат;</li>
+<li>блокировки (<code>threading.Lock</code>) — <code>TypeError: cannot pickle &#39;_thread.lock&#39; object</code>;</li>
+<li>модели PyTorch на GPU — скопируются вместе с весами и займут ещё столько же видеопамяти;</li>
+<li>объекты с кэшами и обратными ссылками на родителя — потянут за собой половину графа объектов приложения.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические ловушки">
+<p><b><code>x[:]</code> и <code>list(x)</code> — это shallow copy</b>, а не «настоящая» копия. Самая частая ошибка: скопировали список списков срезом, поменяли вложенный элемент — изменился и оригинал.</p>
+<p><b><code>[[0] * 3] * 3</code> — не матрица.</b> Внешнее умножение размножает <b>одну и ту же ссылку</b> на внутренний список: <code>m[0][0] = 1</code> изменит первый элемент всех трёх строк. Правильно — <code>[[0] * 3 for _ in range(3)]</code>.</p>
+<p><b>Цена.</b> <code>deepcopy</code> рекурсивен и медленный (он идёт через механику pickle-протокола); на больших структурах — секунды и удвоенная память. В горячем цикле его быть не должно.</p>
+<p><b>Альтернативы deepcopy.</b> Часто задача решается дешевле: <code>json.loads(json.dumps(obj))</code> для простых данных (быстрее, но теряет типы), <code>pickle.loads(pickle.dumps(obj))</code> (быстрее deepcopy на больших однородных структурах), а лучше всего — <b>не мутировать</b> входные данные, тогда копия не нужна вовсе. Неизменяемые структуры (<code>tuple</code>, <code>frozenset</code>, <code>@dataclass(frozen=True)</code>) снимают проблему на корню.</p>
+<p><b>NumPy и pandas живут по своим правилам:</b> <code>arr.copy()</code> копирует данные массива, а срез <code>arr[1:5]</code> — это <a href="../bank/python.html#py_list_vs_numpy-interview" target="_blank" rel="noopener">представление</a>, не копия; <code>df.copy()</code> по умолчанию делает глубокую копию, <code>df.copy(deep=False)</code> — поверхностную.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body>
+</html>

@@ -1,0 +1,971 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>PostgreSQL Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../../assets/code-styles.css">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/exercise-checker.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/exercise-checker.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/index.html">Практика</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/db.html">Базы данных Практика</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">PostgreSQL Практика</span></li>
+        </ol>
+      </nav>
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Практика</span>
+            <span class="pill pill--soft">PostgreSQL</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">PostgreSQL Практика</h1>
+          <p class="section-shell__desc">Практические задачи по SQL и PostgreSQL для ML: JOIN без размножения строк, оконные функции, retention, дедупликация, лаговые фичи и point-in-time join.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">PostgreSQL</h3>
+<li class="question" data-md-source="true" data-md-id="practise_pg_join_fanout" data-difficulty="medium" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;&quot;&quot;
+        CREATE TABLE campaigns(campaign_id INTEGER, name TEXT);
+        CREATE TABLE clicks(click_id INTEGER, campaign_id INTEGER);
+        CREATE TABLE orders(order_id INTEGER, campaign_id INTEGER, amount REAL);
+    &quot;&quot;&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO campaigns VALUES (1, 'spring'), (2, 'summer'), (3, 'autumn');
+    INSERT INTO clicks VALUES (1, 1), (2, 1), (3, 1), (4, 2);
+    INSERT INTO orders VALUES (1, 1, 10.0), (2, 1, 20.0), (3, 3, 5.5);
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO campaigns VALUES (10, 'promo'), (20, 'retarget'), (30, 'empty');
+    INSERT INTO clicks VALUES (1, 10), (2, 10), (3, 20), (4, 20), (5, 20);
+    INSERT INTO orders VALUES (1, 10, 100.0), (2, 10, 50.25), (3, 10, 0.5), (4, 20, 7.0), (5, 20, 3.0);
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [(1, &quot;spring&quot;, 3, 30.0), (2, &quot;summer&quot;, 1, 0.0), (3, &quot;autumn&quot;, 0, 5.5)], &quot;Небольшой пример: без раздувания и с нулями&quot;
+assert run(DATA_B) == [(10, &quot;promo&quot;, 2, 150.75), (20, &quot;retarget&quot;, 3, 10.0), (30, &quot;empty&quot;, 0, 0.0)], &quot;Много кликов и заказов у одной кампании&quot;
+assert len(run(DATA_B)) == 3, &quot;Каждая кампания ровно один раз&quot;">
+  <div class="name question-difficulty-medium" id="practise_pg_join_fanout">
+    Выручка по кампаниям без размножения строк
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться соединять таблицу с двумя таблицами «один-ко-многим» так, чтобы агрегаты не раздувались, и корректно заполнять нулями отсутствующие значения.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — это SQL-запрос в строке <code>QUERY</code>. Тесты создают базу <b>SQLite</b> в памяти, заливают туда данные и сравнивают результат запроса с эталоном. Используй стандартный SQL: <code>JOIN</code>, <code>GROUP BY</code>, <code>COALESCE</code>, CTE (<code>WITH</code>) работают одинаково в SQLite и PostgreSQL. Запрос из этой задачи без изменений запустится и в Postgres.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_joins" rel="noopener" target="_blank" class="badge badge-link">LEFT JOIN</a>
+                      <a href="../../practise/db/postgresql.html#pg_group_by" rel="noopener" target="_blank" class="badge badge-link">GROUP BY</a>
+                      <a href="../../practise/db/postgresql.html#pg_null" rel="noopener" target="_blank" class="badge badge-link">COALESCE</a>
+                      <span class="badge">CTE (<code>WITH</code>)</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Маркетинг хочет табличку для модели атрибуции: сколько кликов и сколько выручки принесла каждая рекламная кампания.</p>
+<p>Таблицы:</p>
+<ul>
+<li><code>campaigns(campaign_id INTEGER, name TEXT)</code> — справочник кампаний;</li>
+<li><code>clicks(click_id INTEGER, campaign_id INTEGER)</code> — клики, у кампании их может быть много;</li>
+<li><code>orders(order_id INTEGER, campaign_id INTEGER, amount REAL)</code> — заказы, у кампании их тоже может быть много.</li>
+</ul>
+<p>Верни по одной строке на <b>каждую</b> кампанию из <code>campaigns</code>: <code>campaign_id</code>, <code>name</code>, <code>clicks</code> (число кликов), <code>revenue</code> (сумма заказов, округлённая <code>ROUND(..., 2)</code>). Если кликов или заказов нет — там должен быть <code>0</code>, а не <code>NULL</code>. Сортировка по <code>campaign_id</code>.</p>
+<p>Ловушка: если сделать <code>campaigns LEFT JOIN clicks LEFT JOIN orders</code> и потом <code>GROUP BY</code>, каждый клик умножится на каждый заказ. У кампании с 3 кликами и 2 заказами на 10 и 20 получится <code>clicks = 6</code> и <code>revenue = 90</code> вместо <code>3</code> и <code>30</code>.</p>
+<p>Пример: для кампании <code>1</code> с 3 кликами и заказами на 10 и 20 ожидается строка <code>(1, &#39;spring&#39;, 3, 30.0)</code>; для кампании без заказов — <code>(2, &#39;summer&#39;, 1, 0.0)</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему JOIN одной таблицы с двумя таблицами «один-ко-многим» раздувает агрегаты?</b></p>
+<p>Каждая строка первой дочерней таблицы соединяется с каждой строкой второй по тому же ключу. У кампании с 3 кликами и 2 заказами получится 3 × 2 = 6 строк, поэтому <code>COUNT</code> и <code>SUM</code> считают каждое значение по несколько раз.</p>
+</li>
+<li><p><b>Как избежать размножения строк при сборе агрегатов из нескольких таблиц?</b></p>
+<p>Агрегировать каждую дочернюю таблицу отдельно до ключа (в подзапросе или CTE), чтобы на ключ осталась одна строка, и только потом соединять результаты с основной таблицей.</p>
+</li>
+<li><p><b>Почему здесь нужен LEFT JOIN, а не INNER JOIN?</b></p>
+<p><code>INNER JOIN</code> выбросит кампании, у которых нет кликов или заказов. <code>LEFT JOIN</code> сохраняет все строки левой таблицы, а на месте отсутствующих данных оставляет <code>NULL</code>.</p>
+</li>
+<li><p><b>Зачем COALESCE после LEFT JOIN?</b></p>
+<p>Для кампании без заказов агрегат из присоединённой таблицы приходит как <code>NULL</code>. Для фичи «выручка» это на самом деле 0, поэтому <code>COALESCE(x, 0)</code> заменяет <code>NULL</code> на ноль. Иначе модель или отчёт получат пропуск вместо нуля.</p>
+</li>
+<li><p><b>Как быстро проверить, что JOIN не размножил строки?</b></p>
+<p>Сравнить <code>COUNT(*)</code> до и после JOIN и убедиться, что ключ в присоединяемой таблице уникален: <code>GROUP BY key HAVING COUNT(*) &gt; 1</code> должен вернуть пустой результат.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_top_n" data-difficulty="easy" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;CREATE TABLE products(product_id INTEGER, category TEXT, revenue REAL);&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO products VALUES
+        (1, 'books', 500), (2, 'books', 900), (3, 'books', 700),
+        (4, 'games', 300), (5, 'games', 800);
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO products VALUES
+        (10, 'toys', 100), (11, 'toys', 100), (12, 'toys', 100),
+        (20, 'food', 50),
+        (30, 'audio', 10), (31, 'audio', 999), (32, 'audio', 500), (33, 'audio', 999);
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [(&quot;books&quot;, 2, 900.0, 1), (&quot;books&quot;, 3, 700.0, 2), (&quot;games&quot;, 5, 800.0, 1), (&quot;games&quot;, 4, 300.0, 2)], &quot;Две категории по два товара&quot;
+assert run(DATA_B) == [(&quot;audio&quot;, 31, 999.0, 1), (&quot;audio&quot;, 33, 999.0, 2), (&quot;food&quot;, 20, 50.0, 1), (&quot;toys&quot;, 10, 100.0, 1), (&quot;toys&quot;, 11, 100.0, 2)], &quot;Равная выручка и категория из одного товара&quot;">
+  <div class="name question-difficulty-easy" id="practise_pg_top_n">
+    Топ-N товаров в каждой категории
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Отработать классическую задачу с собеседований «top-N на группу» через <code>ROW_NUMBER()</code> и понять, почему результат оконной функции нельзя отфильтровать прямо в <code>WHERE</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Тесты создают базу <b>SQLite</b> в памяти и сравнивают результат с эталоном. Оконные функции (<code>ROW_NUMBER</code>, <code>RANK</code>, <code>PARTITION BY</code>) в SQLite и PostgreSQL пишутся одинаково, так что запрос без правок перенесётся в Postgres. В Postgres у этой задачи есть и короткий вариант для N = 1: <code>DISTINCT ON (category)</code>. Для N = 2 он уже не подходит.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_window_functions" rel="noopener" target="_blank" class="badge badge-link">ROW_NUMBER()</a>
+                      <span class="badge"><code>PARTITION BY</code></span>
+                      <a href="../../practise/db/postgresql.html#pg_cte_subqueries" rel="noopener" target="_blank" class="badge badge-link">Подзапрос / CTE</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Рекомендательный блок «хиты категории» показывает по два самых прибыльных товара из каждой категории.</p>
+<p>Таблица <code>products(product_id INTEGER, category TEXT, revenue REAL)</code>.</p>
+<p>Верни для каждой категории <b>ровно два</b> товара с наибольшей <code>revenue</code> (или один, если в категории всего один товар). Колонки: <code>category</code>, <code>product_id</code>, <code>revenue</code>, <code>rn</code>, где <code>rn</code> — место внутри категории (1 или 2). Если выручка одинаковая, выше стоит товар с меньшим <code>product_id</code>. Отсортируй по <code>category</code>, затем по <code>rn</code>.</p>
+<p>Обрати внимание: при равной выручке <code>RANK()</code> выдаст двум товарам одно место, и в «топ-2» может попасть три строки. Нужно ровно две, поэтому бери <code>ROW_NUMBER()</code> с явным тай-брейком, то есть дополнительным ключом сортировки для случая равенства.</p>
+<p>Пример: в категории <code>books</code> товары <code>(1, 500)</code>, <code>(2, 900)</code>, <code>(3, 700)</code>. Ответ: <code>(&#39;books&#39;, 2, 900.0, 1)</code> и <code>(&#39;books&#39;, 3, 700.0, 2)</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем ROW_NUMBER отличается от RANK и DENSE_RANK?</b></p>
+<p><code>ROW_NUMBER</code> выдаёт уникальные номера 1, 2, 3 даже при равных значениях. <code>RANK</code> даёт равным значениям одно место и пропускает следующие (1, 1, 3). <code>DENSE_RANK</code> даёт одно место без пропусков (1, 1, 2).</p>
+</li>
+<li><p><b>Почему для «ровно N на группу» нужен тай-брейк в ORDER BY?</b></p>
+<p>Без дополнительного ключа порядок строк с равными значениями не определён, и результат может меняться от запуска к запуску. Уникальный второй ключ (например, id) делает нумерацию детерминированной.</p>
+</li>
+<li><p><b>Почему результат оконной функции нельзя отфильтровать в WHERE того же запроса?</b></p>
+<p><code>WHERE</code> выполняется раньше, чем вычисляются оконные функции. Поэтому номер строки сначала считают во внутреннем подзапросе или CTE, а фильтруют уже во внешнем запросе.</p>
+</li>
+<li><p><b>Что делает PARTITION BY?</b></p>
+<p>Разбивает строки на независимые группы: нумерация и любые оконные вычисления начинаются заново в каждой группе, при этом строки, в отличие от <code>GROUP BY</code>, не схлопываются.</p>
+</li>
+<li><p><b>Какой короткий вариант top-1 на группу есть в PostgreSQL?</b></p>
+<p><code>DISTINCT ON (group_col) ... ORDER BY group_col, sort_col DESC</code> оставляет первую строку каждой группы в заданном порядке. Для N &gt; 1 он не подходит, там нужен <code>ROW_NUMBER</code> или <code>LATERAL</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_dedup_latest" data-difficulty="easy" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;CREATE TABLE profiles_raw(user_id INTEGER, city TEXT, updated_at TEXT, loaded_at TEXT);&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO profiles_raw VALUES
+        (1, 'Москва', '2026-01-01 10:00:00', '2026-01-01 11:00:00'),
+        (1, 'Казань', '2026-02-01 09:00:00', '2026-02-01 10:00:00'),
+        (1, 'Казань', '2026-02-01 09:00:00', '2026-02-01 12:00:00'),
+        (2, 'Пермь',  '2026-01-15 08:00:00', '2026-01-15 09:00:00');
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO profiles_raw VALUES
+        (5, 'Омск',   '2026-03-01 00:00:00', '2026-03-01 01:00:00'),
+        (5, 'Томск',  '2026-03-01 00:00:00', '2026-03-02 01:00:00'),
+        (3, 'Сочи',   '2026-04-10 12:00:00', '2026-04-10 13:00:00'),
+        (3, 'Тверь',  '2026-04-09 12:00:00', '2026-04-11 13:00:00');
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [(1, &quot;Казань&quot;, &quot;2026-02-01 09:00:00&quot;), (2, &quot;Пермь&quot;, &quot;2026-01-15 08:00:00&quot;)], &quot;Последняя версия, дубли загрузки схлопнуты&quot;
+assert run(DATA_B) == [(3, &quot;Сочи&quot;, &quot;2026-04-10 12:00:00&quot;), (5, &quot;Томск&quot;, &quot;2026-03-01 00:00:00&quot;)], &quot;Тай-брейк по loaded_at, поздняя загрузка старой версии не побеждает&quot;">
+  <div class="name question-difficulty-easy" id="practise_pg_dedup_latest">
+    Дедупликация: последняя версия записи
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться оставлять из истории изменений только актуальную версию записи. Это ежедневная задача при сборке датасета из сырых логов и CDC-выгрузок (Change Data Capture, поток всех изменений строк из базы-источника).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Проверка идёт в <b>SQLite</b>, даты хранятся строками <code>&#39;YYYY-MM-DD HH:MM:SS&#39;</code>: в таком формате строки сортируются так же, как даты. В PostgreSQL эта задача обычно решается через <code>DISTINCT ON (user_id) ... ORDER BY user_id, updated_at DESC</code>. В SQLite <code>DISTINCT ON</code> нет, поэтому здесь используй переносимый вариант с <code>ROW_NUMBER()</code>: он работает в обеих СУБД.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_window_functions" rel="noopener" target="_blank" class="badge badge-link">ROW_NUMBER()</a>
+                      <a href="../../practise/db/postgresql.html#pg_group_by" rel="noopener" target="_blank" class="badge badge-link">DISTINCT ON</a>
+                      <span class="badge">Тай-брейк при равных ключах</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>В хранилище каждый час приезжает выгрузка профилей пользователей. Одна и та же версия профиля может приехать дважды, а старые версии не удаляются.</p>
+<p>Таблица <code>profiles_raw(user_id INTEGER, city TEXT, updated_at TEXT, loaded_at TEXT)</code>:</p>
+<ul>
+<li><code>updated_at</code> — когда профиль изменился в системе-источнике;</li>
+<li><code>loaded_at</code> — когда эта строка была загружена в хранилище.</li>
+</ul>
+<p>Верни по одной строке на пользователя с <b>самой свежей</b> версией профиля: колонки <code>user_id</code>, <code>city</code>, <code>updated_at</code>, сортировка по <code>user_id</code>. Свежесть определяется по <code>updated_at</code>. Если у двух строк <code>updated_at</code> совпадает (источник прислал исправление с той же меткой), побеждает строка с более поздним <code>loaded_at</code>.</p>
+<p>Пример: у пользователя <code>1</code> строки <code>(&#39;Москва&#39;, &#39;2026-01-01 10:00:00&#39;, ...)</code> и <code>(&#39;Казань&#39;, &#39;2026-02-01 09:00:00&#39;, ...)</code>. Ответ: <code>(1, &#39;Казань&#39;, &#39;2026-02-01 09:00:00&#39;)</code>.</p>
+<p>Подход через <code>GROUP BY user_id</code> с <code>MAX(updated_at)</code> не подходит: он вернёт дату, но не город из той же строки.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему GROUP BY с MAX(updated_at) не решает задачу «последняя версия записи»?</b></p>
+<p>Он вернёт максимальную дату по ключу, но другие колонки нельзя взять «из той же строки»: их пришлось бы агрегировать отдельно, и значения могли бы прийти из разных версий записи.</p>
+</li>
+<li><p><b>Как ROW_NUMBER помогает дедуплицировать данные?</b></p>
+<p>Внутри каждого ключа строки нумеруются по убыванию свежести. Строка с номером 1 и есть актуальная версия, остальные отбрасываются фильтром во внешнем запросе.</p>
+</li>
+<li><p><b>Зачем второй ключ сортировки, например loaded_at?</b></p>
+<p>Если у двух версий совпадает основная метка времени, без тай-брейка выбор между ними случаен. Второй ключ делает выбор детерминированным и отражает бизнес-правило, например «побеждает более поздняя загрузка».</p>
+</li>
+<li><p><b>Чем updated_at отличается от loaded_at и почему сортировать нужно в первую очередь по updated_at?</b></p>
+<p><code>updated_at</code> — когда запись изменилась в источнике, <code>loaded_at</code> — когда она доехала до хранилища. Старая версия может загрузиться позже новой (переотправка, backfill), поэтому свежесть определяется временем изменения, а время загрузки служит только тай-брейком.</p>
+</li>
+<li><p><b>Как такую задачу обычно решают в PostgreSQL?</b></p>
+<p>Через <code>DISTINCT ON (key) ... ORDER BY key, updated_at DESC, loaded_at DESC</code>: коротко и эффективно. Вариант с <code>ROW_NUMBER</code> переносим между СУБД.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_lag_features" data-difficulty="medium" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;CREATE TABLE orders(user_id INTEGER, order_date TEXT, amount REAL);&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO orders VALUES
+        (1, '2026-01-01', 100), (1, '2026-01-04', 200), (1, '2026-01-05', 60), (1, '2026-01-15', 40);
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO orders VALUES
+        (2, '2026-02-10', 10), (1, '2026-01-31', 5), (2, '2026-03-01', 20), (1, '2026-02-01', 7);
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [
+    (1, &quot;2026-01-01&quot;, 100.0, None, None, 100.0),
+    (1, &quot;2026-01-04&quot;, 200.0, 100.0, 3, 150.0),
+    (1, &quot;2026-01-05&quot;, 60.0, 200.0, 1, 120.0),
+    (1, &quot;2026-01-15&quot;, 40.0, 60.0, 10, 100.0),
+], &quot;Один пользователь: LAG, интервал и скользящее среднее&quot;
+assert run(DATA_B) == [
+    (1, &quot;2026-01-31&quot;, 5.0, None, None, 5.0),
+    (1, &quot;2026-02-01&quot;, 7.0, 5.0, 1, 6.0),
+    (2, &quot;2026-02-10&quot;, 10.0, None, None, 10.0),
+    (2, &quot;2026-03-01&quot;, 20.0, 10.0, 19, 15.0),
+], &quot;Два пользователя: окна не должны перетекать друг в друга&quot;">
+  <div class="name question-difficulty-medium" id="practise_pg_lag_features">
+    Лаговые фичи и скользящее среднее по пользователю
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Собрать поведенческие фичи для модели прямо в SQL: значение предыдущего события (<code>LAG</code>), интервал между событиями и скользящее среднее по последним заказам с явно заданной рамкой окна.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Проверка идёт в <b>SQLite</b>, даты хранятся строками <code>&#39;YYYY-MM-DD&#39;</code>.</p>
+<p>Отличия от PostgreSQL в этой задаче:</p>
+<ul>
+<li>разница дат: в Postgres для колонок типа <code>date</code> это просто <code>order_date - LAG(order_date) OVER (...)</code>, результат — целое число дней. В SQLite считай через <code>julianday(a) - julianday(b)</code> и приводи к целому: <code>CAST(... AS INTEGER)</code>;</li>
+<li><code>LAG</code>, <code>AVG(...) OVER (... ROWS BETWEEN ...)</code>, <code>WINDOW w AS (...)</code> работают одинаково.</li>
+</ul>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_window_functions" rel="noopener" target="_blank" class="badge badge-link">LAG / LEAD</a>
+                      <span class="badge"><code>ROWS BETWEEN 2 PRECEDING AND CURRENT ROW</code></span>
+                      <span class="badge"><code>WINDOW</code>-клауза</span>
+                      <a href="../../practise/db/postgresql.html#pg_null" rel="noopener" target="_blank" class="badge badge-link">NULL у первой строки</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Таблица <code>orders(user_id INTEGER, order_date TEXT, amount REAL)</code>. У одного пользователя в один день бывает не больше одного заказа.</p>
+<p>Для <b>каждого</b> заказа верни колонки:</p>
+<ul>
+<li><code>user_id</code>, <code>order_date</code>, <code>amount</code>;</li>
+<li><code>prev_amount</code> — сумма предыдущего заказа этого пользователя (<code>NULL</code> у первого заказа);</li>
+<li><code>days_since_prev</code> — сколько дней прошло с предыдущего заказа, целое число (<code>NULL</code> у первого);</li>
+<li><code>avg_last_3</code> — среднее <code>amount</code> по текущему и двум предыдущим заказам пользователя, <code>ROUND(..., 2)</code>. Если заказов раньше меньше двух, усредняй по тем, что есть.</li>
+</ul>
+<p>Сортировка: <code>user_id</code>, <code>order_date</code>.</p>
+<p>Пример для пользователя с заказами <code>2026-01-01: 100</code>, <code>2026-01-04: 200</code>, <code>2026-01-05: 60</code>, <code>2026-01-15: 40</code>:</p>
+<table class="task-table">
+<thead><tr><th>order_date</th><th>amount</th><th>prev_amount</th><th>days_since_prev</th><th>avg_last_3</th></tr></thead>
+<tbody>
+<tr><td>2026-01-01</td><td>100</td><td>NULL</td><td>NULL</td><td>100.0</td></tr>
+<tr><td>2026-01-04</td><td>200</td><td>100</td><td>3</td><td>150.0</td></tr>
+<tr><td>2026-01-05</td><td>60</td><td>200</td><td>1</td><td>120.0</td></tr>
+<tr><td>2026-01-15</td><td>40</td><td>60</td><td>10</td><td>100.0</td></tr>
+</tbody>
+</table><p>Не забудь <code>PARTITION BY user_id</code>: без него <code>LAG</code> возьмёт заказ <b>другого</b> пользователя, и фича тихо протечёт между клиентами.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что возвращают LAG и LEAD?</b></p>
+<p><code>LAG(x)</code> — значение <code>x</code> из предыдущей строки окна, <code>LEAD(x)</code> — из следующей, в порядке <code>ORDER BY</code> окна. Для первой (или последней) строки результат <code>NULL</code>, если не задано значение по умолчанию.</p>
+</li>
+<li><p><b>Почему для лаговых фичей обязателен PARTITION BY user_id?</b></p>
+<p>Без разбиения окно идёт по всей таблице, и у первого заказа пользователя «предыдущим» окажется заказ другого клиента. Фича тихо протечёт между пользователями, и ошибки не будет.</p>
+</li>
+<li><p><b>Чем ROWS BETWEEN 2 PRECEDING AND CURRENT ROW отличается от рамки по умолчанию?</b></p>
+<p>При <code>ORDER BY</code> рамка по умолчанию — <code>RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code>, то есть накопительное среднее с начала истории. <code>ROWS BETWEEN 2 PRECEDING AND CURRENT ROW</code> берёт ровно текущую и две предыдущие строки, это и есть скользящее окно.</p>
+</li>
+<li><p><b>Почему у первых строк скользящее среднее считается по меньшему числу значений?</b></p>
+<p>Рамка обрезается границей партиции: если предыдущих строк меньше двух, <code>AVG</code> усредняет только те, что есть. Если нужна полная история, такие строки фильтруют или помечают отдельно.</p>
+</li>
+<li><p><b>Как посчитать разницу дат в PostgreSQL и в SQLite?</b></p>
+<p>В PostgreSQL для типа <code>date</code> вычитание сразу даёт целое число дней: <code>d2 - d1</code>. В SQLite даты хранятся строками, поэтому считают <code>julianday(d2) - julianday(d1)</code> и приводят к целому.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_retention" data-difficulty="medium" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;&quot;&quot;
+        CREATE TABLE users(user_id INTEGER, signup_date TEXT);
+        CREATE TABLE events(user_id INTEGER, event_date TEXT);
+    &quot;&quot;&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO users VALUES (1, '2026-01-10'), (2, '2026-01-20'), (3, '2026-01-25');
+    INSERT INTO events VALUES (1, '2026-01-12'), (1, '2026-01-13'), (1, '2026-01-13'), (2, '2026-01-20');
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO users VALUES
+        (1, '2026-01-31'), (2, '2026-02-01'), (3, '2026-02-05'), (4, '2026-02-10'), (5, '2026-02-28');
+    INSERT INTO events VALUES
+        (1, '2026-02-07'),
+        (2, '2026-02-09'),
+        (3, '2026-02-06'), (3, '2026-02-07'), (3, '2026-02-08'),
+        (4, '2026-02-17'), (4, '2026-02-18'),
+        (5, '2026-03-07');
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [(&quot;2026-01&quot;, 3, 1, 0.33)], &quot;Одна когорта: дубли событий, день регистрации, пользователь без событий&quot;
+assert run(DATA_B) == [(&quot;2026-01&quot;, 1, 1, 1.0), (&quot;2026-02&quot;, 4, 3, 0.75)], &quot;Граница 7-го дня, переход через месяц, деление без обрезания&quot;">
+  <div class="name question-difficulty-medium" id="practise_pg_retention">
+    Retention 7-го дня по когортам
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Посчитать продуктовую метрику, которую часто используют и как таргет, и как фичу: долю пользователей когорты, вернувшихся в течение недели после регистрации. По пути разобрать три ловушки: дубли от <code>JOIN</code>, потерю пользователей без событий и целочисленное деление.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Проверка идёт в <b>SQLite</b>, даты хранятся строками <code>&#39;YYYY-MM-DD&#39;</code>.</p>
+<p>Как то же самое пишется в PostgreSQL:</p>
+<ul>
+<li>месяц когорты — <code>to_char(date_trunc(&#39;month&#39;, signup_date), &#39;YYYY-MM&#39;)</code>. В SQLite: <code>strftime(&#39;%Y-%m&#39;, signup_date)</code>;</li>
+<li>дата через 7 дней — <code>signup_date + 7</code> (или <code>+ INTERVAL &#39;7 days&#39;</code>). В SQLite: <code>date(signup_date, &#39;+7 days&#39;)</code>;</li>
+<li>целочисленное деление ведёт себя одинаково: <code>3 / 4 = 0</code> в обеих СУБД, поэтому одно из чисел нужно привести к дробному (<code>1.0 * x / y</code> или <code>x::numeric / y</code> в Postgres).</li>
+</ul>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_group_by" rel="noopener" target="_blank" class="badge badge-link">GROUP BY</a>
+                      <a href="../../practise/db/postgresql.html#pg_cte_subqueries" rel="noopener" target="_blank" class="badge badge-link">EXISTS / CTE</a>
+                      <a href="../../practise/db/postgresql.html#pg_joins" rel="noopener" target="_blank" class="badge badge-link">LEFT JOIN + COUNT(DISTINCT)</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Таблицы:</p>
+<ul>
+<li><code>users(user_id INTEGER, signup_date TEXT)</code> — дата регистрации;</li>
+<li><code>events(user_id INTEGER, event_date TEXT)</code> — активность, у одного пользователя может быть много событий, в том числе несколько в один день.</li>
+</ul>
+<p>Пользователь считается <b>удержанным (retained D7)</b>, если у него есть хотя бы одно событие в дни с 1-го по 7-й после регистрации включительно: <code>signup_date &lt; event_date &lt;= signup_date + 7 дней</code>. Активность в день регистрации не считается.</p>
+<p>Когорта — месяц регистрации в формате <code>&#39;YYYY-MM&#39;</code>. Верни по строке на когорту: <code>cohort</code>, <code>cohort_size</code> (сколько пользователей зарегистрировалось), <code>retained</code> (сколько из них удержались), <code>retention</code> (= <code>retained / cohort_size</code>, <code>ROUND(..., 2)</code>). Сортировка по <code>cohort</code>.</p>
+<p>Пример: в январе зарегистрировались 3 человека. Первый заходил на 2-й и 3-й день, второй только в день регистрации, третий не заходил вообще. Ответ: <code>(&#39;2026-01&#39;, 3, 1, 0.33)</code>.</p>
+<p>Проверь себя: пользователь без единого события должен попасть в <code>cohort_size</code>, а пять событий одного пользователя должны дать в <code>retained</code> единицу, а не пятёрку.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему при подсчёте удержанных пользователей нельзя просто COUNT(*) после JOIN с событиями?</b></p>
+<p>У одного пользователя много событий, и JOIN размножит его строки. Нужно считать пользователей, а не события: через <code>COUNT(DISTINCT user_id)</code> или через <code>EXISTS</code>, который даёт по одному флагу на пользователя.</p>
+</li>
+<li><p><b>Почему пользователь без событий должен попасть в знаменатель и как этого добиться?</b></p>
+<p>Retention — доля от всей когорты, включая тех, кто не вернулся. <code>INNER JOIN</code> с событиями потеряет таких пользователей, поэтому основой берут таблицу пользователей и используют <code>LEFT JOIN</code> или <code>EXISTS</code>.</p>
+</li>
+<li><p><b>Чем опасно целочисленное деление в метриках-долях?</b></p>
+<p>В SQL <code>3 / 4</code> для целых даёт <code>0</code>. Одно из чисел приводят к дробному типу: <code>1.0 * a / b</code> или <code>a::numeric / b</code> в PostgreSQL.</p>
+</li>
+<li><p><b>Как аккуратно задать окно «с 1-го по 7-й день после регистрации»?</b></p>
+<p>Строгим неравенством слева и нестрогим справа: <code>signup &lt; event_date &lt;= signup + 7 дней</code>. Границы окна — частый источник ошибки на единицу, поэтому их проверяют на краевых датах.</p>
+</li>
+<li><p><b>Как выделить месяц когорты в PostgreSQL?</b></p>
+<p><code>date_trunc(&#39;month&#39;, signup_date)</code> возвращает начало месяца, а для строки вида <code>&#39;YYYY-MM&#39;</code> результат форматируют через <code>to_char(..., &#39;YYYY-MM&#39;)</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_pit_join" data-difficulty="hard" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;&quot;&quot;
+        CREATE TABLE labels(user_id INTEGER, prediction_time TEXT, target INTEGER);
+        CREATE TABLE snapshots(user_id INTEGER, computed_at TEXT, avg_check REAL);
+        CREATE TABLE orders(user_id INTEGER, order_ts TEXT, amount REAL);
+    &quot;&quot;&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO labels VALUES (1, '2026-03-10 12:00:00', 0), (1, '2026-03-20 12:00:00', 1);
+    INSERT INTO snapshots VALUES (1, '2026-03-01 00:00:00', 500), (1, '2026-03-11 00:00:00', 900);
+    INSERT INTO orders VALUES
+        (1, '2026-02-01 10:00:00', 50), (1, '2026-02-20 10:00:00', 70),
+        (1, '2026-03-09 10:00:00', 30), (1, '2026-03-15 10:00:00', 90);
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO labels VALUES (2, '2026-05-01 00:00:00', 1), (3, '2026-05-01 00:00:00', 0);
+    INSERT INTO snapshots VALUES
+        (2, '2026-05-01 00:00:00', 111),
+        (2, '2026-04-30 23:59:59', 222),
+        (3, '2026-06-01 00:00:00', 333);
+    INSERT INTO orders VALUES
+        (2, '2026-04-01 00:00:00', 1), (2, '2026-03-31 23:59:59', 1),
+        (2, '2026-05-01 00:00:00', 1), (3, '2026-04-15 00:00:00', 1);
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [
+    (1, &quot;2026-03-10 12:00:00&quot;, 0, 500.0, 2),
+    (1, &quot;2026-03-20 12:00:00&quot;, 1, 900.0, 3),
+], &quot;Снимок из будущего не берётся, окно 30 дней сдвигается вместе с прогнозом&quot;
+assert run(DATA_B) == [
+    (2, &quot;2026-05-01 00:00:00&quot;, 1, 222.0, 1),
+    (3, &quot;2026-05-01 00:00:00&quot;, 0, None, 1),
+], &quot;Границы: снимок ровно в момент прогноза исключён, левая граница окна включена, правая исключена&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="practise_pg_pit_join">
+    Point-in-time join фичей к таргету без утечки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Собрать обучающую выборку так, как это делает feature store: к каждому моменту предсказания подтянуть только те значения фичей, которые были <b>известны до</b> этого момента. Отдельно посчитать агрегат за скользящее окно, которое заканчивается в момент предсказания.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Проверка идёт в <b>SQLite</b>, моменты времени хранятся строками <code>&#39;YYYY-MM-DD HH:MM:SS&#39;</code>, такие строки корректно сравниваются через <code>&lt;</code> и <code>&gt;=</code>.</p>
+<p>Как то же самое пишется в PostgreSQL:</p>
+<ul>
+<li>«последний снимок до момента» — обычно <code>LEFT JOIN LATERAL (SELECT ... ORDER BY computed_at DESC LIMIT 1) ON true</code>. В SQLite нет <code>LATERAL</code>, но сработает коррелированный подзапрос в <code>SELECT</code> с тем же <code>ORDER BY ... LIMIT 1</code>, и в Postgres он тоже валиден;</li>
+<li>граница окна — <code>prediction_time - INTERVAL &#39;30 days&#39;</code>. В SQLite: <code>datetime(prediction_time, &#39;-30 days&#39;)</code>.</li>
+</ul>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_point_in_time" rel="noopener" target="_blank" class="badge badge-link">Point-in-time join</a>
+                      <a href="../../practise/db/postgresql.html#pg_cte_subqueries" rel="noopener" target="_blank" class="badge badge-link">Коррелированный подзапрос / LATERAL</a>
+                      <span class="badge">Полуинтервал <code>[t - 30d, t)</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Модель оттока делает прогноз в момент <code>prediction_time</code>. Таблицы:</p>
+<ul>
+<li><code>labels(user_id INTEGER, prediction_time TEXT, target INTEGER)</code> — моменты прогноза и истинный ответ;</li>
+<li><code>snapshots(user_id INTEGER, computed_at TEXT, avg_check REAL)</code> — фича «средний чек», которую пересчитывает ночная джоба; <code>computed_at</code> — момент, когда значение стало доступно;</li>
+<li><code>orders(user_id INTEGER, order_ts TEXT, amount REAL)</code> — заказы.</li>
+</ul>
+<p>Для каждой строки <code>labels</code> верни: <code>user_id</code>, <code>prediction_time</code>, <code>target</code>,</p>
+<ul>
+<li><code>avg_check</code> — значение из <b>последнего</b> снимка с <code>computed_at</code> <b>строго раньше</b> <code>prediction_time</code>. Если такого снимка нет, <code>NULL</code>;</li>
+<li><code>orders_30d</code> — число заказов пользователя в полуинтервале <code>[prediction_time - 30 дней, prediction_time)</code>: левая граница включена, правая нет. Если заказов нет, <code>0</code>.</li>
+</ul>
+<p>Сортировка: <code>user_id</code>, <code>prediction_time</code>.</p>
+<p>Почему «строго раньше»: снимок, посчитанный ровно в момент прогноза, в проде ещё не успел бы доехать до модели. Взять его — значит заглянуть в будущее, и офлайн-метрика окажется лучше продовой.</p>
+<p>Пример: прогноз в <code>2026-03-10 12:00:00</code>, снимки от <code>2026-03-01 00:00:00</code> (чек 500) и <code>2026-03-11 00:00:00</code> (чек 900). Правильный <code>avg_check = 500</code>. Если взять просто последний снимок пользователя, получится 900, то есть утечка.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое point-in-time join?</b></p>
+<p>Соединение, при котором к каждой строке таргета подтягиваются значения фичей, известные на момент прогноза, то есть последние с временем доступности раньше этого момента. Так обучающая выборка воспроизводит то, что модель реально видела бы в проде.</p>
+</li>
+<li><p><b>Почему условие «строго раньше момента прогноза», а не «не позже»?</b></p>
+<p>Значение, посчитанное ровно в момент прогноза, в проде ещё не успело бы дойти до модели. Нестрогое условие добавляет в обучение информацию из будущего, и офлайн-метрики получаются завышенными.</p>
+</li>
+<li><p><b>Почему окно агрегата задают полуинтервалом [t − 30 дней, t)?</b></p>
+<p>Правая граница исключает события в момент прогноза и после него, это защита от утечки. Левая граница включена, чтобы соседние окна не теряли и не дублировали события на стыке.</p>
+</li>
+<li><p><b>Как в PostgreSQL взять последнее значение фичи до момента прогноза для каждой строки?</b></p>
+<p>Через <code>LEFT JOIN LATERAL (SELECT ... WHERE ... &lt; t ORDER BY time DESC LIMIT 1) ON true</code> или коррелированный подзапрос с тем же <code>ORDER BY ... LIMIT 1</code>. Индекс <code>(user_id, time)</code> делает такой поиск быстрым.</p>
+</li>
+<li><p><b>Почему нельзя просто взять последний снимок фичи для пользователя?</b></p>
+<p>Последний снимок в таблице посчитан уже после многих прогнозов. Он содержит информацию о будущем относительно этих прогнозов, поэтому модель на обучении «подсматривает» ответ, а в проде качество падает.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_pg_date_gaps" data-difficulty="medium" data-tests="import sqlite3
+
+def run(script):
+    con = sqlite3.connect(&quot;:memory:&quot;)
+    con.executescript(&quot;CREATE TABLE daily_sales(sale_date TEXT, revenue REAL);&quot; + script)
+    return con.execute(QUERY).fetchall()
+
+DATA_A = &quot;&quot;&quot;
+    INSERT INTO daily_sales VALUES
+        ('2026-01-01', 10), ('2026-01-02', 12), ('2026-01-05', 9), ('2026-01-06', 11), ('2026-01-08', 15);
+&quot;&quot;&quot;
+
+DATA_B = &quot;&quot;&quot;
+    INSERT INTO daily_sales VALUES
+        ('2026-03-02', 5), ('2026-02-27', 1), ('2026-02-28', 2);
+&quot;&quot;&quot;
+
+DATA_C = &quot;&quot;&quot;
+    INSERT INTO daily_sales VALUES ('2026-04-01', 1), ('2026-04-02', 1), ('2026-04-03', 1);
+&quot;&quot;&quot;
+
+assert run(DATA_A) == [(&quot;2026-01-03&quot;, &quot;2026-01-04&quot;, 2), (&quot;2026-01-07&quot;, &quot;2026-01-07&quot;, 1)], &quot;Две дыры разной длины&quot;
+assert run(DATA_B) == [(&quot;2026-03-01&quot;, &quot;2026-03-01&quot;, 1)], &quot;Переход через конец февраля, строки не отсортированы&quot;
+assert run(DATA_C) == [], &quot;Без пропусков — пустой результат&quot;">
+  <div class="name question-difficulty-medium" id="practise_pg_date_gaps">
+    Поиск пропущенных дней во временном ряду
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти дыры в ежедневных данных до того, как на них обучится модель временных рядов. Пропущенный день — частая причина странных лагов и «прыгающих» скользящих средних: <code>LAG(1)</code> незаметно превращается в «значение неделю назад».</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как устроена проверка">
+<p>Решение — SQL-запрос в строке <code>QUERY</code>. Проверка идёт в <b>SQLite</b>, даты хранятся строками <code>&#39;YYYY-MM-DD&#39;</code>.</p>
+<p>Как то же самое пишется в PostgreSQL:</p>
+<ul>
+<li>сдвиг даты на день — <code>sale_date + 1</code> для типа <code>date</code>. В SQLite: <code>date(sale_date, &#39;+1 day&#39;)</code>;</li>
+<li>разница дат в днях — <code>sale_date - prev_date</code>. В SQLite: <code>julianday(a) - julianday(b)</code>;</li>
+<li>в Postgres есть и второй способ: построить полный календарь через <code>generate_series(min_date, max_date, INTERVAL &#39;1 day&#39;)</code> и найти дни без данных через anti-join (<code>LEFT JOIN ... WHERE ... IS NULL</code>). Здесь ответ нужен интервалами, поэтому удобнее <code>LAG</code>.</li>
+</ul>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/postgresql.html#pg_window_functions" rel="noopener" target="_blank" class="badge badge-link">LAG</a>
+                      <a href="../../practise/db/postgresql.html#pg_cte_subqueries" rel="noopener" target="_blank" class="badge badge-link">CTE</a>
+                      <span class="badge">Gaps and islands</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Таблица <code>daily_sales(sale_date TEXT, revenue REAL)</code>, по одной строке на день, даты уникальны. Некоторые дни пропущены: джоба выгрузки падала.</p>
+<p>Верни <b>интервалы пропусков</b>: <code>gap_start</code> (первый пропущенный день), <code>gap_end</code> (последний пропущенный день), <code>missing_days</code> (сколько дней пропущено подряд, целое число). Сортировка по <code>gap_start</code>. Если пропусков нет, результат пустой.</p>
+<p>Пропуски до первой и после последней даты в таблице не ищем: только дыры <b>между</b> существующими датами.</p>
+<p>Пример: даты <code>2026-01-01</code>, <code>2026-01-02</code>, <code>2026-01-05</code>, <code>2026-01-06</code>, <code>2026-01-08</code>. Ответ:</p>
+<table class="task-table">
+<thead><tr><th>gap_start</th><th>gap_end</th><th>missing_days</th></tr></thead>
+<tbody>
+<tr><td>2026-01-03</td><td>2026-01-04</td><td>2</td></tr>
+<tr><td>2026-01-07</td><td>2026-01-07</td><td>1</td></tr>
+</tbody>
+</table><p>Идея: сравни каждую дату с предыдущей через <code>LAG</code>. Если разница больше одного дня, между ними дыра.</p>
+
+</div>
+<div class="code-block" data-lang="python">QUERY = """
+-- напиши запрос здесь
+"""</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему пропущенные дни опасны для фичей временного ряда?</b></p>
+<p>Лаги и скользящие окна по строкам (<code>LAG(1)</code>, <code>ROWS BETWEEN 6 PRECEDING</code>) считают строки, а не дни. Если дня нет, «вчера» незаметно становится «три дня назад», и фича меняет смысл.</p>
+</li>
+<li><p><b>Как с помощью LAG найти дыры в последовательности дат?</b></p>
+<p>Для каждой даты берут предыдущую дату в сортировке и считают разницу. Если она больше одного дня, между ними пропуск, а его границы — предыдущая дата + 1 и текущая − 1.</p>
+</li>
+<li><p><b>Как найти пропущенные дни в PostgreSQL другим способом?</b></p>
+<p>Построить полный календарь через <code>generate_series(min_date, max_date, INTERVAL &#39;1 day&#39;)</code> и найти дни без данных anti-join&#39;ом: <code>LEFT JOIN ... WHERE t.date IS NULL</code>.</p>
+</li>
+<li><p><b>Что такое задача gaps and islands?</b></p>
+<p>Класс задач про поиск непрерывных отрезков («островов») и промежутков между ними («дыр») в упорядоченной последовательности: сессии пользователей, серии дней активности, простои сервиса. Решают их через оконные функции <code>LAG</code> и <code>ROW_NUMBER</code>.</p>
+</li>
+<li><p><b>Зачем ORDER BY внутри OVER, если строки в таблице уже лежат по порядку?</b></p>
+<p>Порядок хранения строк в SQL не гарантирован. Без <code>ORDER BY</code> в окне «предыдущая строка» не определена, и результат может зависеть от порядка вставки.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

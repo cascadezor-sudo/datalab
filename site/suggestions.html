@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Предложения</title>
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="assets/css/styles.css" rel="stylesheet" />
+    <link href="assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="assets/css/navigation.css" rel="stylesheet" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/components/achievement-api.js"></script>
+    <script src="assets/js/components/suggestions.js"></script>
+    <style>
+      .sg-form,
+      .sg-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 20px;
+      }
+      .sg-form {
+        display: grid;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      .sg-form h2 {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        font-size: 1.15rem;
+      }
+      .sg-form input,
+      .sg-form textarea,
+      .sg-form select,
+      .sg-card select,
+      .sg-card input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+      }
+      .sg-form textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+      .sg-form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+      .sg-form-row select {
+        width: auto;
+        flex: 1 1 180px;
+      }
+      .sg-button {
+        padding: 10px 18px;
+        font: inherit;
+        font-weight: 600;
+        color: #fff;
+        background: var(--brand);
+        border: 0;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+      }
+      .sg-button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .sg-form-status {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+      .sg-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .sg-tab,
+      .sg-chip-filter {
+        padding: 6px 14px;
+        font: inherit;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-full);
+        cursor: pointer;
+      }
+      .sg-tab[aria-pressed="true"],
+      .sg-chip-filter[aria-pressed="true"] {
+        color: var(--brand-text, var(--brand));
+        border-color: var(--brand);
+        background: var(--accent-soft, transparent);
+      }
+      .sg-list {
+        display: grid;
+        gap: 12px;
+      }
+      .sg-card {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .sg-vote {
+        display: grid;
+        justify-items: center;
+        min-width: 56px;
+        padding: 8px 6px;
+        font: inherit;
+        font-weight: 700;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+      }
+      .sg-vote[aria-pressed="true"] {
+        color: var(--brand);
+        border-color: var(--brand);
+      }
+      .sg-vote:disabled {
+        cursor: default;
+      }
+      .sg-vote svg {
+        width: 18px;
+        height: 18px;
+      }
+      .sg-title {
+        margin: 0 0 6px;
+        padding: 0;
+        border: 0;
+        font-size: 1.05rem;
+        overflow-wrap: anywhere;
+      }
+      .sg-body {
+        margin: 0 0 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--text-secondary, var(--text));
+      }
+      .sg-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+      .sg-chip {
+        padding: 2px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-full);
+      }
+      .sg-chip[data-status="planned"],
+      .sg-chip[data-status="in_progress"] {
+        color: var(--brand);
+        border-color: var(--brand);
+      }
+      .sg-chip[data-status="done"] {
+        color: var(--success);
+        border-color: var(--success);
+      }
+      .sg-note {
+        margin: 10px 0 0;
+        padding: 8px 12px;
+        font-size: 0.9rem;
+        border-left: 3px solid var(--brand);
+        background: var(--bg);
+        border-radius: var(--radius-sm);
+      }
+      .sg-staff {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .sg-staff select {
+        width: auto;
+        flex: 0 1 180px;
+      }
+      .sg-staff input {
+        flex: 1 1 220px;
+        width: auto;
+      }
+      .sg-empty {
+        padding: 24px;
+        text-align: center;
+        color: var(--text-muted);
+      }
+      @media (width <= 560px) {
+        .sg-card {
+          grid-template-columns: 1fr;
+        }
+        .sg-vote {
+          grid-auto-flow: column;
+          gap: 6px;
+          justify-self: start;
+        }
+      }
+    </style>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body class="main" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1>Предложения</h1>
+            <p class="subtitle">
+              Предлагай, что улучшить на платформе, и голосуй за идеи других.
+              Самые популярные забираем в работу первыми.
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <form id="sg-form" class="sg-form">
+        <h2>Предложить идею</h2>
+        <input
+          id="sg-title"
+          name="title"
+          maxlength="120"
+          required
+          placeholder="Коротко: что улучшить"
+          aria-label="Заголовок"
+        />
+        <textarea
+          id="sg-body"
+          name="body"
+          maxlength="2000"
+          placeholder="Подробнее: зачем это нужно и как ты это видишь"
+          aria-label="Описание"
+        ></textarea>
+        <div class="sg-form-row">
+          <select id="sg-category" name="category" aria-label="Категория">
+            <option value="site">Сайт</option>
+            <option value="materials">Материалы</option>
+            <option value="mentorship">Менторство</option>
+            <option value="other">Другое</option>
+          </select>
+          <button type="submit" class="sg-button">Опубликовать</button>
+        </div>
+        <p id="sg-form-status" class="sg-form-status" aria-live="polite"></p>
+      </form>
+
+      <div class="sg-toolbar" role="group" aria-label="Статус">
+        <button
+          type="button"
+          class="sg-tab"
+          data-view="active"
+          aria-pressed="true"
+        >
+          Активные
+        </button>
+        <button
+          type="button"
+          class="sg-tab"
+          data-view="done"
+          aria-pressed="false"
+        >
+          Внедрено
+        </button>
+        <button
+          type="button"
+          class="sg-tab"
+          data-view="archive"
+          aria-pressed="false"
+        >
+          Архив
+        </button>
+      </div>
+      <div class="sg-toolbar" role="group" aria-label="Категория">
+        <button
+          type="button"
+          class="sg-chip-filter"
+          data-category=""
+          aria-pressed="true"
+        >
+          Все
+        </button>
+        <button
+          type="button"
+          class="sg-chip-filter"
+          data-category="site"
+          aria-pressed="false"
+        >
+          Сайт
+        </button>
+        <button
+          type="button"
+          class="sg-chip-filter"
+          data-category="materials"
+          aria-pressed="false"
+        >
+          Материалы
+        </button>
+        <button
+          type="button"
+          class="sg-chip-filter"
+          data-category="mentorship"
+          aria-pressed="false"
+        >
+          Менторство
+        </button>
+        <button
+          type="button"
+          class="sg-chip-filter"
+          data-category="other"
+          aria-pressed="false"
+        >
+          Другое
+        </button>
+      </div>
+
+      <div id="sg-list" class="sg-list" aria-live="polite">
+        <p class="sg-empty">Загружаем предложения…</p>
+      </div>
+    </main>
+
+    <script src="assets/js/components/navigation.js"></script>
+    <script src="authGuard.js"></script>
+  </body>
+</html>

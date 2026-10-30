@@ -1,0 +1,2478 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Настройки</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css" />
+    <link rel="stylesheet" href="../assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="../assets/css/navigation.css" />
+    <link rel="stylesheet" href="../assets/css/profile.css" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<style>
+      /* Achievement Status Selector Styles */
+      .achievement-status-selector {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Subgroup selector styles */
+      .subgroup-select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .subgroup-select:hover {
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+
+      .subgroup-select:focus {
+        outline: none;
+        border-color: #6a5acd;
+        box-shadow: 0 0 0 3px rgba(106, 90, 205, 0.1);
+      }
+
+      [data-theme="dark"] .subgroup-select {
+        background: rgba(30, 41, 59, 0.5);
+        border-color: rgba(71, 85, 105, 0.5);
+      }
+
+      .achievement-preview {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: rgba(106, 90, 205, 0.1);
+        border: 2px solid rgba(106, 90, 205, 0.2);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+
+      .achievement-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+      }
+
+      .achievement-text {
+        font-weight: 500;
+        color: var(--text-primary);
+        flex: 1;
+      }
+
+      .btn-select-achievement {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        align-self: flex-start;
+      }
+
+      .btn-select-achievement:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+
+      .btn-select-achievement:active {
+        transform: translateY(0);
+      }
+
+      /* Темная тема для кнопки выбора достижения */
+      [data-theme="dark"] .btn-select-achievement {
+        background: linear-gradient(135deg, #4c3a8a, #6b46c1);
+        box-shadow: 0 2px 4px rgba(106, 90, 205, 0.3);
+      }
+
+      [data-theme="dark"] .btn-select-achievement:hover {
+        background: linear-gradient(135deg, #3b2f6b, #4c3a8a);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.4);
+      }
+
+      /* Dark theme support */
+      [data-theme="dark"] .achievement-preview {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+
+      [data-theme="dark"] .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.2);
+        border-color: rgba(106, 90, 205, 0.4);
+      }
+
+      /* Offers section styles */
+      .offers-section {
+        margin-top: 8px;
+      }
+
+      .section-hint {
+        margin-top: 12px;
+        text-align: center;
+      }
+
+      .section-hint small {
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-style: italic;
+      }
+
+      .offers-list {
+        margin-bottom: 12px;
+      }
+
+      .offers-list .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px 20px;
+        background: var(--card-bg);
+        border: 2px dashed var(--border-color);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .offers-list .empty-state:hover {
+        border-color: rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.02);
+      }
+
+      /* Profile actions styles */
+      .profile-actions {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      }
+
+      .btn-secondary {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        font-size: 14px;
+      }
+
+      .btn-secondary:hover {
+        background: var(--input-bg);
+        border-color: var(--text-secondary);
+        color: var(--text-primary);
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary.danger {
+        color: #ef4444;
+        border-color: #ef4444;
+      }
+
+      .btn-secondary.danger:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+      }
+
+      /* Achievement buttons styles */
+      .achievement-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .btn-clear-status {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-clear-status:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+        transform: translateY(-1px);
+      }
+
+      .offer-item {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+
+      .offer-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        border-color: rgba(16, 185, 129, 0.3);
+      }
+
+      .offer-info {
+        flex: 1;
+      }
+
+      .offer-company {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .offer-details {
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      .offer-date {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .offer-notes {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .offer-notes code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+      }
+
+      .offer-notes ul {
+        margin: 4px 0;
+        padding-left: 16px;
+      }
+
+      .offer-notes li {
+        margin: 2px 0;
+      }
+
+      .offer-notes strong {
+        font-weight: 600;
+      }
+
+      .offer-notes p {
+        margin: 4px 0;
+      }
+
+      .offer-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn-edit-offer,
+      .btn-delete-offer {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-edit-offer:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+        background: rgba(59, 130, 246, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-delete-offer:hover {
+        border-color: #ef4444;
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-add-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        width: 100%;
+        font-size: 14px;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-add-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-add-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Темная тема для кнопки добавления оффера */
+      [data-theme="dark"] .btn-add-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-add-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      /* Offer modal styles */
+      .offer-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+      }
+
+      .offer-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .offer-modal-content {
+        background: var(--card-bg);
+        border-radius: 12px;
+        padding: 24px;
+        width: 90%;
+        max-width: 400px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      }
+
+      .offer-modal h3 {
+        margin: 0 0 16px 0;
+        color: var(--text-primary);
+      }
+
+      .offer-modal .field {
+        margin-bottom: 16px;
+      }
+
+      .offer-modal .field input,
+      .offer-modal .field textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+      }
+
+      .offer-modal .field textarea {
+        resize: vertical;
+        min-height: 60px;
+      }
+
+      .offer-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+
+      .btn-save-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-save-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-save-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Темная тема для кнопки сохранения оффера */
+      [data-theme="dark"] .btn-save-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-save-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+      }
+
+      .btn-cancel-offer {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      /* Preview styles for offers */
+      .preview-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 8px;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+
+      .markdown-preview {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 40px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Markdown editor styles */
+      .markdown-editor {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .markdown-tabs {
+        display: flex;
+        background: var(--input-bg);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .markdown-tab {
+        flex: 1;
+        background: none;
+        border: none;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 14px;
+        transition: all 0.2s ease;
+      }
+
+      .markdown-tab.active {
+        background: var(--card-bg);
+        color: var(--text-primary);
+        border-bottom: 2px solid #3b82f6;
+      }
+
+      .markdown-tab:hover:not(.active) {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--text-primary);
+      }
+
+      .markdown-preview {
+        padding: 12px;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 60px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Achievement Selection Modal */
+      .achievement-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .achievement-modal-content {
+        background: var(--card-bg);
+        border-radius: 20px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .achievement-modal-scrollable {
+        padding: 24px 24px 0 24px;
+        overflow-y: auto;
+        flex: 1;
+        /* Стили для скроллбара */
+        scrollbar-width: thin;
+        scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.5);
+        border-radius: 4px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(156, 163, 175, 0.7);
+      }
+
+      /* Темная тема для скроллбара */
+      [data-theme="dark"] .achievement-modal-scrollable {
+        scrollbar-color: rgba(75, 85, 99, 0.6) transparent;
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(75, 85, 99, 0.6);
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(75, 85, 99, 0.8);
+      }
+
+      .achievement-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .achievement-modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+      }
+
+      .achievement-modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-modal-close:hover {
+        background: var(--border-color);
+        color: var(--text-primary);
+      }
+
+      .achievement-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .achievement-option {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: var(--card-bg);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-option:hover {
+        border-color: #6a5acd;
+        background: rgba(106, 90, 205, 0.05);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.1);
+      }
+
+      .achievement-option.selected {
+        border-color: #6a5acd;
+        background: rgba(106, 90, 205, 0.1);
+        box-shadow: 0 0 0 2px rgba(106, 90, 205, 0.2);
+      }
+
+      .achievement-option.locked {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: var(--border-color);
+      }
+
+      .achievement-option.locked:hover {
+        transform: none;
+        box-shadow: none;
+        border-color: var(--border-color);
+        background: var(--border-color);
+      }
+
+      .achievement-option-icon {
+        font-size: 32px;
+        flex-shrink: 0;
+      }
+
+      .achievement-option-content {
+        flex: 1;
+      }
+
+      .achievement-option-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .achievement-option-description {
+        font-size: 14px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .achievement-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        padding: 16px 24px 24px 24px;
+        border-top: 1px solid var(--border-color);
+        background: var(--card-bg);
+        border-radius: 0 0 20px 20px;
+        flex-shrink: 0;
+      }
+
+      .btn-cancel {
+        background: var(--border-color);
+        color: var(--text-primary);
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-cancel:hover {
+        background: var(--text-secondary);
+        color: white;
+      }
+
+      .btn-confirm {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-confirm:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+
+      .btn-confirm:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      @media (max-width: 768px) {
+        .achievement-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .achievement-modal-content {
+          width: 95%;
+          padding: 16px;
+        }
+
+        .achievement-modal-actions {
+          flex-direction: column;
+        }
+      }
+
+      /* 3-field name row */
+      .name-row {
+        display: flex;
+        gap: 10px;
+      }
+      .name-row input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* ── Avatar in page-header ── */
+      .settings-header-avatar {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--brand) 14%, transparent);
+        border: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--brand);
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+      .settings-header-avatar.avatar-has-photo {
+        font-size: 0;
+        background: transparent;
+      }
+      .settings-header-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 50%;
+      }
+
+      /* ── Aside: clickable avatar with hover overlay ── */
+      .avatar-upload-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .avatar-upload-trigger {
+        position: relative;
+        cursor: pointer;
+        border-radius: 50%;
+        display: block;
+      }
+
+      .avatar-upload-trigger .avatar-has-photo {
+        padding: 0 !important;
+        font-size: 0 !important;
+      }
+
+      .avatar-upload-trigger .avatar-has-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .avatar-upload-overlay {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+      }
+
+      .avatar-upload-overlay-icon {
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .avatar-upload-overlay-text {
+        font-size: 10px;
+        font-weight: 600;
+        color: white;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .avatar-upload-trigger:hover .avatar-upload-overlay {
+        opacity: 1;
+      }
+
+      .avatar-upload-status {
+        font-size: 12px;
+        text-align: center;
+        min-height: 16px;
+        color: var(--text-secondary);
+        transition: color 0.2s;
+      }
+
+      .avatar-upload-status.uploading {
+        color: #6a5acd;
+      }
+      .avatar-upload-status.success {
+        color: #10b981;
+      }
+      .avatar-upload-status.error {
+        color: #ef4444;
+      }
+    </style>
+
+    <script src="../assets/js/components/navigation.js"></script>
+
+    <style>
+      /* Стили для уведомлений с markdown */
+      .notification-text {
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      /* многосрочное усечение без порчи тегов */
+      .clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .clamp-4 {
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      /* Динамическая высота для буллет-списков */
+      .clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+
+      /* Для буллет-списков используем динамическую высоту */
+      .notification-text.clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+
+      /* Исправления разметки уведомлений */
+
+      /* Общая карточка уведомления — делаем компактнее */
+      .notification-item {
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        position: relative;
+      }
+
+      /* 1) Контент карточки — столбиком */
+      .notification-item .notification-content {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Заголовок и иконка ближе друг к другу */
+      .notification-item .notification-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 2px;
+        position: relative;
+      }
+
+      .notification-item .notification-deadline {
+        position: absolute;
+        top: 0;
+        right: 0;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: rgba(0, 0, 0, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+
+      [data-theme="dark"] .notification-item .notification-deadline {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      /* Текст описания компактнее */
+      .notification-item .notification-text {
+        margin-top: 2px;
+        line-height: 1.35;
+        font-size: 0.9rem;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Метаданные снизу (время, тип, действие) – меньший шрифт и плотность */
+      .notification-item .notification-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-top: 2px;
+        font-size: 0.8rem;
+        position: relative;
+        z-index: 2;
+      }
+
+      /* Тип события — делаем мини-бейдж */
+      .notification-type {
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        line-height: 1;
+      }
+
+      .notification-type.task {
+        background: #3b82f6;
+        color: white;
+      }
+
+      .notification-type.meeting {
+        background: #f59e0b;
+        color: white;
+      }
+
+      .notification-type.mock {
+        background: #10b981;
+        color: white;
+      }
+
+      .notification-type.event {
+        background: #6b7280;
+        color: white;
+      }
+
+      .notification-type.comment {
+        background: var(--brand);
+        color: white;
+      }
+
+      .notification-type.overdue {
+        background: #ef4444;
+        color: white;
+      }
+
+      /* Темная тема */
+      [data-theme="dark"] .notification-type.task {
+        background: #1d4ed8;
+      }
+
+      [data-theme="dark"] .notification-type.meeting {
+        background: #d97706;
+      }
+
+      [data-theme="dark"] .notification-type.mock {
+        background: #059669;
+      }
+
+      [data-theme="dark"] .notification-type.event {
+        background: #4b5563;
+      }
+
+      [data-theme="dark"] .notification-type.comment {
+        background: #7c3aed;
+      }
+
+      [data-theme="dark"] .notification-type.overdue {
+        background: #dc2626;
+      }
+
+      /* Иконка и заголовок */
+      .notification-title {
+        font-weight: 600;
+        margin-bottom: 1px;
+        font-size: 0.95rem;
+      }
+
+      /* Убираем лишний отступ у списков */
+      .notification-text .md-list {
+        margin: 2px 0 0;
+        padding-left: 1.1rem;
+      }
+      .notification-text .md-list li {
+        margin: 1px 0;
+      }
+
+      /* Центрирование кнопки "Отметить все как прочитанные" */
+      .notifications-actions {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+
+      /* Правый верхний угол для дедлайна и типа события */
+      .notification-header-right {
+        position: absolute;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-end;
+      }
+
+      .notification-header-right .notification-type {
+        margin-top: 0;
+      }
+
+      /* Центрирование прогресса по темам */
+      .progress-heatmap-container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    </style>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="profile" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="settings-header-avatar" id="settingsHeaderAvatar">?</div>
+          <div class="page-header-text">
+            <h1 id="title">Настройки</h1>
+            <p class="subtitle" id="settingsSubtitle">Профиль</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../profile.html" class="page-header-button">← Профиль</a>
+          </div>
+        </div>
+      </header>
+
+      <!-- Блок настроек профиля -->
+      <div id="profile-settings" class="profile-container">
+        <div class="profile-layout">
+          <aside class="profile-aside">
+            <div class="avatar-upload-wrap">
+              <label
+                class="avatar-upload-trigger"
+                for="avatarInput"
+                title="Изменить фото профиля"
+              >
+                <div class="avatar" id="avatar">UE</div>
+                <div class="avatar-upload-overlay">
+                  <span class="avatar-upload-overlay-icon">📷</span>
+                  <span class="avatar-upload-overlay-text">Изменить</span>
+                </div>
+                <input
+                  type="file"
+                  id="avatarInput"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                />
+              </label>
+              <div class="avatar-upload-status" id="avatarUploadStatus"></div>
+            </div>
+          </aside>
+
+          <form class="profile-form" id="profileForm">
+            <div class="field">
+              <span>Имя и фамилия</span>
+              <div class="name-row">
+                <input id="firstName" maxlength="20" placeholder="Имя" />
+                <input id="lastName" maxlength="20" placeholder="Фамилия" />
+              </div>
+              <small class="error" id="nameError" hidden></small>
+            </div>
+
+            <label class="field">
+              <span>Telegram</span>
+              <input id="telegram" maxlength="35" placeholder="@username" />
+              <small class="hint">Например: @username (от 4 символов)</small>
+              <small class="error" id="telegramError" hidden></small>
+            </label>
+
+            <label class="field">
+              <span>Email</span>
+              <div class="input-readonly">
+                <input id="email" readonly />
+                <span class="lock">🔒</span>
+              </div>
+              <small class="hint"
+                >Email используется для входа и не может быть изменён</small
+              >
+            </label>
+
+            <label class="field">
+              <span>Статус (достижение)</span>
+              <div class="achievement-status-selector">
+                <div
+                  id="selectedAchievementPreview"
+                  class="achievement-preview"
+                >
+                  <span class="achievement-icon">🏆</span>
+                  <span class="achievement-text">Выберите достижение</span>
+                </div>
+                <div class="achievement-buttons">
+                  <button
+                    type="button"
+                    id="selectAchievementBtn"
+                    class="btn-select-achievement"
+                  >
+                    Выбрать достижение
+                  </button>
+                  <button
+                    type="button"
+                    id="clearStatusBtn"
+                    class="btn-clear-status"
+                    style="display: none"
+                  >
+                    Очистить статус
+                  </button>
+                </div>
+              </div>
+              <small class="hint"
+                >Выберите достижение, которое будет отображаться рядом с вашим
+                именем</small
+              >
+            </label>
+
+            <label class="field">
+              <span>Подгруппа</span>
+              <select id="subgroupSelect" class="subgroup-select">
+                <option value="">Не выбрана</option>
+                <option value="start">1. Start</option>
+                <option value="main">2. Main</option>
+                <option value="market">3. Market</option>
+                <option value="employed">4. Employed</option>
+              </select>
+              <small class="hint"
+                >Выберите подгруппу в зависимости от этапа обучения</small
+              >
+            </label>
+
+            <div class="actions">
+              <button id="saveBtn" class="btn-grad" disabled>
+                Сохранить изменения
+              </button>
+            </div>
+
+            <div class="profile-actions">
+              <button class="btn-secondary danger" id="clearProgress">
+                Очистить прогресс
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+
+    <!-- Config loader -->
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/gamification.js"></script>
+    <script src="../assets/js/components/achievement-catalog.js"></script>
+    <script src="../assets/js/components/achievement-api.js"></script>
+    <script src="../assets/js/avatar-upload.js"></script>
+
+    <!-- Система уведомлений -->
+    <script src="../assets/js/notifications.js"></script>
+
+    <!-- Feather Icons -->
+    <script src="https://unpkg.com/feather-icons"></script>
+
+    <!-- Manual Firebase initialization -->
+    <script>
+      // Initialize Firebase manually for this page
+      console.log(
+        "Setting up manual Firebase initialization for profile page...",
+      );
+    </script>
+
+    <script>
+      // Ждем полной загрузки DOM
+      document.addEventListener("DOMContentLoaded", function () {
+        console.log("DOM loaded, initializing profile manager...");
+        console.log("Scripts loaded:", {
+          firebase: typeof firebase,
+          configLoader: typeof window.configLoader,
+        });
+
+        // Получаем все необходимые элементы
+        const form = document.getElementById("profileForm");
+        const saveBtn = document.getElementById("saveBtn");
+        const firstNameInput = document.getElementById("firstName");
+        const lastNameInput = document.getElementById("lastName");
+        const telegramInput = document.getElementById("telegram");
+        const emailInput = document.getElementById("email");
+        const avatar = document.getElementById("avatar");
+        const nameError = document.getElementById("nameError");
+        const telegramError = document.getElementById("telegramError");
+        const clearProgressBtn = document.getElementById("clearProgress");
+
+        // Элементы для работы с достижениями
+        const selectedAchievementPreview = document.getElementById(
+          "selectedAchievementPreview",
+        );
+        const selectAchievementBtn = document.getElementById(
+          "selectAchievementBtn",
+        );
+        const clearStatusBtn = document.getElementById("clearStatusBtn");
+
+        // Элемент для работы с подгруппами
+        const subgroupSelect = document.getElementById("subgroupSelect");
+
+        // Проверяем, что все элементы найдены
+        if (
+          !form ||
+          !saveBtn ||
+          !firstNameInput ||
+          !lastNameInput ||
+          !telegramInput ||
+          !emailInput ||
+          !avatar ||
+          !nameError ||
+          !telegramError ||
+          !clearProgressBtn ||
+          !selectedAchievementPreview ||
+          !selectAchievementBtn ||
+          !clearStatusBtn ||
+          !subgroupSelect
+        ) {
+          console.error("Some elements not found:", {
+            form: !!form,
+            saveBtn: !!saveBtn,
+            firstNameInput: !!firstNameInput,
+            lastNameInput: !!lastNameInput,
+            telegramInput: !!telegramInput,
+            emailInput: !!emailInput,
+            avatar: !!avatar,
+            nameError: !!nameError,
+            telegramError: !!telegramError,
+            clearProgressBtn: !!clearProgressBtn,
+            subgroupSelect: !!subgroupSelect,
+          });
+          return;
+        }
+
+        console.log("All elements found, setting up event listeners...");
+
+        // Переменные состояния
+        let originalDisplayName = "";
+        let originalSubgroup = "";
+        let currentUser = null;
+        let db = null;
+        let debounceTimer = null;
+
+        // Вспомогательные функции для работы с 3 полями
+        function parseDisplayName(displayName) {
+          // "Иван Иванов (@johndoe)" → { firstName, lastName, telegram }
+          const match = displayName.match(/^(\S+)\s+(\S+)\s+\((@\S+)\)$/);
+          if (match) {
+            return {
+              firstName: match[1],
+              lastName: match[2],
+              telegram: match[3],
+            };
+          }
+          // Попытка извлечь что есть
+          const parts = displayName
+            .replace(/\(.*\)/, "")
+            .trim()
+            .split(/\s+/);
+          const tgMatch = displayName.match(/@[\w]+/);
+          return {
+            firstName: parts[0] || "",
+            lastName: parts[1] || "",
+            telegram: tgMatch ? tgMatch[0] : "",
+          };
+        }
+
+        function getComposedDisplayName() {
+          const firstName = firstNameInput.value.trim();
+          const lastName = lastNameInput.value.trim();
+          let telegram = telegramInput.value.trim();
+          if (telegram && !telegram.startsWith("@")) telegram = "@" + telegram;
+          return `${firstName} ${lastName} (${telegram})`;
+        }
+
+        function validateName() {
+          const firstName = firstNameInput.value.trim();
+          const lastName = lastNameInput.value.trim();
+          const telegram = telegramInput.value.trim().replace(/^@/, "");
+          nameError.hidden = true;
+          telegramError.hidden = true;
+
+          const namePattern = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'-]{0,19}$/;
+          if (!namePattern.test(firstName)) {
+            nameError.textContent =
+              t("Введите корректное имя (только буквы, 2–20 символов)");
+            nameError.hidden = false;
+            return false;
+          }
+          if (!namePattern.test(lastName)) {
+            nameError.textContent =
+              t("Введите корректную фамилию (только буквы, 2–20 символов)");
+            nameError.hidden = false;
+            return false;
+          }
+
+          const tgPattern = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
+          if (!tgPattern.test(telegram)) {
+            telegramError.textContent =
+              t(
+                "Telegram: @username от 5 символов, только буквы/цифры/подчёркивание",
+              );
+            telegramError.hidden = false;
+            return false;
+          }
+
+          return true;
+        }
+
+        function checkForChanges() {
+          const currentName = getComposedDisplayName();
+          const currentSubgroup = subgroupSelect.value;
+          const hasNameChanges = currentName !== originalDisplayName;
+          const hasSubgroupChanges = currentSubgroup !== originalSubgroup;
+          const hasChanges = hasNameChanges || hasSubgroupChanges;
+          const isValid = validateName();
+          const shouldDisable = !hasChanges || !isValid;
+          saveBtn.disabled = shouldDisable;
+          console.log("Changes checked:", {
+            currentName,
+            originalDisplayName,
+            hasChanges,
+            isValid,
+            disabled: shouldDisable,
+          });
+        }
+
+        function updateAvatar(displayName) {
+          if (displayName) {
+            const firstWord = displayName
+              .split(/[\s(@]/)[0]
+              .replace(/[^A-Za-zА-Яа-яЁё]/g, "");
+            const initials = (firstWord + "??").substring(0, 2).toUpperCase();
+            // Only update text if no photo is loaded
+            if (!avatar.classList.contains("avatar-has-photo")) {
+              avatar.textContent = initials;
+            }
+            avatar._initials = initials;
+          } else {
+            if (!avatar.classList.contains("avatar-has-photo")) {
+              avatar.textContent = "UE";
+            }
+            avatar._initials = "UE";
+          }
+          console.log("Avatar updated:", avatar._initials);
+        }
+
+        async function loadAndApplyAvatar() {
+          if (!db || !currentUser || typeof window.avatarUpload === "undefined")
+            return;
+          try {
+            const avatarUrl = await window.avatarUpload.load(
+              currentUser.uid,
+              db,
+            );
+            window.avatarUpload.applyToElement(
+              avatar,
+              avatarUrl,
+              avatar._initials || "UE",
+            );
+            // Also apply to header mini-avatar
+            const headerAvatarEl = document.getElementById(
+              "settingsHeaderAvatar",
+            );
+            if (headerAvatarEl) {
+              window.avatarUpload.applyToElement(
+                headerAvatarEl,
+                avatarUrl,
+                headerAvatarEl._initials || "UE",
+              );
+            }
+          } catch (e) {
+            console.warn("Failed to load avatar:", e);
+          }
+        }
+
+        function initAvatarUpload() {
+          const avatarInput = document.getElementById("avatarInput");
+          const avatarStatus = document.getElementById("avatarUploadStatus");
+          if (!avatarInput || !avatarStatus) return;
+
+          avatarInput.addEventListener("change", async function () {
+            const file = avatarInput.files && avatarInput.files[0];
+            if (!file) return;
+            avatarInput.value = "";
+
+            if (typeof window.avatarUpload === "undefined") {
+              avatarStatus.className = "avatar-upload-status error";
+              avatarStatus.textContent = t("Модуль загрузки недоступен");
+              return;
+            }
+            if (!currentUser || !db) {
+              avatarStatus.className = "avatar-upload-status error";
+              avatarStatus.textContent = t("Сначала войдите в аккаунт");
+              return;
+            }
+
+            avatarStatus.className = "avatar-upload-status uploading";
+            avatarStatus.textContent = t("Загружаем…");
+
+            try {
+              const publicUrl = await window.avatarUpload.upload(
+                file,
+                currentUser.uid,
+                () => currentUser.getIdToken(),
+                db,
+              );
+              window.avatarUpload.applyToElement(
+                avatar,
+                publicUrl,
+                avatar._initials || "UE",
+              );
+              const headerAvatarEl2 = document.getElementById(
+                "settingsHeaderAvatar",
+              );
+              if (headerAvatarEl2) {
+                window.avatarUpload.applyToElement(
+                  headerAvatarEl2,
+                  publicUrl,
+                  headerAvatarEl2._initials || "UE",
+                );
+              }
+              avatarStatus.className = "avatar-upload-status success";
+              avatarStatus.textContent = t("Фото обновлено");
+              setTimeout(() => {
+                avatarStatus.textContent = "";
+                avatarStatus.className = "avatar-upload-status";
+              }, 3000);
+            } catch (err) {
+              console.error("Avatar upload error:", err);
+              avatarStatus.className = "avatar-upload-status error";
+              avatarStatus.textContent = err.message || t("Не удалось загрузить фото");
+              setTimeout(() => {
+                avatarStatus.textContent = "";
+                avatarStatus.className = "avatar-upload-status";
+              }, 5000);
+            }
+          });
+        }
+
+        function setLoading(loading) {
+          saveBtn.disabled = loading;
+          saveBtn.textContent = loading
+            ? t("Сохранение...")
+            : t("Сохранить изменения");
+          console.log("Loading state:", loading);
+        }
+
+        async function clearProgress() {
+          console.log("Clear progress requested...");
+
+          if (!db || !currentUser) {
+            console.error("Database or user not available", {
+              db: !!db,
+              currentUser: !!currentUser,
+            });
+            alert(
+              t(
+                "Ошибка: база данных не инициализирована. Попробуйте обновить страницу.",
+              ),
+            );
+            return;
+          }
+
+          if (
+            confirm(
+              t(
+                "Вы уверены, что хотите очистить весь прогресс? Это действие нельзя отменить.",
+              ),
+            )
+          ) {
+            try {
+              setLoading(true);
+              const userRef = db.ref(`users/${currentUser.uid}`);
+              await userRef.update({
+                progress: {},
+                lastUpdated: Date.now(),
+              });
+
+              // Обновляем heatmap после очистки прогресса
+              // Ошибка в loadProgressHeatmap не должна влиять на успешную очистку
+              try {
+                await loadProgressHeatmap();
+              } catch (heatmapError) {
+                console.warn(
+                  "Failed to reload heatmap after progress clear:",
+                  heatmapError,
+                );
+                // Не показываем ошибку пользователю, так как прогресс уже очищен
+              }
+
+              alert(t("Прогресс успешно очищен!"));
+            } catch (error) {
+              console.error("Failed to clear progress:", error);
+              alert(t("Ошибка при очистке прогресса"));
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+
+        async function saveProfile() {
+          console.log("Saving profile...");
+
+          if (!db || !currentUser) {
+            console.error("Database or user not available", {
+              db: !!db,
+              currentUser: !!currentUser,
+            });
+            alert(
+              t(
+                "Ошибка: база данных не инициализирована. Попробуйте обновить страницу.",
+              ),
+            );
+            return;
+          }
+
+          try {
+            setLoading(true);
+
+            if (!validateName()) {
+              setLoading(false);
+              return;
+            }
+
+            const firstName = firstNameInput.value.trim();
+            const lastName = lastNameInput.value.trim();
+            let telegram = telegramInput.value.trim();
+            if (telegram && !telegram.startsWith("@"))
+              telegram = "@" + telegram;
+            const displayName = `${firstName} ${lastName} (${telegram})`;
+            const subgroup = subgroupSelect.value;
+
+            // Save to Firebase
+            const userRef = db.ref(`users/${currentUser.uid}`);
+            const updates = {
+              displayName,
+              firstName,
+              lastName,
+              telegram,
+              lastUpdated: Date.now(),
+            };
+
+            // Only update subgroup if it has changed
+            if (subgroup !== originalSubgroup) {
+              updates.subgroup = subgroup || null;
+            }
+
+            await userRef.update(updates);
+
+            originalDisplayName = displayName;
+            originalSubgroup = subgroup;
+            telegramInput.value = telegram; // normalise @ prefix in input
+            updateAvatar(displayName);
+            console.log("Profile saved successfully");
+          } catch (error) {
+            console.error("Failed to save profile:", error);
+            alert(t("Ошибка сохранения профиля"));
+          } finally {
+            setLoading(false);
+          }
+        }
+
+        async function loadUserProfile() {
+          console.log("Loading user profile...");
+
+          if (!db || !currentUser) {
+            console.error(
+              "Database or user not available for loading profile",
+              {
+                db: !!db,
+                currentUser: !!currentUser,
+              },
+            );
+            return;
+          }
+
+          try {
+            const userRef = db.ref(`users/${currentUser.uid}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+
+            // Fill form fields — prefer stored separate fields, fall back to parsing displayName
+            const displayName = userData.displayName || "";
+            let firstName = userData.firstName || "";
+            let lastName = userData.lastName || "";
+            let telegram = userData.telegram || "";
+
+            if (!firstName && !lastName && displayName) {
+              const parsed = parseDisplayName(displayName);
+              firstName = parsed.firstName;
+              lastName = parsed.lastName;
+              telegram = parsed.telegram;
+            }
+
+            firstNameInput.value = firstName;
+            lastNameInput.value = lastName;
+            telegramInput.value = telegram;
+            originalDisplayName = displayName || getComposedDisplayName();
+            emailInput.value = currentUser.email || "";
+
+            // Load subgroup
+            const subgroup = userData.subgroup || "";
+            subgroupSelect.value = subgroup;
+            originalSubgroup = subgroup;
+
+            // Update avatar
+            updateAvatar(displayName || getComposedDisplayName());
+
+            // Update header avatar + subtitle
+            const headerAvatarEl = document.getElementById(
+              "settingsHeaderAvatar",
+            );
+            const subtitleEl = document.getElementById("settingsSubtitle");
+            const dn = displayName || getComposedDisplayName();
+            if (dn && subtitleEl) {
+              const firstWord =
+                dn.split(/[\s(@]/)[0].replace(/[^A-Za-zА-Яа-яЁё]/g, "") || dn;
+              subtitleEl.textContent = firstWord;
+            }
+            if (headerAvatarEl && dn) {
+              const fw = dn
+                .split(/[\s(@]/)[0]
+                .replace(/[^A-Za-zА-Яа-яЁё]/g, "");
+              headerAvatarEl._initials = (fw + "??")
+                .substring(0, 2)
+                .toUpperCase();
+              if (!headerAvatarEl.classList.contains("avatar-has-photo")) {
+                headerAvatarEl.textContent = headerAvatarEl._initials;
+              }
+            }
+
+            // Изначально отключаем кнопку сохранения
+            saveBtn.disabled = true;
+
+            // Check for changes after loading
+            checkForChanges();
+
+            // Добавляем небольшую задержку и повторно загружаем heatmap для отладки
+            // setTimeout(async () => {
+            //   console.log('Reloading heatmap after delay for debugging...');
+            //   await loadProgressHeatmap();
+            // }, 2000);
+
+            // Load selected achievement
+            await loadSelectedAchievement();
+
+            console.log("Profile loaded:", {
+              displayName,
+              email: currentUser.email,
+              subgroup,
+            });
+          } catch (error) {
+            console.error("Failed to load user profile:", error);
+          }
+        }
+
+        // Achievement functions
+        async function loadSelectedAchievement() {
+          if (!db || !currentUser) return;
+
+          try {
+            const userRef = db.ref(
+              `users/${currentUser.uid}/selectedAchievementId`,
+            );
+            const snapshot = await userRef.once("value");
+            const selectedAchievementId = snapshot.val();
+
+            if (selectedAchievementId && window.achievementCatalog) {
+              const catalog = await window.achievementCatalog.load();
+              updateAchievementPreview(catalog.byId.get(selectedAchievementId) || null);
+            } else {
+              updateAchievementPreview(null);
+            }
+          } catch (error) {
+            console.error("Failed to load selected achievement:", error);
+          }
+        }
+
+        function updateAchievementPreview(achievement) {
+          if (!achievement) {
+            selectedAchievementPreview.innerHTML = `
+              <span class="achievement-icon">🏆</span>
+              <span class="achievement-text">${t("Выберите достижение")}</span>
+            `;
+            // Показываем кнопку "Выбрать достижение" и скрываем "Очистить статус"
+            selectAchievementBtn.style.display = "block";
+            clearStatusBtn.style.display = "none";
+            return;
+          }
+
+          selectedAchievementPreview.innerHTML = `
+            <span class="achievement-icon">${achievement.icon}</span>
+            <span class="achievement-text">${achievement.title}</span>
+          `;
+          if (achievement.id && window.achievementCatalog) {
+            window.achievementCatalog.load().then((catalog) => {
+              const definition = catalog.byId.get(achievement.id);
+              const oldIcon = selectedAchievementPreview.querySelector('.achievement-icon');
+              if (definition && oldIcon) oldIcon.replaceWith(window.achievementCatalog.icon(definition, 'achievement-icon', definition.title));
+            });
+          }
+          // Показываем кнопку "Очистить статус" и скрываем "Выбрать достижение"
+          selectAchievementBtn.style.display = "none";
+          clearStatusBtn.style.display = "block";
+        }
+
+        async function showAchievementSelector() {
+          console.log("showAchievementSelector called");
+
+          if (!window.gamificationSystem) {
+            console.error("Gamification system not available");
+            alert(
+              t("Система достижений недоступна. Попробуйте обновить страницу."),
+            );
+            return;
+          }
+
+          if (!currentUser) {
+            console.error("User not authenticated");
+            alert(t("Необходимо войти в систему"));
+            return;
+          }
+
+          try {
+            console.log("Getting unlocked achievements...");
+            // Получаем все достижения пользователя
+            const unlockedAchievements =
+              await window.gamificationSystem.getAllUserAchievements();
+            console.log("Unlocked achievements:", unlockedAchievements);
+
+            // Показываем только разблокированные достижения
+            if (unlockedAchievements.length === 0) {
+              alert(
+                t(
+                  "У вас пока нет разблокированных достижений. Решайте вопросы, чтобы получить достижения!",
+                ),
+              );
+              return;
+            }
+
+            // Создаем модальное окно
+            const modal = document.createElement("div");
+            modal.className = "achievement-modal";
+            modal.innerHTML = `
+              <div class="achievement-modal-content">
+                <div class="achievement-modal-scrollable">
+                  <div class="achievement-modal-header">
+                    <h3 class="achievement-modal-title">${t("Выберите достижение для статуса")}</h3>
+                    <button class="achievement-modal-close" aria-label="${t("Закрыть")}">&times;</button>
+                  </div>
+                  <div class="achievement-grid" id="achievementGrid">
+                    <!-- Достижения будут добавлены динамически -->
+                  </div>
+                </div>
+                <div class="achievement-modal-actions">
+                  <button class="btn-cancel">${t("Отмена")}</button>
+                  <button class="btn-confirm" disabled>${t("Выбрать")}</button>
+                </div>
+              </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Заполняем сетку достижений только разблокированными
+            const grid = modal.querySelector("#achievementGrid");
+            let selectedAchievement = null;
+
+            unlockedAchievements.forEach((achievement) => {
+              // Находим полную информацию о достижении из основной структуры
+              const fullAchievement =
+                Object.values(window.gamificationSystem.achievements).find(
+                  (a) => a.title === achievement.title,
+                ) || achievement;
+
+              const option = document.createElement("div");
+              option.className = "achievement-option";
+              option.innerHTML = `
+                <div class="achievement-option-icon">${achievement.icon}</div>
+                <div class="achievement-option-content">
+                  <div class="achievement-option-title">${achievement.title}</div>
+                  <div class="achievement-option-description">${achievement.description}</div>
+                </div>
+              `;
+              if (fullAchievement.id && window.achievementCatalog) {
+                window.achievementCatalog.load().then((catalog) => {
+                  const definition = catalog.byId.get(fullAchievement.id);
+                  const oldIcon = option.querySelector('.achievement-option-icon');
+                  if (definition && oldIcon) oldIcon.replaceChildren(window.achievementCatalog.icon(definition, 'achievement-svg', definition.title));
+                });
+              }
+
+              option.addEventListener("click", () => {
+                console.log("Achievement clicked:", achievement.title);
+                // Убираем выделение с других опций
+                modal
+                  .querySelectorAll(".achievement-option")
+                  .forEach((opt) => opt.classList.remove("selected"));
+                option.classList.add("selected");
+                selectedAchievement = fullAchievement; // Используем полную информацию
+                modal.querySelector(".btn-confirm").disabled = false;
+                console.log("Selected achievement:", selectedAchievement);
+              });
+
+              grid.appendChild(option);
+            });
+
+            // Обработчики событий
+            modal
+              .querySelector(".achievement-modal-close")
+              .addEventListener("click", () => {
+                modal.remove();
+              });
+
+            modal.querySelector(".btn-cancel").addEventListener("click", () => {
+              modal.remove();
+            });
+
+            modal
+              .querySelector(".btn-confirm")
+              .addEventListener("click", async () => {
+                if (selectedAchievement) {
+                  console.log("Confirming selection:", selectedAchievement);
+                  await saveSelectedAchievement(selectedAchievement);
+                  modal.remove();
+                }
+              });
+
+            // Закрытие по клику вне модального окна
+            modal.addEventListener("click", (e) => {
+              if (e.target === modal) {
+                modal.remove();
+              }
+            });
+
+            // Показываем модальное окно
+            setTimeout(() => modal.classList.add("show"), 100);
+          } catch (error) {
+            console.error("Failed to show achievement selector:", error);
+            alert(
+              t("Ошибка при загрузке достижений. Попробуйте обновить страницу."),
+            );
+          }
+        }
+
+        async function saveSelectedAchievement(achievement) {
+          if (!db || !currentUser) return;
+
+          try {
+            console.log("Saving achievement:", achievement);
+
+            // Создаем объект для сохранения с правильной структурой
+            const achievementToSave = {
+              title: achievement.title,
+              icon: achievement.icon,
+              description: achievement.description,
+            };
+
+            // Если есть id, добавляем его
+            if (achievement.id) {
+              achievementToSave.id = achievement.id;
+            }
+
+            if (!achievement.id || !window.achievementApi) {
+              throw new Error("Achievement status API is unavailable");
+            }
+            await window.achievementApi.selectAchievement(achievement.id);
+
+            updateAchievementPreview(achievement);
+            console.log("Selected achievement saved:", achievement.title);
+          } catch (error) {
+            console.error("Failed to save selected achievement:", error);
+            alert(
+              t("Ошибка при сохранении выбранного достижения. Попробуйте еще раз."),
+            );
+          }
+        }
+
+        // Настройка event listeners
+        console.log("Setting up event listeners...");
+
+        // Form submission
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          console.log("Form submitted");
+          saveProfile();
+        });
+
+        // Name field input events
+        [firstNameInput, lastNameInput, telegramInput].forEach((input) => {
+          input.addEventListener("input", () => {
+            validateName();
+            checkForChanges();
+          });
+        });
+
+        // Subgroup select events
+        subgroupSelect.addEventListener("change", (e) => {
+          console.log("Subgroup changed:", e.target.value);
+          checkForChanges();
+        });
+
+        // Clear progress
+        clearProgressBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          console.log("Clear progress clicked");
+          clearProgress();
+        });
+
+        // Achievement selector
+        selectAchievementBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          console.log("Select achievement clicked");
+
+          // Проверяем, что система геймификации инициализирована
+          if (!window.gamificationSystem) {
+            console.error("Gamification system not available");
+            alert(
+              t("Система достижений недоступна. Попробуйте обновить страницу."),
+            );
+            return;
+          }
+
+          // Если система не инициализирована, попробуем инициализировать
+          if (!window.gamificationSystem.user) {
+            console.log("Initializing gamification system...");
+            try {
+              await window.gamificationSystem.initialize(firebaseConfig);
+              console.log("Gamification system initialized successfully");
+            } catch (error) {
+              console.error("Failed to initialize gamification system:", error);
+              alert(
+                t(
+                  "Ошибка инициализации системы достижений. Попробуйте обновить страницу.",
+                ),
+              );
+              return;
+            }
+          }
+
+          showAchievementSelector();
+        });
+
+        // Clear status button
+        clearStatusBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          console.log("Clear status clicked");
+
+          if (confirm(t("Вы уверены, что хотите очистить статус достижения?"))) {
+            try {
+              const userRef = firebase
+                .database()
+                .ref(`users/${currentUser.uid}`);
+              await window.achievementApi.selectAchievement(null);
+
+              // Обновляем превью
+              updateAchievementPreview(null);
+
+              // Скрываем кнопку "Очистить статус" и показываем "Выбрать достижение"
+              clearStatusBtn.style.display = "none";
+              selectAchievementBtn.style.display = "block";
+
+              console.log("Status cleared successfully");
+            } catch (error) {
+              console.error("Error clearing status:", error);
+              alert(t("Ошибка при очистке статуса"));
+            }
+          }
+        });
+
+        // Инициализация Firebase и базы данных
+        async function initializeFirebase() {
+          try {
+            console.log("Initializing Firebase for profile...");
+
+            // Проверяем, что Firebase SDK загружен
+            if (typeof firebase === "undefined") {
+              console.error("Firebase SDK not loaded");
+              return;
+            }
+
+            // Проверяем, что configLoader доступен
+            if (typeof window.configLoader === "undefined") {
+              console.error("ConfigLoader not available");
+              return;
+            }
+
+            // Загружаем конфигурацию Firebase
+            console.log("Loading Firebase config...");
+            const firebaseConfig =
+              await window.configLoader.loadFirebaseConfig();
+            console.log("Firebase config loaded:", firebaseConfig);
+
+            // Инициализируем Firebase приложение
+            if (!firebase.apps.length) {
+              console.log("Initializing Firebase app...");
+              firebase.initializeApp(firebaseConfig);
+              console.log("Firebase initialized");
+            } else {
+              console.log("Firebase app already initialized");
+            }
+
+            // Создаем ссылку на базу данных
+            console.log("Creating database reference...");
+            db = firebase.database();
+            console.log("Database reference created");
+
+            // Получаем текущего пользователя
+            console.log("Getting current user...");
+            currentUser = firebase.auth().currentUser;
+            if (currentUser) {
+              console.log("User authenticated:", currentUser.email);
+
+              // Инициализируем систему геймификации
+              if (window.gamificationSystem) {
+                await window.gamificationSystem.initialize(firebaseConfig);
+                console.log("Gamification system initialized");
+              }
+
+              initAvatarUpload();
+              loadUserProfile();
+              loadAndApplyAvatar();
+            } else {
+              console.log("No current user, waiting for auth state change...");
+              // Listen for auth state changes
+              firebase.auth().onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                  console.log("User authenticated:", user.email);
+
+                  // Инициализируем систему геймификации
+                  if (window.gamificationSystem) {
+                    await window.gamificationSystem.initialize(firebaseConfig);
+                    console.log("Gamification system initialized");
+                  }
+
+                  initAvatarUpload();
+                  loadUserProfile();
+                  loadAndApplyAvatar();
+                } else {
+                  console.log("User not authenticated, redirecting...");
+                  window.location.href = "/index.html";
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Failed to initialize Firebase for profile:", error);
+            console.error("Error details:", error.message, error.stack);
+          }
+        }
+
+        console.log("Profile manager initialized");
+
+        // Ждем загрузки Firebase SDK и configLoader
+        let waitAttempts = 0;
+        const maxWaitAttempts = 50; // 5 секунд максимум
+
+        function waitForDependencies() {
+          waitAttempts++;
+          console.log(
+            `Checking dependencies... (attempt ${waitAttempts}/${maxWaitAttempts})`,
+            {
+              firebase: typeof firebase,
+              configLoader: typeof window.configLoader,
+            },
+          );
+
+          if (
+            typeof firebase !== "undefined" &&
+            typeof window.configLoader !== "undefined"
+          ) {
+            console.log("All dependencies ready, initializing Firebase...");
+            initializeFirebase();
+          } else if (waitAttempts >= maxWaitAttempts) {
+            console.error("Dependencies not available after maximum attempts");
+            alert(
+              t("Ошибка загрузки зависимостей. Попробуйте обновить страницу."),
+            );
+          } else {
+            console.log("Waiting for dependencies...");
+            setTimeout(waitForDependencies, 100);
+          }
+        }
+
+        // Начинаем ожидание загрузки зависимостей с небольшой задержкой
+        setTimeout(waitForDependencies, 100);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,88 @@
+{
+  "id": "mlops:mlflow:block-2",
+  "title": "MLflow · Блок 2: логирование и Model Registry",
+  "description": "Итоговая проверка по MLflow: start_run, log_params, log_metric, log_model, autologging, контекст метрик, Model Registry и governance.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_start_run",
+      "type": "single",
+      "q": "Что делает блок `with mlflow.start_run():` в training script?",
+      "options": [
+        "Запускает Tracking Server",
+        "Создаёт run, в который попадает всё залогированное внутри блока",
+        "Регистрирует модель в Registry",
+        "Включает autologging для всех библиотек"
+      ],
+      "answer": [1],
+      "explain": "Внутри блока пишутся параметры, метрики и модель — всё в один run; при выходе из блока run закрывается."
+    },
+    {
+      "id": "b2_log_metric",
+      "type": "single",
+      "q": "Какой функцией в примере записывают `valid_f1`?",
+      "options": [
+        "`mlflow.log_params`",
+        "`mlflow.set_experiment`",
+        "`mlflow.sklearn.log_model`",
+        "`mlflow.log_metric`"
+      ],
+      "answer": [3],
+      "explain": "Параметры пишут `log_params` до обучения, качество — `log_metric`, модель — `mlflow.sklearn.log_model`."
+    },
+    {
+      "id": "b2_autolog",
+      "type": "single",
+      "q": "Почему в production не стоит полагаться только на autologging?",
+      "options": [
+        "Autologging не знает контекст задачи: ключевые параметры, бизнес-метрики и артефакты лучше логировать явно",
+        "Autologging работает только с TensorFlow",
+        "Autologging удаляет старые runs",
+        "Autologging нельзя совместить с Tracking Server"
+      ],
+      "answer": [0],
+      "explain": "Autologging удобен для старта и поддерживает sklearn, XGBoost, LightGBM, PyTorch и другие, но о задаче он ничего не знает."
+    },
+    {
+      "id": "b2_context",
+      "type": "multi",
+      "q": "С чем нужно связать метрику `accuracy=0.91`, чтобы лучший run можно было честно воспроизвести? Выберите все верные.",
+      "options": [
+        "Версия датасета",
+        "Seed",
+        "Время суток запуска",
+        "Split и preprocessing pipeline"
+      ],
+      "answer": [0, 1, 3],
+      "explain": "Метрика без версии данных, split-а, кода, seed и preprocessing почти бесполезна."
+    },
+    {
+      "id": "b2_registry_role",
+      "type": "single",
+      "q": "На какой вопрос отвечает Model Registry в отличие от experiment tracking?",
+      "options": [
+        "Что происходило во время эксперимента",
+        "Как быстро обучалась модель",
+        "Какую модель можно использовать дальше",
+        "Сколько стоил эксперимент"
+      ],
+      "answer": [2],
+      "explain": "Tracking — история экспериментов, Registry — утверждённые версии моделей, которые забирает serving или batch inference."
+    },
+    {
+      "id": "b2_governance",
+      "type": "single",
+      "q": "Модель зарегистрирована в Model Registry. Можно ли считать её готовой к проду?",
+      "options": [
+        "Да, регистрация автоматически проверяет качество",
+        "Нет: Registry хранит версии и metadata, а правила перевода в прод, проверки и откат нужно задать отдельно",
+        "Да, если у run есть хотя бы одна метрика",
+        "Нет, в Registry можно хранить только одну версию модели"
+      ],
+      "answer": [1],
+      "explain": "Registry не заменяет governance: кто переводит в production, какие проверки обязательны, где отчёт валидации, как откатываться."
+    }
+  ]
+}

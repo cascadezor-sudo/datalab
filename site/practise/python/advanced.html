@@ -1,0 +1,801 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Python Advanced Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../../assets/code-styles.css">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/exercise-checker.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/exercise-checker.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/index.html">Практика</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/python.html">Python Практика</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Python Advanced Практика</span></li>
+        </ol>
+      </nav>
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Практика</span>
+            <span class="pill pill--soft">Python Advanced</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Python Advanced Практика</h1>
+          <p class="section-shell__desc">Практические задачи по dataclass, asyncio, multiprocessing, threading и продвинутым возможностям Python.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Python Advanced</h3>
+<li class="question" data-md-source="true" data-md-id="dataclass_python" data-difficulty="easy" data-tests="from datetime import datetime as _dt
+
+_u = UserDC(name=&quot;Alice&quot;, id=1, gender=&quot;F&quot;, age=25, email=&quot;alice@example.com&quot;, is_active=True, city=&quot;Moscow&quot;, created_at=_dt(2024, 1, 1))
+assert _u.name == &quot;Alice&quot;, &quot;UserDC.name -&gt; 'Alice'&quot;
+assert _u.age == 25, &quot;UserDC.age -&gt; 25&quot;
+assert _u.is_active == True, &quot;UserDC.is_active -&gt; True&quot;
+assert _u.email == &quot;alice@example.com&quot;, &quot;UserDC.email -&gt; 'alice@example.com'&quot;
+
+_u2 = UserPM(name=&quot;Bob&quot;, id=2, gender=&quot;M&quot;, age=30, email=&quot;bob@example.com&quot;, is_active=False, city=&quot;SPb&quot;, created_at=_dt(2024, 6, 1))
+assert _u2.name == &quot;Bob&quot;, &quot;UserPM.name -&gt; 'Bob'&quot;
+assert _u2.age == 30, &quot;UserPM.age -&gt; 30&quot;
+assert _u2.city == &quot;SPb&quot;, &quot;UserPM.city -&gt; 'SPb'&quot;
+
+_u3 = UserDC(name=&quot;X&quot;, id=3, gender=&quot;M&quot;, age=18, email=&quot;x@x.com&quot;, is_active=False, city=&quot;Kazan&quot;, created_at=_dt(2025, 1, 1))
+assert _u3.id == 3, &quot;UserDC второй экземпляр: id -&gt; 3&quot;">
+  <div class="name question-difficulty-easy" id="dataclass_python">
+    Использование <code>@dataclass</code> и Pydantic <code>BaseModel</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться использовать <code>@dataclass</code> и Pydantic <code>BaseModel</code> для описания данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай класс <code>UserDC</code> с помощью <code>@dataclass</code> и <code>UserPM</code> с помощью <code>Pydantic BaseModel</code> (два класса, протестировать каждый из них). Добавь поля:</p>
+<ul>
+<li><code>name</code>, <code>id</code>, <code>gender</code>, <code>age</code>, <code>email</code>, <code>is_active</code>, <code>city</code>, <code>created_at</code></li>
+</ul>
+<p>Создай несколько экземпляров обоих классов и посмотри, что будет выводиться.</p>
+<p>Смысл задания — сравнить лёгкую стандартную модель данных (<code>dataclass</code>) и модель с валидацией от Pydantic. Заполни одинаковые поля в обоих классах, создай несколько пользователей и выведи объекты, чтобы увидеть различия в представлении и проверке типов. Например, можно попробовать передать возраст строкой и посмотреть, как поведёт себя Pydantic-модель.</p>
+
+</div>
+<div class="code-block" data-lang="python">from dataclasses import dataclass
+from datetime import datetime
+from pydantic import BaseModel
+
+@dataclass
+class UserDC:
+    name: str
+    id: int
+    gender: str
+    age: int
+    email: str
+    is_active: bool
+    city: str
+    created_at: datetime
+
+class UserPM(BaseModel):
+    name: str
+    id: int
+    gender: str
+    age: int
+    email: str
+    is_active: bool
+    city: str
+    created_at: datetime</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="asyncio_python" data-badge-type="required later" data-difficulty="easy" data-tests="import asyncio as _asyncio
+
+_r = _asyncio.run(fetch_data(&quot;https://example.com/api/users&quot;))
+assert _r == &quot;Data from https://example.com/api/users&quot;, &quot;fetch_data('url') -&gt; 'Data from url'&quot;
+assert isinstance(_r, str), &quot;Результат fetch_data должен быть строкой&quot;
+
+_r2 = _asyncio.run(fetch_data(&quot;https://example.com/api/orders&quot;))
+assert _r2 == &quot;Data from https://example.com/api/orders&quot;, &quot;fetch_data работает с любым URL&quot;
+
+import time as _time
+_t0 = _time.perf_counter()
+_asyncio.run(main())
+_elapsed = _time.perf_counter() - _t0
+assert _elapsed &lt; 3.0, &quot;Параллельный запуск 3 задач по 1с должен занять менее 3 с (а не ~3 с последовательно)&quot;">
+  <div class="name question-difficulty-easy" id="asyncio_python">
+    Асинхронные запросы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться писать асинхронный код с <code>async</code>/<code>await</code> и параллельно запускать задачи.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай асинхронную функцию <code>fetch_data(url)</code>, которая имитирует загрузку данных с сервера. Функция должна использовать <code>asyncio.sleep(1)</code> для имитации задержки и возвращать строку <code>&quot;Data from {url}&quot;</code>. Затем создай функцию <code>main()</code>, которая параллельно загружает данные с трёх разных URL и выводит результаты.</p>
+<p>Главная идея — не просто написать <code>async def</code>, а запустить несколько ожиданий одновременно через <code>asyncio.gather(...)</code> или созданные задачи. Если сделать всё правильно, три загрузки с задержкой по одной секунде должны завершиться примерно за одну секунду, а не за три. Результаты должны соответствовать исходным URL, например для <code>&quot;https://example.com/api/users&quot;</code> вернётся <code>&quot;Data from https://example.com/api/users&quot;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import asyncio
+
+async def fetch_data(url: str) -&gt; str:
+    pass
+
+async def main():
+    urls = [
+        "https://example.com/api/users",
+        "https://example.com/api/products",
+        "https://example.com/api/orders"
+    ]
+    pass
+
+if __name__ == "__main__":
+    asyncio.run(main())</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="async_collect_results" data-difficulty="medium" data-tests="import asyncio as _asyncio
+async def _a(): return &quot;a&quot;
+async def _b(): return &quot;b&quot;
+assert _asyncio.run(collect([_a, _b])) == [&quot;a&quot;, &quot;b&quot;], &quot;Порядок сохраняется&quot;
+assert _asyncio.run(collect([])) == [], &quot;Пустой список&quot;">
+  <div class="name question-difficulty-medium" id="async_collect_results">
+    Сбор async-результатов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить асинхронный сбор результатов.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши async-функцию <code>collect(fetchers)</code>, принимающую список async-функций без аргументов и возвращающую список результатов в том же порядке.</p>
+<p>Каждый элемент <code>fetchers</code> — это функция, которую нужно вызвать, чтобы получить coroutine, а затем дождаться результата. Запусти их конкурентно, чтобы медленные операции ожидания не выполнялись строго одна за другой. Например, если первый fetcher возвращает <code>&quot;users&quot;</code>, а второй <code>&quot;orders&quot;</code>, итоговый список должен быть <code>[&quot;users&quot;, &quot;orders&quot;]</code> в том же порядке, в котором fetchers были переданы.</p>
+
+</div>
+<div class="code-block" data-lang="python">async def collect(fetchers):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="async_timeout_report" data-difficulty="hard" data-tests="import asyncio as _asyncio
+async def _ok(): return 1
+async def _bad(): raise ValueError(&quot;boom&quot;)
+assert _asyncio.run(safe_collect([_ok, _bad, _ok])) == [1, &quot;error&quot;, 1], &quot;Ошибки -&gt; error&quot;
+assert _asyncio.run(safe_collect([])) == [], &quot;Пустой список&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="async_timeout_report">
+    Отчёт по async-задачам
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать обработку ошибок в async-функциях.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши async-функцию <code>safe_collect(fetchers)</code>. Если fetcher выбрасывает исключение, в результат положи <code>&quot;error&quot;</code>.</p>
+<p>Функция похожа на сбор данных из нескольких внешних источников, где часть запросов может завершиться ошибкой. Ошибка одного fetcher не должна останавливать сбор остальных результатов. Например, если три fetcher возвращают <code>&quot;a&quot;</code>, выбрасывают исключение и возвращают <code>&quot;c&quot;</code>, итог должен быть <code>[&quot;a&quot;, &quot;error&quot;, &quot;c&quot;]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">async def safe_collect(fetchers):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="multiprocessing_python" data-badge-type="required later" data-difficulty="hard" data-tests="assert compute(1) == 1, &quot;compute(1) -&gt; 1 (1²)&quot;
+assert compute(3) == 14, &quot;compute(3) -&gt; 14 (1+4+9)&quot;
+assert compute(4) == 30, &quot;compute(4) -&gt; 30 (1+4+9+16)&quot;
+assert compute(10) == 385, &quot;compute(10) -&gt; 385&quot;
+assert compute(100) == 338350, &quot;compute(100) -&gt; 338350&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="multiprocessing_python">
+    Параллельные вычисления с <code>multiprocessing</code>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться распараллеливать CPU-задачи с <code>multiprocessing.Pool</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>compute(n)</code>, которая возвращает сумму квадратов чисел от 1 до <code>n</code> (тяжёлая CPU-задача). Используя <code>multiprocessing.Pool</code>, запусти вычисления для списка входов <code>[100_000, 200_000, 300_000, 400_000]</code> параллельно и выведи время выполнения и результаты в исходном порядке. Сравни с выполнением в одном потоке (без распараллеливания).</p>
+<p>Эта задача про CPU-bound вычисления: здесь ускорение достигается не ожиданием ввода-вывода, а запуском работы в нескольких процессах. Сначала реализуй корректный <code>compute(n)</code>, затем измерь последовательный вариант и вариант через <code>Pool.map(...)</code>. Важно, чтобы результаты для входов остались в том же порядке, что и список <code>inputs</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import time
+from multiprocessing import Pool
+
+def compute(n: int) -&gt; int:
+    pass
+
+def main():
+    inputs = [100_000, 200_000, 300_000, 400_000]
+    t0 = time.perf_counter()
+    pass
+
+if __name__ == "__main__":
+    main()</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="multiprocessing_chunk_plan" data-difficulty="medium" data-tests="assert chunk_tasks([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]], &quot;Чанки по 2&quot;
+assert chunk_tasks([], 3) == [], &quot;Пусто&quot;
+assert chunk_tasks([1, 2], 5) == [[1, 2]], &quot;Большой chunk_size&quot;">
+  <div class="name question-difficulty-medium" id="multiprocessing_chunk_plan">
+    План чанков
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить разбиение данных на чанки перед multiprocessing.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>chunk_tasks(items, chunk_size)</code>, которая разбивает список на чанки размера <code>chunk_size</code>.</p>
+<p>Такое разбиение часто делают перед параллельной обработкой, чтобы каждый worker получил небольшую пачку задач. Функция должна возвращать список списков, сохраняя исходный порядок элементов. Например, <code>chunk_tasks([1, 2, 3, 4, 5], 2)</code> должен вернуть <code>[[1, 2], [3, 4], [5]]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def chunk_tasks(items, chunk_size):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="multiprocessing_result_reduce" data-difficulty="hard" data-tests="assert reduce_worker_results([{&quot;success&quot;: 2, &quot;failed&quot;: 1}, {&quot;success&quot;: 3, &quot;failed&quot;: 0}]) == {&quot;success&quot;: 5, &quot;failed&quot;: 1}, &quot;Сумма&quot;
+assert reduce_worker_results([]) == {&quot;success&quot;: 0, &quot;failed&quot;: 0}, &quot;Пусто&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="multiprocessing_result_reduce">
+    Сбор результатов процессов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать редукцию результатов после параллельной обработки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>reduce_worker_results(results)</code>, принимающую список словарей <code>{success: int, failed: int}</code> и возвращающую общий словарь с суммами.</p>
+<p>Представь, что несколько worker-процессов обработали разные части данных и каждый вернул свой отчёт. Нужно сложить все <code>success</code> между собой и все <code>failed</code> между собой, чтобы получить общий итог. Например, <code>[{&quot;success&quot;: 2, &quot;failed&quot;: 1}, {&quot;success&quot;: 3, &quot;failed&quot;: 0}]</code> превращается в <code>{&quot;success&quot;: 5, &quot;failed&quot;: 1}</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def reduce_worker_results(results):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="threading_python" data-badge-type="required later" data-difficulty="easy" data-tests="import threading as _threading, time as _time
+
+_t = _threading.Thread(target=download, args=(&quot;https://example.com/test&quot;,))
+_t.start()
+_t.join(timeout=5)
+assert not _t.is_alive(), &quot;Поток загрузки должен завершиться&quot;
+
+_t0 = _time.perf_counter()
+main()
+_elapsed = _time.perf_counter() - _t0
+assert _elapsed &lt; 3.0, &quot;4 задачи по ~1 с в потоках должны завершиться менее чем за 3 с (не последовательно)&quot;">
+  <div class="name question-difficulty-easy" id="threading_python">
+    Многопоточность с <code>threading</code> для IO-задач
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться запускать IO-задачи параллельно с <code>threading</code> или <code>ThreadPoolExecutor</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Реализуй функцию <code>download(url)</code>, которая имитирует сетевую загрузку (через <code>time.sleep</code> или запрос). Запусти одновременную загрузку списка URL в нескольких потоках с помощью <code>threading.Thread</code> или <code>concurrent.futures.ThreadPoolExecutor</code> и выведи время выполнения и порядок завершения.</p>
+<p>Здесь важно показать пользу потоков для IO-bound задач: пока одна загрузка «ждёт», другие могут выполняться параллельно. Для учебного варианта достаточно использовать <code>time.sleep(1)</code> внутри <code>download</code>, чтобы не зависеть от реальной сети. Если запустить четыре такие задачи конкурентно, общее время должно быть ближе к одной секунде, чем к четырём.</p>
+
+</div>
+<div class="code-block" data-lang="python">import time
+import threading
+
+def download(url: str) -&gt; None:
+    pass
+
+def main():
+    urls = [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/c",
+        "https://example.com/d",
+    ]
+    t0 = time.perf_counter()
+    threads = []
+    pass
+
+if __name__ == "__main__":
+    main()</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="threading_merge_results" data-difficulty="medium" data-tests="assert merge_thread_results([[1, 2], [3], []]) == [1, 2, 3], &quot;Склейка&quot;
+assert merge_thread_results([]) == [], &quot;Пустой список&quot;">
+  <div class="name question-difficulty-medium" id="threading_merge_results">
+    Слияние результатов потоков
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить подготовку результатов конкурентной обработки.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>merge_thread_results(results)</code>, которая принимает список списков и возвращает один плоский список.</p>
+<p>После конкурентной обработки часто получается список результатов от каждого потока, и его нужно привести к одному списку. Сохраняй порядок: сначала элементы из первого вложенного списка, затем из второго и так далее. Например, <code>merge_thread_results([[1, 2], [3], [], [4]])</code> должен вернуть <code>[1, 2, 3, 4]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def merge_thread_results(results):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="threading_safe_counter" data-difficulty="hard" data-tests="c = Counter()
+assert c.value() == 0, &quot;Старт 0&quot;
+assert c.increment() == 1, &quot;Первый increment&quot;
+assert c.increment() == 2, &quot;Второй increment&quot;
+assert c.value() == 2, &quot;Текущее значение&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="threading_safe_counter">
+    Безопасный счётчик
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать инкапсуляцию состояния.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай <code>Counter</code> с методами <code>increment()</code> и <code>value()</code>. <code>increment()</code> увеличивает счётчик на 1 и возвращает новое значение.</p>
+<p>Класс должен инкапсулировать текущее значение счётчика и не давать внешнему коду менять его напрямую. Каждый вызов <code>increment()</code> увеличивает состояние объекта на единицу, а <code>value()</code> просто возвращает текущее число. Например, после двух вызовов <code>increment()</code> метод <code>value()</code> должен вернуть <code>2</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Counter:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dataclass_inventory_item" data-difficulty="medium" data-tests="item = InventoryItem(&quot;book&quot;, 10, 3)
+assert item.total == 30, &quot;10 * 3&quot;
+assert item.name == &quot;book&quot;, &quot;name&quot;
+assert InventoryItem(&quot;pen&quot;, 2.5, 4).total == 10.0, &quot;float price&quot;">
+  <div class="name question-difficulty-medium" id="dataclass_inventory_item">
+    Товар на складе
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить объект-модель данных и вычисляемое свойство.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай dataclass <code>InventoryItem</code> с <code>name</code>, <code>price</code>, <code>quantity</code> и свойством <code>total</code>.</p>
+<p><code>InventoryItem</code> — это модель одной позиции на складе или в корзине: название, цена за штуку и количество. Декоратор <code>@dataclass</code> должен сам сгенерировать удобный <code>__init__</code>, а <code>total</code> нужно вычислять как <code>price * quantity</code>. Например, товар с ценой <code>10</code> и количеством <code>3</code> должен иметь <code>total == 30</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from dataclasses import dataclass
+
+@dataclass
+class InventoryItem:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dataclass_order_validation" data-difficulty="hard" data-tests="order = Order(&quot;u1&quot;, [&quot;book&quot;, &quot;pen&quot;])
+assert order.items_count == 2, &quot;Два товара&quot;
+try:
+    Order(&quot;&quot;, [&quot;book&quot;])
+    assert False, &quot;Пустой user_id должен вызывать ValueError&quot;
+except ValueError as e:
+    assert str(e) == &quot;user_id is required&quot;, &quot;Пустой user_id&quot;
+try:
+    Order(&quot;u1&quot;, [])
+    assert False, &quot;Пустой items должен вызывать ValueError&quot;
+except ValueError as e:
+    assert str(e) == &quot;items are required&quot;, &quot;Пустой items&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="dataclass_order_validation">
+    Валидация заказа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать модель данных с проверками после инициализации.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Создай dataclass <code>Order(user_id, items)</code>. В <code>__post_init__</code> выбрасывай <code>ValueError</code>, если <code>user_id</code> пустой или <code>items</code> пустой. Добавь <code>items_count</code>.</p>
+<p>Задача показывает, как добавить в dataclass проверку данных после автоматической инициализации. <code>user_id</code> должен быть непустой строкой, а <code>items</code> — непустым списком позиций заказа. Свойство или поле <code>items_count</code> должно показывать количество элементов, например для заказа из трёх товаров значение будет <code>3</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">from dataclasses import dataclass
+
+@dataclass
+class Order:
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="json_parsing" data-difficulty="easy" data-tests="import json as _json, tempfile as _tf, os as _os
+
+_users_data = {&quot;users&quot;: [
+    {&quot;id&quot;: 1, &quot;name&quot;: &quot;Анна&quot;, &quot;age&quot;: 25},
+    {&quot;id&quot;: 2, &quot;name&quot;: &quot;Иван&quot;, &quot;age&quot;: 17},
+    {&quot;id&quot;: 3, &quot;name&quot;: &quot;Мария&quot;, &quot;age&quot;: 32},
+    {&quot;id&quot;: 4, &quot;name&quot;: &quot;Дима&quot;, &quot;age&quot;: 15}
+]}
+_in = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+_json.dump(_users_data, _in, ensure_ascii=False); _in.close()
+_out_path = parse_json(_in.name)
+assert _out_path is not None and _os.path.exists(_out_path), &quot;parse_json должна вернуть путь к файлу&quot;
+assert _os.path.abspath(_out_path) == _os.path.abspath(_in.name), &quot;Результат нужно записать в исходный файл и вернуть его путь&quot;
+with open(_out_path, encoding='utf-8') as _f:
+    _result = _json.load(_f)
+_adults = _result.get(&quot;users&quot;, _result) if isinstance(_result, dict) else _result
+_adult_names = [u[&quot;name&quot;] for u in _adults]
+assert &quot;Анна&quot; in _adult_names, &quot;Анна (25 лет) должна быть в результате&quot;
+assert &quot;Мария&quot; in _adult_names, &quot;Мария (32 года) должна быть в результате&quot;
+assert &quot;Иван&quot; not in _adult_names, &quot;Иван (17 лет) не должен быть в результате&quot;
+assert &quot;Дима&quot; not in _adult_names, &quot;Дима (15 лет) не должен быть в результате&quot;
+_os.unlink(_in.name)">
+  <div class="name question-difficulty-easy" id="json_parsing">
+    Работа с JSON
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться читать и записывать JSON, фильтровать данные.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши функцию <code>parse_json(filename)</code>, которая:</p>
+<ul>
+<li>Читает JSON-файл (например, <code>users.json</code>)</li>
+<li>Берёт список из поля <code>users</code> и оставляет только пользователей с <code>age &gt; 18</code></li>
+<li>Записывает результат <b>обратно в тот же файл</b></li>
+<li>Возвращает путь к этому файлу</li>
+</ul>
+<p>В этой задаче нужно отработать полный цикл работы с JSON: открыть файл, разобрать его в Python-структуры, отфильтровать данные и записать результат обратно. Ожидается, что ты возьмёшь список из поля <code>users</code> и оставишь только пользователей, у которых <code>age &gt; 18</code>. Например, из тестового файла должны попасть Анна, Мария, Елена, Алексей и Сергей.</p>
+
+</div>
+<div class="code-block" data-lang="python">def parse_json(filename):
+    pass</div><p>В качестве <code>users.json</code> используй:</p>
+<div class="code-block" data-lang="json">{
+  "users": [
+    { "id": 1, "name": "Анна Петрова",    "age": 25, "email": "anna@example.com",   "city": "Москва" },
+    { "id": 2, "name": "Иван Сидоров",    "age": 17, "email": "ivan@example.com",   "city": "Санкт-Петербург" },
+    { "id": 3, "name": "Мария Козлова",   "age": 32, "email": "maria@example.com",  "city": "Казань" },
+    { "id": 4, "name": "Дмитрий Волков",  "age": 15, "email": "dmitry@example.com", "city": "Новосибирск" },
+    { "id": 5, "name": "Елена Смирнова",  "age": 28, "email": "elena@example.com",  "city": "Екатеринбург" },
+    { "id": 6, "name": "Алексей Морозов", "age": 19, "email": "alexey@example.com", "city": "Краснодар" },
+    { "id": 7, "name": "Ольга Новикова",  "age": 16, "email": "olga@example.com",   "city": "Владивосток" },
+    { "id": 8, "name": "Сергей Лебедев",  "age": 35, "email": "sergey@example.com", "city": "Ростов-на-Дону" }
+  ]
+}</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="json_user_summary" data-difficulty="medium" data-tests="data = {&quot;users&quot;: [{&quot;name&quot;: &quot;Ann&quot;, &quot;active&quot;: True}, {&quot;name&quot;: &quot;Bob&quot;, &quot;active&quot;: False}]}
+assert active_user_names(data) == [&quot;Ann&quot;], &quot;Только активные&quot;
+assert active_user_names({&quot;users&quot;: []}) == [], &quot;Пусто&quot;
+assert active_user_names({}) == [], &quot;Нет users&quot;">
+  <div class="name question-difficulty-medium" id="json_user_summary">
+    Сводка пользователей из JSON
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить извлечение полей из JSON-структур.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>active_user_names(data)</code>, которая берёт словарь с ключом <code>users</code> и возвращает имена пользователей с <code>active == True</code>.</p>
+<p>Считай, что <code>data</code> уже получен из JSON и имеет структуру вроде <code>{&quot;users&quot;: [...]}</code>. Нужно пройти по списку пользователей, выбрать только активных и вернуть список их имён в исходном порядке. Например, если активны только Анна и Олег, результат должен быть <code>[&quot;Анна&quot;, &quot;Олег&quot;]</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def active_user_names(data):
+    pass</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="json_merge_settings" data-difficulty="hard" data-tests="defaults = {&quot;theme&quot;: &quot;light&quot;, &quot;limits&quot;: {&quot;max&quot;: 10, &quot;min&quot;: 1}}
+user = {&quot;limits&quot;: {&quot;max&quot;: 20}}
+assert merge_settings(defaults, user) == {&quot;theme&quot;: &quot;light&quot;, &quot;limits&quot;: {&quot;max&quot;: 20, &quot;min&quot;: 1}}, &quot;Вложенное слияние&quot;
+assert defaults[&quot;limits&quot;][&quot;max&quot;] == 10, &quot;defaults не мутирует&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="json_merge_settings">
+    Настройки JSON
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Потренировать объединение конфигураций.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>merge_settings(defaults, user_settings)</code>. Если значения в обоих словарях тоже словари, объединяй их вложенно.</p>
+<p>Функция нужна для сценария, где есть настройки по умолчанию и пользовательские переопределения. Если ключ есть в <code>user_settings</code>, его значение должно заменить значение из <code>defaults</code>; если оба значения являются словарями, нужно объединить их рекурсивно, не теряя вложенные ключи. Например, пользователь может переопределить только <code>theme.color</code>, сохранив остальные параметры <code>theme</code> из настроек по умолчанию.</p>
+
+</div>
+<div class="code-block" data-lang="python">def merge_settings(defaults, user_settings):
+    pass</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

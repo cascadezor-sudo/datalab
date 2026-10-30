@@ -1,0 +1,569 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Теоретическая информатика</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/math-video-resources.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">math</span>
+            <span class="pill pill--soft">Теоринф</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count"
+              >0 вопросов</span
+            >
+          </div>
+          <h1 id="title" class="section-shell__title">
+            Теоретическая информатика
+          </h1>
+          <p class="section-shell__desc">
+            Вопросы по теоретической информатике.
+          </p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">
+              Случайный вопрос
+            </button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <section class="math-video-resources" aria-labelledby="math-videos-title">
+        <p class="math-video-resources__eyebrow">Перед вопросами</p>
+        <h2 id="math-videos-title" class="math-video-resources__title">Видео, которые помогут разобраться в математике для ML</h2>
+        <p class="math-video-resources__intro">Посмотрите их целиком или возвращайтесь к нужным темам, когда встречаете незнакомое понятие в вопросах ниже.</p>
+        <ul class="math-video-resources__list">
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://www.youtube.com/watch?v=FZ-7aoMtTaQ"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-for-ml.webp"
+                  alt="Превью видео «Математика для ML: теория вероятностей, математическая статистика и оптимизация»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Математика для ML: теория вероятностей, математическая
+                статистика и оптимизация ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Разбор трёх разделов, без которых не обойтись ML-инженеру:
+                теорвер, матстат и оптимизация — что именно спрашивают и зачем
+                это нужно на практике.</span
+              >
+            </a>
+          </li>
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://youtu.be/5uBGv5ul5To"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-interview-ml.webp"
+                  alt="Превью видео «Собес: математика ML»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Популярные вопросы по математике для ML и DS ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Линейная алгебра, матанализ, векторы и матрицы, нормы,
+                косинусная близость, ранг, базис, производная, градиент и
+                экстремумы, аппроксимация, интерполяция и экстраполяция.</span
+              >
+            </a>
+          </li>
+        </ul>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$
+        $\global\def\abs#1{\left\lvert #1 \right\rvert}$
+        $\global\def\norm#1{\left\lVert #1 \right\rVert}$
+        $\global\def\dp#1#2{\,#1 \cdot #2\,}$ $\global\def\vp#1#2{#1 \times
+        #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$
+        $\global\def\pdv2#1#2{\frac{\partial^2 #1}{\partial #2^2}}$
+        $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$
+        $\global\def\paren#1{\left( #1 \right)}$
+        $\global\def\angset#1{\left\lang #1 \right\rang}$
+        $\global\def\mbox#1{\text{#1}}$ $\global\def\div{\text{div}\,}$
+        $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$
+        $\global\def\vb#1{\textbf{#1}}$ $\global\def\rddots{\cdot^{\displaystyle
+        \cdot^{\displaystyle \cdot}}}$ $\global\def\op#1{\mathrm{#1}\,}$
+        $\global\def\diag{\mathrm{diag}\,}$ $\global\def\rank{\mathrm{rank}\,}$
+        $\global\def\Sh{\,\mathrm{Sh}}$ $\global\def\Sp{\,\mathrm{Sp}\,}$
+        $\global\def\proj{\mathrm{proj}}$ $\global\def\grad{\,\mathrm{grad}\,}$
+        $\global\def\const{\text{const}\,}$ $\global\def\res{\text{res}\,}$
+        $\global\def\Res{\text{Res}\,}$ $\global\def\Lin{\,\text{Lin}\,}$
+        $\global\def\Re{\text{Re}\,}$ $\global\def\Im{\text{Im}\,}$
+        $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Блок 16</h3>
+        <!-- md:replace:entropy:start -->
+<li class="question" data-md-source="true" data-md-id="entropy" data-interview="4">
+  <div class="name" id="entropy">
+    Энтропия
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Информационная энтропия</b> — мера неопределённости некоторой системы.</p>
+<p>Пусть у нас есть случайная величина $\xi$, принимающая $n$ независимых случайных значений $\xi_{i}$ с вероятностями $p_{i}$, $i=1,\dots,n$</p>
+<table class="task-table">
+<thead><tr><th>Значение $\xi$</th><th>Вероятность $P_i$</th></tr></thead>
+<tbody>
+<tr><td>$x_1$</td><td>$p_1$</td></tr>
+<tr><td>$x_2$</td><td>$p_2$</td></tr>
+<tr><td>$\vdots$</td><td>$\vdots$</td></tr>
+<tr><td>$x_n$</td><td>$p_n$</td></tr>
+</tbody>
+</table><p>Формула информационной энтропии:</p>
+<p><span class="latex-copy-wrap" data-latex="$$H(x)=-\sum_{i=1}^{n}p_{i}\log_{2}p_{i}.$$">$$H(x)=-\sum_{i=1}^{n}p_{i}\log_{2}p_{i}.$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Здесь $-\log_{2}p_{i}$ означает измеряемое <b>в битах</b> (отсюда $\textcolor{red}{2}$ в $\log_{\textcolor{red}{2}}p_{i}$) количество информации, содержащейся в том событии, что случайная величина приняла значение $x_{i}$; $H(x)$ — количество информации, которое в среднем приходится на одно событие.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Например, в последовательности букв, составляющих какое-либо предложение на русском языке, разные буквы появляются с разной частотностью, поэтому неопределённость появления для некоторых букв меньше, чем для других.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Энтропия при изменении распределения" src="../images/math/teorinf/entropy.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Пять исходов. При равномерном распределении неопределённость максимальна: $H = \log_2 5 \approx 2.32$ бита. Как только вероятность стягивается к одному исходу, энтропия падает к нулю — исход известен заранее, и сообщение о нём не несёт информации.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для предложений на русском языке энтропия покажет количество информации в среднем на одну букву.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Чем <b>равномернее</b> распределение вероятностей — тем <b>выше</b> энтропия: максимальная неопределённость, одно событие не более предсказуемо, чем другое. Чем больше вероятности сосредоточены на одном исходе — тем <b>ниже</b> энтропия: поведение системы предсказуемо.</p>
+<p>Крайние случаи:</p>
+<ul>
+<li>Монета с $P(\text{орёл}) = 0.5$: $H = -0.5\log_2(0.5) - 0.5\log_2(0.5) = 1$ бит (максимум для двух исходов).</li>
+<li>Монета с $P(\text{орёл}) = 1$: $H = -1\cdot\log_2(1) = 0$ бит (никакой неопределённости).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В решающих деревьях при выборе признака для разделения узла используется <b>критерий уменьшения энтропии</b> (или прирост информации, information gain):</p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{IG} = H(\text{parent}) - \sum_k \frac{n_k}{n} H(\text{child}_k)$$">$$\text{IG} = H(\text{parent}) - \sum_k \frac{n_k}{n} H(\text{child}_k)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Алгоритм выбирает тот признак, который <b>максимально снижает энтропию</b> — то есть делит данные на как можно более &quot;чистые&quot; подгруппы.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Если измерять информацию не <b>в битах</b>, то основание логарифма поменяется на любое другое.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Часто можно увидеть метрику перплексия (perplexity):</p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{Perp} = 2^{H}$$">$$\text{Perp} = 2^{H}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Перплексия — это количество равновероятных вариантов, которое &quot;видит&quot; модель в каждой точке. Чем ниже перплексия языковой модели, тем лучше она предсказывает следующий токен: хорошие GPT-модели имеют очень низкую перплексию на тестовых текстах.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое информационная энтропия и чему она равна для случайной величины с $n$ исходами?</b></p>
+<p>Мера неопределённости системы: $H(x) = -\sum_{i=1}^n p_i \log_2 p_i$. Единица измерения — биты.</p>
+</li>
+<li><p><b>Когда энтропия максимальна, а когда равна нулю?</b></p>
+<p>Энтропия максимальна при равномерном распределении (все исходы одинаково вероятны). Равна нулю, когда один исход имеет вероятность $1$ — полная предсказуемость.</p>
+</li>
+<li><p><b>Как энтропия используется в решающих деревьях при выборе признака для разделения?</b></p>
+<p>Выбирается признак, максимизирующий прирост информации: $\text{IG} = H(\text{parent}) - \sum_k \frac{n_k}{n} H(\text{child}_k)$, то есть признак, после разделения по которому подгруппы становятся наиболее &quot;чистыми&quot;.</p>
+</li>
+<li><p><b>Что такое перплексия и что означает низкая перплексия языковой модели?</b></p>
+<p>Перплексия $\text{Perp} = 2^H$ — количество равновероятных вариантов, которое &quot;видит&quot; модель на каждом шаге. Низкая перплексия означает, что модель хорошо предсказывает следующий токен и уверена в своих предсказаниях.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:entropy:end -->
+        <!-- md:replace:cross_entropy:start -->
+<li class="question" data-md-source="true" data-md-id="cross_entropy" data-interview="5">
+  <div class="name" id="cross_entropy">
+    Перекрестная энтропия
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Перекрёстная энтропия</b> (cross-entropy) — это функция, измеряющая <b>отличие между двумя вероятностными распределениями</b>: истинным распределением $p$ (<b>априорным</b>) и предсказанным моделью распределением $q$ (<b>апостериорным</b>, или <b>модельным</b>).</p>
+<p>Пусть у нас есть случайная величина $\xi$, принимающая $n$ независимых случайных значений $\xi_{i}$ с априорными вероятностями $p_{i}$ и апостериорными вероятностями $q_{i}$, $i=1,\dots,n$</p>
+<table class="task-table">
+<thead><tr><th>Значение $\xi$</th><th>Априор. вер. $P_i$</th><th>Апост. вер. $Q_i$</th></tr></thead>
+<tbody>
+<tr><td>$x_1$</td><td>$p_1$</td><td>$q_1$</td></tr>
+<tr><td>$x_2$</td><td>$p_2$</td><td>$q_2$</td></tr>
+<tr><td>$\vdots$</td><td>$\vdots$</td><td>$\vdots$</td></tr>
+<tr><td>$x_n$</td><td>$p_n$</td><td>$q_n$</td></tr>
+</tbody>
+</table><p>Для дискретной случайной величины $\xi$ с возможными исходами $x_1, \dots, x_n$ перекрёстная энтропия определяется так:</p>
+<p><span class="latex-copy-wrap" data-latex="$$H(p, q) = - \sum_{i=1}^{n} p_i \log q_i$$">$$H(p, q) = - \sum_{i=1}^{n} p_i \log q_i$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Интуиция: энтропия $H(p)$ — это минимальное количество бит, нужных для кодирования событий из распределения $p$. Перекрёстная энтропия $H(p, q)$ — сколько бит потребуется, если использовать код, <b>оптимальный для $q$</b>, но данные реально распределены по $p$.</p>
+<p>Когда $p = q$ (предсказания идеальны), $H(p, q) = H(p)$ — минимально возможное значение. Чем сильнее $q$ отличается от $p$ — тем больше потерь, тем больше $H(p, q) &gt; H(p)$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Кросс-энтропия и KL при обучении" src="../images/math/teorinf/cross_entropy.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Синие столбики — истинное распределение $p$, розовые — предсказание модели $q$. Пока $q$ далеко от $p$, кросс-энтропия $H(p,q)$ велика. По мере обучения $q$ приближается к $p$, и $H(p,q)$ падает до $H(p)$ — ниже опуститься нельзя, а разница между ними, $D_{KL}(p \| q)$, уходит в ноль.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p><span class="latex-copy-wrap" data-latex="$$L(y, \hat{y}) = - \left[ y \log \hat{y} + (1 - y) \log(1 - \hat{y}) \right]$$">$$L(y, \hat{y}) = - \left[ y \log \hat{y} + (1 - y) \log(1 - \hat{y}) \right]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $y \in \{0, 1\}$ — истинная метка, $\hat{y} \in (0, 1)$ — предсказанная вероятность положительного класса.</p>
+<p>Эту формулу часто используют в качестве функции потерь в задачах классификации.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Разберём формулу на конкретных числах:</p>
+<ul>
+<li>Объект положительного класса ($y = 1$), модель уверена: $\hat{y} = 0.95$ $\to$ потеря $= -\log(0.95) \approx 0.05$ (маленькая).</li>
+<li>Объект положительного класса ($y = 1$), модель ошибается: $\hat{y} = 0.05$ $\to$ потеря $= -\log(0.05) \approx 3.0$ (большая).</li>
+<li>Объект отрицательного класса ($y = 0$), модель уверена: $\hat{y} = 0.05$ $\to$ потеря $= -\log(1 - 0.05) \approx 0.05$ (маленькая).</li>
+</ul>
+<p>Видно, что функция <b>сильно штрафует</b> за уверенные неправильные предсказания — именно это нам и нужно.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Перекрёстная энтропия минимальна, когда предсказания точно совпадают с истинным распределением.</b> Она широко используется как функция потерь в задачах классификации — в логистической регрессии, нейронных сетях и многих других моделях.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое перекрёстная энтропия $H(p, q)$ и что она измеряет?</b></p>
+<p>$H(p, q) = -\sum_{i=1}^n p_i \log q_i$ — отличие между истинным распределением $p$ и предсказанным моделью распределением $q$. Чем больше $q$ отличается от $p$, тем больше $H(p, q)$.</p>
+</li>
+<li><p><b>При каком условии перекрёстная энтропия минимальна?</b></p>
+<p>Когда предсказанное распределение $q$ совпадает с истинным $p$: в этом случае $H(p, q) = H(p)$.</p>
+</li>
+<li><p><b>Запишите бинарную кросс-энтропию и объясните её формулу.</b></p>
+<p>$L(y, \hat{y}) = -[y \log \hat{y} + (1-y) \log(1-\hat{y})]$, где $y \in \{0, 1\}$ — истинная метка, $\hat{y} \in (0, 1)$ — предсказанная вероятность. При верном уверенном предсказании потеря мала, при неверном — велика.</p>
+</li>
+<li><p><b>Почему перекрёстная энтропия сильно штрафует за уверенные неправильные предсказания?</b></p>
+<p>Если $y = 1$, но $\hat{y} = 0.05$ (модель ошибается уверенно), то $-\log(0.05) \approx 3.0$ — большая потеря. Если $\hat{y} = 0.95$ (верно), то $-\log(0.95) \approx 0.05$ — малая потеря. Логарифм резко возрастает при приближении к нулю.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:cross_entropy:end -->
+      </ol>
+    </main>
+    <script src="../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body>
+</html>

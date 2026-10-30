@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Логирование событий и Tracking Plan</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Логирование событий</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Event Tracking</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">6 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Логирование событий и Tracking Plan</h1>
+        <p class="section-shell__desc">Архитектура сбора данных, разработка Tracking Plan, сессионизация, качество аналитических логов и склейка пользователей (Identity Resolution).</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="event_logging_basics" data-interview="4">
+  <div class="name" id="event_logging_basics">
+    Основы событийного логирования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Событийное логирование (Event-based Logging / Clickstream Tracking)</b> — это фундаментальный механизм сбора и фиксации данных о поведении пользователей в цифровых продуктах, регистрирующий взаимодействие человека или системы как дискретный атомарный факт (событие) с временной меткой, контекстом и атрибутами.</p>
+<p>Если совсем простыми словами: <b>это бортовой самописец вашего продукта</b>. Каждое действие — тап по кнопке, просмотр товара, ошибка оплаты — мгновенно записывается в виде структурированного события и отправляется в хранилище данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия аналитического события (Canonical Event Spec):</p>
+<p>В современных системах аналитики (Segment, RudderStack, Snowplow, Amplitude) любое событие представляет собой JSON-объект строгой структуры:</p>
+<ul>
+<li><code>event_id</code> (UUID): Уникальный идентификатор конкретного факта отправки.</li>
+<li><code>event_name</code> (string): Семантическое название действия в нотации <i>Object Action</i> (например, <code>order_completed</code>, <code>search_performed</code>).</li>
+<li><code>timestamp</code> (ISO 8601 / Unix ms): Точное время совершения действия на устройстве (<code>client_timestamp</code>) и время приема сервером (<code>server_timestamp</code>).</li>
+<li><code>user_id</code> / <code>anonymous_id</code>: Постоянный авторизованный и анонимный идентификаторы клиента.</li>
+<li><code>event_properties</code> (JSON payload): Контекст действия (сумма, валюта, категория, ID товара).</li>
+<li><code>user_properties</code> (JSON payload): Состояние пользователя на момент события (город, тариф, баланс).</li>
+<li><code>device_context</code>: ОС, версия приложения, IP, User-Agent, разрешение экрана.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-экосистемы:</b>
+При проведении платежа клиент нажал кнопку «Оплатить», но из-за плохого мобильного интернета ответ сервера задерживался. Клиент нажал кнопку еще 4 раза.
+Благодаря наличию <code>event_id</code> и клиентского <code>idempotency_key</code> в свойствах события бэкенд платежей обработал только первое событие, а аналитика зафиксировала раздражение пользователя (Rage Clicks) и сформировала задачу на блокировку кнопки спиннером после первого клика.</p>
+    </div>
+    <div class="code-block" data-lang="json">
+      <pre><code>{
+  "event_id": "a9b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "event_name": "checkout_step_completed",
+  "timestamp": "2026-10-08T03:30:00.124Z",
+  "user_id": "usr_981245",
+  "anonymous_id": "anon_f18a-98bc",
+  "properties": {
+    "step_number": 2,
+    "step_name": "delivery_address_selected",
+    "delivery_type": "courier",
+    "delivery_cost_rub": 299.0,
+    "cart_total_rub": 4580.0,
+    "is_express": false
+  },
+  "context": {
+    "app_version": "14.2.1",
+    "os": "iOS 18.1",
+    "device_model": "iPhone 16 Pro",
+    "network_type": "5G"
+  }
+}</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Логирование без часового пояса (Timezone naive).</b> Запись локального времени устройства без UTC-офсета превращает глобальные логи в кашу при анализе пользователей из разных часовых поясов.</li>
+        <li><b>Использование разрозненных имен событий (checkout_done, finish_order, OrderSuccess).</b> Отсутствие единого регламента наименований приводит к дублированию воронок и невозможности сквозного анализа.</li>
+        <li><b>Отправка персональных данных (ПДн / PII) в открытом виде.</b> Передача номеров паспортов, банковских карт или паролей в аналитические события грубо нарушает 152-ФЗ и GDPR.</li>
+        <li><b>Перегрузка логов гигантскими JSON-объектами.</b> Логирование всего каталога товаров внутри одного клика раздувает затраты на хранилище и замедляет работу мобильного приложения.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Какая разница между client_timestamp и server_timestamp в событии?»</i> Ответ: <i>«Client timestamp фиксирует момент физического совершения действия на устройстве пользователя. Server timestamp фиксирует момент, когда лог долетел до сборщика (Collector). Если пользователь был в метро или авиарежиме, разница может составлять часы или дни. Для анализа последовательности шагов воронки используется client_timestamp, а для мониторинга пайплайнов и задержек доставки — server_timestamp».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое событийное логирование?</b></p><p>Метод сбора данных о поведении пользователей, представляющий каждое действие в виде структурированного события с контекстом и метаданными.</p></li>
+        <li><p><b>Какие обязательные атрибуты должны присутствовать в каждом аналитическом событии?</b></p><p>event_id, event_name, timestamp (UTC), идентификатор пользователя (user_id/anonymous_id) и payload свойств.</p></li>
+        <li><p><b>В чем различие между временем на клиенте и временем на сервере сбора логов?</b></p><p>Client timestamp отражает момент совершения действия пользователем; server timestamp — момент фактической доставки события в DWH.</p></li>
+        <li><p><b>Почему в логировании категорически запрещено передавать PII (персональные данные)?</b></p><p>Это нарушает законы о защите данных (152-ФЗ, GDPR, PCI-DSS) и создает критические риски безопасности.</p></li>
+        <li><p><b>Что такое Rage Clicks в аналитических логах?</b></p><p>Серия быстрых повторных кликов по одному и тому же элементу интерфейса за короткое время, сигнализирующая о зависании или неочевидности интерфейса.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="tracking_plan" data-interview="5">
+  <div class="name" id="tracking_plan">
+    Tracking Plan (План разметки)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>План аналитической разметки (Tracking Plan / Data Schema Registry)</b> — это официальный архитектурный документ и контракт спецификации данных между продуктовыми аналитиками, разработчиками и дата-инженерами, строго регламентирующий все события, их триггеры, типы параметров, обязательность полей и бизнес-смысл.</p>
+<p>Если совсем простыми словами: <b>это свод законов логирования в компании</b>. Без него один разработчик назовет покупку <code>buy</code>, второй <code>purchase</code>, а третий <code>OrderCompleted</code>, и аналитик потратит месяцы на очистку мусора вместо анализа бизнеса.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Структура и контрактный подход Tracking Plan (Data Contracts):</p>
+<ol>
+<li><b>Стандарт именования (Naming Conventions):</b> Индустриальный стандарт — <b>Object Action</b> в нижнем регистре (snake_case):
+    <ul>
+    <li><code>cart_item_added</code>, <code>order_completed</code>, <code>filter_applied</code>.</li>
+    <li>Глагол фиксирует факт свершения (past tense): не <code>add_to_cart</code>, а <code>cart_item_added</code>.</li>
+    </ul>
+</li>
+<li><b>Типизация параметров:</b> Каждое свойство имеет строгий тип данных (string, integer, float, boolean, array, timestamp) и флаг обязательности (required / optional).</li>
+<li><b>Автоматическая валидация схемы в CI/CD:</b>
+Современные инструменты (Avo, Iteratively, JSON Schema validator) блокируют мерж pull request разработчика, если отправляемое событие не соответствует JSON-схеме из Tracking Plan.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс спасения релиза крупного ритейлера:</b>
+При переписывании чекаута разработчик случайно изменил тип поля <code>order_price_rub</code> со строкового числа на массив <code>[price, discount]</code>.
+Благодаря включенной валидации Tracking Plan в CI/CD тесты сборки приложения упали с ошибкой: <i>«Schema Violation: order_price_rub expects float, received array»</i>.
+Баг был исправлен за 10 минут до релиза в App Store. Без этого инцидент сломал бы сквозную отчетность выручки для всего совета директоров.</p>
+    </div>
+    <div class="code-block" data-lang="yaml">
+      <pre><code># Спецификация события в формате Tracking Plan (Data Contract)
+event: order_completed
+description: "Вызывается строго после успешного подтверждения транзакции банком"
+owner: "team-checkout"
+platforms: ["ios", "android", "web"]
+properties:
+  order_id:
+    type: string
+    required: true
+    description: "Уникальный номер заказа в учетной системе"
+  total_revenue_rub:
+    type: number
+    minimum: 0.01
+    required: true
+    description: "Финальная сумма списания с учетом скидок и доставки"
+  items_count:
+    type: integer
+    minimum: 1
+    required: true
+  payment_method:
+    type: string
+    enum: ["card", "sbp", "sberpay", "tpay", "cash"]
+    required: true</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Ведение плана разметки в разрозненных Google Таблицах без версионирования.</b> Таблицы мгновенно устаревают, теряют актуальность и не интегрируются с кодовой базой разработчиков.</li>
+        <li><b>Смена названий событий без обратной совместимости.</b> Переименование <code>order_success</code> в <code>order_completed</code> ломает все исторические когорты и дашборды.</li>
+        <li><b>Отсутствие валидации на этапе сборки (CI).</b> Проверка качества данных постфактум в хранилище приводит к тому, что миллионы испорченных событий уже записаны.</li>
+        <li><b>Слишком абстрактные события (click_button).</b> Логирование одного универсального события с 50 параметрами превращает анализ в кошмар парсинга.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы выстраиваете процесс внедрения аналитической разметки для новой продуктовой фичи?»</i> Ответ: <i>«По процессу Data Contracts: 1) Аналитик вместе с продактом формирует гипотезы и требования к метрикам; 2) Описывает спецификацию событий в Tracking Plan (JSON Schema); 3) Разработчик имплементирует логику по сгенерированным типизированным моделям; 4) В pull request срабатывает автотест валидации схемы; 5) На этапе QA аналитик проверяет реальную отправку событий в тестовом окружении».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Tracking Plan?</b></p><p>Документ и контракт спецификации данных, определяющий полный перечень аналитических событий, их триггеры, свойства и типы данных.</p></li>
+        <li><p><b>Какой стиль именования событий является стандартом индустрии?</b></p><p>Object Action в нотации snake_case (например, order_completed, account_created).</p></li>
+        <li><p><b>Почему важно использовать форму прошедшего времени (past tense) в названиях событий?</b></p><p>Потому что событие фиксирует уже свершившийся факт в системе, а не команду к действию.</p></li>
+        <li><p><b>Что такое Data Contract в аналитике?</b></p><p>Соглашение между разработчиками и потребителями данных с автоматической валидацией схемы на этапе CI/CD.</p></li>
+        <li><p><b>Чем опасны неверсионированные изменения схемы событий?</b></p><p>Они приводят к обрыву исторических графиков, поломке дашбордов и искажению когортного анализа.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="event_user_properties" data-interview="4">
+  <div class="name" id="event_user_properties">
+    Свойства событий и свойства пользователей
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p>В современных объектных моделях продуктовой аналитики все атрибуты разделяются на две принципиально разные категории: <b>Свойства событий (Event Properties)</b> и <b>Свойства пользователей (User Properties / Traits)</b>.</p>
+<ul>
+<li><b>Event Properties:</b> Атрибуты, характеризующие <b>конкретный момент совершения действия</b> (локальный контекст: сумма транзакции, поисковый запрос, промокод). Они неизменны и привязаны к точке времени.</li>
+<li><b>User Properties:</b> Атрибуты, характеризующие <b>текущее общее состояние пользователя как сущности</b> (глобальный контекст: тариф подписки, город проживания, пол, общее число покупок за все время, LTV).</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектура хранения и обновления свойств:</p>
+<table class="task-table">
+<thead><tr><th>Характеристика</th><th>Event Property</th><th>User Property</th></tr></thead>
+<tbody>
+<tr><td><b>Привязка</b></td><td>К конкретному событию (Point-in-time)</td><td>К профилю пользователя (Stateful)</td></tr>
+<tr><td><b>Изменяемость</b></td><td><b>Immutable</b> (никогда не перезаписывается)</td><td><b>Mutable</b> (обновляется на актуальное значение)</td></tr>
+<tr><td><b>Примеры</b></td><td><code>search_query</code>, <code>cart_value</code>, <code>button_color</code></td><td><code>subscription_plan</code>, <code>country</code>, <code>lifetime_orders</code></td></tr>
+<tr><td><b>Хранение в DWH</b></td><td>В таблице фактов (Fact Table / Clickstream)</td><td>В таблице измерений (SCD Type 1/2 Dimension)</td></tr>
+</tbody>
+</table>
+<p><b>Point-in-Time Dilemma:</b> Если пользователь купил товар со скидкой как «Новичок», а через год стал «VIP», то в аналитике заказов его исторический заказ должен анализироваться со статусом <i>на момент покупки</i> (Event Property), а в таргетинге рассылок — с текущим статусом (User Property).</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-тарифов:</b>
+Пользователь Иван открыл депозит со статусом тарифа «Базовый».
+Через месяц Иван перешел на тариф «Премиум».
+Если бы статус тарифа хранился только как User Property, ретроспективный анализ депозитов базового тарифа потерял бы вклад Ивана (он перекрасился бы в «Премиум»).
+Грамотная архитектура зафиксировала <code>tier: "basic"</code> внутри события открытия вклада (Event Property), а в профиле пользователя обновила <code>current_tier: "premium"</code> (User Property).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Пример вызова аналитического SDK (Segment / Amplitude standard)
+analytics.track(
+    user_id="usr_550e8400",
+    event="order_completed",
+    properties={
+        # Event Properties (контекст сделки здесь и сейчас)
+        "order_id": "ord_99812",
+        "revenue_rub": 3500.0,
+        "items_count": 3,
+        "coupon_applied": "AUTUMN2026"
+    }
+)
+
+analytics.identify(
+    user_id="usr_550e8400",
+    traits={
+        # User Properties (текущее глобальное состояние профиля)
+        "membership_status": "gold",
+        "total_lifetime_spent_rub": 48200.0,
+        "city": "Moscow",
+        "has_active_credit_card": True
+    }
+)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запись быстро меняющихся параметров в User Properties.</b> Запись <code>last_viewed_product_id</code> в профиль пользователя затирается каждым кликом, делая невозможным анализ истории просмотров.</li>
+        <li><b>Попытка анализировать исторические срезы только по текущим User Properties.</b> Приводит к искажению ретроспективных когорт (Surviving/Upgraded Bias).</li>
+        <li><b>Дублирование тяжелых неизменных профильных данных в каждое событие.</b> Передача домашнего адреса и всей анкеты в каждый клик раздувает объем сырых логов на терабайты.</li>
+        <li><b>Игнорирование конфликтов при многопоточной перезаписи профиля.</b> Асинхронные обновления свойств пользователя из разных систем могут перезаписать свежие данные старыми.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Пользователь совершил покупку, будучи на бесплатном тарифе, а через неделю купил Premium. Как это отразится на графике выручки по тарифам?»</i> Ответ: <i>«Если мы анализируем выручку правильно по Event Properties (тариф, зафиксированный в событии покупки), прошлая покупка останется в категории «Бесплатный/Пробный». Если же дашборд наивно заджойнен с текущей таблицей профилей (User Property), прошлая покупка ошибочно припишется тарифу Premium, исказив историческую отчетность».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем принципиальная разница между Event Property и User Property?</b></p><p>Event Property неизменно фиксирует контекст конкретного действия; User Property отражает текущее изменяемое состояние профиля пользователя.</p></li>
+        <li><p><b>Что такое Identify call в аналитических SDK?</b></p><p>Специализированный метод обновления свойств и атрибутов пользователя в его глобальном профиле.</p></li>
+        <li><p><b>Почему свойства событий должны быть immutable (неизменяемыми)?</b></p><p>Потому что событие отражает свершившийся исторический факт в конкретной точке времени.</p></li>
+        <li><p><b>В какую таблицу хранилища данных (DWH) попадают Event Properties?</b></p><p>В партиционированные таблицы фактов (Fact Tables) потока событий.</p></li>
+        <li><p><b>Что такое SCD (Slowly Changing Dimensions) в контексте User Properties?</b></p><p>Методология сохранения истории изменений атрибутов профиля пользователя во времени для корректных ретроспективных срезов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sessions" data-interview="4">
+  <div class="name" id="sessions">
+    Определение и расчет сессий
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Пользовательская сессия (Session / Visit)</b> — это непрерывная последовательность взаимодействий одного пользователя с цифровым продуктом, ограниченная периодом неактивности (Inactivity Timeout, стандарт — 30 минут) либо сменой внешнего источника трафика или наступлением полуночи.</p>
+<p>Если совсем простыми словами: <b>это один визит клиента в ваш магазин</b>. Человек зашел, походил, посмотрел товары, ушел пить чай на 40 минут — старая сессия закрылась. Вернулся к компьютеру — началась новая сессия.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика и SQL-алгоритмы сборки сессий (Sessionization):</p>
+<ol>
+<li><b>Правило 30 минут неактивности:</b> Если временной интервал между событием $E_{i}$ и $E_{i-1}$ превышает порог $\Delta t > 30 \text{ мин}$, событию $E_i$ присваивается флаг новой сессии.</li>
+<li><b>Алгоритм сборки в SQL через оконные функции:</b>
+    <ul>
+    <li>Вычисляем разницу времени с предыдущим событием через <code>LAG(event_time)</code>.</li>
+    <li>Формируем индикатор новой сессии: <code>CASE WHEN delta_seconds > 1800 THEN 1 ELSE 0 END</code>.</li>
+    <li>Применяем кумулятивную сумму <code>SUM(is_new_session) OVER (PARTITION BY user_id ORDER BY event_time)</code> для генерации уникального <code>session_id</code>.</li>
+    </ul>
+</li>
+<li><b>Разница Mobile vs Web:</b> В вебе сессия управляется cookie. В мобильных приложениях сессия определяется жизненным циклом процесса: уход в фон (background), фоновые пуши, явный выгруз из памяти (force close).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс веб-аналитики маркетплейса:</b>
+Маркетинг отчитался о «взрывном росте числа сессий на $+60\%$» после внедрения таймера обратного отсчета в корзине.
+Аналитик проверил распределение сессий и выяснил: таймер каждые 31 минуту присылал системный попап с обновлением остатков товара.
+Этот фоновый попап разрывал одну длинную вдумчивую сессию покупателя на 3 искусственные «короткие» сессии. Число уникальных покупателей не изменилось, а конверсия на сессию искусственно упала вдвое.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Классический алгоритм сборки сессий (Sessionization) в PostgreSQL / ClickHouse
+WITH events_with_lag AS (
+    SELECT
+        user_id,
+        event_time,
+        event_name,
+        dateDiff('second', lagInFrame(event_time) OVER (
+            PARTITION BY user_id ORDER BY event_time
+        ), event_time) AS time_since_last_event
+    FROM events
+),
+session_flags AS (
+    SELECT
+        user_id,
+        event_time,
+        event_name,
+        -- Если первое событие пользователя или перерыв > 30 минут (1800 сек) -> старт новой сессии
+        CASE WHEN time_since_last_event IS NULL OR time_since_last_event > 1800 THEN 1 ELSE 0 END AS is_new_session
+    FROM events_with_lag
+)
+SELECT
+    user_id,
+    event_time,
+    event_name,
+    -- Генерация уникального идентификатора сессии кумулятивной суммой
+    concat(user_id, '_', toString(sum(is_new_session) OVER (
+        PARTITION BY user_id ORDER BY event_time
+    ))) AS session_id
+FROM session_flags;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование единого тайм-аута 30 минут для всех продуктов подряд.</b> Для онлайн-кинотеатра просмотр фильма длится 2 часа без кликов. Тайм-аут 30 минут разорвет фильм на 4 сессии. Нужны heartbeats (периодические фоновые пинги активности).</li>
+        <li><b>Разрыв сессии в полночь.</b> Искусственный перенос сессий через полночь искажает анализ ночных пользователей.</li>
+        <li><b>Привязка платежей к сессии вместо пользователя.</b> Оплата часто подтверждается по SMS через 10 минут на другом устройстве. Привязка к сессии приводит к потере атрибуции заказа.</li>
+        <li><b>Засорение сессий фоновыми пуш-событиями.</b> Фоновое получение пуша не должно открывать сессию без явного открытия экрана пользователем.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Напишите SQL-запрос, который рассчитывает среднюю длительность сессии пользователя»</i>. Расскажите алгоритм: 1) Оконная функция <code>LAG</code> с порогом 30 минут для нахождения границ сессий; 2) <code>SUM() OVER(...)</code> для генерации <code>session_id</code>; 3) Группировка по <code>session_id</code> с расчетом <code>MAX(event_time) - MIN(event_time)</code>; 4) Внешний <code>AVG()</code> по полученным интервалам длительности.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое пользовательская сессия?</b></p><p>Последовательность действий пользователя в продукте, непрерывная во времени с периодами неактивности не более установленного тайм-аута.</p></li>
+        <li><p><b>Какой стандартный тайм-аут неактивности используется в веб-аналитике?</b></p><p>30 минут (1800 секунд).</p></li>
+        <li><p><b>С помощью каких оконных функций SQL реализуется алгоритм sessionization?</b></p><p>LAG() для измерения паузы между событиями и кумулятивный SUM() для нумерации сессий.</p></li>
+        <li><p><b>Что такое Ping / Heartbeat событие и зачем оно нужно?</b></p><p>Периодический технический сигнал с клиента во время пассивного потребления контента (видео, чтение), предотвращающий разрыв сессии.</p></li>
+        <li><p><b>Почему в мобильных приложениях расчет сессий сложнее, чем в вебе?</b></p><p>Из-за специфики жизненного цикла ОС: свертывание в фон, сон устройства, фоновая синхронизация.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="logging_data_quality" data-interview="5">
+  <div class="name" id="logging_data_quality">
+    Контроль качества данных логирования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Контроль качества аналитических данных (Data Quality & Observability)</b> — это комплекс автоматизированных процессов, тестов и мониторингов, обеспечивающий полноту (Completeness), точность (Accuracy), свежесть (Freshness), уникальность (Uniqueness) и соответствие схеме (Validity) входящего потока сырых событий.</p>
+<p>Если совсем простыми словами: <b>это санитарный контроль на входе в хранилище</b>. Если в базу попадут испорченные данные («Garbage in, garbage out»), все ваши дашборды, машинное обучение и A/B-тесты выдадут ложные результаты, стоящие компании миллионов убытков.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Столпы Data Observability (Monte Carlo framework):</p>
+<ol>
+<li><b>Freshness (Свежесть):</b> Время отставания данных от реального мира. Мониторинг задержки пайплайна (SLA $< 15$ минут от клика до записи в ClickHouse).</li>
+<li><b>Volume & Anomaly Detection (Объем):</b> Мониторинг аномальных скачков или падений числа событий. Если число событий <code>payment_success</code> внезапно упало на $80\%$ во вторник в 14:00, система обязана мгновенно слать алерт в PagerDuty/Telegram.</li>
+<li><b>Schema Conformance (Соответствие схеме):</b> Отлов невалидных payload, неожиданных <code>NULL</code> в обязательных полях, смены типов данных (Dead Letter Queue / Quarantine table).</li>
+<li><b>Uniqueness & Deduplication:</b> Контроль дубликатов событий, возникающих из-за повторных сетевых отправок (Network retries) на клиенте.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс спасения аналитики банка:</b>
+После обновления Android-клиента в релиз просочилась ошибка: при сбое авторизации по биометрии SDK логирования начинало отправлять событие <code>login_failed</code> в бесконечном цикле (100 запросов в секунду от одного телефона).
+Автоматический DQ-монитор зафиксировал всплеск объема событий в 8 раз выше нормы ($+700\%$ volume anomaly) за 10 минут. Пайплайн активировал rate-limiting, изолировал спамящие события в карантинную таблицу и предотвратил падение кластера ClickHouse.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Реализация автоматического теста проверки качества данных (Great Expectations pattern)
+import pandas as pd
+import numpy as np
+
+def validate_event_batch(df):
+    errors = []
+    
+    # 1. Проверка обязательности полей (Completeness)
+    if df["user_id"].isnull().any():
+        errors.append(f"CRITICAL: Найдено {df['user_id'].isnull().sum()} событий с NULL user_id!")
+        
+    # 2. Проверка уникальности event_id (Uniqueness)
+    duplicate_events = df["event_id"].duplicated().sum()
+    if duplicate_events > 0:
+        errors.append(f"WARNING: Обнаружено {duplicate_events} дубликатов event_id!")
+        
+    # 3. Проверка допустимых бизнес-границ (Validity)
+    if (df["revenue"] < 0).any():
+        errors.append("ERROR: Найдена отрицательная выручка в транзакциях!")
+        
+    # 4. Проверка свежести (Freshness)
+    max_event_time = pd.to_datetime(df["event_time"]).max()
+    now = pd.Timestamp.now(tz="UTC")
+    delay_hours = (now - max_event_time).total_seconds() / 3600
+    if delay_hours > 2.0:
+        errors.append(f"ALERT: Задержка свежести данных составляет {delay_hours:.1f} часов!")
+        
+    return errors
+
+# Тестовый датафрейм
+sample_df = pd.DataFrame({
+    "event_id": ["e1", "e2", "e2"], # дубликат
+    "user_id": ["u1", None, "u3"],   # NULL user_id
+    "event_time": ["2026-10-08 03:00:00", "2026-10-08 03:01:00", "2026-10-08 03:02:00"],
+    "revenue": [500.0, -10.0, 1200.0] # отрицательное значение
+})
+
+issues = validate_event_batch(sample_df)
+print("Результаты DQ-аудита:")
+for issue in issues:
+    print(" -", issue)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Отсутствие алертинга на падение трафика логов.</b> Аналитики узнают о том, что события не собираются уже 3 недели, только когда садятся писать отчет.</li>
+        <li><b>Запись невалидных событий в основную таблицу.</b> Ошибочные данные должны отсекаться в Dead Letter Queue (DLQ), иначе они сломают расчеты всей компании.</li>
+        <li><b>Игнорирование сетевых дубликатов.</b> Сетевые ретраи при плохом интернете приводят к удвоению выручки в сырых логах без дедупликации.</li>
+        <li><b>Отсутствие регулярных тестов целостности (dbt test / Soda / Great Expectations).</b> Без автоматических regression-тестов качество данных непрерывно деградирует.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы выстроите мониторинг качества данных в реальном времени?»</i> Ответ: <i>«На трех уровнях: 1) На входе сборщика (Ingestion) — валидация схемы JSON Schema с отправкой битых сообщений в Dead Letter Queue; 2) На уровне потока (Kafka/Flink) — мониторинг аномалий объемов и лага доставки (Freshness) с алертами при отклонении на 3 сигмы; 3) На уровне DWH — регулярные dbt-тесты на уникальность первичных ключей, референциальную целостность и бизнес-ограничения (неотрицательность цен, допустимые диапазоны)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Data Quality (качество данных) в аналитике?</b></p><p>Степень пригодности, полноты, точности и надежности данных для принятия решений и обучения моделей.</p></li>
+        <li><p><b>Назовите основные параметры Data Observability.</b></p><p>Freshness (свежесть), Volume (объем), Schema (схема), Lineage (происхождение), Quality (бизнес-валидность).</p></li>
+        <li><p><b>Что такое Dead Letter Queue (DLQ) в пайплайне логирования?</b></p><p>Карантинная очередь или таблица, куда изолируются события, не прошедшие валидацию схемы, для дальнейшего разбора инженерами.</p></li>
+        <li><p><b>Почему дубликаты событий неизбежны в мобильных приложениях?</b></p><p>Из-за архитектуры гарантированной доставки «at least once» и повторных сетевых отправок при нестабильном соединении.</p></li>
+        <li><p><b>Какие популярные инструменты используются для автоматического тестирования данных в DWH?</b></p><p>dbt tests, Great Expectations, Soda SQL, Monte Carlo.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="identity_resolution" data-interview="5">
+  <div class="name" id="identity_resolution">
+    Склейка профилей (Identity Resolution)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Склейка профилей (Identity Resolution / User Stitching)</b> — это алгоритмический процесс объединения разрозненных идентификаторов пользователя (анонимные cookies веб-браузера, рекламные ID смартфона <code>idfa/gaid</code>, номера телефонов, email, токены устройств) в единый целостный граф идентичности (Identity Graph) вокруг постоянного глобального <code>user_id</code>.</p>
+<p>Если совсем простыми словами: <b>это способ узнать одного и того же человека в разной одежде</b>. Если пользователь неделю выбирал холодильник на рабочем ноутбуке инкогнито, а потом скачал приложение на телефон и оформил заказ, склейка свяжет всю историю просмотров с его заказом.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методологии и алгоритмы склейки профилей:</p>
+<ol>
+<li><b>Детерминированная склейка (Deterministic Stitching):</b> Строгое связывание на основе 100% достоверных фактов авторизации (логин по номеру телефона, единый email, вход через Госуслуги / ID-провайдер). Точность близка к $100\%$.</li>
+<li><b>Вероятностная склейка (Probabilistic Stitching / Fingerprinting):</b> Связывание профилей на основе совпадения характеристик: общий домашний IP-адрес, схожая геолокация, паттерны поведения, совпадение User-Agent и аппаратных характеристик.</li>
+<li><b>Построение графа идентичности (Identity Graph):</b> В графовой структуре ребрами являются факты совместной встречаемости идентификаторов. Для каждого подграфа выделяется корневой канонический идентификатор (Canonical ID).</li>
+<li><b>Проблема ретроспективной склейки (Historical Backfilling):</b> После того как анонимный <code>anon_991</code> авторизовался под <code>usr_42</code>, необходимо ретроспективно обновить все исторические события просмотров, чтобы корректно посчитать сквозную атрибуцию маркетинга.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс сквозной атрибуции в e-commerce:</b>
+Пользователь кликнул на дорогую рекламу Яндекс Директа с рабочего компьютера (анонимный <code>cookie_id = c1</code>).
+Ничего не купил, ушел. Через 5 дней вспомнил, зашел с мобильного приложения (анонимный <code>device_id = d2</code>), авторизовался по СМС (<code>user_id = u500</code>) и оформил заказ на $85\,000$ рублей.
+Без склейки профилей маркетинг посчитал бы, что реклама в Директе слила бюджет впустую, а заказ пришел из «бесплатной органики».
+Identity Resolution склеил <code>c1</code>, <code>d2</code> и <code>u500</code> в один граф, вернув маркетингу честную атрибуцию дорогого рекламного канала.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Детерминированная склейка анонимного и авторизованного профиля в SQL
+WITH identity_mapping AS (
+    -- Находим пары: anonymous_id -> реальный user_id по факту первого логина
+    SELECT
+        anonymous_id,
+        argMin(user_id, event_time) AS canonical_user_id
+    FROM events
+    WHERE user_id IS NOT NULL AND anonymous_id IS NOT NULL
+    GROUP BY anonymous_id
+)
+SELECT
+    e.event_time,
+    e.event_name,
+    e.anonymous_id,
+    -- Присваиваем сквозной канонический ID (если юзер авторизовался позже - склеиваем прошлое!)
+    coalesce(m.canonical_user_id, e.user_id, e.anonymous_id) AS resolved_user_id,
+    e.properties
+FROM events AS e
+LEFT JOIN identity_mapping AS m ON e.anonymous_id = m.anonymous_id;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Опасность склейки на общедоступных устройствах (Shared Devices).</b> Если в интернет-кафе или на общем семейном планшете залогинились муж и жена, наивная детерминированная склейка сольет двух разных людей в одного Франкенштейна.</li>
+        <li><b>Зацикливание графа идентичности.</b> При смене SIM-карты новым владельцем номера можно ошибочно приклеить историю старого абонента.</li>
+        <li><b>Разрушение изоляции A/B тестов.</b> Если сплит был сделан по <code>anonymous_id</code>, а после авторизации склейка сменила группу пользователя на вариант <code>user_id</code>, возникает критический user leakage.</li>
+        <li><b>Сложность в соблюдении GDPR / 152-ФЗ («Право на забвение»).</b> При запросе на удаление данных нужно удалить все узлы графа, включая анонимные связки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как склейка пользователей влияет на результаты A/B тестирования?»</i> Ответ: <i>«Критически опасно! Если единица рандомизации теста — <code>cookie_id</code>, а при логине срабатывает склейка в <code>user_id</code>, пользователь может оказаться в обеих группах сразу (утечка тритмента). Для надежных A/B тестов единицей рандомизации должен быть либо строго авторизованный <code>user_id</code>, либо склейка не должна влиять на зафиксированный хэш варианта сплитования».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Identity Resolution (склейка профилей)?</b></p><p>Процесс объединения множества разрозненных цифровых идентификаторов пользователя в единый профиль и граф идентичности.</p></li>
+        <li><p><b>В чем различие между детерминированной и вероятностной склейкой?</b></p><p>Детерминированная опирается на строгие факты авторизации (телефон, email); вероятностная — на схожесть IP, геолокации и характеристик устройств.</p></li>
+        <li><p><b>Что такое Identity Graph?</b></p><p>Графовая база данных или структура, связывающая все устройства, куки и учетные записи одного человека.</p></li>
+        <li><p><b>Какую роль играет склейка профилей в маркетинговой атрибуции?</b></p><p>Позволяет связать ранние анонимные касания с рекламой на компьютере с финальной покупкой в мобильном приложении.</p></li>
+        <li><p><b>В чем опасность склейки на устройствах общего пользования (Shared Devices)?</b></p><p>Риск объединения данных разных людей в один профиль при использовании одного планшета или рабочего компьютера несколькими людьми.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

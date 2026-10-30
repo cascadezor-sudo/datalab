@@ -1,0 +1,249 @@
+:root {
+  --df-radius: 14px;
+
+  /* Привязка к дизайн-системе (карточки) */
+  --df-surface: var(--card-bg, #fcfbf8);
+  --df-border: var(--card-border, rgba(15, 23, 42, 0.1));
+  --df-text: var(--text-color, rgba(15, 23, 42, 0.92));
+  --df-muted: color-mix(in oklab, var(--df-text), transparent 35%);
+
+  --df-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+  --df-shadow-hover: 0 16px 42px rgba(0, 0, 0, 0.14);
+
+  --df-accent: var(--accent-color, #6d5efc);
+}
+
+/* dark */
+[data-theme="dark"] body {
+  --df-surface: rgba(17, 24, 39, 0.78);
+  --df-border: rgba(148, 163, 184, 0.16);
+  --df-text: rgba(226, 232, 240, 0.92);
+  --df-muted: rgba(226, 232, 240, 0.7);
+  --df-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  --df-shadow-hover: 0 22px 60px rgba(0, 0, 0, 0.65);
+}
+
+.daily-fact-container {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 420px;
+  width: 90%;
+}
+
+.daily-fact-popup {
+  background: var(--df-surface);
+  border: 1px solid var(--df-border);
+  border-radius: var(--df-radius);
+  box-shadow: var(--df-shadow);
+  overflow: hidden;
+
+  /* лёгкий "современный" эффект */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  opacity: 0;
+  transform: translateY(-10px);
+  transition:
+    transform 200ms ease,
+    opacity 160ms ease,
+    box-shadow 200ms ease,
+    border-color 200ms ease;
+  cursor: default;
+}
+
+.daily-fact-popup.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.daily-fact-popup.hide {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.daily-fact-popup:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--df-shadow-hover);
+  border-color: color-mix(in oklab, var(--df-border), var(--df-accent) 18%);
+}
+
+.daily-fact-popup:hover .daily-fact-progress {
+  animation-play-state: paused;
+}
+
+/* тонкая акцентная линия */
+.daily-fact-popup::before {
+  content: "";
+  display: block;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--df-accent),
+    color-mix(in oklab, var(--df-accent), white 18%)
+  );
+}
+
+.daily-fact-header {
+  padding: 12px 14px 10px;
+  background: transparent;
+  color: var(--df-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* чип категории — спокойный */
+.daily-fact-category {
+  background: color-mix(in oklab, var(--df-accent), transparent 88%);
+  border: 1px solid color-mix(in oklab, var(--df-accent), transparent 75%);
+  color: color-mix(in oklab, var(--df-accent), var(--df-text) 10%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  display: inline-block;
+}
+
+.daily-fact-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--df-text);
+  opacity: 0.95;
+  flex-grow: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* close — как "иконка-кнопка", не голый текст */
+.daily-fact-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--df-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.daily-fact-close:hover {
+  background: color-mix(in oklab, var(--df-text), transparent 92%);
+  border-color: var(--df-border);
+  color: var(--df-text);
+  transform: translateY(-1px);
+}
+
+.daily-fact-close:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--df-accent), white 10%);
+  outline-offset: 2px;
+}
+
+.daily-fact-content {
+  padding: 10px 14px 14px;
+  color: var(--df-text);
+  line-height: 1.55;
+  font-size: 14px;
+  text-wrap: pretty;
+  hyphens: auto;
+}
+
+/* если факты бывают длинные — это реально спасает */
+.daily-fact-content p {
+  margin: 0;
+  max-width: 56ch;
+  animation: fadeInUp 0.6s ease-out 0.2s both;
+}
+
+.daily-fact-content .katex {
+  animation: fadeInUp 0.6s ease-out 0.4s both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.daily-fact-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: color-mix(in oklab, var(--df-accent), transparent 30%);
+  animation: progressBar 10s linear forwards;
+  transform-origin: left;
+  opacity: 0.9;
+}
+
+@keyframes progressBar {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.daily-fact-link {
+  color: var(--df-text);
+  text-decoration: none;
+  border-bottom: 1px dashed
+    color-mix(in oklab, var(--df-accent), transparent 15%);
+  transition: all 0.2s ease;
+}
+
+.daily-fact-link:hover {
+  color: var(--df-accent);
+  border-bottom-style: solid;
+}
+
+/* Dark theme уже настроен через CSS переменные в body.dark */
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .daily-fact-popup,
+  .daily-fact-content p,
+  .daily-fact-content .katex,
+  .daily-fact-progress {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .daily-fact-container {
+    top: calc(10px + env(safe-area-inset-top));
+    left: 10px;
+    right: 10px;
+    max-width: 520px;
+  }
+
+  .daily-fact-header {
+    padding: 10px 12px;
+  }
+
+  .daily-fact-content {
+    padding: 12px;
+    font-size: 0.9rem;
+  }
+}

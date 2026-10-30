@@ -1,0 +1,782 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Резюме</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<style>
+      .resume-example-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .resume-example-badge {
+        align-items: center;
+        background: color-mix(in srgb, var(--brand) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+        border-radius: 999px;
+        color: var(--brand);
+        display: inline-flex;
+        font-size: 0.92rem;
+        font-weight: 700;
+        justify-content: center;
+        line-height: 1;
+        min-height: 38px;
+        padding: 10px 14px;
+        text-decoration: none;
+        transition:
+          background 0.2s ease,
+          border-color 0.2s ease,
+          box-shadow 0.2s ease,
+          transform 0.2s ease;
+      }
+
+      .resume-example-badge:hover {
+        background: color-mix(in srgb, var(--brand) 16%, transparent);
+        border-color: color-mix(in srgb, var(--brand) 44%, transparent);
+        box-shadow: 0 8px 18px color-mix(in srgb, var(--brand) 16%, transparent);
+        transform: translateY(-1px);
+      }
+
+      [data-theme="dark"] body .resume-example-badge {
+        background: color-mix(in srgb, var(--brand) 18%, transparent);
+        border-color: color-mix(in srgb, var(--brand) 36%, transparent);
+        color: color-mix(in srgb, var(--brand) 86%, white 14%);
+      }
+    </style>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="interviews">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Резюме</h1>
+            <p class="subtitle">Как правильно составить резюме</p>
+          </div>
+          <div class="page-header-cta">
+            <a class="page-header-button" href="../../ai/interviews/index.html">К разделу Интервью</a>
+          </div>
+        </div>
+      </header>
+      <!-- Quick checklist -->
+      <h2>Структура и общий чек-лист</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/progress.svg" alt="Готово" />
+            </div>
+            <h2 class="card-title">Быстрый чек-лист</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Чек-лист" data-type="definition">
+              <ul>
+                <li>1 страница, чёткая иерархия, читаемый шрифт.</li>
+                <li>Опыт — в обратном хронологическом порядке, фокус на влиянии.</li>
+                <li>Каждый буллет = <b>действие + технология + метрика результата</b>.</li>
+                <li>ATS-дружелюбно: используй ключевые слова из вакансии.</li>
+                <li>Ссылки: GitHub/Portfolio/Kaggle/Google Scholar — кликабельные.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/desktop.svg" alt="Разработка" />
+            </div>
+            <h2 class="card-title">About / Summary</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              <!-- remark -->
+              <div class="info-card-auto" data-title="Замечание" data-type="remark">
+                Для CV, которое будет подаваться в зарубежные компании, можно добавить раздел About, 
+                который будет содержать информацию о вашем опыте и навыках. В русскоязычных компаниях этот раздел 
+                не нужен.
+              </div>
+              <!-- explanation -->
+              <div class="info-card-auto" data-title="Пример" data-type="example">
+              Короткий абзац на 3–4 предложения: 
+              <ul>
+                <li>роль (ML Engineer / MLE / Data Scientist),</li> 
+                <li>годы опыта,</li>
+                <li>домены (финтех, медтех, соцсети),</li>
+                <li>масштаб (MAU/трафик/данные),</li>
+                <li>ключевая экспертиза (NLP/CV/RAG/RecSys, MLOps, распределённые системы).</li>
+                <li>Завершить фразой про бизнес-ценность.</li>
+              </ul>
+            </div>
+          </p>
+          
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Избегай общих слов; добавляй масштабы (например, 
+              "обрабатывал 50M+ событий/сутки", "100M+ пользователей").
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/form.svg" alt="Заметки" />
+            </div>
+            <h2 class="card-title">Сопроводительное письмо (Cover Letter)</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Сопроводительное письмо" data-type="definition">
+      Его нужно 1 раз составить, сделав выжимку из своей <a href="../../ai/interviews/legend.html">легенды</a>, 
+              и прикреплять ко всем своим откликам! Это повысит конверсию, потому что сразу же на начальном этапе даст
+              начальное представление о тебе как о специалисте, который может принести пользу бизнесу и продукту.
+              <ul>
+                <li>Сопроводительное письмо — кратко (до 1к символов), чёткая иерархия, последовательность изложения.</li>
+                <li>Сделать акцент на широком спектре технологий, которые ты использовал.</li>
+                <li>Фокус на влиянии: назвать метрики, цифры, которые ты привнес в продукт.</li>
+                <li>Завершить фразой про желание работать в компании и почему ты подходишь для этой вакансии.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experience -->
+      <h2>Опыт (Experience)</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/interviews.svg" alt="Работа" />
+            </div>
+            <h2 class="card-title">Как оформлять опыт</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+            <div class="info-card-auto" data-title="Алгоритм" data-type="definition">
+              <ul>
+                <li><b>Company, Role, Dates, Location</b> (Remote/Hybrid при необходимости).</li>
+                <li>3–6 буллетов на место: действие, стек, результат в цифрах.</li>
+                <li>Смешивай <b>ML-метрики</b> (AUC, F1, BLEU, WER, PSNR, NDCG) и <b>продукт/инфра</b> (латентность, SLO/SLA, CTR/CR, COGS, $ экономия).</li>
+                <li>Покажи вклад в масштаб: микросервисы, Kafka, Kubernetes, кеши, шардирование, CI/CD.</li>
+              </ul>
+            </div>
+            <!-- example -->
+            <div class="info-card-auto" data-title="Шаблон" data-type="explanation">
+              "Внедрил <b>модель/сервис</b> с использованием <b>стека</b>,
+              что снизило/повысило <b>метрика</b> на <b>Х%</b> при <b>условии/ограничении</b>."
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/mentor-stats.svg" alt="Статистика" />
+            </div>
+            <h2 class="card-title">Примеры сильных буллетов</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+            <div class="info-card-auto" data-title="Примеры" data-type="example">
+              <ul>
+                <li>Развернул RAG-поиск (FAISS/Chroma + LangChain) для службы поддержки, сократив 
+                  <b>MTTR</b> на <b>15–25%</b> при <b>P95</b> ответа &lt; 800 мс.</li>
+                <li>Оптимизировал инференс LLM (квантование/dtype/токен-кэш) — снизил 
+                  <b>latency P95</b> на <b>30%</b>, затраты на GPU на <b>18%</b>.</li>
+                <li>Построил пайплайн кредитного скоринга (PySpark + scikit-learn), повысив <b>AUC</b> с 0.78 до 0.84 и снизив <b>FPR</b> на 12% в проде.</li>
+                <li>Мигрировал 200+ сервисов в K8s (EKS), уменьшив <b>инфраструктурные расходы</b> в 3 раза и ускорив релизы на <b>20%</b>.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Skills -->
+      <h2>Навыки (Skills)</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/settings.svg" alt="Инструменты" />
+            </div>
+            <h2 class="card-title">Технологии и стек</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+            <div class="info-card-auto" data-title="Совет" data-type="explanation">
+              Раздели на подкатегории и избегай дубликатов; указывай версии/размеры моделей, если релевантно.
+            </div>
+            <!-- example -->
+            <div class="info-card-auto" data-title="Примеры" data-type="example">
+              <ul>
+              <li><b>ML/DS:</b> PyTorch, Transformers, scikit-learn, spaCy, OpenCV, YOLO, TensorBoard, WandB.</li>
+              <li><b>MLOps/Инфра:</b> Docker, Kubernetes, Kafka, Airflow, MLflow, Prometheus/Grafana.</li>
+              <li><b>Backend:</b> Python (FastAPI), Java (Spring), Go (Gin/Echo), gRPC, PostgreSQL/ClickHouse.</li>
+              <li><b>Vector/LLM:</b> FAISS/Chroma, LangChain/LlamaIndex/LangGraph, RAG, embedders.</li>
+              <li><b>Cloud:</b> AWS (EKS, S3), GCP/Azure эквиваленты — указывать по факту.</li>
+            </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/research.svg" alt="Эксперимент" />
+            </div>
+            <h2 class="card-title">Практики качества</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+            <div class="info-card-auto" data-title="На что ориентироваться" data-type="explanation">
+              <ul>
+                <li>Unit/Integration/E2E тесты для ML API и фиче-пайплайнов.</li>
+                <li>Canary/Shadow deployment, мониторинг дрейфа и деградации метрик.</li>
+                <li>Feature store, эксперименты/треккинг (MLflow/W&B), reproducibility.</li>
+                </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Education / Certifications -->
+      <h2>Образование и языки</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/training.svg" alt="Обучение" />
+            </div>
+            <h2 class="card-title">Education</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Указывай степень, факультет/специализацию (например, ML), даты и релевантные курсы/проекты.
+            </div>
+            <!-- example -->
+            <div class="info-card-auto" data-title="Примеры" data-type="example">
+            <ul>
+              <li>BSc/BA: математика/экономика/CS (+ проекты по ML/DS/Алгоритмам).</li>
+              <li>MSc: Computer Science / Machine Learning — тезисы/исследования кратко.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/cloud.svg" alt="Web" />
+            </div>
+            <h2 class="card-title">Languages</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              <!-- remark -->
+              <div class="info-card-auto" data-title="Замечание" data-type="remark">
+                Для международных вакансий (<a href="../../ai/interviews/linkedin.html">Linkedin</a>) — очень важно.
+              </div>
+              <!-- example -->
+              <div class="info-card-auto" data-title="Примеры" data-type="example">
+                <ul>
+                  <li>Russian — Native;</li>
+                  <li>English — B2/C1 (указать по факту).</li>
+                </ul>
+              </div>
+            </p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Writing tips -->
+      <h2>Оформление и лайфхаки</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/form.svg" alt="Заметки" />
+            </div>
+            <h2 class="card-title">Стиль и формулировки</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+              <div class="info-card-auto" data-title="Совет" data-type="explanation">
+                <ul>
+                  <li>Используй глаголы действия: built, deployed, optimized, scaled, productionized.</li>
+                  <li>Избегай пассива и расплывчатости; каждое утверждение — проверяемо.</li>
+                  <li>Тюнь под вакансию: добавляйт релевантные ключевые навыки и домены.</li>
+                </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/warning.svg" alt="Предупреждение" />
+            </div>
+            <h2 class="card-title">Типичные ошибки</h2>
+          </div>
+          <div class="card-content">
+            <!-- remark -->
+              <div class="info-card-auto" data-title="Типичные ошибки" data-type="remark">
+                <ul>
+                  <li>Нет цифр/метрик, слишком общий текст.</li>
+                  <li>Список инструментов без контекста задач/влияния.</li>
+                  <li>Дублирование технологий, несогласованные даты/форматы.</li>
+                </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2>Где сделать красивое, профессиональное резюме?</h2>
+      
+      
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Структура" />
+            </div>
+            <h2 class="card-title">Шаблоны Overleaf</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Можно начать сразу с моего
+              <a
+                href="https://ru.overleaf.com/read/mfscwygpddxt#baf89c"
+                rel="noopener"
+                target="_blank"
+              >
+                готового шаблона
+              </a>. Он находится на сайте
+              <a href="https://ru.overleaf.com/project" rel="noopener" target="_blank">
+                Overleaf
+              </a>
+            </p>
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Чтобы изменить информацию, редактируй текстовые поля в исходниках (<code>.tex</code>
+              ). Если что-то непонятно — можно попросить помощи у GPT.
+            </div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/settings.svg" alt="Настройки" />
+            </div>
+            <h2 class="card-title">Скомпилировать</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Нажми
+              <b>Скомпилировать</b>
+              — Overleaf соберёт проект.
+            </p>
+            <!-- remark -->
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              После компиляции появится PDF, который можно скачать.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/ml.svg" alt="ML" />
+            </div>
+            <h2 class="card-title">Проверка резюме через ATS (ResumeFrame)</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Зачем нужна ATS-проверка" data-type="definition">
+              <p>
+                Большинство крупных компаний используют <b>ATS‑системы (Applicant Tracking System)</b>, которые автоматически
+                отфильтровывают резюме ещё до того, как его увидит рекрутер. Если в CV не хватает ключевых слов
+                из вакансии или структура «ломает» парсинг, резюме может даже не дойти до человека.
+              </p>
+              <p>
+                <a href="https://resumeframe.com/" target="_blank" rel="noopener">ResumeFrame</a> даёт быстрый фидбек,
+                насколько твоё резюме <b>дружелюбно к ATS</b> и хорошо ли оно «матчится» под конкретную вакансию.
+              </p>
+            </div>
+            <div class="info-card-auto" data-title="Как пользоваться" data-type="explanation">
+              <ol>
+                <li>Зайди на <a href="https://resumeframe.com/" target="_blank" rel="noopener">resumeframe.com</a>.</li>
+                <li>Загрузи своё CV в PDF (на английском языке).</li>
+                <li>Нажми "Check AST Friendliness" и посмотри:
+                  <ul>
+                    <li>какой <b>Overall Score</b> показывает система,</li>
+                    <li>какие <b>ключевые слова/скиллы</b> из вакансии не встречаются в резюме,</li>
+                    <li>замечания по структуре и читабельности.</li>
+                  </ul>
+                  <figure style="text-align: center;">
+                    <img src="../../images/interviews/ast-check.png" style="width: 60%;">
+                  </figure>
+                  <figure style="text-align: center;">
+                    <img src="../../images/interviews/ast2.png" style="width: 60%;">
+                    <figcaption>Пример проверки резюме через ATS</figcaption>
+                  </figure>
+                </li>
+              </ol>
+            </div>
+            <div class="info-card-auto" data-title="Что именно доработать по итогам проверки" data-type="remark">
+              <ul>
+                <li>Важный тонкий момент: резюме должно быть написано в <b>едином шрифте</b>! Для этого можно как раз-таки использовать, например, overleaf для верстки и рендеринга итогового файла резюме.</li>
+                <li>Добавь в разделы Experience / Skills <b>отсутствующие, но релевантные ключевые слова</b>.</li>
+                <li>Убедись, что важные термины из вакансий появляются в резюме не один раз, а в нескольких буллетах.</li>
+                <li>Проверь, что названия ролей и технологий написаны в стандартном виде (ML Engineer, Data Scientist, Python, PyTorch и т.п.).</li>
+                <li>Перепроверь структуру: единый формат дат, читабельные заголовки разделов, без лишних таблиц и сложной верстки.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        
+      </div>
+
+      <h2>Примеры успешных резюме и легенд</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/achievement.png" alt="Успешный пример" />
+            </div>
+            <h2 class="card-title">NLP / LLM / RAG Engineer</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Что смотреть" data-type="definition">
+              Обезличенный пример резюме и легенды ученика: RAG-системы, LLM-агенты, NLP-модели, production inference, Docker/FastAPI и метрики качества.
+            </div>
+            <div class="info-card-auto" data-title="Почему пример сильный" data-type="explanation">
+              <ul>
+                <li>В резюме каждый проект привязан к результату и метрикам.</li>
+                <li>В легенде проекты раскрыты как истории: задача, архитектура, решения, вопросы интервьюера.</li>
+                <li>Есть готовые блоки для обсуждения MLSD: retrieval, agents, latency, monitoring, CI/CD.</li>
+              </ul>
+            </div>
+            <div class="resume-example-actions">
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/nlp-llm-rag-resume.md">Резюме .md</a>
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/nlp-llm-rag-legend.md">Легенда .md</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/cv.png" alt="Успешный пример" />
+            </div>
+            <h2 class="card-title">Multimodal / NLP ML Engineer</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Что смотреть" data-type="definition">
+              Обезличенный пример резюме и легенды ученика: document intelligence, OCR, LLM extraction, NLP-классификация, мультимодальный CV/NLP и time series.
+            </div>
+            <div class="info-card-auto" data-title="Почему пример сильный" data-type="explanation">
+              <ul>
+                <li>Сильный фокус на production-проектах и измеримых улучшениях: latency, F1, ROC AUC, DSC, Recall@5.</li>
+                <li>Легенда хорошо раскрывает архитектуру: Databricks, Delta Lake, OCR, FastAPI, Docker, CI/CD, Prometheus/Grafana.</li>
+                <li>Есть полезные истории для MLSD: обработка PDF, мультимодальный retrieval, оптимизация CLIP-инференса.</li>
+              </ul>
+            </div>
+            <div class="resume-example-actions">
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/multimodal-nlp-ml-resume.md">Резюме .md</a>
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/multimodal-nlp-ml-legend.md">Легенда .md</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/legal.svg" alt="Успешный пример" />
+            </div>
+            <h2 class="card-title">ML Engineer (InfoSec)</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Что смотреть" data-type="definition">
+              Обезличенный пример резюме и легенды ученицы: ML в информационной безопасности, anomaly detection, PAM, RAG для техподдержки и on-premise LLM.
+            </div>
+            <div class="info-card-auto" data-title="Почему пример сильный" data-type="explanation">
+              <ul>
+                <li>Хорошо показана связка ML и домена: DBSCAN, XGBoost, sliding window, Kafka, Redis, XAI.</li>
+                <li>В легенде много готовых ответов на вопросы интервьюера: cold start, pseudo-labeling, FAISS, chunking, hallucinations.</li>
+                <li>Есть сильный production-контекст: air-gapped контур, on-premise inference, monitoring, incremental sync.</li>
+              </ul>
+            </div>
+            <div class="resume-example-actions">
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/infosec-ml-rag-resume.md">Резюме .md</a>
+              <a class="resume-example-badge" href="../../ai/interviews/examples/successful-resumes/infosec-ml-rag-legend.md">Легенда .md</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Firebase SDK -->
+      <!-- firebase-sdk-auth:start -->
+      
+      
+      <!-- firebase-sdk-auth:end -->
+      <!-- Подключение authGuard -->
+      <script src="../../authGuard.js"></script>
+      <button aria-label="Наверх" id="scrollToTopBtn" type="button">
+        <svg
+          fill="none"
+          height="24"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <script src="../../assets/js/init-page.js"></script>
+    </main>
+  </body>
+</html>

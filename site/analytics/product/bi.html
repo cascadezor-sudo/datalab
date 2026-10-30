@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BI-системы, визуализация и Yandex DataLens</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">BI и DataLens</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">BI & Visualization</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">6 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">BI-системы, визуализация и Yandex DataLens</h1>
+        <p class="section-shell__desc">Построение эффективных аналитических дашбордов, архитектура BI-решений, выбор визуализаций и практическая работа с Yandex DataLens и SQL.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="bi_tools_overview" data-interview="4">
+  <div class="name" id="bi_tools_overview">
+    Обзор и архитектура BI-систем
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Системы бизнес-аналитики (Business Intelligence, BI)</b> — это программно-архитектурный стек для подключения к гетерогенным источникам данных (DWH, Data Lake, SQL-базы), моделирования семантического слоя (Semantic Layer), автоматического расчета бизнес-метрик и их интерактивной визуализации для принятия решений стейкхолдерами компании.</p>
+<p>Если совсем простыми словами: <b>это витрина вашего хранилища данных</b>. Инженеры строят сложные базы и пайплайны, а BI превращает миллиарды сырых строк в понятные графики и таблицы, на которые каждый день смотрят топ-менеджеры, маркетологи и продакты.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ современных платформ BI:</p>
+<table class="task-table">
+<thead><tr><th>Инструмент</th><th>Тип / Архитектура</th><th>Сильные стороны</th><th>Сценарии применения</th></tr></thead>
+<tbody>
+<tr><td><b>Yandex DataLens</b></td><td>Cloud Native, прямое подключение к источникам</td><td>Бесплатный, бесшовная интеграция с ClickHouse и PostgreSQL, zero-maintenance</td><td>Стандарт российского рынка, продуктовая и операционная аналитика</td></tr>
+<tr><td><b>Apache Superset</b></td><td>Open-source, Python/Flask + React</td><td>Неограниченная кастомизация, богатый SQL IDE, гибкие права доступа (RBAC)</td><td>Корпоративные инсталляции on-premise, большие DWH</td></tr>
+<tr><td><b>Metabase</b></td><td>Open-source / Cloud, легкий вес</td><td>Интуитивный конструктор запросов (Query Builder) без знания SQL для бизнес-пользователей</td><td>Быстрый старт в стартапах, Self-service для команд</td></tr>
+<tr><td><b>Tableau / PowerBI</b></td><td>Enterprise On-Prem / Cloud</td><td>Сверхглубокая визуализация, развитые расчетные поля (DAX, LOD expressions)</td><td>Крупный международный энтерпрайз, финансовая отчетность</td></tr>
+</tbody>
+</table>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс внедрения DataLens поверх ClickHouse:</b>
+В ритейл-приложении с $50$ млн событий в день аналитики пытались строить отчеты через выгрузку в Python и Excel (каждый отчет готовился по 4 часа).
+Команда развернула Yandex DataLens с прямым коннектором к партиционированным таблицам ClickHouse.
+Время загрузки интерактивного дашборда со срезами по 800 городам сократилось до $0.4$ секунды. Продакты и коммерческий отдел получили операционный доступ к выручке и остаткам в режиме реального времени без участия дата-инженеров.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Пример оптимизированного датасета для BI: предагрегация в ClickHouse
+-- Создание агрегирующей материализованной витрины для мгновенного рендера в BI
+CREATE TABLE daily_product_kpi_mv
+ENGINE = SummingMergeTree()
+PRIMARY KEY (event_date, category_id, platform)
+AS SELECT
+    toDate(event_time) AS event_date,
+    category_id,
+    platform,
+    count() AS views_count,
+    sum(is_purchase) AS purchases_count,
+    sum(revenue_rub) AS total_revenue_rub
+FROM events
+GROUP BY event_date, category_id, platform;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Попытка строить BI-дашборды на сырых ненадежных таблицах событий.</b> Запрос к 10 млрд строк сырых логов «вешает» базу данных и заставляет дашборд грузиться по 5 минут. BI обязан смотреть в предобработанные витрины (Data Marts).</li>
+        <li><b>Отсутствие семантического слоя и единой логики расчета метрик.</b> Если аналитик считает выручку с НДС, а финансовый отдел — без НДС, на двух соседних дашбордах будут противоречащие цифры.</li>
+        <li><b>Игнорирование разграничения прав доступа (Data Governance / Row-Level Security).</b> Утечка конфиденциальных зарплатных или финансовых данных из-за открытых ссылок на дашборд.</li>
+        <li><b>Засорение DWH сотнями «одноразовых» неиспользуемых дашбордов.</b> Дашбордный хаос: через год в компании крутится 500 отчетов, из которых 90% заброшены.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы выберете между Metabase, Superset и DataLens для нового аналитического проекта?»</i> Ответ: <i>«Если стек в Yandex Cloud и основа — ClickHouse/Postgres, лучший выбор — DataLens (бесплатный, быстрый, нет затрат на инфраструктуру). Если требуется полный on-premise контроль в корпоративном контуре с гибкими плагинами — Apache Superset. Если задача дать нетехническим продактам простой no-code интерфейс для вопросов к базе — Metabase».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Каковы основные функции современной BI-платформы?</b></p><p>Подключение к источникам, семантическое моделирование, интерактивная визуализация, дашбординг и регламентная рассылка отчетов.</p></li>
+        <li><p><b>В чем ключевое архитектурное преимущество Yandex DataLens при работе с ClickHouse?</b></p><p>Отсутствие промежуточного слоя хранения данных: DataLens пушит оптимизированные SQL-запросы прямо в ClickHouse в реальном времени.</p></li>
+        <li><p><b>Что такое Data Mart (витрина данных) и почему BI должен строиться на них?</b></p><p>Специализированная агрегированная таблица, подготовленная под конкретную бизнес-задачу для обеспечения мгновенного отклика дашборда.</p></li>
+        <li><p><b>Что такое Row-Level Security (RLS) в BI?</b></p><p>Ограничение видимости строк данных в зависимости от роли или региона пользователя (например, региональный директор видит только свой город).</p></li>
+        <li><p><b>Чем Apache Superset отличается от легких решений вроде Metabase?</b></p><p>Наличием развитого SQL Lab, широчайшими возможностями кастомизации на Python/React и поддержкой сложных корпоративных ролей доступа.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="bi_datasets_connections" data-interview="4">
+  <div class="name" id="bi_datasets_connections">
+    Источники данных и моделирование датасетов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Моделирование аналитических датасетов в BI (Semantic Layer & Data Modeling)</b> — это уровень абстракции между физическими реляционными таблицами базы данных и конечными графиками дашборда, определяющий связи (Joins), измерения (Dimensions), меры (Measures/Metrics) и агрегационные формулы.</p>
+<p>Если совсем простыми словами: <b>это переводчик с языка таблиц на язык бизнеса</b>. Вместо непонятных колонок <code>t_amt_val</code> и <code>flg_stat_4</code> семантический слой создает понятные поля «Выручка» и «Статус оплаты», зная, как их правильно суммировать и фильтровать.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Компоненты семантической модели датасета:</p>
+<ol>
+<li><b>Измерения (Dimensions):</b> Качественные атрибуты для группировки и фильтрации (Дата, Категория, Город, Платформа, Версия приложения).</li>
+<li><b>Меры / Показатели (Measures):</b> Количественные агрегируемые значения (Сумма выручки, Число уникальных покупателей, Средний чек).
+    <ul><li><i>Важнейшее правило:</i> <b>Агрегация вычисляется строго после фильтрации</b>, а не до нее. Мера задается как формула <code>SUM(revenue) / COUNT(DISTINCT user_id)</code>, а не как простое деление колонок.</li></ul>
+</li>
+<li><b>Топология связей (Data Schema):</b> Схема «Звезда» (Star Schema) со связями Fact-to-Dimension. Денормализация таблиц снижает нагрузку на CPU базы при интерактивной фильтрации.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс ошибки расчета среднего чека:</b>
+Аналитик создал в датасете поле «Средний чек» как предрассчитанную колонку строки: <code>order_price</code>.
+В дашборде он вывел <code>AVG(order_price)</code>.
+При попытке отфильтровать данные по категории «Электроника» средний чек рассчитался некорректно, так как в заказе были товары из разных категорий.
+Исправление: в семантическом слое была задана мера на уровне агрегата: <code>SUM(order_revenue) / uniqExact(order_id)</code>. Это обеспечило математически безупречный расчет при любых комбинациях фильтров.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Пример создания семантических вычисляемых полей в Yandex DataLens / Superset
+-- 1. Мера уникальных активных покупателей
+-- Formula: countDistinct([user_id])
+
+-- 2. Мера среднего дохода на платящего (ARPPU)
+-- Formula: sum([revenue_rub]) / countDistinct([user_id])
+
+-- 3. Динамическое измерение группы заказа (CASE expression)
+-- Formula:
+CASE
+    WHEN [order_total_rub] >= 10000 THEN 'Крупный (>10k)'
+    WHEN [order_total_rub] >= 3000  THEN 'Средний (3k-10k)'
+    ELSE 'Мелкий (<3k)'
+END</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Усреднение средних значений (Average of Averages).</b> Классическая математическая ошибка: расчет среднего от средних чеков по регионам вместо отношения суммы денег к сумме заказов.</li>
+        <li><b>Многократные сложные джойны в реальном времени при каждом клике селектора.</b> Связывание 8 тяжелых таблиц на лету «вешает» дашборд. Данные должны быть заранее денормализованы в dbt/Airflow пайплайне.</li>
+        <li><b>Игнорирование типов агрегации при смене гранулярности.</b> Попытка просуммировать метрику уникальных пользователей (DAU) для получения месячной аудитории.</li>
+        <li><b>Захардкоженные фильтры внутри датасета.</b> Скрытие части данных в датасете без информирования пользователей дашборда ведет к ложным выводам.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему в BI нельзя создавать меру конверсии как предрассчитанную колонку в таблице базы данных?»</i> Ответ: <i>«Потому что конверсия — это ratio-метрика (отношение двух агрегатов $\sum \text{успехов} / \sum \text{попыток}$). Если предрассчитать процент в каждой строке, при любой группировке или фильтрации по датам BI попытается усреднить проценты, что приведет к грубой математической ошибке. Мера обязана формулироваться как отношение сумм на лету».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое семантический слой (Semantic Layer) в BI?</b></p><p>Уровень абстракции над физическими таблицами, задающий бизнес-логику метрик, измерений, связей и правил агрегации.</p></li>
+        <li><p><b>В чем различие между Dimension (измерением) и Measure (мерой)?</b></p><p>Dimension — качественный признак для группировки/фильтрации; Measure — количественный агрегируемый показатель.</p></li>
+        <li><p><b>Почему расчет отношения сумм SUM(A)/SUM(B) математически строже усреднения отношений AVG(A/B)?</b></p><p>Потому что усреднение долей игнорирует вес и объем наблюдений в каждой группе, искажая итоговую средневзвешенную оценку.</p></li>
+        <li><p><b>Какая схема моделирования данных наиболее эффективна для BI-аналитики?</b></p><p>Схема «Звезда» (Star Schema) с центральной денормализованной таблицей фактов.</p></li>
+        <li><p><b>Что происходит, если датасет в BI запрашивает данные из сырой OLTP-базы (Postgres)?</b></p><p>Аналитические запросы блокируют транзакции пользователей и замедляют боевой сервис.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="bi_chart_choice" data-interview="4">
+  <div class="name" id="bi_chart_choice">
+    Выбор типов графиков и визуализация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Грамотный выбор визуализации данных (Data Visualization & Chart Selection)</b> — это методология сопоставления типа аналитической задачи (динамика во времени, сравнение категорий, структура частей целого, корреляция двух величин, распределение) с наиболее эргономичным и когнитивно точным графическим представлением.</p>
+<p>Если совсем простыми словами: <b>нельзя пихать круговую диаграмму (Pie Chart) везде, где есть проценты</b>. Неправильный график путает мозг зрителя, а правильный график позволяет за одну секунду считать ключевой инсайт без чтения сопроводительного текста.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Матрица выбора типов графиков (Andrew Abela framework):</p>
+<table class="task-table">
+<thead><tr><th>Аналитическая цель</th><th>Рекомендуемый тип графика</th><th>Антипаттерн (Чего избегать)</th></tr></thead>
+<tbody>
+<tr><td><b>Динамика во времени (Trend over Time)</b></td><td><b>Линейный график (Line Chart)</b>, Area Chart (для накопления)</td><td>Столбчатая диаграмма с 50 тонкими столбиками</td></tr>
+<tr><td><b>Сравнение дискретных категорий</b></td><td><b>Горизонтальный барчарт (Bar Chart)</b> с сортировкой</td><td>Радарные диаграммы (Radar Charts), перегруженные таблицы</td></tr>
+<tr><td><b>Структура целого (Part-to-Whole)</b></td><td><b>Нормированный барчарт (100% Stacked Bar)</b>, Treemap</td><td><b>Круговые диаграммы (Pie Charts)</b> более чем на 3-4 сектора</td></tr>
+<tr><td><b>Распределение случайной величины</b></td><td><b>Гистограмма (Histogram)</b>, Boxplot / Violin plot</td><td>Обычный график точек без агрегации</td></tr>
+<tr><td><b>Взаимосвязь двух величин (Correlation)</b></td><td><b>Диаграмма рассеяния (Scatter Plot)</b>, Bubble Chart</td><td>Линейный график без временной упорядоченности</td></tr>
+<tr><td><b>Конверсионная цепочка шагов</b></td><td><b>Воронка (Funnel Chart)</b>, Sankey Diagram</td><td>Разрозненные круговые диаграммы</td></tr>
+</tbody>
+</table>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс презентации для совета директоров:</b>
+Аналитик визуализировал доли выручки 18 товарных категорий с помощью трехмерной круговой диаграммы (3D Pie Chart).
+Стейкхолдеры 20 минут спорили, какой сектор больше — «Одежда» или «Электроника» (перспективное искажение 3D делало ближний сектор визуально больше на $30\%$).
+Старший аналитик перестроил данные в горизонтальный Bar Chart с сортировкой по убыванию выручки: разница в $1.4\%$ стала видна мгновенно, и совещание завершилось утверждением бюджета.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Памятка выбора цвета и контраста для графиков
+# 1. Последовательная палитра (Sequential): для непрерывных величин (от светлого к темному)
+# 2. Расходящаяся палитра (Diverging): для отклонений от нуля (+/- рост выручки)
+# 3. Категориальная палитра (Qualitative): для независимых категорий (не более 7 цветов!)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Пример идеального горизонтального барчарта для категорий
+categories = ["Электроника", "Одежда", "Дом и сад", "Красота", "Спорт"]
+revenue_mln = [45.2, 38.6, 24.1, 19.8, 12.4]
+
+fig, ax = plt.subplots(figsize=(8, 4))
+y_pos = np.arange(len(categories))
+ax.barh(y_pos, revenue_mln, color="#2b5c8f")
+ax.set_yticks(y_pos)
+ax.set_yticklabels(categories)
+ax.invert_yaxis()  # Самая крупная категория сверху!
+ax.set_xlabel("Выручка, млн руб.")
+ax.set_title("Выручка по категориям за сентябрь 2026")
+plt.tight_layout()</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование Pie Chart с более чем 4 категориями.</b> Человеческий глаз плохо различает углы и площади секторов. Различить разницу между 12% и 15% на круге практически невозможно.</li>
+        <li><b>Обрезание нулевой оси на столбчатых диаграммах (Truncted Axis).</b> Столбик, начинающийся с 90 вместо 0, визуально преувеличивает разницу в 10 раз, вводя стейкхолдеров в заблуждение.</li>
+        <li><b>Перегрузка графика («Спагетти-чарт»).</b> Линейный график с 15 разноцветными пересекающимися линиями нечитаем. Нужно выделять ключевую линию цветом, а остальные делать серыми (Focus + Context).</li>
+        <li><b>3D-эффекты и тени.</b> Визуальный шум (Chartjunk по Тафти), искажающий реальные геометрические пропорции данных.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему Эдвард Тафти и современные дата-дизайнеры так категорически против Pie Charts?»</i> Ответ: <i>«Потому что человеческий мозг эволюционно приспособлен оценивать длины отрезков вдоль единой шкалы с точностью до миллиметра, но крайне неэффективен в оценке площадей и радиальных углов. Горизонтальный барчарт всегда считывается быстрее, точнее и позволяет легко разместить длинные текстовые подписи без наложения».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какой тип графика лучше всего подходит для отображения непрерывных временных рядов?</b></p><p>Линейный график (Line Chart).</p></li>
+        <li><p><b>Почему горизонтальный Bar Chart предпочтительнее вертикального для категорий?</b></p><p>Он позволяет комфортно читать длинные названия категорий без наклона текста и легко сортируется по убыванию.</p></li>
+        <li><p><b>В чем фундаментальный недостаток круговых диаграмм (Pie Charts)?</b></p><p>Когнитивная сложность восприятия углов и площадей человеческим зрением по сравнению с длиной линий.</p></li>
+        <li><p><b>Что такое спагетти-чарт (Spaghetti Chart) и как его исправить?</b></p><p>Линейный график с избытком пересекающихся линий; исправляется техникой small multiples (сетка мини-графиков) или подсветкой одной главной линии.</p></li>
+        <li><p><b>Что означает принцип Data-to-Ink Ratio Эдварда Тафти?</b></p><p>Максимизация доли чернил/пикселей, несущих непосредственную информацию о данных, и минимизация декоративного мусора (фоны, сетки, 3D).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dashboard_design" data-interview="5">
+  <div class="name" id="dashboard_design">
+    Принципы эффективного дизайна дашбордов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Эффективный дизайн дашбордов (Dashboard Ergonomics & UI/UX)</b> — это методология проектирования интерактивных экранов аналитической отчетности, обеспечивающая мгновенное понимание текущего статуса бизнеса по правилу «5 секунд», логичную иерархию информационных блоков и возможность углубления в детали (Drill-Down).</p>
+<p>Если совсем простыми словами: <b>дашборд должен быть как приборная панель автомобиля</b>. Водитель бросает взгляд на спидометр и лампочку бензина за долю секунды. Если чтобы понять, растет ли выручка, вам нужно скроллить 10 экранов и нажимать 15 фильтров — дашборд спроектирован отвратительно.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурные принципы промышленного дизайна отчетов:</p>
+<ol>
+<li><b>Правило 5 секунд (5-Second Rule):</b> Главный статус системы (хорошо/плохо, растет/падает) должен считываться в первые 5 секунд после открытия первого экрана.</li>
+<li><b>Информационная архитектура (Пирамида Минто / Инвертированная пирамида):</b>
+    <ul>
+    <li><i>Верхний ярус (Executive):</i> Крупные карточки ключевых KPI (Big Numbers / Scorecards) с дельтой к прошлому периоду и таргетом.</li>
+    <li><i>Средний ярус (Trends):</i> 2-3 ключевых линейных графика динамики во времени и воронки.</li>
+    <li><i>Нижний ярус (Breakdowns & Tables):</i> Детализированные таблицы с возможностью сортировки, поиском и экспортом.</li>
+    </ul>
+</li>
+<li><b>Единая система фильтрации (Global Filters):</b> Селекторы даты, региона и платформы выносятся в единую верхнюю панель и синхронно управляют всеми виджетами дашборда.</li>
+<li><b>Один экран — одна бизнес-цель:</b> Не пытаться объединить маркетинг, логистику, финансы и разработку в одну простыню.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс редизайна операционного дашборда банка:</b>
+Старый дашборд мобильного банка содержал 42 разнородных графика и грузился 18 секунд. Руководство открывало его раз в месяц.
+Аналитик переработал экран по принципу инвертированной пирамиды:
+1. Верхний блок: 4 карточки (MAU, Выручка, Доля успешных оплат, Crash-free rate) с цветовой подсветкой отклонения от плана (Зеленый/Красный).
+2. Центр: динамика выручки за 30 дней и воронка ключевых переводов.
+3. Низ: таблица проблемных шлюзов.
+Время принятия решений на ежедневном утреннем стендапе сократилось с 30 минут до 7 минут.</p>
+    </div>
+    <div class="code-block" data-lang="yaml">
+      <pre><code># Спецификация макета дашборда (Grid Layout Spec)
+dashboard:
+  title: "Мониторинг здоровья мобильного приложения ДБО"
+  refresh_rate: "5m"
+  filters_bar:
+    - date_range: "Last 30 Days (Daily)"
+    - segment: ["All", "Retail", "SME"]
+    - platform: ["iOS", "Android"]
+  row_1_kpi_cards:
+    - metric: "MAU"
+      value: "2.45M"
+      delta_pct: "+3.2%"
+      status: "good"
+    - metric: "Total Volume"
+      value: "14.8B ₽"
+      delta_pct: "+8.1%"
+      status: "good"
+    - metric: "Payment Success Rate"
+      value: "99.42%"
+      delta_pct: "-0.25%"
+      status: "warning"
+  row_2_charts:
+    - type: "line_chart"
+      title: "Динамика объема операций (Факт vs План)"
+      width: "66%"
+    - type: "funnel"
+      title: "Сквозная воронка платежей"
+      width: "33%"
+  row_3_details:
+    - type: "table"
+      title: "Инциденты и отказы эквайринга по банкам-партнерам"
+      width: "100%\"</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Информационная перегрузка («Дашборд-новогодняя елка»).</b> Размещение 30 разноцветных графиков на одном экране парализует внимание пользователя.</li>
+        <li><b>Отсутствие контекста и бенчмарков.</b> Цифра «Выручка: 50 млн руб.» не несет смысла без контекста: это больше или меньше плана? Растет ли она к прошлому месяцу?</li>
+        <li><b>Бесконечный вертикальный скролл.</b> Никто не докручивает дашборд до 5-го экрана вниз. Все ключевые данные должны помещаться на первом экране без скролла.</li>
+        <li><b>Использование «светофора» без учета дальтонизма.</b> Чистый красный и зеленый цвета неразличимы для 8% мужчин с дейтеранопией (следует дублировать иконками стрелок и текстом).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы спроектируете идеальный дашборд для C-level руководителя?»</i> Ответ: <i>«Строго по инвертированной пирамиде: 1) Сверху — 3-4 ключевые карточки верхнеуровневых KPI с подсветкой отклонения от планового таргета и дельтой год к году; 2) По центру — тренд ключевого показателя за 12 месяцев для понимания сезонности; 3) Дашборд должен помещаться на одном экране ноутбука/планшета без скролла; 4) Все детальные разрезы скрыты в кликабельный drill-down для глубокого погружения при необходимости».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что гласит правило «5 секунд» в дизайне аналитических отчетов?</b></p><p>Пользователь должен за первые 5 секунд понять общий статус бизнеса и наличие отклонений.</p></li>
+        <li><p><b>В чем суть принципа инвертированной пирамиды в дашбординге?</b></p><p>Движение от стратегических агрегатов сверху к детальным факторам по центру и транзакционным таблицам внизу.</p></li>
+        <li><p><b>Почему важно сопровождать абсолютные цифры KPI относительными дельтами?</b></p><p>Абсолютная цифра без сравнения с прошлым периодом или таргетом лишена управленческого контекста.</p></li>
+        <li><p><b>Какое максимальное число ключевых виджетов рекомендуется размещать на первом экране?</b></p><p>Не более 5–7 информационных блоков для исключения когнитивной перегрузки.</p></li>
+        <li><p><b>Что такое Drill-Down в BI-системах?</b></p><p>Возможность кликнуть на агрегированный элемент графика и провалиться на уровень детализации (например, из страны в города).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="datalens_walkthrough" data-interview="4">
+  <div class="name" id="datalens_walkthrough">
+    Практика работы с Yandex DataLens
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Yandex DataLens</b> — это облачный бессерверный BI-инструмент корпоративного уровня в экосистеме Yandex Cloud, предназначенный для прямого подключения к реляционным, колоночным и документоориентированным базам данных, построения семантических датасетов и публикации защищенных интерактивных дашбордов.</p>
+<p>Если совсем простыми словами: <b>это главный бесплатный рабочий инструмент аналитика в РФ</b>. Он не требует установки тяжелых серверов, мгновенно подключается к ClickHouse и позволяет за 15 минут собрать красивый дашборд, доступный коллегам по защищенной ссылке.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурный пайплайн создания отчета в DataLens:</p>
+<ol>
+<li><b>Подключение (Connection):</b> Создание сетевого шлюза к базе (ClickHouse, PostgreSQL, MySQL, Greenplum, CSV/Google Sheets) с авторизацией по сертификату или сервисному аккаунту.</li>
+<li><b>Датасет (Dataset):</b>
+    <ul>
+    <li>Выбор физической таблицы или кастомного SQL-подзапроса.</li>
+    <li>Настройка типов данных (Дата, Строка, Число с плавающей точкой, Геоточка).</li>
+    <li>Определение мер (Measures) с агрегациями <code>sum</code>, <code>countDistinct</code>, <code>avg</code>.</li>
+    <li>Создание вычисляемых полей на встроенном диалекте формул DataLens.</li>
+    <li>Настройка прав на уровне строк (Row-Level Security, RLS).</li>
+    </ul>
+</li>
+<li><b>Чарты (Wizards / Charts):</b> Создание визуализаций (Линейный график, Столбчатая диаграмма, Индикатор, Таблица, Точечная карта).</li>
+<li><b>Дашборд (Dashboard):</b> Компоновка чартов на сетке, добавление сквозных селекторов (фильтров), текста и заголовков.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс гео-аналитики сети кофеен:</b>
+Команда открывала 50 новых точек.
+Аналитик загрузил координаты кофеен и данные чеков в ClickHouse.
+В DataLens настроили тип поля <code>geopoint([lat], [lon])</code> и создали чарт «Тепловая карта на подложке Яндекс Карт».
+Наложили фильтры по времени суток и среднему чеку.
+Руководство наглядно увидело «белые пятна» в спальных районах с высоким трафиком, где не было ни одной кофейни сети, и утвердило адреса для 12 новых прибыльных локаций.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Формулы DataLens для продуктового дашборда:
+-- 1. Расчет темпа прироста выручки неделя к неделе (WoW):
+-- RBE_W_GROWTH: (sum([revenue]) - R_SUM_PREV_WEEK) / R_SUM_PREV_WEEK
+
+-- 2. Вычисляемое поле статуса воронки в интерфейсе DataLens Dataset:
+IF ([conversion_rate] >= 0.05) THEN 'Высокая конверсия'
+ELSEIF ([conversion_rate] >= 0.02) THEN 'Норма'
+ELSE 'Просадка'
+END
+
+-- 3. Создание гео-точки из координат:
+-- GEOPOINT([latitude], [longitude])</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование тяжелого кастомного SQL-запроса внутри DataLens вместо создания таблицы в БД.</b> Кастомный SQL-запрос заворачивается DataLens во вложенный подзапрос (Subquery), что лишает оптимизатор ClickHouse возможности применить первичные индексы.</li>
+        <li><b>Забывание про кэширование датасета.</b> DataLens кэширует запросы по умолчанию. Если данные в базе обновляются раз в сутки, кэш нужно настроить соответствующим образом во избежание лишней нагрузки на прод.</li>
+        <li><b>Создание чартов без связи с глобальными селекторами дашборда.</b> Имена полей фильтрации в датасетах должны точно совпадать, иначе селектор не будет фильтровать соседний чарт.</li>
+        <li><b>Отсутствие контроля доступа к дашборду.</b> Случайная публикация отчета через публичный линк (Public DataLens) делает корпоративные данные открытыми для индексации поисковиками.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Каков правильный паттерн работы с ClickHouse в Yandex DataLens для обеспечения высокой скорости дашборда?»</i> Ответ: <i>«Не писать сложные SELECT с джойнами в интерфейсе DataLens. Вся трансформация должна производиться на стороне ClickHouse через материализованные представления (Materialized Views) или агрегирующие витрины. В DataLens мы подключаем готовую витрину напрямую как таблицу, что гарантирует ответ за доли секунды благодаря индексам MergeTree».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Из каких четырех ключевых сущностей состоит архитектура Yandex DataLens?</b></p><p>Подключение (Connection) -> Датасет (Dataset) -> Чарт (Chart) -> Дашборд (Dashboard).</p></li>
+        <li><p><b>Поддерживает ли DataLens визуализацию геоданных на интерактивных картах?</b></p><p>Да, поддерживает типы Geopoint и Geopolygon с бесшовной интеграцией на картографической подложке Яндекс Карт.</p></li>
+        <li><p><b>Что такое RLS (Row-Level Security) в контексте Yandex DataLens?</b></p><p>Возможность фильтровать строки датасета для конкретных пользователей или групп (например, по login).</p></li>
+        <li><p><b>Почему прямое подключение DataLens к витринам ClickHouse работает быстрее, чем к традиционным реляционным СУБД?</b></p><p>Потому что ClickHouse колоночный и выполняет векторные агрегации по миллионам строк за миллисекунды прямо по месту хранения.</p></li>
+        <li><p><b>Какова тарификация базового функционала Yandex DataLens?</b></p><p>Для большинства типовых сценариев визуализации в Yandex Cloud сервис предоставляется бесплатно.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dashboard_pitfalls" data-interview="4">
+  <div class="name" id="dashboard_pitfalls">
+    Подводные камни и антипаттерны в BI
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Антипаттерны в BI и дашбординге</b> — это типичные архитектурные, методологические и визуальные ошибки проектирования отчетности, приводящие к падению доверия к данным, катастрофическому замедлению запросов, разрастанию технического долга и дезинформации стейкхолдеров.</p>
+<p>Если совсем простыми словами: <b>дашборд может врать, даже если в базе лежат чистые данные</b>. Неправильно выбранная ось, ложные связи таблиц или устаревший кэш приводят к тому, что бизнес принимает ошибочные решения на основе красивых, но неверных графиков.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Главные архитектурные и аналитические ловушки:</p>
+<ol>
+<li><b>Проблема умножения строк (Fan-out / Chasm Trap):</b> При джойне таблицы фактов $A$ (заказы) с таблицей фактов $B$ (платежи) по связке 1-ко-многим происходит дублирование строк. Метрика выручки <code>SUM(revenue)</code> раздувается в 2-3 раза.</li>
+<li><b>Ловушка несинхронного времени (Timezone Desync):</b> В базе логи хранятся в UTC, а бизнес смотрит отчет в UTC+3 (Москва) или UTC+7 (Новосибирск). На стыке суток заказы перетекают в соседний день, ломая сравнение «день к дню».</li>
+<li><b>«Кладбище дашбордов» (Dashboard Sprawl):</b> Отсутствие владельцев и мониторинга использования. На сервере крутятся сотни неиспользуемых отчетов, ежечасно нагружающих DWH тяжелыми запросами по расписанию.</li>
+<li><b>Иллюзия точности:</b> Вывод метрик с 6 знаками после запятой ($4.182941\%$), создающий ложное ощущение стабильности там, где доверительный интервал составляет $\pm 2\%$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс ложного удвоения выручки (Chasm Trap):</b>
+Аналитик построил датасет в Superset, заджойнив таблицу заказов <code>orders</code> с таблицей статусов доставки <code>shipment_status</code>.
+У каждого заказа было в среднем 2-3 статуса («Создан», «В пути», «Доставлен»).
+При расчете общей выручки дашборд показал 240 млн рублей вместо реальных 100 млн рублей!
+Руководство похвалило команду за перевыполнение квартального плана, а через неделю бухгалтерия обнаружила кассовый разрыв в 140 млн рублей. Ошибка стоила аналитику карьеры.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Демонстрация опасности Fan-out Trap и ее предотвращение
+-- ОШИБКА: дублирование выручки из-за джойна 1-to-many
+-- SELECT sum(o.revenue) FROM orders o JOIN order_items i ON o.order_id = i.order_id;
+-- Выручка умножится на количество товаров в заказе!
+
+-- ПРАВИЛЬНЫЙ ПАТТЕРН: предагрегация до объединения
+WITH aggregated_items AS (
+    SELECT
+        order_id,
+        count() AS total_items,
+        sum(item_cost) AS total_items_cost
+    FROM order_items
+    GROUP BY order_id
+)
+SELECT
+    toDate(o.order_time) AS order_date,
+    sum(o.revenue) AS correct_total_revenue,
+    sum(i.total_items) AS correct_total_items
+FROM orders AS o
+LEFT JOIN aggregated_items AS i ON o.order_id = i.order_id
+GROUP BY order_date;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Джойны таблиц разной гранулярности в интерфейсе BI.</b> Связывание таблиц фактов без предварительной группировки гарантирует раздувание сумм через Fan-out.</li>
+        <li><b>Игнорирование таймзон серверов и пользователей.</b> Сравнение метрик разных филиалов без приведения к единому поясу искажает пиковые часы активности.</li>
+        <li><b>Отсутствие версионирования дашбордов (Dashboard as Code).</b> Случайное удаление виджета или формулы в веб-интерфейсе без Git ломает отчет без возможности быстрого отката.</li>
+        <li><b>Создание гигантских сводных таблиц на 50 колонок внутри дашборда.</b> Пользователи просто выгружают такие таблицы в Excel, обесценивая саму суть интерактивного BI.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Что такое Chasm Trap / Fan-out trap в BI и как его избежать?»</i> Ответ: <i>«Это ситуация, когда объединение таблиц по связи «один-ко-многим» приводит к дублированию строк основной таблицы фактов, из-за чего любые агрегации SUM() кратно завышают результат. Решение — никогда не джойнить разнородные факты на лету в BI; необходимо либо предварительно агрегировать дочернюю таблицу в CTE/dbt до уровня первичного ключа родительской таблицы, либо использовать нормализованные витрины».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Fan-out trap при моделировании данных в BI?</b></p><p>Искусственное размножение строк таблицы фактов из-за джойна с таблицей множественных связей, приводящее к завышению агрегатов.</p></li>
+        <li><p><b>Почему смешение часовых поясов (UTC vs Local) опасно для суточных отчетов?</b></p><p>Оно приводит к смещению границ календарных суток и искажению сравнений динамики день-к-дню.</p></li>
+        <li><p><b>Что такое Dashboard Sprawl (разрастание дашбордов)?</b></p><p>Накопление огромного количества заброшенных, дублирующихся и неиспользуемых отчетов в компании.</p></li>
+        <li><p><b>Как концепция Dashboard as Code помогает поддерживать качество BI?</b></p><p>Позволяет хранить конфигурацию датасетов и чартов в Git, проводить code review и автоматически деплоить изменения через CI/CD.</p></li>
+        <li><p><b>В чем опасность ложной точности (False Precision) в визуализации?</b></p><p>Отображение избыточного количества знаков после запятой маскирует высокую статистическую погрешность и шум данных.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

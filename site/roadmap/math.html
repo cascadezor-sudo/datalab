@@ -1,0 +1,684 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Математика</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../assets/css/pages-modern.css" rel="stylesheet">
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        renderMathInElement(document.body, {
+          // customised options
+          // • auto-render specific keys, e.g.:
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          // • rendering keys, e.g.:
+          throwOnError: false
+        });
+      });
+    </script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Математика для машинного обучения</h1>
+            <p class="subtitle">Основы математики для ML-щиков</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../roadmap/index.html" class="page-header-button">Назад к карте разделов</a>
+          </div>
+        </div>
+      </header>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <h2>Пререквизиты</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:1:start -->
+          <li class="roadmap-from-md" data-md-id="summation_and_product"><a href="../math/definitions.html#summation_and_product" target="_blank" rel="noopener">Запись суммирования и произведения</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="membership"><a href="../math/definitions.html#membership" target="_blank" rel="noopener">Символ принадлежности</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="vector_notation"><a href="../math/definitions.html#vector_notation" target="_blank" rel="noopener">Обозначение векторов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="strong_less_than_greater_than"><a href="../math/definitions.html#strong_less_than_greater_than" target="_blank" rel="noopener">Сильно меньше/больше</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cup_cap"><a href="../math/definitions.html#cup_cap" target="_blank" rel="noopener">Символ объединения и пересечения множеств</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="quantors"><a href="../math/definitions.html#quantors" target="_blank" rel="noopener">Кванторы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="indicator_function"><a href="../math/definitions.html#indicator_function" target="_blank" rel="noopener">Индикаторная функция</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="dominance"><a href="../math/definitions.html#dominance" target="_blank" rel="noopener">Доминирование</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="argmin_argmax"><a href="../math/definitions.html#argmin_argmax" target="_blank" rel="noopener">argmin и argmax</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="expectation_variance_notation"><a href="../math/definitions.html#expectation_variance_notation" target="_blank" rel="noopener">Обозначения математического ожидания и дисперсии</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="absolute_value"><a href="../math/definitions.html#absolute_value" target="_blank" rel="noopener">Абсолютное значение и норма вектора</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="approx_proportional"><a href="../math/definitions.html#approx_proportional" target="_blank" rel="noopener">Приближённое равенство и пропорциональность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="interval_notation"><a href="../math/definitions.html#interval_notation" target="_blank" rel="noopener">Обозначение интервалов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="set_difference"><a href="../math/definitions.html#set_difference" target="_blank" rel="noopener">Разность множеств</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="function_notation"><a href="../math/definitions.html#function_notation" target="_blank" rel="noopener">Обозначение функций</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="log_ln_notation"><a href="../math/definitions.html#log_ln_notation" target="_blank" rel="noopener">Логарифм: обозначения</a>
+          </li>
+          <!-- roadmap-md:block:1:end --></ul>
+      </div>
+
+      <h2>Алгебра</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:2:start -->
+          <li class="roadmap-from-md" data-md-id="numbers"><a href="../math/algebra.html#numbers" target="_blank" rel="noopener">Числа</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="nums-operations"><a href="../math/algebra.html#nums-operations" target="_blank" rel="noopener">Операции над числами</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="vectors"><a href="../math/algebra.html#vectors" target="_blank" rel="noopener">Векторы</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-vectors" target="_blank" rel="noopener">Векторы: сложение и умножение на скаляр</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="scalar-product"><a href="../math/algebra.html#scalar-product" target="_blank" rel="noopener">Скалярное произведение</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-scalar-product" target="_blank" rel="noopener">Скалярное произведение</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="matrix"><a href="../math/algebra.html#matrix" target="_blank" rel="noopener">Матрицы</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-matrix-mult" target="_blank" rel="noopener">Умножение матриц</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tensors"><a href="../math/algebra.html#tensors" target="_blank" rel="noopener">Тензоры</a>
+          </li>
+          <!-- roadmap-md:block:2:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:3:start -->
+          <li class="roadmap-from-md" data-md-id="vector_spaces"><a href="../math/algebra.html#vector_spaces" target="_blank" rel="noopener">Векторные пространства</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="linear_combination"><a href="../math/algebra.html#linear_combination" target="_blank" rel="noopener">Линейная комбинация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="basis_and_dimension"><a href="../math/algebra.html#basis_and_dimension" target="_blank" rel="noopener">Базис и размерность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="subspaces"><a href="../math/algebra.html#subspaces" target="_blank" rel="noopener">Подпространства</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="linear_dependency_and_independence"><a href="../math/algebra.html#linear_dependency_and_independence" target="_blank" rel="noopener">Линейная зависимость и независимость</a>
+          </li>
+          <!-- roadmap-md:block:3:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:4:start -->
+          <li class="roadmap-from-md" data-md-id="elementary_transformations"><a href="../math/algebra.html#elementary_transformations" target="_blank" rel="noopener">Элементарные преобразования над матрицами</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="rank_of_matrix"><a href="../math/algebra.html#rank_of_matrix" target="_blank" rel="noopener">Ранг матрицы</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-matrix-rank" target="_blank" rel="noopener">Ранг матрицы</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="types_of_matrices"><a href="../math/algebra.html#types_of_matrices" target="_blank" rel="noopener">Виды матриц</a>
+          </li>
+          <!-- roadmap-md:block:4:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:5:start -->
+          <li class="roadmap-from-md" data-md-id="determinant_of_matrix"><a href="../math/algebra.html#determinant_of_matrix" target="_blank" rel="noopener">Определитель матрицы</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-determinant" target="_blank" rel="noopener">Определитель матрицы</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="eigenvalues_and_eigenvectors"><a href="../math/algebra.html#eigenvalues_and_eigenvectors" target="_blank" rel="noopener">Собственные числа, собственные векторы</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#algebra-eigen" target="_blank" rel="noopener">Собственные числа и векторы</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="svd"><a href="../math/algebra.html#svd" target="_blank" rel="noopener">SVD. Сингулярное Разложение Матрицы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="truncated-svd"><a href="../math/algebra.html#truncated-svd" target="_blank" rel="noopener">Truncated SVD</a>
+          </li>
+          <!-- roadmap-md:block:5:end --></ul>
+      </div>
+
+      <h2>Математический анализ</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:6:start -->
+          <li class="roadmap-from-md" data-md-id="sets"><a href="../math/calculus.html#sets" target="_blank" rel="noopener">Множества и принадлежность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="operations_over_sets"><a href="../math/calculus.html#operations_over_sets" target="_blank" rel="noopener">Операции над множествами</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="functions_of_one_variable"><a href="../math/calculus.html#functions_of_one_variable" target="_blank" rel="noopener">Функция одной переменной</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-graph-func" target="_blank" rel="noopener">График функции одной переменной</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="functions_of_several_variables"><a href="../math/calculus.html#functions_of_several_variables" target="_blank" rel="noopener">Функции нескольких переменных</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-graph-2d" target="_blank" rel="noopener">График функции двух переменных</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="composition"><a href="../math/calculus.html#composition" target="_blank" rel="noopener">Композиция</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-composition" target="_blank" rel="noopener">Композиция функций</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="numerical_sequences_and_limits"><a href="../math/calculus.html#numerical_sequences_and_limits" target="_blank" rel="noopener">Числовые последовательности и предел</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="continuity_and_convergence"><a href="../math/calculus.html#continuity_and_convergence" target="_blank" rel="noopener">Непрерывность и сходимость</a>
+          </li>
+          <!-- roadmap-md:block:6:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:7:start -->
+          <li class="roadmap-from-md" data-md-id="derivatives_of_functions_of_one_variable"><a href="../math/calculus.html#derivatives_of_functions_of_one_variable" target="_blank" rel="noopener">Производные функций одной переменной</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-derivative" target="_blank" rel="noopener">Производная и график</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="derivatives_of_functions_of_several_variables"><a href="../math/calculus.html#derivatives_of_functions_of_several_variables" target="_blank" rel="noopener">Производные функций нескольких переменных (Частные производные)</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-partial" target="_blank" rel="noopener">Частные производные</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="approximation"><a href="../math/calculus.html#approximation" target="_blank" rel="noopener">Аппроксимация функции</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="smooth_function"><a href="../math/calculus.html#smooth_function" target="_blank" rel="noopener">Гладкость функции</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="extremum_of_function"><a href="../math/calculus.html#extremum_of_function" target="_blank" rel="noopener">Экстремум функции</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-extrema" target="_blank" rel="noopener">Экстремумы функции</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gradient"><a href="../math/calculus.html#gradient" target="_blank" rel="noopener">Градиент</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-gradient" target="_blank" rel="noopener">Градиент</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/python/base.html#gradient_descent_1d" target="_blank" rel="noopener">Градиентный спуск для функции одной переменной</a>
+            </span>
+          </li>
+          <!-- roadmap-md:block:7:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:8:start -->
+          <li class="roadmap-from-md" data-md-id="metric"><a href="../math/calculus.html#metric" target="_blank" rel="noopener">Метрика (расстояние)</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-metric" target="_blank" rel="noopener">Метрики: Евклидово и Манхэттенское расстояние</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="norm"><a href="../math/calculus.html#norm" target="_blank" rel="noopener">Норма</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#calc-norm" target="_blank" rel="noopener">Норма вектора</a>
+            </span>
+          </li>
+          <!-- roadmap-md:block:8:end --></ul>
+      </div>
+
+      <h2>Теорвер и матстат</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:9:start -->
+          <li class="roadmap-from-md" data-md-id="types_of_random_variables"><a href="../math/probability.html#types_of_random_variables" target="_blank" rel="noopener">Типы случайных величин</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="function_of_probability"><a href="../math/probability.html#function_of_probability" target="_blank" rel="noopener">Функция вероятности</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="density_of_distribution"><a href="../math/probability.html#density_of_distribution" target="_blank" rel="noopener">Плотность распределения</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="comparison_of_discrete_and_continuous_random_variables"><a href="../math/probability.html#comparison_of_discrete_and_continuous_random_variables" target="_blank" rel="noopener">Сравнение дискретных и непрерывных случайных величин</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="normal_distribution"><a href="../math/probability.html#normal_distribution" target="_blank" rel="noopener">Нормальное (гауссовское) распределение</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="exponential_distribution"><a href="../math/probability.html#exponential_distribution" target="_blank" rel="noopener">Экспоненциальное распределение</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bernoulli_distribution"><a href="../math/probability.html#bernoulli_distribution" target="_blank" rel="noopener">Распределение Бернулли</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="poisson_distribution"><a href="../math/probability.html#poisson_distribution" target="_blank" rel="noopener">Распределение Пуассона</a>
+          </li>
+          <!-- roadmap-md:block:9:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:10:start -->
+          <li class="roadmap-from-md" data-md-id="mathematical_expectation"><a href="../math/probability.html#mathematical_expectation" target="_blank" rel="noopener">Математическое ожидание</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-expectation-variance" target="_blank" rel="noopener">Математическое ожидание и дисперсия</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="variance"><a href="../math/probability.html#variance" target="_blank" rel="noopener">Дисперсия</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-expectation-variance" target="_blank" rel="noopener">Математическое ожидание и дисперсия</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="standard_deviation"><a href="../math/probability.html#standard_deviation" target="_blank" rel="noopener">Среднеквадратическое отклонение</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-sample-stats" target="_blank" rel="noopener">Выборочное среднее, дисперсия и СКО</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="joint_probability"><a href="../math/probability.html#joint_probability" target="_blank" rel="noopener">Совместная вероятность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="conditional_probability"><a href="../math/probability.html#conditional_probability" target="_blank" rel="noopener">Условная вероятность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bayes_theorem"><a href="../math/probability.html#bayes_theorem" target="_blank" rel="noopener">Теорема Байеса</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="population"><a href="../math/probability.html#population" target="_blank" rel="noopener">Генеральная совокупность</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sample"><a href="../math/probability.html#sample" target="_blank" rel="noopener">Выборка</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="mean"><a href="../math/probability.html#mean" target="_blank" rel="noopener">Выборочное среднее</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-sample-stats" target="_blank" rel="noopener">Выборочное среднее, дисперсия и СКО</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sample_variance"><a href="../math/probability.html#sample_variance" target="_blank" rel="noopener">Выборочная дисперсия</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-sample-stats" target="_blank" rel="noopener">Выборочное среднее, дисперсия и СКО</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="mode"><a href="../math/probability.html#mode" target="_blank" rel="noopener">Мода</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-mode-median" target="_blank" rel="noopener">Мода и медиана</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="median"><a href="../math/probability.html#median" target="_blank" rel="noopener">Медиана</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-mode-median" target="_blank" rel="noopener">Мода и медиана</a>
+            </span>
+          </li>
+          <!-- roadmap-md:block:10:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:11:start -->
+          <li class="roadmap-from-md" data-md-id="bootstrap"><a href="../math/probability.html#bootstrap" target="_blank" rel="noopener">Bootstrap</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="statistical_hypotheses"><a href="../math/probability.html#statistical_hypotheses" target="_blank" rel="noopener">Статистические гипотезы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="confidence_intervals"><a href="../math/probability.html#confidence_intervals" target="_blank" rel="noopener">Доверительные интервалы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="errors_of_first_and_second_kind"><a href="../math/probability.html#errors_of_first_and_second_kind" target="_blank" rel="noopener">Ошибки первого и второго рода</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="param_vs_nonparam"><a href="../math/probability.html#param_vs_nonparam" target="_blank" rel="noopener">Параметрические и непараметрические критерии</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="t_test"><a href="../math/probability.html#t_test" target="_blank" rel="noopener">t-test</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ab_testing"><a href="../math/probability.html#ab_testing" target="_blank" rel="noopener">A/B-тест</a>
+          </li>
+          <!-- roadmap-md:block:11:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:12:start -->
+          <li class="roadmap-from-md" data-md-id="quantiles"><a href="../math/probability.html#quantiles" target="_blank" rel="noopener">Квантили</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-quantiles" target="_blank" rel="noopener">Квантили, квартили, перцентили</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="quartiles"><a href="../math/probability.html#quartiles" target="_blank" rel="noopener">Квартили</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-quantiles" target="_blank" rel="noopener">Квантили, квартили, перцентили</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="percentiles"><a href="../math/probability.html#percentiles" target="_blank" rel="noopener">Перцентили</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../practise/math.html#prob-quantiles" target="_blank" rel="noopener">Квантили, квартили, перцентили</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="boxplot"><a href="../math/probability.html#boxplot" target="_blank" rel="noopener">Box-plot (ящик с усами)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="homoscedasticity_and_heteroscedasticity"><a href="../math/probability.html#homoscedasticity_and_heteroscedasticity" target="_blank" rel="noopener">Гомоскедастичность и гетероскедастичность</a>
+          </li>
+          <!-- roadmap-md:block:12:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:13:start -->
+          <li class="roadmap-from-md" data-md-id="multivariate_normal_distribution"><a href="../math/probability.html#multivariate_normal_distribution" target="_blank" rel="noopener">Многомерное нормальное распределение</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="covariance"><a href="../math/probability.html#covariance" target="_blank" rel="noopener">Ковариация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="covariance_matrices"><a href="../math/probability.html#covariance_matrices" target="_blank" rel="noopener">Ковариационные матрицы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="correlation"><a href="../math/probability.html#correlation" target="_blank" rel="noopener">Корреляция</a>
+          </li>
+          <!-- roadmap-md:block:13:end --></ul>
+      </div>
+
+      <div class="block">
+        <ul><!-- roadmap-md:block:14:start -->
+          <li class="roadmap-from-md" data-md-id="central_limit_theorem"><a href="../math/probability.html#central_limit_theorem" target="_blank" rel="noopener">Центральная предельная теорема (ЦПТ)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="law_of_large_numbers"><a href="../math/probability.html#law_of_large_numbers" target="_blank" rel="noopener">Закон больших чисел</a>
+          </li>
+          <!-- roadmap-md:block:14:end --></ul>
+      </div>
+
+      <h2>Численные методы</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:15:start -->
+          <li class="roadmap-from-md" data-md-id="optimization_problem"><a href="../math/numerical.html#optimization_problem" target="_blank" rel="noopener">Постановка задачи оптимизации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gradient_descent"><a href="../math/numerical.html#gradient_descent" target="_blank" rel="noopener">Градиентный спуск</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="problems_of_gradient_descent"><a href="../math/numerical.html#problems_of_gradient_descent" target="_blank" rel="noopener">Проблемы градиентного спуска</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="mle"><a href="../math/numerical.html#mle" target="_blank" rel="noopener">Принцип максимума правдоподобия</a>
+          </li>
+          <!-- roadmap-md:block:15:end --></ul>
+      </div>
+
+      <h2>Теоретическая информатика</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:16:start -->
+          <li class="roadmap-from-md" data-md-id="entropy"><a href="../math/teorinf.html#entropy" target="_blank" rel="noopener">Энтропия</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cross_entropy"><a href="../math/teorinf.html#cross_entropy" target="_blank" rel="noopener">Перекрестная энтропия</a>
+          </li>
+          <!-- roadmap-md:block:16:end --></ul>
+      </div>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../authGuard.js"></script>
+
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+
+      </main></body></html>

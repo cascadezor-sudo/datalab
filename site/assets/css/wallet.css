@@ -1,0 +1,1014 @@
+/* Кошелёк: грады (∇). Локальные токены — золото монеты и два дополнительных
+   шрифта: Unbounded для крупных цифр и заголовков, JetBrains Mono для сумм.
+   Всё остальное берётся из tokens.css, поэтому тёмная тема и палитры
+   приходят сами. */
+
+.wallet-page {
+  --grad-gold: #e2a52c;
+  --grad-gold-deep: #9a6410;
+  --grad-gold-soft: rgb(226 165 44 / 14%);
+  --grad-gold-line: rgb(226 165 44 / 45%);
+  --wallet-ink: var(--text);
+  --wallet-display: "Unbounded", "Inter", system-ui, sans-serif;
+  --wallet-mono:
+    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --wallet-curve: var(--brand);
+  --wallet-curve-area: rgb(37 99 235 / 10%);
+
+  display: grid;
+  /* Явная колонка: неявная растягивается по самому широкому ребёнку, и на
+     телефоне страница выходила за экран. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+}
+
+[data-theme="dark"] .wallet-page {
+  --grad-gold: #f0bd4a;
+  --grad-gold-deep: #c98a1c;
+  --grad-gold-soft: rgb(240 189 74 / 12%);
+  --grad-gold-line: rgb(240 189 74 / 40%);
+  --wallet-curve-area: rgb(96 165 250 / 12%);
+}
+
+/* ── Общие элементы ─────────────────────────────────────────────────────── */
+
+.wallet-eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.wallet-title {
+  margin: 0;
+  font-family: var(--wallet-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.wallet-lede {
+  margin: 6px 0 0;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.wallet-section-head {
+  margin-bottom: 20px;
+}
+
+.wallet-section {
+  padding: 26px 28px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.wallet-mono {
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.wallet-nabla {
+  font-family: var(--wallet-mono);
+  color: var(--grad-gold-deep);
+}
+
+[data-theme="dark"] .wallet-nabla {
+  color: var(--grad-gold);
+}
+
+/* ── Герой: монета, баланс, множитель ───────────────────────────────────── */
+
+.wallet-hero {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1.3fr) minmax(280px, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 28px 32px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--grad-gold-line);
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--grad-gold-soft), transparent 55%),
+    var(--bg-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.wallet-coin {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  justify-self: center;
+}
+
+.wallet-coin__disc {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 12px 18px rgb(120 80 10 / 28%));
+  animation: wallet-float 6s ease-in-out infinite;
+}
+
+.wallet-coin__disc svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wallet-coin__shadow {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: -14px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(90 60 10 / 30%), transparent);
+  animation: wallet-shadow 6s ease-in-out infinite;
+}
+
+@keyframes wallet-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+
+  50% {
+    transform: translateY(-8px) rotate(4deg);
+  }
+}
+
+@keyframes wallet-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scaleX(0.82);
+    opacity: 0.7;
+  }
+}
+
+.wallet-balance-value {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wallet-balance-number {
+  font-family: var(--wallet-display);
+  font-size: clamp(40px, 6vw, 64px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--wallet-ink);
+}
+
+.wallet-balance-unit {
+  font-family: var(--wallet-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--grad-gold-deep);
+}
+
+[data-theme="dark"] .wallet-balance-unit {
+  color: var(--grad-gold);
+}
+
+.wallet-chips {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wallet-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.wallet-chip strong {
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.wallet-multiplier {
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.wallet-multiplier-value {
+  margin: 0 0 12px;
+  font-family: var(--wallet-display);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.wallet-tier-scale {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+}
+
+.wallet-tier {
+  display: grid;
+  gap: 5px;
+}
+
+.wallet-tier__bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border-strong);
+  overflow: hidden;
+}
+
+.wallet-tier__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--grad-gold-deep), var(--grad-gold));
+  transition: width 0.6s ease;
+}
+
+.wallet-tier.is-done .wallet-tier__fill {
+  width: 100%;
+}
+
+.wallet-tier__label {
+  display: grid;
+  gap: 1px;
+  font-size: 11px;
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wallet-tier__label strong {
+  font-family: var(--wallet-mono);
+  color: var(--text-muted);
+}
+
+.wallet-tier.is-active .wallet-tier__label strong {
+  color: var(--text);
+}
+
+.wallet-multiplier-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wallet-multiplier-note strong {
+  color: var(--text);
+}
+
+/* ── Кривая спуска ──────────────────────────────────────────────────────── */
+
+.wallet-curve-wrap {
+  overflow-x: auto;
+}
+
+.wallet-curve {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+  height: auto;
+  font-family: var(--wallet-mono);
+}
+
+/* styles.css прячет весь svg text на теле страницы (body svg text); подписи
+   кривой должны быть видны. */
+.wallet-page .wallet-curve text {
+  display: inline;
+}
+
+.wallet-curve .curve-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.wallet-curve .curve-area {
+  fill: var(--wallet-curve-area);
+}
+
+.wallet-curve .curve-line {
+  fill: none;
+  stroke: var(--wallet-curve);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.wallet-curve .curve-point {
+  fill: var(--bg-card);
+  stroke: var(--grad-gold-deep);
+  stroke-width: 2;
+}
+
+.wallet-curve .curve-point.is-done {
+  fill: var(--grad-gold);
+}
+
+.wallet-curve .curve-amount {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--text);
+  text-anchor: middle;
+}
+
+.wallet-curve .curve-amount.is-todo {
+  fill: var(--text-muted);
+}
+
+.wallet-curve .curve-days {
+  font-size: 11px;
+  fill: var(--text-subtle);
+  text-anchor: middle;
+}
+
+.wallet-curve .curve-you {
+  fill: var(--brand);
+}
+
+.wallet-curve .curve-you-label {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--brand);
+  text-anchor: middle;
+}
+
+.wallet-curve .curve-axis {
+  font-size: 11px;
+  fill: var(--text-subtle);
+}
+
+/* ── Ставки ─────────────────────────────────────────────────────────────── */
+
+.wallet-rates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.wallet-rate {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.wallet-rate__icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--grad-gold-soft);
+  color: var(--grad-gold-deep);
+}
+
+[data-theme="dark"] .wallet-rate__icon {
+  color: var(--grad-gold);
+}
+
+.wallet-rate__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.wallet-rate__label {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.wallet-rate__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.wallet-rate__amount {
+  display: grid;
+  justify-items: end;
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-rate__amount strong {
+  font-size: 18px;
+  color: var(--text);
+}
+
+.wallet-rate__amount small {
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.wallet-rate__amount small s {
+  text-decoration-color: var(--text-subtle);
+}
+
+.wallet-tiers-row {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.wallet-tiers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.wallet-medal {
+  --medal: #c8783a;
+  --medal-hi: #f2b487;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.wallet-medal--silver {
+  --medal: #8d949e;
+  --medal-hi: #dfe4ea;
+}
+
+.wallet-medal--gold {
+  --medal: #d29a1f;
+  --medal-hi: #fbe08a;
+}
+
+.wallet-medal--platinum {
+  --medal: #5b7c9d;
+  --medal-hi: #cfe3f5;
+}
+
+.wallet-medal__disc {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--medal-hi),
+    var(--medal) 70%
+  );
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 35%);
+}
+
+.wallet-medal strong {
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* ── Витрина ────────────────────────────────────────────────────────────── */
+
+.wallet-shop-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: start;
+}
+
+.wallet-shop {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.wallet-shop-item {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  position: relative;
+}
+
+.wallet-shop-item.is-affordable {
+  border-color: var(--grad-gold-line);
+  box-shadow: 0 0 0 3px var(--grad-gold-soft);
+}
+
+.wallet-shop-item__icon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.wallet-shop-item h3 {
+  margin: 0;
+  font-family: var(--wallet-display);
+  font-size: 15px;
+  font-weight: 500;
+  text-wrap: balance;
+}
+
+.wallet-shop-item p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wallet-shop-item__price {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--wallet-mono);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.wallet-shop-item__price .coin-icon {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.wallet-shop-item__progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-strong);
+  overflow: hidden;
+}
+
+.wallet-shop-item__progress span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--grad-gold-deep), var(--grad-gold));
+}
+
+.wallet-shop-item__status {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.wallet-shop-item.is-affordable .wallet-shop-item__status {
+  color: var(--success);
+  font-weight: 600;
+}
+
+/* ── История ────────────────────────────────────────────────────────────── */
+
+.wallet-history {
+  display: grid;
+  gap: 18px;
+}
+
+.wallet-day {
+  display: grid;
+  gap: 2px;
+}
+
+.wallet-day__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.wallet-day__sum {
+  font-family: var(--wallet-mono);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-entry {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.wallet-entry__icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.wallet-entry__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wallet-entry.is-spend .wallet-entry__icon {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.wallet-entry__label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wallet-entry__label small {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.wallet-entry__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wallet-entry__amount strong {
+  color: var(--success);
+}
+
+.wallet-entry.is-spend .wallet-entry__amount strong {
+  color: var(--danger);
+}
+
+.wallet-entry__mult {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--grad-gold-soft);
+  color: var(--grad-gold-deep);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .wallet-entry__mult {
+  color: var(--grad-gold);
+}
+
+/* ── Адаптив и движение ─────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .wallet-hero {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+
+  .wallet-multiplier {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  /* minmax(0, …): трек 1fr не ужимается меньше самого широкого ребёнка, и
+     шкала рубежей с неразрывными подписями раздвигала страницу до ~610px. */
+  .wallet-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 22px 20px;
+  }
+
+  .wallet-tier-scale {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 10px;
+  }
+
+  .wallet-coin {
+    width: 120px;
+    height: 120px;
+  }
+
+  .wallet-section {
+    padding: 20px 18px;
+  }
+
+  .wallet-entry {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .wallet-entry__amount {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallet-coin__disc,
+  .wallet-coin__shadow {
+    animation: none;
+  }
+
+  .wallet-tier__fill {
+    transition: none;
+  }
+}
+
+/* ── Корзина и заказы ──────────────────────────────────────────────────── */
+
+.wallet-shop-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wallet-btn {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--transition-base),
+    border-color var(--transition-base);
+}
+
+.wallet-btn:hover,
+.wallet-btn:focus-visible {
+  border-color: var(--grad-gold-deep);
+  background: var(--grad-gold-soft);
+}
+
+.wallet-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wallet-btn--primary {
+  background: linear-gradient(135deg, var(--grad-gold), var(--grad-gold-deep));
+  border-color: transparent;
+  color: #2b1a02;
+}
+
+.wallet-btn--primary:hover,
+.wallet-btn--primary:focus-visible {
+  background: linear-gradient(135deg, var(--grad-gold), var(--grad-gold-deep));
+  filter: brightness(1.05);
+}
+
+.wallet-qty {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.wallet-qty button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.wallet-qty button:hover {
+  background: var(--grad-gold-soft);
+}
+
+.wallet-qty span {
+  min-width: 26px;
+  text-align: center;
+  font-family: var(--wallet-mono);
+  font-size: 13px;
+}
+
+.wallet-cart {
+  position: sticky;
+  top: 84px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--grad-gold-line);
+  background:
+    radial-gradient(
+      120% 120% at 100% 0%,
+      var(--grad-gold-soft),
+      transparent 60%
+    ),
+    var(--bg);
+  display: grid;
+  gap: 12px;
+}
+
+.wallet-cart-items {
+  display: grid;
+  gap: 8px;
+}
+
+.wallet-cart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.wallet-cart-row small {
+  display: block;
+  color: var(--text-subtle);
+}
+
+.wallet-cart-row strong {
+  font-family: var(--wallet-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wallet-cart-totals {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.wallet-cart-totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.wallet-cart-totals dd {
+  margin: 0;
+  font-family: var(--wallet-mono);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-cart-totals dd.is-negative {
+  color: var(--danger);
+}
+
+.wallet-cart-submit {
+  padding: 11px 16px;
+  border-radius: var(--radius-md);
+  border: 0;
+  background: linear-gradient(135deg, var(--grad-gold), var(--grad-gold-deep));
+  color: #2b1a02;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wallet-cart-submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.wallet-cart-status {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wallet-cart-status.is-error {
+  color: var(--danger);
+}
+
+.wallet-orders {
+  display: grid;
+  gap: 8px;
+}
+
+.wallet-order {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.wallet-order small {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.wallet-order__meta {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.wallet-order__total {
+  font-family: var(--wallet-mono);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wallet-status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.wallet-status--done {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.wallet-status--cancelled {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.coin-icon--sm {
+  width: 0.95em;
+  height: 0.95em;
+  vertical-align: -0.12em;
+  margin-left: 2px;
+}
+
+@media (max-width: 860px) {
+  .wallet-shop-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-cart {
+    position: static;
+  }
+}
+
+/* Атрибут hidden против авторского display (.wallet-hero — grid): без этого
+   «только материалам» показывался бы пустой баланс над объяснением. */
+.wallet-page [hidden] {
+  display: none !important;
+}

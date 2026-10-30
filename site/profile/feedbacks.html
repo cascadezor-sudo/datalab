@@ -1,0 +1,2535 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Обратная связь</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css" />
+    <link rel="stylesheet" href="../assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="../assets/css/navigation.css" />
+    <link rel="stylesheet" href="../assets/css/profile.css" />
+    <link rel="stylesheet" href="../assets/css/info-cards.css" />
+    <link rel="stylesheet" href="../profile/feedbacks.css" />
+    <link rel="stylesheet" href="../assets/code-styles.css" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/skeleton-loader.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="profile" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <div class="feedback-page">
+      <main id="main-content" tabindex="-1" class="container">
+        <header class="page-header">
+          <div class="page-header-content">
+            <img class="page-header-icon" src="../assets/icons/feedback.png" alt="" />
+            <div class="page-header-text">
+              <h1 id="title">Обратная связь</h1>
+              <p class="subtitle">
+                Просмотр и работа с обратной связью от ментора
+              </p>
+            </div>
+            <div class="page-header-cta">
+              <a href="../profile.html" class="page-header-button"
+                >Назад к профилю</a
+              >
+            </div>
+          </div>
+        </header>
+
+        <div class="feedbacks-section">
+          <!-- Кнопка создания ОС (только для ментора) -->
+          <div id="createFeedbackBtnContainer" style="display: none">
+            <button class="btn-create-feedback" id="createFeedbackBtn">
+              Добавить фидбек
+            </button>
+          </div>
+          <!-- пробел -->
+
+          <!-- Фильтр по ученикам (только для ментора) -->
+          <div
+            id="feedbacksFilterContainer"
+            class="feedbacks-filter"
+            style="display: none"
+          >
+            <p class="feedbacks-filter-label">Фильтр по ученикам</p>
+            <label
+              id="myStudentsFilterField"
+              class="feedbacks-filter-checkbox"
+              for="myStudentsFilter"
+              hidden
+            >
+              <input id="myStudentsFilter" type="checkbox" checked />
+              <span>
+                <strong>Только мои ученики</strong>
+                <small
+                  >Показывать фидбеки и списки только назначенных мне
+                  учеников</small
+                >
+              </span>
+            </label>
+            <div class="feedbacks-filter-controls">
+              <label class="feedbacks-filter-field" for="studentSearch">
+                Поиск по ФИО
+                <input
+                  id="studentSearch"
+                  class="feedbacks-filter-search"
+                  type="search"
+                  placeholder="Начните вводить имя ученика"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="feedbacks-filter-field" for="studentFilter">
+                Выбрать из списка
+                <select id="studentFilter" class="feedbacks-filter-select">
+                  <option value="">Все ученики</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Список обратной связи -->
+          <div class="feedbacks-list" id="feedbacksList">
+            <!-- skeleton shown on init -->
+          </div>
+        </div>
+      </main>
+
+      <!-- Модальное окно просмотра фидбека -->
+      <div id="viewFeedbackModal" class="fb-modal">
+        <div class="fb-modal-overlay"></div>
+        <div class="fb-modal-content">
+          <div class="fb-modal-header">
+            <h2 id="viewFeedbackTitle">Обратная связь</h2>
+            <button class="fb-modal-close" onclick="closeFeedbackModal()">
+              &times;
+            </button>
+          </div>
+          <div class="fb-modal-body" id="viewFeedbackBody">
+            <!-- Контент будет загружен динамически -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Модальное окно редактирования ОС -->
+      <div id="editFeedbackModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Редактировать обратную связь</h2>
+            <button class="modal-close" id="closeEditModalBtn">&times;</button>
+          </div>
+          <form id="editFeedbackForm">
+            <input type="hidden" id="editFeedbackId" />
+            <input type="hidden" id="editFeedbackUserId" />
+            <div class="form-group">
+              <label for="editFbTitle">Название фидбека:</label>
+              <input
+                type="text"
+                id="editFbTitle"
+                placeholder="Например: Сбер 25.11.2025"
+                style="
+                  width: 100%;
+                  padding: 12px;
+                  border: 1px solid var(--border-color);
+                  border-radius: 8px;
+                  background: var(--card-bg);
+                  color: var(--text-primary);
+                  font-family: &quot;Inter&quot;, sans-serif;
+                  font-size: 14px;
+                "
+              />
+              <div class="form-hint">
+                Название поможет быстро найти нужный фидбек
+              </div>
+            </div>
+            <div class="form-group interview-type-group">
+              <label class="interview-type-toggle" for="editFbIsRealInterview">
+                <input type="checkbox" id="editFbIsRealInterview" />
+                <span>Настоящее собеседование</span>
+              </label>
+              <div
+                class="interview-company-field"
+                id="editFbCompanyField"
+                hidden
+              >
+                <label for="editFbCompany">Компания</label>
+                <input
+                  type="text"
+                  id="editFbCompany"
+                  list="interviewCompanyOptions"
+                  autocomplete="organization"
+                  maxlength="120"
+                  placeholder="Например, Сбер"
+                />
+                <div class="form-hint">
+                  Выберите компанию из списка или введите новую.
+                </div>
+              </div>
+              <label class="interview-type-toggle" for="editFbIsHrInterview">
+                <input type="checkbox" id="editFbIsHrInterview" />
+                <span>HR-собеседование</span>
+              </label>
+              <div class="form-hint">
+                Отметьте, если это скрининг с рекрутёром: тогда вопросы из
+                секции «Вопросы интервьюера и ответы» попадут в банк как
+                HR-вопросы, а не как технические.
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="editFbContent">Содержание фидбека:</label>
+              <textarea
+                id="editFbContent"
+                placeholder="Вставьте полный текст фидбека в формате Markdown. Разделы обозначайте через ### (например: ### Вопросы интервьюера и ответы)"
+                style="min-height: 400px"
+              ></textarea>
+              <div class="form-hint">
+                Используйте <code>##</code> для разделения секций,
+                <code>###</code> для отдельных вопросов внутри секции,
+                <code>---</code> как разделитель между вопросами.<br />
+                Секции: <code>## Вопросы интервьюера и ответы</code> ·
+                <code>## HR-вопросы</code> ·
+                <code>## Где сейчас есть сложности</code> ·
+                <code>## Что у тебя хорошо</code> · <code>## Статус</code> ·
+                <code>## Вопросы для проработки</code>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-cancel" id="cancelEditBtn">
+                Отмена
+              </button>
+              <button type="submit" class="btn-primary" id="submitEditBtn">
+                Сохранить
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Модальное окно создания ОС -->
+      <div id="createFeedbackModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Создать обратную связь</h2>
+            <button class="modal-close" id="closeModalBtn">&times;</button>
+          </div>
+          <form id="createFeedbackForm">
+            <div class="form-group">
+              <label for="studentSelect">Выберите ученика:</label>
+              <select
+                id="studentSelect"
+                style="
+                  width: 100%;
+                  padding: 12px;
+                  border: 1px solid var(--border-color);
+                  border-radius: 8px;
+                  background: var(--card-bg);
+                  color: var(--text-primary);
+                  font-family: &quot;Inter&quot;, sans-serif;
+                  font-size: 14px;
+                "
+              >
+                <option value="">Загрузка...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="fbTitle">Название фидбека:</label>
+              <input
+                type="text"
+                id="fbTitle"
+                placeholder="Например: Сбер 25.11.2025"
+                style="
+                  width: 100%;
+                  padding: 12px;
+                  border: 1px solid var(--border-color);
+                  border-radius: 8px;
+                  background: var(--card-bg);
+                  color: var(--text-primary);
+                  font-family: &quot;Inter&quot;, sans-serif;
+                  font-size: 14px;
+                "
+              />
+              <div class="form-hint">
+                Название поможет быстро найти нужный фидбек
+              </div>
+            </div>
+            <div class="form-group interview-type-group">
+              <label class="interview-type-toggle" for="fbIsRealInterview">
+                <input type="checkbox" id="fbIsRealInterview" />
+                <span>Настоящее собеседование</span>
+              </label>
+              <div class="interview-company-field" id="fbCompanyField" hidden>
+                <label for="fbCompany">Компания</label>
+                <input
+                  type="text"
+                  id="fbCompany"
+                  list="interviewCompanyOptions"
+                  autocomplete="organization"
+                  maxlength="120"
+                  placeholder="Например, Сбер"
+                />
+                <div class="form-hint">
+                  Выберите компанию из списка или введите новую.
+                </div>
+              </div>
+              <label class="interview-type-toggle" for="fbIsHrInterview">
+                <input type="checkbox" id="fbIsHrInterview" />
+                <span>HR-собеседование</span>
+              </label>
+              <div class="form-hint">
+                Отметьте, если это скрининг с рекрутёром: тогда вопросы из
+                секции «Вопросы интервьюера и ответы» попадут в банк как
+                HR-вопросы, а не как технические.
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="fbContent">Содержание фидбека:</label>
+              <textarea
+                id="fbContent"
+                placeholder="Вставьте полный текст фидбека в формате Markdown. Разделы обозначайте через ### (например: ### Вопросы интервьюера и ответы)"
+                style="min-height: 400px"
+              ></textarea>
+              <div class="form-hint">
+                Используйте <code>##</code> для разделения секций,
+                <code>###</code> для отдельных вопросов внутри секции,
+                <code>---</code> как разделитель между вопросами.<br />
+                Секции: <code>## Вопросы интервьюера и ответы</code> ·
+                <code>## HR-вопросы</code> ·
+                <code>## Где сейчас есть сложности</code> ·
+                <code>## Что у тебя хорошо</code> · <code>## Статус</code> ·
+                <code>## Вопросы для проработки</code>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-cancel" id="cancelBtn">
+                Отмена
+              </button>
+              <button type="submit" class="btn-primary" id="submitBtn">
+                Создать
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <datalist id="interviewCompanyOptions"></datalist>
+
+      <!-- Firebase SDK -->
+      <!-- firebase-sdk-full:start -->
+      
+      
+      
+      <!-- firebase-sdk-full:end -->
+
+      <!-- Config loader -->
+      <script src="../assets/js/components/config-loader.js"></script>
+      <script src="../assets/js/components/staff-api.js"></script>
+      <script src="../assets/js/components/feedback-render.js"></script>
+      <script src="../assets/js/interview-question-bank.js"></script>
+
+      <!-- KaTeX for math rendering -->
+      <script defer src="../assets/katex/katex.min.js"></script>
+      <script defer src="../assets/katex/auto-render.min.js"></script>
+
+      <!-- Подключение authGuard -->
+      <script src="../authGuard.js"></script>
+
+      <script>
+        // Глобальные переменные
+        let db = null;
+        let currentUser = null;
+        let userRole = null;
+        let canMentorFeedbacks = false;
+        let canFilterMyStudents = false;
+        let allFeedbackStudents = [];
+        let feedbackStudentsById = new Map();
+        let staffFeedbacksByKey = new Map();
+        const STAFF_FEEDBACKS_PAGE_SIZE = 9;
+        let staffFeedbackPage = {
+          items: [],
+          nextOffset: null,
+          total: 0,
+          filterKey: "",
+          isLoading: false,
+          requestId: 0,
+        };
+
+        const INTERVIEW_BANK_STAFF_ROLES = new Set([
+          "mentor",
+          "curator",
+          "admin",
+          "admin-helper",
+        ]);
+
+        const MY_STUDENTS_FILTER_ROLES = new Set(["mentor", "curator"]);
+
+        function isStudent(userData) {
+          return userData?.role === "student" || !userData?.role;
+        }
+
+        function feedbackCacheKey(userId, feedbackId) {
+          return `${userId}/${feedbackId}`;
+        }
+
+        function getCachedStaffFeedback(userId, feedbackId) {
+          return staffFeedbacksByKey.get(feedbackCacheKey(userId, feedbackId)) || null;
+        }
+
+        function isAssignedToCurrentUser(student) {
+          if (!student || !currentUser?.uid) return false;
+
+          return [
+            student.assignedStaffUid,
+            student.assignedMentorUid,
+            student.assignedCuratorUid,
+          ].includes(currentUser.uid);
+        }
+
+        function isMyStudentsFilterEnabled() {
+          return Boolean(
+            canFilterMyStudents &&
+              document.getElementById("myStudentsFilter")?.checked,
+          );
+        }
+
+        function getVisibleFeedbackStudents() {
+          if (!isMyStudentsFilterEnabled()) return allFeedbackStudents.slice();
+          return allFeedbackStudents.filter(isAssignedToCurrentUser);
+        }
+
+        function populateStudentSelect(select, placeholder, selectedId = "") {
+          if (!select) return;
+
+          const visibleStudents = getVisibleFeedbackStudents();
+          select.replaceChildren();
+
+          const firstOption = document.createElement("option");
+          firstOption.value = "";
+          firstOption.textContent = placeholder;
+          select.appendChild(firstOption);
+
+          visibleStudents.forEach((student) => {
+            const option = document.createElement("option");
+            option.value = student.id;
+            option.textContent = `${student.name}${student.email ? ` (${student.email})` : ""}`;
+            select.appendChild(option);
+          });
+
+          if (
+            selectedId &&
+            visibleStudents.some((student) => student.id === selectedId)
+          ) {
+            select.value = selectedId;
+          }
+        }
+
+        function refreshStudentControls({ preserveSelection = true } = {}) {
+          const studentFilter = document.getElementById("studentFilter");
+          const studentSelect = document.getElementById("studentSelect");
+          const filterSelection = preserveSelection ? studentFilter?.value : "";
+          const createSelection = preserveSelection ? studentSelect?.value : "";
+
+          populateStudentSelect(
+            studentFilter,
+            isMyStudentsFilterEnabled() ? t("Все мои ученики") : t("Все ученики"),
+            filterSelection,
+          );
+          populateStudentSelect(
+            studentSelect,
+            t("Выберите ученика..."),
+            createSelection,
+          );
+        }
+
+        // ?student= — кнопка «Написать фидбек» в пульте куратора: выбираем
+        // ученика в фильтре и в форме и сразу открываем форму. Ученик не из
+        // «моих» — снимаем фильтр, иначе его нет в списках.
+        function applyRequestedStudent() {
+          const params = new URLSearchParams(window.location.search);
+          const studentId = params.get("student") || params.get("id") || "";
+          if (!feedbackStudentsById.has(studentId)) return;
+
+          const myFilter = document.getElementById("myStudentsFilter");
+          if (
+            myFilter?.checked &&
+            !getVisibleFeedbackStudents().some(({ id }) => id === studentId)
+          ) {
+            myFilter.checked = false;
+            refreshStudentControls({ preserveSelection: false });
+          }
+          document.getElementById("studentFilter").value = studentId;
+          document.getElementById("studentSelect").value = studentId;
+          document.getElementById("createFeedbackModal").classList.add("show");
+        }
+
+        function initializeMyStudentsFilter() {
+          const filterField = document.getElementById("myStudentsFilterField");
+          const checkbox = document.getElementById("myStudentsFilter");
+          if (!filterField || !checkbox) return;
+
+          filterField.hidden = !canFilterMyStudents;
+          if (!canFilterMyStudents) return;
+
+          checkbox.checked = true;
+          checkbox.addEventListener("change", () => {
+            refreshStudentControls({ preserveSelection: false });
+            loadFeedbacks();
+          });
+        }
+
+        function updateInterviewCompanyVisibility(prefix) {
+          const checkbox = document.getElementById(`${prefix}IsRealInterview`);
+          const field = document.getElementById(`${prefix}CompanyField`);
+          const input = document.getElementById(`${prefix}Company`);
+          if (!checkbox || !field || !input) return;
+
+          field.hidden = !checkbox.checked;
+          input.required = checkbox.checked;
+          if (!checkbox.checked) input.value = "";
+        }
+
+        function readInterviewMeta(prefix) {
+          const isRealInterview = Boolean(
+            document.getElementById(`${prefix}IsRealInterview`)?.checked,
+          );
+          const companyName = String(
+            document.getElementById(`${prefix}Company`)?.value || "",
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+          if (isRealInterview && !companyName) {
+            throw new Error(t("Укажите компанию для настоящего собеседования"));
+          }
+          const company = isRealInterview
+            ? window.InterviewQuestionBank.getCompanyMeta(companyName)
+            : null;
+          return {
+            isRealInterview,
+            // Отметка независима от «настоящего собеседования»: HR-скрининг
+            // бывает и моком, и в банк компаний такой мок всё равно не идёт.
+            isHrInterview: Boolean(
+              document.getElementById(`${prefix}IsHrInterview`)?.checked,
+            ),
+            companyId: company ? company.id : "",
+            companyName: company ? company.name : "",
+          };
+        }
+
+        async function loadInterviewCompanyOptions() {
+          if (!db || !window.InterviewQuestionBank) return;
+          const list = document.getElementById("interviewCompanyOptions");
+          if (!list) return;
+          try {
+            const snapshot = await db
+              .ref(window.InterviewQuestionBank.INDEX_PATH)
+              .once("value");
+            const companies = window.InterviewQuestionBank.getKnownCompanies(
+              window.InterviewQuestionBank.indexToBank(snapshot.val()),
+            );
+            list.replaceChildren(
+              ...companies.map((company) => {
+                const option = document.createElement("option");
+                option.value = company.name;
+                return option;
+              }),
+            );
+          } catch (error) {
+            console.error("Failed to load interview companies:", error);
+          }
+        }
+
+        async function saveFeedbackWithQuestionBank(
+          feedbackPath,
+          previousFeedback,
+          nextFeedback,
+        ) {
+          const bankUpdates = window.InterviewQuestionBank.buildSyncUpdates(
+            previousFeedback,
+            nextFeedback,
+            feedbackPath,
+          );
+          await db.ref().update({
+            [feedbackPath]: nextFeedback,
+            ...bankUpdates,
+          });
+        }
+
+        // Инициализация Firebase
+        async function initializeFirebase() {
+          try {
+            if (typeof firebase === "undefined") {
+              console.error("Firebase SDK not loaded");
+              return;
+            }
+
+            if (typeof window.configLoader === "undefined") {
+              console.error("ConfigLoader not available");
+              return;
+            }
+
+            const firebaseConfig =
+              await window.configLoader.loadFirebaseConfig();
+
+            if (!firebase.apps.length) {
+              firebase.initializeApp(firebaseConfig);
+            }
+
+            db = firebase.database();
+            currentUser = firebase.auth().currentUser;
+
+            if (currentUser) {
+              await loadUserRole();
+              initializePage();
+            } else {
+              firebase.auth().onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                  await loadUserRole();
+                  initializePage();
+                } else {
+                  window.location.href = "/index.html";
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Failed to initialize Firebase:", error);
+          }
+        }
+
+        // Загрузка роли пользователя
+        async function loadUserRole() {
+          if (!db || !currentUser) return;
+
+          try {
+            const userRef = db.ref(`users/${currentUser.uid}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+            userRole = userData.role || "student";
+            canMentorFeedbacks = INTERVIEW_BANK_STAFF_ROLES.has(userRole);
+            canFilterMyStudents = MY_STUDENTS_FILTER_ROLES.has(userRole);
+
+            // Показываем кнопку создания ОС и фильтр для ментора и curator
+            const createBtnContainer = document.getElementById(
+              "createFeedbackBtnContainer",
+            );
+            const filterContainer = document.getElementById(
+              "feedbacksFilterContainer",
+            );
+            if (canMentorFeedbacks) {
+              createBtnContainer.style.display = "block";
+              filterContainer.style.display = "block";
+              await loadStudentsForFilter();
+              initializeMyStudentsFilter();
+              refreshStudentControls({ preserveSelection: false });
+              applyRequestedStudent();
+              await loadInterviewCompanyOptions();
+            } else {
+              createBtnContainer.style.display = "none";
+              filterContainer.style.display = "none";
+            }
+          } catch (error) {
+            console.error("Failed to load user role:", error);
+          }
+        }
+
+        // Разметка и парсинг markdown вынесены в общий модуль
+        // assets/js/components/feedback-render.js — он же используется в модалке
+        // записи собеседования (interviews/videos.html), чтобы оформление
+        // фидбека не расходилось между страницами.
+        const {
+          escapeHtml,
+          cleanQuestionText,
+          normalizeQuestion,
+          normalizeQuestions,
+          renderSections,
+          renderQuestionsBlock,
+          renderMath,
+          toggleFeedbackBlock,
+        } = window.FeedbackRender;
+
+        // Форматирование даты
+        function formatDate(timestamp) {
+          const date = new Date(timestamp);
+          return date.toLocaleDateString(window.i18n?.locale || "ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
+
+        function getStaffFeedbackFilters() {
+          return {
+            studentId: document.getElementById("studentFilter")?.value || "",
+            studentQuery: String(
+              document.getElementById("studentSearch")?.value || "",
+            )
+              .toLocaleLowerCase("ru")
+              .replace(/\s+/g, " ")
+              .trim(),
+            assignedOnly: isMyStudentsFilterEnabled(),
+          };
+        }
+
+        function renderFeedbackMath(feedbacksList) {
+          setTimeout(() => {
+            feedbacksList
+              .querySelectorAll(".feedback-card, .feedback-block-content, .callout")
+              .forEach((card) => renderMath(card));
+          }, 100);
+        }
+
+        function renderStaffFeedbackPage(feedbacksList) {
+          const feedbacks = staffFeedbackPage.items;
+          if (feedbacks.length === 0) {
+            feedbacksList.innerHTML = `
+              <div class="empty-state">
+                <p style="font-size: 18px; margin-bottom: 8px;">📭</p>
+                <p>${t("Пока нет обратной связи")}</p>
+                <small>${t("Обратная связь от ментора будет отображаться здесь")}</small>
+              </div>`;
+            return;
+          }
+
+          feedbacksList.innerHTML = "";
+          feedbacks.forEach((feedback) => {
+            feedbacksList.appendChild(createFeedbackElement(feedback));
+          });
+
+          if (staffFeedbackPage.nextOffset !== null) {
+            const remaining = Math.max(0, staffFeedbackPage.total - feedbacks.length);
+            const container = document.createElement("div");
+            container.style.cssText = "display:flex;justify-content:center;gap:12px;align-items:center;margin:24px 0 8px;";
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn-primary";
+            button.textContent = t("Загрузить ещё ({count})", { count: remaining });
+            button.disabled = staffFeedbackPage.isLoading;
+            button.addEventListener("click", () => loadFeedbacks({ append: true }));
+            const caption = document.createElement("small");
+            caption.textContent = t("Показано {shown} из {total}", {
+              shown: feedbacks.length,
+              total: staffFeedbackPage.total,
+            });
+            container.append(button, caption);
+            feedbacksList.appendChild(container);
+          }
+
+          renderFeedbackMath(feedbacksList);
+        }
+
+        // Загрузка обратной связи
+        async function loadFeedbacks({ append = false } = {}) {
+          if (!db || !currentUser) return;
+
+          const feedbacksList = document.getElementById("feedbacksList");
+          const staffFilters = canMentorFeedbacks ? getStaffFeedbackFilters() : null;
+          const filterKey = staffFilters ? JSON.stringify(staffFilters) : "";
+          const useAppend = canMentorFeedbacks && append &&
+            staffFeedbackPage.filterKey === filterKey &&
+            staffFeedbackPage.nextOffset !== null;
+          if (
+            canMentorFeedbacks &&
+            staffFeedbackPage.isLoading &&
+            staffFeedbackPage.filterKey === filterKey
+          ) {
+            return;
+          }
+          if (!useAppend && window.SkeletonLoader) {
+            SkeletonLoader.show("feedback", "#feedbacksList", 4);
+          } else if (!useAppend) {
+            feedbacksList.innerHTML =
+              `<div class="loading"><div class="loading-spinner"></div><p>${t("Загрузка обратной связи...")}</p></div>`;
+          }
+          const requestId = ++staffFeedbackPage.requestId;
+          if (canMentorFeedbacks) staffFeedbackPage.isLoading = true;
+
+          try {
+            let feedbacks = [];
+
+            if (canMentorFeedbacks) {
+              const response = await window.staffApi.listStaffFeedbacks({
+                ...staffFilters,
+                offset: useAppend ? staffFeedbackPage.nextOffset : 0,
+                limit: STAFF_FEEDBACKS_PAGE_SIZE,
+              });
+              if (requestId !== staffFeedbackPage.requestId) return;
+              const pageItems = response.items || [];
+              staffFeedbackPage = {
+                items: useAppend ? [...staffFeedbackPage.items, ...pageItems] : pageItems,
+                nextOffset: response.nextOffset,
+                total: Number(response.total) || 0,
+                filterKey,
+                isLoading: false,
+                requestId,
+              };
+              staffFeedbackPage.items.forEach((feedback) => {
+                staffFeedbacksByKey.set(
+                  feedbackCacheKey(feedback.userId, feedback.id),
+                  feedback,
+                );
+              });
+            } else {
+              // Для ученика просто преобразуем объект в массив
+              const snapshot = await db
+                .ref(`users/${currentUser.uid}/feedbacks`)
+                .once("value");
+              const data = snapshot.val() || {};
+              for (const [feedbackId, feedback] of Object.entries(data)) {
+                feedbacks.push({
+                  id: feedbackId,
+                  userId: currentUser.uid,
+                  ...feedback,
+                });
+              }
+            }
+
+            let filteredFeedbacks = feedbacks;
+            if (canMentorFeedbacks) {
+              if (window.SkeletonLoader) SkeletonLoader.hide("#feedbacksList");
+              renderStaffFeedbackPage(feedbacksList);
+              return;
+            }
+
+            // Сортируем по дате создания (новые сначала)
+            filteredFeedbacks.sort(
+              (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+            );
+
+            if (window.SkeletonLoader) SkeletonLoader.hide("#feedbacksList");
+
+            if (filteredFeedbacks.length === 0) {
+              feedbacksList.innerHTML = `
+              <div class="empty-state">
+                <p style="font-size: 18px; margin-bottom: 8px;">📭</p>
+                <p>${t("Пока нет обратной связи")}</p>
+                <small>${t("Обратная связь от ментора будет отображаться здесь")}</small>
+              </div>
+            `;
+              return;
+            }
+
+            feedbacksList.innerHTML = "";
+            filteredFeedbacks.forEach((feedback) => {
+              const feedbackElement = createFeedbackElement(feedback);
+              feedbacksList.appendChild(feedbackElement);
+            });
+
+            renderFeedbackMath(feedbacksList);
+          } catch (error) {
+            if (canMentorFeedbacks && requestId === staffFeedbackPage.requestId) {
+              staffFeedbackPage.isLoading = false;
+            }
+            console.error("Failed to load feedbacks:", error);
+            if (useAppend) {
+              renderStaffFeedbackPage(feedbacksList);
+              alert(t("Не удалось загрузить следующую страницу обратной связи."));
+              return;
+            }
+            feedbacksList.innerHTML = `
+            <div class="empty-state">
+              <p>${t("Ошибка загрузки обратной связи")}</p>
+              <small>${error.message}</small>
+            </div>
+          `;
+          }
+        }
+
+
+        // Создание элемента обратной связи
+        function createFeedbackElement(feedback) {
+          const div = document.createElement("div");
+          div.className = `feedback-item`;
+          div.dataset.feedbackId = feedback.id;
+          div.dataset.userId = feedback.userId;
+
+          const isRead = feedback.read || false;
+
+          // Получаем имя ученика (для ментора)
+          let studentName = "";
+          if (canMentorFeedbacks && feedback.userId) {
+            // Будем загружать асинхронно
+            loadStudentName(feedback.userId).then((name) => {
+              const nameElement = div.querySelector(".student-name");
+              if (nameElement) {
+                nameElement.textContent = name;
+              }
+            });
+          }
+
+          // Создаем карточку фидбека (без превью - только имя, название, дата, ученик)
+          const feedbackTitle = feedback.title || "";
+          const feedbackCompany =
+            feedback.isRealInterview === true && feedback.companyName
+              ? String(feedback.companyName).trim()
+              : "";
+          const isHrInterview = feedback.isHrInterview === true;
+          // Тип собеса виден бейджем, чтобы ментор не дублировал его в названии.
+          // Настоящий — с отметкой «Настоящее собеседование», остальное мок;
+          // чип компании рядом появляется только при заполненной компании.
+          const interviewType = isHrInterview
+            ? feedback.isRealInterview === true
+              ? { label: t("HR-собес"), modifier: "hr" }
+              : { label: t("Мок HR"), modifier: "mock" }
+            : feedback.isRealInterview === true
+              ? { label: t("Тех. собес"), modifier: "tech" }
+              : { label: t("Мок"), modifier: "mock" };
+          div.innerHTML = `
+          <div class="feedback-card ${isRead ? "read" : "unread"}" onclick="openFeedbackModal('${feedback.id}', '${feedback.userId}')">
+            <div class="feedback-card-header">
+              <div>
+                ${feedbackTitle ? `<div class="feedback-card-title">${feedbackTitle}</div>` : ""}
+                ${canMentorFeedbacks ? `<div class="feedback-card-student">${t("Загрузка...")}</div>` : ""}
+                <div class="feedback-card-date">${formatDate(feedback.createdAt || Date.now())}</div>
+              </div>
+              <div class="feedback-card-badges">
+                <span class="feedback-card-company-badge feedback-card-company-badge--${interviewType.modifier}">${interviewType.label}</span>
+                ${
+                  feedbackCompany
+                    ? `<span class="feedback-card-company-badge" aria-label="${t("Компания: {company}", { company: escapeHtml(feedbackCompany) })}" title="${t("Компания: {company}", { company: escapeHtml(feedbackCompany) })}">${escapeHtml(feedbackCompany)}</span>`
+                    : ""
+                }
+                <div class="feedback-card-status ${isRead ? "read" : "unread"}">
+                  ${isRead ? t("✓ Прочитано") : t("● Не прочитано")}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+          // Обновляем имя ученика в карточке (для ментора/curator)
+          if (canMentorFeedbacks && feedback.userId) {
+            loadStudentName(feedback.userId).then((name) => {
+              const nameElement = div.querySelector(".feedback-card-student");
+              if (nameElement) {
+                nameElement.textContent = name;
+              }
+            });
+          }
+
+          return div;
+        }
+
+        // Открытие модального окна с фидбеком
+        async function openFeedbackModal(feedbackId, userId) {
+          if (!db || !currentUser) return;
+
+          const modal = document.getElementById("viewFeedbackModal");
+          const modalBody = document.getElementById("viewFeedbackBody");
+          const modalTitle = document.getElementById("viewFeedbackTitle");
+
+          // Показываем модальное окно с анимацией
+          modal.classList.add("show");
+          document.body.style.overflow = "hidden";
+
+          // Показываем загрузку
+          modalBody.innerHTML =
+            `<div class="loading"><div class="loading-spinner"></div><p>${t("Загрузка обратной связи...")}</p></div>`;
+
+          try {
+            const feedback = canMentorFeedbacks
+              ? getCachedStaffFeedback(userId, feedbackId)
+              : (await db.ref(`users/${userId}/feedbacks/${feedbackId}`).once("value")).val();
+
+            if (!feedback) {
+              modalBody.innerHTML =
+                `<div class="empty-state"><p>${t("Обратная связь не найдена")}</p></div>`;
+              return;
+            }
+
+            const isRead = feedback.read || false;
+
+            // Получаем имя ученика (для ментора)
+            let studentName = "";
+            if (canMentorFeedbacks && userId) {
+              studentName = await loadStudentName(userId);
+              modalTitle.textContent = t("Обратная связь: {student}", {
+                student: studentName,
+              });
+            } else {
+              modalTitle.textContent = t("Обратная связь");
+            }
+
+            // Секции и блок вопросов рендерит общий модуль feedback-render.js
+            const renderOptions = {
+              feedback,
+              feedbackId,
+              userRole,
+              interactive: userRole === "student",
+            };
+            const contentHtml = renderSections(feedback, renderOptions);
+            const questionsArray = normalizeQuestions(feedback.questions || {});
+            const questionsHtml = renderQuestionsBlock(feedback, renderOptions);
+
+            // Отображаем полный контент
+            const feedbackTitle = feedback.title || "";
+            modalBody.innerHTML = `
+            <div class="feedback-modal-header-info">
+              <div class="feedback-modal-meta">
+                ${feedbackTitle ? `<div class="feedback-modal-title">${feedbackTitle}</div>` : ""}
+                ${canMentorFeedbacks ? `<div class="feedback-modal-student">${studentName}</div>` : ""}
+                <div class="feedback-modal-date">${formatDate(feedback.createdAt || Date.now())}</div>
+              </div>
+              <div class="feedback-modal-status ${isRead ? "read" : "unread"}">
+                ${isRead ? t("✓ Прочитано") : t("● Не прочитано")}
+              </div>
+            </div>
+            <div class="feedback-content">
+              ${contentHtml}
+            </div>
+            ${questionsHtml}
+            <div class="feedback-actions">
+              ${
+                userRole === "student" && !isRead
+                  ? `
+                <button class="btn-mark-read" onclick="markAsRead('${feedbackId}')">
+                  ${t("✓ Отметить прочитанным")}
+                </button>
+              `
+                  : ""
+              }
+              ${
+                canMentorFeedbacks
+                  ? `
+                <button class="btn-edit-feedback" onclick="closeFeedbackModal(); openEditFeedback('${feedbackId}', '${userId}')">
+                  ${t("✏️ Редактировать")}
+                </button>
+              `
+                  : ""
+              }
+              ${
+                canMentorFeedbacks
+                  ? `
+                <button class="btn-delete-feedback" onclick="deleteFeedback('${feedbackId}', '${userId}'); closeFeedbackModal();">
+                  ${t("🗑️ Удалить")}
+                </button>
+              `
+                  : ""
+              }
+            </div>
+          `;
+
+            // Рендерим математику во всех блоках контента
+            setTimeout(() => {
+              const contentElement =
+                modalBody.querySelector(".feedback-content");
+              if (contentElement) {
+                renderMath(contentElement);
+              }
+              const questionsElement = modalBody.querySelector(
+                ".feedback-questions",
+              );
+              if (questionsElement) {
+                renderMath(questionsElement);
+              }
+              // Рендерим математику во всех секциях (feedback-block-content)
+              const blockContents = modalBody.querySelectorAll(
+                ".feedback-block-content",
+              );
+              blockContents.forEach((block) => {
+                renderMath(block);
+              });
+              // Рендерим математику в callout блоках
+              const callouts = modalBody.querySelectorAll(".callout");
+              callouts.forEach((callout) => {
+                renderMath(callout);
+              });
+            }, 100);
+
+            // Добавляем обработчики для checkbox
+            if (userRole === "student" && questionsArray.length > 0) {
+              setTimeout(() => {
+                const checkboxes = modalBody.querySelectorAll(
+                  ".feedback-question-checkbox",
+                );
+                checkboxes.forEach((checkbox) => {
+                  checkbox.addEventListener("change", async (e) => {
+                    const questionItem = e.target.closest(
+                      ".feedback-question-item",
+                    );
+                    const isChecked = e.target.checked;
+
+                    // Оптимистичное обновление UI
+                    if (isChecked) {
+                      questionItem.classList.add("completed");
+                    } else {
+                      questionItem.classList.remove("completed");
+                    }
+
+                    // Обновляем в Firebase
+                    try {
+                      await toggleQuestionCompleted(
+                        e.target.dataset.feedbackId,
+                        parseInt(e.target.dataset.questionIndex),
+                        isChecked,
+                      );
+                    } catch (error) {
+                      // Откатываем в случае ошибки
+                      e.target.checked = !isChecked;
+                      if (isChecked) {
+                        questionItem.classList.remove("completed");
+                      } else {
+                        questionItem.classList.add("completed");
+                      }
+                    }
+                  });
+                });
+
+                const sectionCheckboxes = modalBody.querySelectorAll(
+                  ".feedback-section-question-checkbox",
+                );
+                sectionCheckboxes.forEach((checkbox) => {
+                  checkbox.addEventListener("change", async (e) => {
+                    const questionItem = e.target.closest(
+                      ".feedback-section-question-item",
+                    );
+                    const isChecked = e.target.checked;
+
+                    // Оптимистичное обновление UI
+                    if (isChecked) {
+                      questionItem.classList.add("completed");
+                    } else {
+                      questionItem.classList.remove("completed");
+                    }
+
+                    // Обновляем в Firebase
+                    try {
+                      await toggleSectionQuestionCompleted(
+                        e.target.dataset.feedbackId,
+                        e.target.dataset.sectionClass,
+                        e.target.dataset.questionKey,
+                        isChecked,
+                      );
+                    } catch (error) {
+                      // Откатываем в случае ошибки
+                      e.target.checked = !isChecked;
+                      if (isChecked) {
+                        questionItem.classList.remove("completed");
+                      } else {
+                        questionItem.classList.add("completed");
+                      }
+                    }
+                  });
+                });
+              }, 100);
+            }
+          } catch (error) {
+            console.error("Failed to load feedback:", error);
+            modalBody.innerHTML =
+              `<div class="empty-state"><p>${t("Ошибка загрузки обратной связи")}</p></div>`;
+          }
+        }
+
+        // Закрытие модального окна
+        function closeFeedbackModal() {
+          const modal = document.getElementById("viewFeedbackModal");
+          modal.classList.remove("show");
+          document.body.style.overflow = "";
+        }
+
+        // Закрытие модального окна по Escape
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") {
+            const modal = document.getElementById("viewFeedbackModal");
+            if (modal && modal.classList.contains("show")) {
+              closeFeedbackModal();
+            }
+          }
+        });
+
+        // Делаем функции глобальными
+        window.openFeedbackModal = openFeedbackModal;
+        window.closeFeedbackModal = closeFeedbackModal;
+
+        // Переключение состояния вопроса
+        // Функция для обновления progress bar в модальном окне
+        function updateProgressBarInModal(feedbackId, questionsData) {
+          const questionsArray = Object.values(questionsData || {});
+          const completedCount = questionsArray.filter((q) => {
+            const normalized = normalizeQuestion(q);
+            return normalized.read;
+          }).length;
+          const progress =
+            questionsArray.length > 0
+              ? Math.round((completedCount / questionsArray.length) * 100)
+              : 0;
+
+          // Обновляем progress bar в модальном окне
+          const modalBody = document.getElementById("viewFeedbackBody");
+          if (modalBody) {
+            const progressBar = modalBody.querySelector(
+              ".feedback-questions-progress-fill",
+            );
+            const progressText = modalBody.querySelector(
+              ".feedback-questions-progress span:last-child",
+            );
+            if (progressBar) {
+              progressBar.style.width = `${progress}%`;
+            }
+            if (progressText) {
+              progressText.textContent = `${progress}%`;
+            }
+          }
+
+          // Обновляем progress bar в карточке (если есть)
+          const feedbackItem = document.querySelector(
+            `[data-feedback-id="${feedbackId}"]`,
+          );
+          if (feedbackItem) {
+            const progressBar = feedbackItem.querySelector(
+              ".feedback-questions-progress-fill",
+            );
+            const progressText = feedbackItem.querySelector(
+              ".feedback-questions-progress span:last-child",
+            );
+            if (progressBar) {
+              progressBar.style.width = `${progress}%`;
+            }
+            if (progressText) {
+              progressText.textContent = `${progress}%`;
+            }
+          }
+
+          return progress;
+        }
+
+        async function toggleQuestionCompleted(
+          feedbackId,
+          questionIndex,
+          completed,
+        ) {
+          if (!db || !currentUser || userRole !== "student") return;
+
+          console.log("toggleQuestionCompleted called:", {
+            feedbackId,
+            questionIndex,
+            completed,
+          });
+
+          const feedbackRef = db.ref(
+            `users/${currentUser.uid}/feedbacks/${feedbackId}`,
+          );
+          const questionPath = `questions/${questionIndex}/read`;
+
+          try {
+            // Используем транзакцию для атомарного обновления
+            await feedbackRef
+              .child(questionPath)
+              .transaction((currentValue) => {
+                // Если значение уже установлено правильно, возвращаем его
+                if (currentValue === completed) {
+                  return currentValue;
+                }
+                // Иначе устанавливаем новое значение
+                return completed;
+              });
+
+            // После успешного обновления загружаем актуальные данные и обновляем UI
+            const snapshot = await feedbackRef.once("value");
+            const feedback = snapshot.val() || {};
+            let questionsData = feedback.questions || {};
+
+            console.log("Feedback data loaded:", {
+              feedbackId,
+              questionsCount: Object.keys(questionsData).length,
+            });
+
+            // Нормализуем вопросы
+            if (Array.isArray(questionsData)) {
+              const questionsObj = {};
+              questionsData.forEach((q, idx) => {
+                questionsObj[idx] = normalizeQuestion(q);
+              });
+              questionsData = questionsObj;
+            } else if (questionsData && typeof questionsData === "object") {
+              const normalizedQuestions = {};
+              for (const [key, q] of Object.entries(questionsData)) {
+                normalizedQuestions[key] = normalizeQuestion(q);
+              }
+              questionsData = normalizedQuestions;
+            }
+
+            // Обновляем progress bar в реальном времени
+            const progress = updateProgressBarInModal(
+              feedbackId,
+              questionsData,
+            );
+            console.log("Progress calculated:", progress, "%");
+
+            // Если прогресс 100%, автоматически помечаем как прочитанное
+            const wasRead = feedback.read;
+            if (progress === 100 && !wasRead) {
+              await feedbackRef.update({
+                read: true,
+                readAt: Date.now(),
+              });
+            }
+            if (progress === 100) {
+              await closeFeedbackTasks(feedbackId);
+            }
+
+            // Помечаем соответствующее событие в календаре как выполненное, если прогресс 100%
+            // (даже если фидбек уже был прочитан ранее)
+            if (progress === 100 && canMentorFeedbacks) {
+              try {
+                const eventsRef = db.ref("events");
+                let matchingEvents = [];
+
+                // Сначала пытаемся найти через orderByChild (если есть индекс)
+                try {
+                  const eventsSnapshot = await eventsRef
+                    .orderByChild("feedbackId")
+                    .equalTo(feedbackId)
+                    .once("value");
+                  if (eventsSnapshot.exists()) {
+                    const events = eventsSnapshot.val();
+                    matchingEvents = Object.entries(events).map(
+                      ([eventId, event]) => [eventId, event],
+                    );
+                    console.log(
+                      "Found calendar events by feedbackId query:",
+                      matchingEvents,
+                    );
+                  }
+                } catch (queryError) {
+                  console.warn(
+                    "Query by feedbackId failed (may need index):",
+                    queryError,
+                  );
+                }
+
+                // Если не нашли через запрос, ищем вручную по всем событиям
+                if (matchingEvents.length === 0) {
+                  console.log(
+                    "Searching all events manually for feedbackId:",
+                    feedbackId,
+                  );
+                  const allEventsSnapshot = await eventsRef.once("value");
+                  const allEvents = allEventsSnapshot.val() || {};
+                  matchingEvents = Object.entries(allEvents).filter(
+                    ([eventId, event]) => {
+                      return (
+                        event &&
+                        event.feedbackId === feedbackId &&
+                        event.type === "feedback"
+                      );
+                    },
+                  );
+                  console.log(
+                    "Found events by manual search:",
+                    matchingEvents.length,
+                    "events",
+                  );
+                }
+
+                // Обновляем найденные события
+                if (matchingEvents.length > 0) {
+                  const updatePromises = matchingEvents.map(
+                    ([eventId, event]) => {
+                      // Обновляем только если статус не 'done'
+                      if (event.status !== "done") {
+                        console.log(
+                          "Updating event",
+                          eventId,
+                          "from status",
+                          event.status,
+                          "to done",
+                        );
+                        return db.ref(`events/${eventId}`).update({
+                          status: "done",
+                          completedAt: Date.now(),
+                        });
+                      } else {
+                        console.log("Event", eventId, "already marked as done");
+                        return Promise.resolve();
+                      }
+                    },
+                  );
+                  await Promise.all(updatePromises);
+                  console.log(
+                    "Successfully updated",
+                    matchingEvents.length,
+                    "calendar event(s) to done status for feedback:",
+                    feedbackId,
+                  );
+                } else {
+                  console.warn(
+                    "No calendar events found for feedbackId:",
+                    feedbackId,
+                    "- event may not have been created or feedbackId mismatch",
+                  );
+                }
+              } catch (calendarError) {
+                console.error(
+                  "Failed to update calendar event:",
+                  calendarError,
+                );
+                // Не прерываем процесс, если не удалось обновить событие
+              }
+            }
+
+            // Обновляем статус в карточке
+            const feedbackItem = document.querySelector(
+              `[data-feedback-id="${feedbackId}"]`,
+            );
+            if (feedbackItem && progress === 100) {
+              feedbackItem.classList.remove("unread");
+              feedbackItem.classList.add("read");
+              const statusElement = feedbackItem.querySelector(
+                ".feedback-card-status",
+              );
+              if (statusElement) {
+                statusElement.classList.remove("unread");
+                statusElement.classList.add("read");
+                statusElement.textContent = t("✓ Прочитано");
+              }
+            }
+
+            // Обновляем статус в модальном окне
+            const modalBody = document.getElementById("viewFeedbackBody");
+            if (modalBody && progress === 100) {
+              const statusElement = modalBody.querySelector(
+                ".feedback-modal-status",
+              );
+              if (statusElement) {
+                statusElement.classList.remove("unread");
+                statusElement.classList.add("read");
+                statusElement.textContent = t("✓ Прочитано");
+              }
+              // Убираем кнопку "Отметить как прочитанное"
+              const markReadBtn = modalBody.querySelector(".btn-mark-read");
+              if (markReadBtn) {
+                markReadBtn.remove();
+              }
+            }
+          } catch (error) {
+            console.error("Failed to update question status:", error);
+            // Откатываем UI в случае ошибки
+            const checkbox = document.querySelector(
+              `[data-feedback-id="${feedbackId}"][data-question-index="${questionIndex}"]`,
+            );
+            if (checkbox) {
+              checkbox.checked = !completed;
+            }
+          }
+        }
+
+        // Открытие модального окна редактирования
+        async function openEditFeedback(feedbackId, userId) {
+          if (!db || !currentUser || !canMentorFeedbacks) return;
+
+          try {
+            const feedback = getCachedStaffFeedback(userId, feedbackId);
+
+            if (!feedback) {
+              alert(t("Обратная связь не найдена"));
+              return;
+            }
+
+            // Заполняем форму
+            document.getElementById("editFeedbackId").value = feedbackId;
+            document.getElementById("editFeedbackUserId").value = userId;
+            document.getElementById("editFbTitle").value = feedback.title || "";
+            document.getElementById("editFbIsRealInterview").checked =
+              feedback.isRealInterview === true;
+            document.getElementById("editFbCompany").value =
+              feedback.companyName || "";
+            document.getElementById("editFbIsHrInterview").checked =
+              feedback.isHrInterview === true;
+            updateInterviewCompanyVisibility("editFb");
+
+            // Собираем единый MD-текст из полей фидбека (поддержка legacy формата с content)
+            let mdContent = "";
+            if (feedback.content) {
+              mdContent = feedback.content;
+            } else {
+              mdContent = feedbackToMd(feedback);
+            }
+            document.getElementById("editFbContent").value = mdContent;
+
+            // Открываем модальное окно
+            document.getElementById("editFeedbackModal").classList.add("show");
+          } catch (error) {
+            console.error("Failed to load feedback for editing:", error);
+            alert(t("Ошибка загрузки обратной связи"));
+          }
+        }
+
+        // Сохранение изменений фидбека
+        async function saveFeedbackEdit(event) {
+          event.preventDefault();
+
+          if (!db || !currentUser || !canMentorFeedbacks) return;
+
+          const feedbackId = document.getElementById("editFeedbackId").value;
+          const userId = document.getElementById("editFeedbackUserId").value;
+
+          let interviewMeta;
+          try {
+            interviewMeta = readInterviewMeta("editFb");
+          } catch (error) {
+            alert(error.message);
+            return;
+          }
+
+          // Парсим единый MD-текст по ### секциям
+          const rawContent = document
+            .getElementById("editFbContent")
+            .value.trim();
+          const parsed = parseFeedbackMd(rawContent);
+
+          const data = {
+            title: document.getElementById("editFbTitle").value.trim() || "",
+            interview: parsed.interview,
+            hr: parsed.hr,
+            difficulties: parsed.difficulties,
+            strengths: parsed.strengths,
+            verdict: parsed.verdict,
+            ...interviewMeta,
+            updatedAt: Date.now(),
+            updatedBy: currentUser.uid,
+          };
+
+          // Проверяем, что хотя бы одно поле заполнено
+          const hasContent =
+            data.interview ||
+            data.hr ||
+            data.difficulties ||
+            data.strengths ||
+            data.verdict ||
+            parsed.questionsText;
+          if (!hasContent) {
+            alert(t("Заполните хотя бы один раздел обратной связи"));
+            return;
+          }
+
+          // Вопросы для проработки — сохраняем уровень вложенности
+          const questionsArray = parsed.questionsText
+            .split("\n")
+            .map((line) => {
+              if (!line.trim()) return null;
+              const indentStr = (line.match(/^([ \t]*)/) || ["", ""])[1];
+              const tabs = (indentStr.match(/\t/g) || []).length;
+              const level = tabs > 0 ? tabs : Math.floor(indentStr.length / 2);
+              const text = cleanQuestionText(line.trim());
+              return text ? { text, level } : null;
+            })
+            .filter(Boolean);
+
+          // Staff list already contains the allowed feedback detail, so do not
+          // make a second browser read of another user's profile.
+          const currentFeedback = getCachedStaffFeedback(userId, feedbackId) || {};
+          const currentQuestions = currentFeedback.questions || {};
+
+          // Создаем новый объект вопросов, сохраняя состояние read для существующих
+          const questionsObj = {};
+          questionsArray.forEach((q, index) => {
+            const questionKey = index.toString();
+            const existingRead = currentQuestions[questionKey]
+              ? normalizeQuestion(currentQuestions[questionKey]).read
+              : false;
+            questionsObj[questionKey] = {
+              text: q.text,
+              read: existingRead,
+              level: q.level,
+            };
+          });
+          data.questions = questionsObj;
+          const nextFeedback = { ...currentFeedback, ...data };
+
+          const submitBtn = document.getElementById("submitEditBtn");
+          submitBtn.disabled = true;
+          submitBtn.textContent = t("Сохранение...");
+
+          try {
+            await saveFeedbackWithQuestionBank(
+              `users/${userId}/feedbacks/${feedbackId}`,
+              currentFeedback,
+              nextFeedback,
+            );
+            await loadInterviewCompanyOptions();
+
+            // Закрываем модальное окно
+            document
+              .getElementById("editFeedbackModal")
+              .classList.remove("show");
+            document.getElementById("editFeedbackForm").reset();
+
+            // Обновляем список
+            await loadFeedbacks();
+
+            alert(t("Обратная связь успешно обновлена!"));
+          } catch (error) {
+            console.error("Failed to update feedback:", error);
+            alert(t("Ошибка при обновлении обратной связи"));
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = t("Сохранить");
+          }
+        }
+
+        // Удаление фидбека
+        async function deleteFeedback(feedbackId, userId) {
+          if (!db || !currentUser || !canMentorFeedbacks) return;
+
+          if (
+            !confirm(
+              t(
+                "Вы уверены, что хотите удалить эту обратную связь? Это действие нельзя отменить.",
+              ),
+            )
+          ) {
+            return;
+          }
+
+          try {
+            const previousFeedback = getCachedStaffFeedback(userId, feedbackId);
+            if (!previousFeedback) return;
+            const feedbackPath = `users/${userId}/feedbacks/${feedbackId}`;
+            await db.ref().update({
+              [feedbackPath]: null,
+              ...window.InterviewQuestionBank.buildSyncUpdates(
+                previousFeedback,
+                null,
+                feedbackPath,
+              ),
+            });
+
+            // Обновляем список
+            await loadFeedbacks();
+            alert(t("Обратная связь успешно удалена!"));
+          } catch (error) {
+            console.error("Failed to delete feedback:", error);
+            alert(t("Ошибка при удалении обратной связи"));
+          }
+        }
+
+        // Загрузка учеников для фильтра
+        async function loadStudentsForFilter() {
+          if (!db || !canMentorFeedbacks) return;
+
+          const studentFilter = document.getElementById("studentFilter");
+          const studentSearch = document.getElementById("studentSearch");
+          if (!studentFilter || !studentSearch) return;
+
+          try {
+            const directory = await window.staffApi.getStaffDirectory();
+            const students = directory
+              .filter(isStudent)
+              .map((student) => ({
+                id: student.uid,
+                name: student.displayName || student.email || t("Ученик"),
+                email: student.email || "",
+                assignedStaffUid: student.assignedStaffUid || "",
+                assignedMentorUid: student.assignedMentorUid || "",
+                assignedCuratorUid: student.assignedCuratorUid || "",
+              }));
+
+            // Сортируем по имени
+            students.sort((a, b) =>
+              a.name.localeCompare(b.name, "ru", { sensitivity: "base" }),
+            );
+
+            allFeedbackStudents = students;
+            feedbackStudentsById = new Map(
+              students.map((student) => [student.id, student]),
+            );
+
+            refreshStudentControls({ preserveSelection: false });
+
+            // Добавляем обработчик изменения фильтра
+            studentFilter.addEventListener("change", () => {
+              loadFeedbacks();
+            });
+            let searchTimeout;
+            studentSearch.addEventListener("input", () => {
+              clearTimeout(searchTimeout);
+              searchTimeout = setTimeout(loadFeedbacks, 180);
+            });
+          } catch (error) {
+            console.error("Failed to load students for filter:", error);
+          }
+        }
+
+        // Делаем функции глобальными
+        window.toggleFeedbackBlock = toggleFeedbackBlock;
+        window.toggleQuestionCompleted = toggleQuestionCompleted;
+
+        // Переключение состояния вопроса в секции
+        async function toggleSectionQuestionCompleted(
+          feedbackId,
+          sectionClass,
+          questionKey,
+          completed,
+        ) {
+          if (!db || !currentUser || userRole !== "student") return;
+
+          const feedbackRef = db.ref(
+            `users/${currentUser.uid}/feedbacks/${feedbackId}`,
+          );
+          const questionPath = `sectionQuestions/${questionKey}/read`;
+
+          try {
+            // Используем транзакцию для атомарного обновления
+            await feedbackRef
+              .child(questionPath)
+              .transaction((currentValue) => {
+                if (currentValue === completed) {
+                  return currentValue;
+                }
+                return completed;
+              });
+
+            // После успешного обновления загружаем актуальные данные
+            const snapshot = await feedbackRef.once("value");
+            const feedback = snapshot.val() || {};
+
+            // Обновляем progress bar (если есть вопросы для проработки)
+            if (feedback.questions) {
+              updateProgressBarInModal(feedbackId, feedback.questions);
+            }
+            const sectionQuestions = Object.values(
+              feedback.sectionQuestions || {},
+            );
+            if (
+              sectionQuestions.length > 0 &&
+              sectionQuestions.every(
+                (question) => normalizeQuestion(question).read,
+              )
+            ) {
+              await feedbackRef.update({
+                read: true,
+                readAt: Date.now(),
+              });
+              await closeFeedbackTasks(feedbackId);
+            }
+          } catch (error) {
+            console.error("Failed to update section question status:", error);
+            // Откатываем UI в случае ошибки
+            const checkbox = document.querySelector(
+              `[data-feedback-id="${feedbackId}"][data-question-key="${questionKey}"]`,
+            );
+            if (checkbox) {
+              checkbox.checked = !completed;
+            }
+          }
+        }
+
+        window.toggleSectionQuestionCompleted = toggleSectionQuestionCompleted;
+        window.openEditFeedback = openEditFeedback;
+        window.deleteFeedback = deleteFeedback;
+
+        // Загрузка имени ученика
+        async function loadStudentName(userId) {
+          if (!db) return t("Ученик");
+
+          if (canMentorFeedbacks) {
+            const student = feedbackStudentsById.get(userId);
+            return student?.name || student?.email || t("Ученик");
+          }
+
+          try {
+            const userRef = db.ref(`users/${userId}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+            return userData.displayName || userData.email || t("Ученик");
+          } catch (error) {
+            console.error("Failed to load student name:", error);
+            return t("Ученик");
+          }
+        }
+
+        // Пометка как прочитанного
+        function isFirebasePermissionDenied(error) {
+          const code = String(error?.code || "").toLowerCase();
+          const message = String(error?.message || error || "").toLowerCase();
+          return (
+            code.includes("permission_denied") ||
+            message.includes("permission_denied")
+          );
+        }
+
+        async function findFeedbackCalendarEvents(feedbackId) {
+          const eventsRef = db.ref("events");
+          let matchingEvents = [];
+
+          try {
+            const eventsSnapshot = await eventsRef
+              .orderByChild("feedbackId")
+              .equalTo(feedbackId)
+              .once("value");
+            if (eventsSnapshot.exists()) {
+              matchingEvents = Object.entries(eventsSnapshot.val() || {});
+            }
+          } catch (queryError) {
+            console.warn(
+              "Query by feedbackId failed (may need index):",
+              queryError,
+            );
+            if (isFirebasePermissionDenied(queryError)) return matchingEvents;
+          }
+
+          if (matchingEvents.length === 0) {
+            const allEventsSnapshot = await eventsRef.once("value");
+            const allEvents = allEventsSnapshot.val() || {};
+            matchingEvents = Object.entries(allEvents).filter(
+              ([eventId, event]) =>
+                event &&
+                event.feedbackId === feedbackId &&
+                event.type === "feedback",
+            );
+          }
+
+          return matchingEvents;
+        }
+
+        async function markFeedbackCalendarEventsDone(feedbackId) {
+          const matchingEvents = await findFeedbackCalendarEvents(feedbackId);
+          const now = Date.now();
+          await Promise.all(
+            matchingEvents.map(([eventId, event]) => {
+              if (event.status === "done") return Promise.resolve();
+              return db.ref(`events/${eventId}`).update({
+                status: "done",
+                completedAt: now,
+              });
+            }),
+          );
+          return matchingEvents.map(([eventId]) => eventId);
+        }
+
+        async function findFeedbackKanbanTasks(
+          feedbackId,
+          sourceEventIds = [],
+        ) {
+          const tasksRef = db.ref("kanbanTasks");
+          const sourceEventSet = new Set(sourceEventIds.filter(Boolean));
+          let matchingTasks = [];
+
+          try {
+            const tasksSnapshot = await tasksRef
+              .orderByChild("feedbackId")
+              .equalTo(feedbackId)
+              .once("value");
+            if (tasksSnapshot.exists()) {
+              matchingTasks = Object.entries(tasksSnapshot.val() || {});
+            }
+          } catch (queryError) {
+            console.warn(
+              "Query kanbanTasks by feedbackId failed (may need index):",
+              queryError,
+            );
+            if (isFirebasePermissionDenied(queryError)) return matchingTasks;
+          }
+
+          if (matchingTasks.length === 0 || sourceEventSet.size > 0) {
+            const allTasksSnapshot = await tasksRef.once("value");
+            const allTasks = allTasksSnapshot.val() || {};
+            const byId = new Map(matchingTasks);
+            Object.entries(allTasks).forEach(([taskId, task]) => {
+              if (!task) return;
+              if (
+                task.feedbackId === feedbackId ||
+                sourceEventSet.has(task.sourceEventId)
+              ) {
+                byId.set(taskId, task);
+              }
+            });
+            matchingTasks = Array.from(byId.entries());
+          }
+
+          return matchingTasks;
+        }
+
+        async function markFeedbackKanbanTasksDone(
+          feedbackId,
+          sourceEventIds = [],
+        ) {
+          const matchingTasks = await findFeedbackKanbanTasks(
+            feedbackId,
+            sourceEventIds,
+          );
+          const now = Date.now();
+          await Promise.all(
+            matchingTasks.map(([taskId, task]) => {
+              if (task.status === "done" && task.boardStatus === "done") {
+                return Promise.resolve();
+              }
+              return db.ref(`kanbanTasks/${taskId}`).update({
+                status: "done",
+                boardStatus: "done",
+                completedAt: now,
+                feedbackReadAt: now,
+                updatedAt: firebase.database.ServerValue.TIMESTAMP,
+              });
+            }),
+          );
+          return matchingTasks.length;
+        }
+
+        async function closeFeedbackTasks(feedbackId) {
+          if (!db || !feedbackId || !canMentorFeedbacks) return;
+          let sourceEventIds = [];
+          try {
+            sourceEventIds = await markFeedbackCalendarEventsDone(feedbackId);
+          } catch (calendarError) {
+            console.error("Failed to update calendar event:", calendarError);
+          }
+
+          try {
+            await markFeedbackKanbanTasksDone(feedbackId, sourceEventIds);
+          } catch (kanbanError) {
+            console.error("Failed to update kanban task:", kanbanError);
+          }
+        }
+
+        async function markAsRead(feedbackId) {
+          if (!db || !currentUser || userRole !== "student") return;
+
+          try {
+            const feedbackRef = db.ref(
+              `users/${currentUser.uid}/feedbacks/${feedbackId}`,
+            );
+            await feedbackRef.update({
+              read: true,
+              readAt: Date.now(),
+            });
+            await closeFeedbackTasks(feedbackId);
+
+            // Обновляем UI
+            await loadFeedbacks();
+          } catch (error) {
+            console.error("Failed to mark as read:", error);
+            alert(t("Ошибка при отметке как прочитанного"));
+          }
+        }
+
+        // Загрузка списка учеников (для ментора)
+        async function loadStudents() {
+          if (!db || !canMentorFeedbacks) return;
+
+          const studentSelect = document.getElementById("studentSelect");
+          if (!studentSelect) return;
+
+          if (allFeedbackStudents.length) {
+            refreshStudentControls();
+            return;
+          }
+
+          studentSelect.innerHTML = `<option value="">${t("Загрузка...")}</option>`;
+
+          try {
+            await loadStudentsForFilter();
+            if (!allFeedbackStudents.length) {
+              studentSelect.innerHTML =
+                `<option value="">${t("Нет учеников")}</option>`;
+            }
+            refreshStudentControls();
+          } catch (error) {
+            console.error("Failed to load students:", error);
+            studentSelect.innerHTML =
+              `<option value="">${t("Ошибка загрузки")}</option>`;
+          }
+        }
+
+        // Маппинг заголовков ### на Firebase-поля
+        const MD_SECTION_TO_FIELD = {
+          "вопросы интервьюера и ответы": "interview",
+          "hr-вопросы": "hr",
+          "где сейчас есть сложности": "difficulties",
+          "что у тебя хорошо": "strengths",
+          статус: "verdict",
+          "вопросы для проработки": "questions",
+        };
+
+        // Парсит полный MD-текст по ## заголовкам → объект полей.
+        // Внутри секций вопросы выделяются через ### и разделяются ---.
+        function parseFeedbackMd(text) {
+          const result = {
+            interview: "",
+            hr: "",
+            difficulties: "",
+            strengths: "",
+            verdict: "",
+            questionsText: "",
+          };
+          if (!text || !text.trim()) return result;
+
+          const lines = text.split("\n");
+          let currentField = null;
+          let currentLines = [];
+
+          function flush() {
+            if (currentField === null) return;
+            const content = currentLines.join("\n").trim();
+            if (currentField === "questions") {
+              result.questionsText = content;
+            } else if (currentField in result) {
+              result[currentField] = content;
+            }
+          }
+
+          for (const line of lines) {
+            // ## Section header (but NOT ###)
+            const h2Match = line.match(/^##(?!#)\s+(.+)$/);
+            if (h2Match) {
+              flush();
+              const heading = h2Match[1].trim().toLowerCase();
+              currentField = MD_SECTION_TO_FIELD[heading] || null;
+              currentLines = [];
+            } else {
+              currentLines.push(line);
+            }
+          }
+          flush();
+          return result;
+        }
+
+        // Собирает MD из отдельных полей фидбека (для заполнения edit-поля)
+        function feedbackToMd(feedback) {
+          const fieldOrder = [
+            ["interview", "Вопросы интервьюера и ответы"],
+            ["hr", "HR-вопросы"],
+            ["difficulties", "Где сейчас есть сложности"],
+            ["strengths", "Что у тебя хорошо"],
+            ["verdict", "Статус"],
+          ];
+          const parts = [];
+          for (const [field, heading] of fieldOrder) {
+            if (feedback[field] && feedback[field].trim()) {
+              parts.push(`## ${heading}\n\n${feedback[field].trim()}`);
+            }
+          }
+          // Вопросы для проработки — восстанавливаем отступы из поля level
+          const questions = feedback.questions;
+          if (questions) {
+            let questionsLines = [];
+            const toLine = (q) => {
+              const norm = normalizeQuestion(q);
+              const indent = "  ".repeat(norm.level || 0);
+              return norm.text ? `${indent}- ${norm.text}` : null;
+            };
+            if (Array.isArray(questions)) {
+              questionsLines = questions.map(toLine).filter(Boolean);
+            } else if (typeof questions === "object") {
+              questionsLines = Object.keys(questions)
+                .sort((a, b) => parseInt(a) - parseInt(b))
+                .map((key) => toLine(questions[key]))
+                .filter(Boolean);
+            }
+            if (questionsLines.length) {
+              parts.push(
+                `## Вопросы для проработки\n\n${questionsLines.join("\n")}`,
+              );
+            }
+          }
+          return parts.join("\n\n");
+        }
+
+        // Создание обратной связи
+        async function createFeedback(event) {
+          event.preventDefault();
+
+          if (!db || !currentUser || !canMentorFeedbacks) return;
+
+          const studentId = document.getElementById("studentSelect").value;
+
+          if (!studentId) {
+            alert(t("Выберите ученика"));
+            return;
+          }
+
+          let interviewMeta;
+          try {
+            interviewMeta = readInterviewMeta("fb");
+          } catch (error) {
+            alert(error.message);
+            return;
+          }
+
+          // Парсим единый MD-текст по ### секциям
+          const rawContent = document.getElementById("fbContent").value.trim();
+          const parsed = parseFeedbackMd(rawContent);
+
+          const feedbackData = {
+            title: document.getElementById("fbTitle").value.trim() || "",
+            interview: parsed.interview,
+            hr: parsed.hr,
+            difficulties: parsed.difficulties,
+            strengths: parsed.strengths,
+            verdict: parsed.verdict,
+            ...interviewMeta,
+            createdAt: Date.now(),
+            createdBy: currentUser.uid,
+            read: false,
+          };
+
+          // Проверяем, что хотя бы одно поле заполнено
+          const hasContent =
+            feedbackData.interview ||
+            feedbackData.hr ||
+            feedbackData.difficulties ||
+            feedbackData.strengths ||
+            feedbackData.verdict ||
+            parsed.questionsText;
+          if (!hasContent) {
+            alert(t("Заполните хотя бы один раздел обратной связи"));
+            return;
+          }
+
+          // Обрабатываем вопросы для проработки — сохраняем уровень вложенности
+          const questionsObj = {};
+          if (parsed.questionsText) {
+            parsed.questionsText.split("\n").forEach((line, index, arr) => {
+              if (!line.trim()) return;
+              const indentStr = (line.match(/^([ \t]*)/) || ["", ""])[1];
+              const tabs = (indentStr.match(/\t/g) || []).length;
+              const level = tabs > 0 ? tabs : Math.floor(indentStr.length / 2);
+              const text = cleanQuestionText(line.trim());
+              if (!text) return;
+              const key = Object.keys(questionsObj).length.toString();
+              questionsObj[key] = { text, read: false, level };
+            });
+          }
+          feedbackData.questions = questionsObj;
+
+          const submitBtn = document.getElementById("submitBtn");
+          submitBtn.disabled = true;
+          submitBtn.textContent = t("Создание...");
+
+          try {
+            const feedbackId = db
+              .ref(`users/${studentId}/feedbacks`)
+              .push().key;
+
+            await saveFeedbackWithQuestionBank(
+              `users/${studentId}/feedbacks/${feedbackId}`,
+              null,
+              feedbackData,
+            );
+            await loadInterviewCompanyOptions();
+
+            // Создаем событие в календаре на неделю вперед
+            try {
+              const now = new Date();
+              const weekLater = new Date(now);
+              weekLater.setDate(weekLater.getDate() + 7);
+              weekLater.setHours(23, 59, 0, 0); // Конец дня
+
+              const feedbackUrl = `/profile/feedbacks.html`;
+
+              const eventData = {
+                title: "Фидбек по собесу",
+                type: "feedback",
+                status: "open",
+                dueAt: weekLater.toISOString(),
+                startAt: weekLater.toISOString(),
+                endAt: weekLater.toISOString(),
+                studentId: studentId,
+                description: `Разобрать все вопросы для изучения моментов, где сейчас есть трудности и недочёты. Проработать [обратную связь](${feedbackUrl})`,
+                createdAt: firebase.database.ServerValue.TIMESTAMP,
+                createdBy: currentUser.uid,
+                feedbackId: feedbackId, // Связь с фидбеком
+              };
+
+              const eventRef = db.ref("events").push();
+              await eventRef.set(eventData);
+              const taskRef = db.ref("kanbanTasks").push();
+              await taskRef.set({
+                title: eventData.title,
+                type: "feedback",
+                status: "open",
+                boardStatus: "todo",
+                dueAt: eventData.dueAt,
+                startAt: eventData.startAt,
+                endAt: eventData.endAt,
+                studentId: studentId,
+                description: eventData.description,
+                feedbackId: feedbackId,
+                source: "feedback",
+                sourceEventId: eventRef.key,
+                createdAt: firebase.database.ServerValue.TIMESTAMP,
+                updatedAt: firebase.database.ServerValue.TIMESTAMP,
+                createdBy: currentUser.uid,
+                createdByName:
+                  currentUser.displayName || currentUser.email || "",
+              });
+              console.log("Calendar event created:", {
+                eventId: eventRef.key,
+                taskId: taskRef.key,
+                feedbackId: feedbackId,
+                studentId: studentId,
+                status: "open",
+                eventData: eventData,
+              });
+            } catch (calendarError) {
+              console.error("Failed to create calendar event:", calendarError);
+              // Не прерываем создание фидбека, если не удалось создать событие
+            }
+
+            // Закрываем модальное окно
+            document
+              .getElementById("createFeedbackModal")
+              .classList.remove("show");
+            document.getElementById("createFeedbackForm").reset();
+
+            // Обновляем список
+            await loadFeedbacks();
+
+            alert(t("Обратная связь успешно создана!"));
+          } catch (error) {
+            console.error("Failed to create feedback:", error);
+            alert(t("Ошибка при создании обратной связи"));
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = t("Создать");
+          }
+        }
+
+        // Инициализация страницы
+        function initializePage() {
+          loadFeedbacks();
+
+          // Загружаем список учеников для ментора/curator
+          if (canMentorFeedbacks) {
+            loadStudents();
+          }
+
+          // Инициализируем KaTeX после загрузки страницы
+          if (typeof renderMathInElement === "function") {
+            setTimeout(() => {
+              renderMathInElement(document.body, {
+                delimiters: [
+                  { left: "$$", right: "$$", display: true },
+                  { left: "$", right: "$", display: false },
+                  { left: "\\(", right: "\\)", display: false },
+                  { left: "\\[", right: "\\]", display: true },
+                ],
+                throwOnError: false,
+              });
+            }, 500);
+          }
+
+          // Обработчики модального окна создания
+          const createBtn = document.getElementById("createFeedbackBtn");
+          const modal = document.getElementById("createFeedbackModal");
+          const closeBtn = document.getElementById("closeModalBtn");
+          const cancelBtn = document.getElementById("cancelBtn");
+          const form = document.getElementById("createFeedbackForm");
+
+          // Обработчики модального окна редактирования
+          const editModal = document.getElementById("editFeedbackModal");
+          const closeEditBtn = document.getElementById("closeEditModalBtn");
+          const cancelEditBtn = document.getElementById("cancelEditBtn");
+          const editForm = document.getElementById("editFeedbackForm");
+          ["fb", "editFb"].forEach((prefix) => {
+            const checkbox = document.getElementById(
+              `${prefix}IsRealInterview`,
+            );
+            checkbox?.addEventListener("change", () =>
+              updateInterviewCompanyVisibility(prefix),
+            );
+            updateInterviewCompanyVisibility(prefix);
+          });
+
+          if (createBtn) {
+            createBtn.addEventListener("click", () => {
+              modal.classList.add("show");
+              loadStudents();
+            });
+          }
+
+          if (closeBtn) {
+            closeBtn.addEventListener("click", () => {
+              modal.classList.remove("show");
+            });
+          }
+
+          if (cancelBtn) {
+            cancelBtn.addEventListener("click", () => {
+              modal.classList.remove("show");
+              form.reset();
+            });
+          }
+
+          if (form) {
+            form.addEventListener("submit", createFeedback);
+            form.addEventListener("reset", () =>
+              setTimeout(() => updateInterviewCompanyVisibility("fb"), 0),
+            );
+          }
+
+          // Закрытие модального окна создания при клике вне его
+          modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+              modal.classList.remove("show");
+              form.reset();
+            }
+          });
+
+          // Обработчики для модального окна редактирования
+          if (closeEditBtn) {
+            closeEditBtn.addEventListener("click", () => {
+              editModal.classList.remove("show");
+              editForm.reset();
+            });
+          }
+
+          if (cancelEditBtn) {
+            cancelEditBtn.addEventListener("click", () => {
+              editModal.classList.remove("show");
+              editForm.reset();
+            });
+          }
+
+          if (editForm) {
+            editForm.addEventListener("submit", saveFeedbackEdit);
+            editForm.addEventListener("reset", () =>
+              setTimeout(() => updateInterviewCompanyVisibility("editFb"), 0),
+            );
+          }
+
+          // Закрытие модального окна редактирования при клике вне его
+          editModal.addEventListener("click", (e) => {
+            if (e.target === editModal) {
+              editModal.classList.remove("show");
+              editForm.reset();
+            }
+          });
+        }
+
+        // Делаем markAsRead глобальной функцией
+        window.markAsRead = markAsRead;
+
+        // Инициализация при загрузке страницы
+        document.addEventListener("DOMContentLoaded", () => {
+          // Show skeleton immediately before Firebase loads
+          if (window.SkeletonLoader)
+            SkeletonLoader.show("feedback", "#feedbacksList", 4);
+          initializeFirebase();
+        });
+      </script>
+    </div>
+  </body>
+</html>

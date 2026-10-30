@@ -1,0 +1,83 @@
+{
+  "id": "mlops:grafana:block-1",
+  "title": "Grafana · Блок 1: платформа и дашборды",
+  "description": "Проверка перед блоком 2: роль Grafana и PLG-стек, data sources, строение дашборда, типы панелей, дашборды по областям ответственности, импорт шаблонов и хранение дашбордов в Git.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b1_stores",
+      "type": "single",
+      "q": "Что Grafana хранит сама?",
+      "options": [
+        "Все метрики сервисов в собственной time-series БД",
+        "Данные метрик не хранит: подключается к источникам и визуализирует их",
+        "Логи всех сервисов с полнотекстовым индексом",
+        "Только алерты, а метрики берёт из Loki"
+      ],
+      "answer": [1],
+      "explain": "Grafana — «стекло» над данными: метрики хранит Prometheus, логи — Loki, Grafana строит дашборды поверх них."
+    },
+    {
+      "id": "b1_plg",
+      "type": "single",
+      "q": "Что означает PLG-стек?",
+      "options": [
+        "PostgreSQL, Loki, Grafana",
+        "Prometheus, Logstash, Graphite",
+        "Pulsar, Loki, Grafana",
+        "Prometheus, Loki, Grafana"
+      ],
+      "answer": [3],
+      "explain": "Prometheus — метрики, Loki — логи, Grafana — визуализация; опционально Tempo или Jaeger для трейсов."
+    },
+    {
+      "id": "b1_row",
+      "type": "single",
+      "q": "Зачем в дашборде нужны rows (строки)?",
+      "options": [
+        "Чтобы группировать панели по областям (Service Health, Model Quality, Infrastructure) и сворачивать разделы",
+        "Чтобы хранить исходные данные метрик внутри дашборда",
+        "Чтобы задать временной диапазон для каждой панели",
+        "Чтобы подключить несколько data source"
+      ],
+      "answer": [0],
+      "explain": "Row — строка-группировщик панелей; она делит дашборд на логические разделы."
+    },
+    {
+      "id": "b1_histogram_panel",
+      "type": "single",
+      "q": "Какой тип панели выбрать, чтобы видеть форму распределения score модели для дрейф-мониторинга?",
+      "options": ["Stat", "Gauge", "Histogram", "Table"],
+      "answer": [2],
+      "explain": "Для дрейфа важна форма распределения, а не одно число: Stat и Gauge показывают текущее значение."
+    },
+    {
+      "id": "b1_git",
+      "type": "multi",
+      "q": "Зачем хранить дашборды Grafana в Git? (несколько ответов)",
+      "options": [
+        "Версионировать изменения и делать code review",
+        "Восстанавливать дашборды после пересоздания Grafana",
+        "Чтобы Grafana хранила в Git значения метрик",
+        "Применять их через provisioning в GitOps-стиле"
+      ],
+      "answer": [0, 1, 3],
+      "explain": "Дашборд — это JSON; provisioning загружает его из папки при старте. Сами метрики в дашборде не лежат."
+    },
+    {
+      "id": "b1_import",
+      "type": "single",
+      "q": "Как быстрее всего получить дашборд для Linux-узлов (например, Node Exporter Full)?",
+      "options": [
+        "Нарисовать все панели вручную с нуля",
+        "Импортировать готовый шаблон с grafana.com по его ID и указать Prometheus data source",
+        "Установить отдельный плагин Node Exporter в Grafana",
+        "Скопировать метрики в PostgreSQL и строить SQL-панели"
+      ],
+      "answer": [1],
+      "explain": "Dashboards → Import → Dashboard ID (для Node Exporter Full — 1860), затем выбрать data source."
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "id": "mlops:prometheus:block-1",
+  "title": "Prometheus · Блок 1: pull-модель и типы метрик",
+  "description": "Проверка перед блоком 2: scraping эндпоинта /metrics, TSDB, managed-аналоги, Counter, Gauge, Histogram и Summary, выбор типа для ML-метрик и конвенция имён.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b1_pull",
+      "type": "single",
+      "q": "Как Prometheus получает метрики сервисов?",
+      "options": [
+        "Сервисы сами отправляют метрики в Prometheus по мере появления",
+        "Prometheus читает логи сервисов и извлекает из них числа",
+        "Prometheus сам периодически опрашивает (scrape) эндпоинт `/metrics` каждого сервиса",
+        "Метрики приходят через Kafka-топик"
+      ],
+      "answer": [2],
+      "explain": "Pull-модель: сервис только выставляет `/metrics`, а Prometheus опрашивает его по расписанию, обычно каждые 15–30 с."
+    },
+    {
+      "id": "b1_counter_gauge",
+      "type": "single",
+      "q": "Какой тип метрики подходит для объёма занятой GPU-памяти?",
+      "options": ["Gauge", "Counter", "Summary", "Histogram"],
+      "answer": [0],
+      "explain": "Память может и расти, и падать — это Gauge. Counter только растёт и нужен для подсчёта событий."
+    },
+    {
+      "id": "b1_latency_type",
+      "type": "single",
+      "q": "Почему latency предсказания меряют Histogram, а не Gauge?",
+      "options": [
+        "Gauge не умеет хранить дробные числа",
+        "Histogram занимает меньше места, чем Gauge",
+        "Gauge можно использовать только для Counter-метрик",
+        "Gauge покажет лишь последнее значение, а Histogram фиксирует распределение и даёт перцентили через `histogram_quantile()`"
+      ],
+      "answer": [3],
+      "explain": "Для SLO нужны p95/p99, а их считают из бакетов Histogram."
+    },
+    {
+      "id": "b1_hist_vs_summary",
+      "type": "single",
+      "q": "Почему для inference-сервиса с несколькими репликами Histogram предпочтительнее Summary?",
+      "options": [
+        "Summary не умеет считать `_count`",
+        "Квантили Summary считаются на каждом инстансе и не агрегируются, а бакеты Histogram можно сложить по всем репликам",
+        "Histogram считает квантили на клиенте, поэтому быстрее",
+        "Summary запрещён для latency"
+      ],
+      "answer": [1],
+      "explain": "Суммируя бакеты всех реплик, получаем единый p95 сервиса."
+    },
+    {
+      "id": "b1_histogram_series",
+      "type": "multi",
+      "q": "Какие временные ряды автоматически создаёт Histogram? (несколько ответов)",
+      "options": ["`_bucket{le=\"...\"}`", "`_sum`", "`_rate`", "`_count`"],
+      "answer": [0, 1, 3],
+      "explain": "Бакеты, сумма и число наблюдений; скорость считают в PromQL функцией `rate()`, отдельного ряда `_rate` нет."
+    },
+    {
+      "id": "b1_naming",
+      "type": "single",
+      "q": "Какое имя метрики соответствует конвенции Prometheus для счётчика inference-запросов?",
+      "options": [
+        "`InferenceRequests`",
+        "`inference_requests_count_seconds`",
+        "`inference_requests_total`",
+        "`total_requests_inference`"
+      ],
+      "answer": [2],
+      "explain": "Конвенция `<namespace>_<subsystem>_<name>_<unit>`, суффикс `_total` — для Counter."
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "id": "ml:recsys:block-6",
+  "title": "RecSys · Блок 6: LLM, foundation models и ключевые статьи",
+  "description": "Итоговая проверка по LLM и foundation models в рекомендациях и ключевым статьям RecSys: роли LLM в пайплайне, generative recommendation, CLIP-like модели, YouTube DNN, SASRec, BERT4Rec.",
+  "timeLimitSec": 600,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b6_llm_pipeline",
+      "type": "single",
+      "q": "Почему LLM редко заменяет весь RecSys-пайплайн?",
+      "options": [
+        "LLM не умеют работать с текстом объектов",
+        "LLM нельзя дообучать на данных домена",
+        "LLM дороги, медленны и плохо управляемы, поэтому их встраивают компонентом: признаки, объяснения, query understanding, reranking малого списка",
+        "LLM запрещено использовать в production"
+      ],
+      "answer": [2],
+      "explain": "Главные ограничения — latency, стоимость, управляемость и необходимость строгого контроля качества выдачи."
+    },
+    {
+      "id": "b6_llm_rerank",
+      "type": "single",
+      "q": "Как обычно используют LLM для reranking?",
+      "options": [
+        "Отдают LLM весь каталог и просят отсортировать его целиком",
+        "LLM переупорядочивает десятки-сотни кандидатов, уже отобранных ANN или эвристиками",
+        "LLM заменяет ANN-индекс на этапе retrieval",
+        "LLM обучает веса ranking-модели"
+      ],
+      "answer": [1],
+      "explain": "Список заранее сужают, чтобы уложиться в стоимость и latency. На полном каталоге без retrieval LLM дорога и трудно контролируема."
+    },
+    {
+      "id": "b6_generative",
+      "type": "single",
+      "q": "Что такое generative recommendation?",
+      "options": [
+        "Генерация синтетических пользователей для обучения",
+        "Генерация картинок для карточек товаров",
+        "Генерация A/B-гипотез",
+        "Постановка, где модель генерирует item ids, названия или запросы как последовательность токенов и предсказывает следующий объект"
+      ],
+      "answer": [3],
+      "explain": "GPT-style модель читает историю пользователя как последовательность токенов и продолжает её следующим объектом."
+    },
+    {
+      "id": "b6_clip",
+      "type": "single",
+      "q": "Чем полезны CLIP-like модели в рекомендациях?",
+      "options": [
+        "Общее пространство текстовых и визуальных эмбеддингов, обученное contrastive-образом, позволяет искать и делать cold start по картинке",
+        "Они заменяют A/B-тесты",
+        "Они ускоряют ALS",
+        "Они убирают необходимость в эмбеддингах пользователей"
+      ],
+      "answer": [0],
+      "explain": "Foundation-модели извлекают смысл из текста, изображений и видео, поэтому особенно полезны для rich content и cold start."
+    },
+    {
+      "id": "b6_youtube",
+      "type": "single",
+      "q": "Какую идею закрепила статья Deep Neural Networks for YouTube Recommendations (Covington et al., 2016)?",
+      "options": [
+        "Memorization и generalization в одном ранжировщике",
+        "Двухстадийную схему candidate generation и ranking",
+        "Попарную цель BPR для implicit feedback",
+        "Графовую свёртку на item–item графе"
+      ],
+      "answer": [1],
+      "explain": "Memorization + generalization — это Wide & Deep, BPR — Rendle et al., графовая свёртка на item–item графе — PinSage."
+    },
+    {
+      "id": "b6_sequential_papers",
+      "type": "multi",
+      "q": "Какие статьи — базовые трансформерные подходы к sequential recommendation? Выберите все подходящие.",
+      "options": ["LightGCN", "SASRec", "PinSage", "BERT4Rec"],
+      "answer": [1, 3],
+      "explain": "SASRec (Kang, McAuley, 2018) и BERT4Rec (Sun et al., 2019) моделируют последовательности кликов. LightGCN и PinSage — графовые рекомендации."
+    }
+  ]
+}

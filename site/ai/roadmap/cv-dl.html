@@ -1,0 +1,485 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Deep Learning CV</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet">
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        renderMathInElement(document.body, {
+          // customised options
+          // • auto-render specific keys, e.g.:
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          // • rendering keys, e.g.:
+          throwOnError: false
+        });
+      });
+    </script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Deep Learning CV</h1>
+            <p class="subtitle">Задачи компьютерного зрения: модели, лоссы, метрики и прикладные применения</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../../roadmap/index.html" class="page-header-button">Назад к карте разделов</a>
+          </div>
+        </div>
+      </header>
+
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <div class="callout tip">
+        <p>
+          Эта страница — про то,
+          <b>какие задачи</b>
+          решает компьютерное зрение и чем они отличаются друг от друга: формат входа и выхода,
+          характерные модели, типичные лоссы и метрики, прикладные области.
+        </p>
+        <p>
+          Разборы самих архитектур лежат отдельно —
+          <a href="../../ai/roadmap/models-cv.html">Архитектуры CV</a>
+          , а доглубинные методы —
+          <a href="../../ai/roadmap/cv.html">Classic CV</a>
+          .
+        </p>
+      </div>
+      <h2>Ориентир по темам</h2>
+      <div class="callout">
+        <ul>
+
+          <li>
+            <b>Свертки</b>
+            . Классическая, Spacial, Depthwise, Flattened, Dilated, Transposed.
+            <b>Grouped / Shuffled grouped</b>
+            ,
+            <b>Factorized</b>
+          </li>
+          <li>
+            <b>Предобработка и аугментация</b>
+            . Нормализация, стандартизация. Аффинные преобразования.
+            <code>albumentations</code>
+            ,
+            <code>torchvision</code>
+          </li>
+          <li>
+            <b>Pooling, Stride, Padding</b>
+            , Способы паддинга (интерполяция, добивание нулями)
+          </li>
+
+          <li><b>Skip connections</b></li>
+          <li>
+            <b>Attention</b>
+            . CBAM, SE-block
+          </li>
+          <li>
+            <b>Интерпретация признаков</b>
+            . GradCAM и аналоги
+          </li>
+
+          <li>
+            <b>Задачи</b>
+            . Классификация, Детекция, Сегментация (семантическая, инстанс, паноптическая), Трекинг,
+            Генерация
+          </li>
+
+          <li>
+            <b>Метрики</b>
+            . Классификация (Accuracy, Precision, Recall, $F_1$, ROC AUC, FPR/TPR/TNR/FNR).
+            Сегментация (Jaccard, Dice, Tversky). Детекция (mAP @ threshold, IoU, MR (Miss Rate, для
+            пешеходов/объектов), LAMR, AR (Average Recall, для оценки локализации))
+          </li>
+
+          <li>
+            <a href="https://github.com/JunMa11/SegLossOdyssey"><b>Лоссы сегментации</b></a>
+            . Пространственные, Distribution-based, Граничные, Составные
+          </li>
+
+          <li>
+            <b>Модели</b>
+            . ResNet, ConvNext, RegNet, MobileNet, EfficientNet, DeepLabV3, Unet; ViT, CLIP, LeViT,
+            SAM, DAViT; Segformer, Swin Transformer; DETR, RCNN/FastRCNN/FasterRCNN, YOLOv7-11,
+            DINO; Stable Diffusion
+          </li>
+        </ul>
+      </div>
+    
+      <div class="block">
+        <ul><!-- roadmap-md:block:1:start -->
+          <li class="roadmap-from-md" data-md-id="cv-tasks-map"><a href="../../ai/ml/cv/dl.html#cv-tasks-map" target="_blank" rel="noopener">Карта задач компьютерного зрения: что определяет постановку</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-backbone-head"><a href="../../ai/ml/cv/dl.html#cv-backbone-head" target="_blank" rel="noopener">Backbone, neck и head: из чего собран любой пайплайн CV</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-data-annotation"><a href="../../ai/ml/cv/dl.html#cv-data-annotation" target="_blank" rel="noopener">Данные и разметка: форматы, стоимость, ловушки</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-quality-protocol"><a href="../../ai/ml/cv/dl.html#cv-quality-protocol" target="_blank" rel="noopener">Как честно мерить качество в CV</a>
+          </li>
+          <!-- roadmap-md:block:1:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:2:start -->
+          <li class="roadmap-from-md" data-md-id="cv-classification"><a href="../../ai/ml/cv/dl.html#cv-classification" target="_blank" rel="noopener">Классификация изображений: постановка, лоссы, метрики</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-fine-grained"><a href="../../ai/ml/cv/dl.html#cv-fine-grained" target="_blank" rel="noopener">Тонкая классификация и длинный хвост</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-regression"><a href="../../ai/ml/cv/dl.html#cv-regression" target="_blank" rel="noopener">Регрессия по изображению: когда ответ — число</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-metric-learning"><a href="../../ai/ml/cv/dl.html#cv-metric-learning" target="_blank" rel="noopener">Метрическое обучение: верификация, поиск, re-ID</a>
+          </li>
+          <!-- roadmap-md:block:2:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:3:start -->
+          <li class="roadmap-from-md" data-md-id="cv-detection-basics"><a href="../../ai/ml/cv/dl.html#cv-detection-basics" target="_blank" rel="noopener">Детекция объектов: постановка и формат выхода</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-detection-iou-nms"><a href="../../ai/ml/cv/dl.html#cv-detection-iou-nms" target="_blank" rel="noopener">IoU и NMS: как сравнивают боксы и убирают дубликаты</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-detection-map"><a href="../../ai/ml/cv/dl.html#cv-detection-map" target="_blank" rel="noopener">mAP: главная метрика детекции</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-detection-models"><a href="../../ai/ml/cv/dl.html#cv-detection-models" target="_blank" rel="noopener">Модели детекции: от R-CNN до DETR</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-detection-losses"><a href="../../ai/ml/cv/dl.html#cv-detection-losses" target="_blank" rel="noopener">Лоссы детекции и назначение таргетов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-detection-pitfalls"><a href="../../ai/ml/cv/dl.html#cv-detection-pitfalls" target="_blank" rel="noopener">Детекция на практике: мелкие объекты, толпа, домен</a>
+          </li>
+          <!-- roadmap-md:block:3:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:4:start -->
+          <li class="roadmap-from-md" data-md-id="cv-segmentation-basics"><a href="../../ai/ml/cv/dl.html#cv-segmentation-basics" target="_blank" rel="noopener">Сегментация: семантическая, инстанс и паноптическая</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/cv.html#cv-semantic-segmentation" target="_blank" rel="noopener">Semantic Segmentation</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-segmentation-metrics"><a href="../../ai/ml/cv/dl.html#cv-segmentation-metrics" target="_blank" rel="noopener">Метрики сегментации: IoU, Dice, mIoU и PQ</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/cv.html#cv-semantic-segmentation" target="_blank" rel="noopener">Semantic Segmentation</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-segmentation-losses"><a href="../../ai/ml/cv/dl.html#cv-segmentation-losses" target="_blank" rel="noopener">Лоссы сегментации: CE, Dice, Tversky и их комбинации</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/cv.html#cv-semantic-segmentation" target="_blank" rel="noopener">Semantic Segmentation</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-segmentation-models"><a href="../../ai/ml/cv/dl.html#cv-segmentation-models" target="_blank" rel="noopener">Модели сегментации: от U-Net до SAM</a>
+          </li>
+          <!-- roadmap-md:block:4:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:5:start -->
+          <li class="roadmap-from-md" data-md-id="cv-keypoints-pose"><a href="../../ai/ml/cv/dl.html#cv-keypoints-pose" target="_blank" rel="noopener">Ключевые точки и оценка позы</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-depth-estimation"><a href="../../ai/ml/cv/dl.html#cv-depth-estimation" target="_blank" rel="noopener">Оценка глубины по изображению</a>
+          </li>
+          <!-- roadmap-md:block:5:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:6:start -->
+          <li class="roadmap-from-md" data-md-id="cv-generation-basics"><a href="../../ai/ml/cv/dl.html#cv-generation-basics" target="_blank" rel="noopener">Генеративные задачи: чем они принципиально другие</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-diffusion"><a href="../../ai/ml/cv/dl.html#cv-diffusion" target="_blank" rel="noopener">Диффузионные модели: как из шума получается картинка</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-generative-metrics"><a href="../../ai/ml/cv/dl.html#cv-generative-metrics" target="_blank" rel="noopener">Метрики генеративных моделей: FID, IS, KID, CLIPScore</a>
+          </li>
+          <!-- roadmap-md:block:6:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:7:start -->
+          <li class="roadmap-from-md" data-md-id="cv-interpretability"><a href="../../ai/ml/cv/dl.html#cv-interpretability" target="_blank" rel="noopener">Интерпретация признаков: Grad-CAM и аналоги</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-self-supervised"><a href="../../ai/ml/cv/dl.html#cv-self-supervised" target="_blank" rel="noopener">Обучение без разметки: contrastive, distillation, masked modeling</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-clip-multimodal"><a href="../../ai/ml/cv/dl.html#cv-clip-multimodal" target="_blank" rel="noopener">CLIP и мультимодальность: zero-shot и open-vocabulary</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="cv-anomaly-detection"><a href="../../ai/ml/cv/dl.html#cv-anomaly-detection" target="_blank" rel="noopener">Детекция аномалий на изображениях</a>
+          </li>
+          <!-- roadmap-md:block:7:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:8:start -->
+          <li class="roadmap-from-md" data-md-id="cv-task-choice"><a href="../../ai/ml/cv/dl.html#cv-task-choice" target="_blank" rel="noopener">Как выбрать постановку задачи CV</a>
+          </li>
+          <!-- roadmap-md:block:8:end --></ul>
+      </div></main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../authGuard.js"></script>
+
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

@@ -1,0 +1,718 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Численные методы</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/math-video-resources.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">math</span>
+            <span class="pill pill--soft">Численные методы</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count"
+              >0 вопросов</span
+            >
+          </div>
+          <h1 id="title" class="section-shell__title">Численные методы</h1>
+          <p class="section-shell__desc">Вопросы по численным методам.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">
+              Случайный вопрос
+            </button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <section class="math-video-resources" aria-labelledby="math-videos-title">
+        <p class="math-video-resources__eyebrow">Перед вопросами</p>
+        <h2 id="math-videos-title" class="math-video-resources__title">Видео, которые помогут разобраться в математике для ML</h2>
+        <p class="math-video-resources__intro">Посмотрите их целиком или возвращайтесь к нужным темам, когда встречаете незнакомое понятие в вопросах ниже.</p>
+        <ul class="math-video-resources__list">
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://www.youtube.com/watch?v=FZ-7aoMtTaQ"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-for-ml.webp"
+                  alt="Превью видео «Математика для ML: теория вероятностей, математическая статистика и оптимизация»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Математика для ML: теория вероятностей, математическая
+                статистика и оптимизация ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Разбор трёх разделов, без которых не обойтись ML-инженеру:
+                теорвер, матстат и оптимизация — что именно спрашивают и зачем
+                это нужно на практике.</span
+              >
+            </a>
+          </li>
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://youtu.be/5uBGv5ul5To"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-interview-ml.webp"
+                  alt="Превью видео «Собес: математика ML»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Популярные вопросы по математике для ML и DS ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Линейная алгебра, матанализ, векторы и матрицы, нормы,
+                косинусная близость, ранг, базис, производная, градиент и
+                экстремумы, аппроксимация, интерполяция и экстраполяция.</span
+              >
+            </a>
+          </li>
+        </ul>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$
+        $\global\def\abs#1{\left\lvert #1 \right\rvert}$
+        $\global\def\norm#1{\left\lVert #1 \right\rVert}$
+        $\global\def\dp#1#2{\,#1 \cdot #2\,}$ $\global\def\vp#1#2{#1 \times
+        #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$
+        $\global\def\pdv2#1#2{\frac{\partial^2 #1}{\partial #2^2}}$
+        $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$
+        $\global\def\paren#1{\left( #1 \right)}$
+        $\global\def\angset#1{\left\lang #1 \right\rang}$
+        $\global\def\mbox#1{\text{#1}}$ $\global\def\div{\text{div}\,}$
+        $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$
+        $\global\def\vb#1{\textbf{#1}}$ $\global\def\rddots{\cdot^{\displaystyle
+        \cdot^{\displaystyle \cdot}}}$ $\global\def\op#1{\mathrm{#1}\,}$
+        $\global\def\diag{\mathrm{diag}\,}$ $\global\def\rank{\mathrm{rank}\,}$
+        $\global\def\Sh{\,\mathrm{Sh}}$ $\global\def\Sp{\,\mathrm{Sp}\,}$
+        $\global\def\proj{\mathrm{proj}}$ $\global\def\grad{\,\mathrm{grad}\,}$
+        $\global\def\const{\text{const}\,}$ $\global\def\res{\text{res}\,}$
+        $\global\def\Res{\text{Res}\,}$ $\global\def\Lin{\,\text{Lin}\,}$
+        $\global\def\Re{\text{Re}\,}$ $\global\def\Im{\text{Im}\,}$
+        $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Блок 15</h3>
+        <!-- md:replace:optimization_problem:start -->
+<li class="question" data-md-source="true" data-md-id="optimization_problem" data-interview="5">
+  <div class="name" id="optimization_problem">
+    Постановка задачи оптимизации
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Во многих задачах машинного обучения, статистики и прикладной математики требуется найти такие параметры $\theta$, которые минимизируют (или максимизируют) некоторую целевую функцию. Это называется <b>задачей оптимизации</b>. Мы рассматриваем задачу</p>
+<p><span class="latex-copy-wrap" data-latex="$$\min_{\theta \in \mathbb{R}^n} \; L(\theta) \quad \text{или} \quad \max_{\theta \in \mathbb{R}^n} \; L(\theta)$$">$$\min_{\theta \in \mathbb{R}^n} \; L(\theta) \quad \text{или} \quad \max_{\theta \in \mathbb{R}^n} \; L(\theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где:</p>
+<ul>
+<li>$\theta$ — вектор параметров модели (например, коэффициенты линейной регрессии),</li>
+<li>$L(\theta)$ — функция потерь (или логарифм правдоподобия, об этом позже), которую хотим минимизировать (или максимизировать).</li>
+</ul>
+<p>Цель — найти такие параметры $\hat{\theta}$, при которых значение функции $L(\theta)$ достигает экстремума:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\hat{\theta} = \arg\min_{\theta} L(\theta) \quad \text{или} \quad \hat{\theta} = \arg\max_{\theta} L(\theta)$$">$$\hat{\theta} = \arg\min_{\theta} L(\theta) \quad \text{или} \quad \hat{\theta} = \arg\max_{\theta} L(\theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Формула выше означает, что $\hat{\theta}$ — это такой набор параметров нашей обучаемой модели, при котором функционал качества $L(\theta)$ достигает своего <b>оптимального значения</b>.</p>
+<p>Оператор $\arg\min$ (&quot;аргминимум&quot;) возвращает не само минимальное значение функции, а <b>точку</b>, в которой оно достигается. Например:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\arg\min_{x} (x-3)^2 = 3 \quad \text{(а не 0)}$$">$$\arg\min_{x} (x-3)^2 = 3 \quad \text{(а не 0)}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Способы нахождения оптимальных параметров зависят от свойств функции $L(\theta)$: её гладкости, выпуклости, размерности и наличия аналитического выражения. Ниже рассмотрим три распространённых подхода.</p>
+<p>Интуиция: мы ищем &quot;дно&quot; поверхности $L(\theta)$. Для простых функций (выпуклых, гладких) это дно единственно и найти его легко. Для сложных ландшафтов (нейросети с миллиардами параметров) — задача намного сложнее, и гарантий глобального минимума нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое задача оптимизации в ML?</b></p>
+<p>Задача нахождения таких параметров $\theta$, которые минимизируют (или максимизируют) целевую функцию: $\hat{\theta} = \arg\min_\theta L(\theta)$.</p>
+</li>
+<li><p><b>Что возвращает оператор $\arg\min$ и чем он отличается от $\min$?</b></p>
+<p>$\arg\min_\theta L(\theta)$ возвращает точку $\hat{\theta}$, в которой $L$ достигает минимума, а не само минимальное значение. Например, $\arg\min_x (x-3)^2 = 3$, а $\min_x (x-3)^2 = 0$.</p>
+</li>
+<li><p><b>От каких свойств функции $L(\theta)$ зависит способ нахождения оптимальных параметров?</b></p>
+<p>От гладкости, выпуклости, размерности и наличия аналитического выражения. Для выпуклых гладких функций минимум единственен и легко находится. Для сложных ландшафтов нейросетей гарантий глобального минимума нет.</p>
+</li>
+<li><p><b>Почему для нейросетей с миллиардами параметров задача оптимизации особенно сложна?</b></p>
+<p>Пространство параметров имеет огромную размерность, ландшафт функции потерь содержит множество локальных минимумов и сёдловых точек, а вычисление градиента по всей выборке слишком дорого.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:optimization_problem:end -->
+        <!-- md:replace:gradient_descent:start -->
+<li class="question" data-md-source="true" data-md-id="gradient_descent" data-interview="5">
+  <div class="name" id="gradient_descent">
+    Градиентный спуск
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Градиент</b> — направление наискорейшего роста функции. <b>Антиградиент</b> — градиент с минусом, то есть направление наискорейшего уменьшения функции. Основная идея метода заключается в том, чтобы <b>идти в направлении наискорейшего спуска</b>, а это направление задаётся антиградиентом:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\theta^{(t+1)} = \theta^{(t)}-\eta \nabla L(\theta^{(t)})$$">$$\theta^{(t+1)} = \theta^{(t)}-\eta \nabla L(\theta^{(t)})$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>За счет этого из заданной точки мы движемся в направлении наискорейшего убывания функции и попадем в конечном итоге в желаемый минимум (в идеале).</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="Визуализация градиентного спуска" src="../images/math/numerical/optimization.png" width="846" height="588" loading="lazy" decoding="async" style="max-width: 350px; width: 100%; height: auto" />
+  <figcaption>
+    Визуализация градиентного спуска
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>У нейросетей есть обучаемые параметры. В начале обучения они не оптимальны, и сеть сильно ошибается. Настроить эти параметры — значит найти такие, с которыми нейросеть будет иметь наивысшие метрики, будет умной и сможет решать нашу задачку. Как мерить, что сетка чему-то выучивается? На это указывает падение ошибки (лосс) и повышение метрик при обучении на train set и валидации на val set.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение к формуле">
+<p>В формуле $\theta^{(t+1)} = \theta^{(t)}-\eta \nabla L(\theta^{(t)})$:</p>
+<ul>
+<li>$\theta^{(t)}$ — параметры модели на шаге $t$ (текущая позиция на ландшафте).</li>
+<li>$\nabla L(\theta^{(t)})$ — градиент функции потерь в этой точке (направление роста потерь).</li>
+<li>$\eta$ (эта) — <b>learning rate</b> (шаг обучения): насколько большой шаг делаем.</li>
+<li>Минус — двигаемся <b>против</b> градиента (в сторону убывания потерь).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Подбирать эти параметры (веса нейросети) руками невозможно, потому что в современных сетках их от <b>нескольких миллионов</b> до <b>сотен миллиардов</b>, поэтому используют градиентный спуск. Если коротко, мы итеративно спускаемся по поверхности нашей функции потерь (с помощью градиентного спуска) и на каждом градиентном шаге изменяем веса нейронной сети пропорционально посчитанному градиенту. По итогу придем в точку минимума функции потерь — таким образом, параметры будут настроены так, что ошибка нейросети минимальна, то есть мы решили задачу минимизации целевой функции, функционала качества (функции потерь).</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Запишите формулу одного шага градиентного спуска и объясните каждый символ.</b></p>
+<p>$\theta^{(t+1)} = \theta^{(t)} - \eta \nabla L(\theta^{(t)})$. Здесь $\theta^{(t)}$ — параметры на шаге $t$, $\nabla L(\theta^{(t)})$ — градиент функции потерь, $\eta$ — learning rate, минус — движение против градиента (в сторону убывания).</p>
+</li>
+<li><p><b>Почему в формуле стоит минус перед градиентом?</b></p>
+<p>Градиент указывает в направлении наискорейшего роста функции. Чтобы минимизировать функцию потерь, нужно двигаться в противоположном направлении — в сторону антиградиента.</p>
+</li>
+<li><p><b>Что такое learning rate $\eta$ и почему важно его правильно подобрать?</b></p>
+<p>$\eta$ — размер шага при обновлении параметров. Слишком большой $\eta$ приводит к перескакиванию через минимум, слишком маленький — к медленной сходимости или застреванию в локальном минимуме.</p>
+</li>
+<li><p><b>Почему для нейросетей невозможно подобрать параметры вручную?</b></p>
+<p>Современные нейросети имеют от миллионов до сотен миллиардов параметров, подбор которых вручную физически нереализуем. Именно поэтому используют градиентный спуск, автоматически оптимизирующий все параметры одновременно.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gradient_descent:end -->
+        <!-- md:replace:problems_of_gradient_descent:start -->
+<li class="question" data-md-source="true" data-md-id="problems_of_gradient_descent" data-interview="4">
+  <div class="name" id="problems_of_gradient_descent">
+    Проблемы градиентного спуска
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Нужно правильно подобрать $\eta$ — <b>градиентный шаг</b>. Если сделать его слишком большим, то шаги будут чересчур большими, можем <b>перепрыгнуть через точку минимума</b>; слишком маленьким — будет очень <b>долго сходиться</b> либо <b>застрянем в локальном минимуме</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Обычно берут что-то вроде $\eta=10^{-3}$, но это тоже гиперпараметр, поэтому только практикой можно понять, какой $\eta$ подходит лучше всего в текущем сетапе — в конкретной задаче, с фиксированным лоссом и моделью ландшафт функции потерь будет свой.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="Пример ландшафта функции потерь" src="../images/math/numerical/loss.png" width="493" height="398" loading="lazy" decoding="async" style="max-width: 350px; width: 100%; height: auto" />
+  <figcaption>
+    Пример ландшафта функции потерь (приближенная визуализация). Видно, что поверхность рельефна, можно угодить в локальные минимумы. Размерность пространства, в котором находится функция потерь, совпадает с количеством параметров модели. Для современных сетей это миллионы и миллиарды измерений, что невозможно визуализировать.
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Данных обычно в выборке очень много (тысячи, миллионы, миллиарды), поэтому считать градиент по всем ним — слишком дорогое удовольствие. Применяются приближенные методы, <b>стохастические</b> и <b>адаптивные</b>, в которых шаг градиентного спуска производится после подсчета градиента на пакете (batch) данных (его размер — гиперпараметр) специальным образом. Жертвуем точностью каждого градиентного шага, зато во много раз ускоряем эти итерации.</p>
+
+</div>
+<h3>Методы борьбы с локальными минимумами</h3>
+<ul>
+<li><b>Стохастический градиентный спуск</b> (SGD)</li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Вместо вычисления градиента по всей выборке — градиент по случайному подмножеству данных (мини-батчу) или даже по одному примеру. Такой шум в градиенте помогает &quot;вырываться&quot; из локальных минимумов, поскольку обновления параметров становятся более случайными и могут преодолевать мелкие впадины.</p>
+
+</div>
+<ul>
+<li><b>Моментум</b> (Momentum) и <b>Nesterov Momentum</b></li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Эти методы учитывают накопленное направление предыдущих шагов, что позволяет &quot;проскальзывать&quot; через локальные минимумы и ускоряет сходимость. Nesterov Momentum дополнительно вычисляет градиент в предсказанной позиции, улучшая точность обновлений.</p>
+
+</div>
+<ul>
+<li><b>Адаптивные методы оптимизации</b> (AdaGrad, RMSprop, Adam, etc.)</li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Автоматически регулируют размер шага для каждого параметра, что помогает избегать застревания и улучшает сходимость на сложных ландшафтах функций потерь.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<figure style="text-align: center">
+  <img alt="Приближенные варианты градиентного спуска" src="../images/math/numerical/grad-desc.gif" width="400" height="309" loading="lazy" decoding="async" style="max-width: 350px; width: 100%; height: auto" />
+  <figcaption>
+    Приближенные варианты градиентного спуска
+  </figcaption>
+</figure>
+
+</div>
+<ul>
+<li><b>Инициализация параметров</b></li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Хорошая стартовая точка может помочь избежать попадания в нежелательные локальные минимумы.</p>
+
+</div>
+<ul>
+<li><b>Регуляризация</b> и <b>добавление шума</b></li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Методы регуляризации ($L_1, L_2$) и добавление шума в параметры или градиенты (например, dropout, шум в градиенте) способствуют выходу из локальных минимумов и повышают обобщающую способность модели.</p>
+
+</div>
+<ul>
+<li>Использование <b>методов второго порядка</b></li>
+</ul>
+
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Учитывая кривизну функции (гессиан), можно точнее направлять шаги оптимизации, что снижает вероятность застревания, однако такие методы более вычислительно затратны. Иногда используют квазиньютоновские методы (квази-второго порядка).</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие две крайности возникают при неправильном выборе learning rate $\eta$?</b></p>
+<p>Слишком большой $\eta$ — перескакивание через минимум, расходимость. Слишком маленький $\eta$ — очень медленная сходимость или застревание в локальном минимуме.</p>
+</li>
+<li><p><b>Что такое стохастический градиентный спуск (SGD) и как он помогает с локальными минимумами?</b></p>
+<p>SGD вычисляет градиент по случайному мини-батчу, а не по всей выборке. Случайный шум в градиенте помогает &quot;вырываться&quot; из мелких локальных минимумов и ускоряет итерации.</p>
+</li>
+<li><p><b>В чём преимущество адаптивных методов оптимизации (Adam, RMSprop, AdaGrad)?</b></p>
+<p>Они автоматически регулируют размер шага для каждого параметра, что улучшает сходимость на сложных ландшафтах и помогает избежать застревания.</p>
+</li>
+<li><p><b>Почему считать градиент по всей выборке обычно неэффективно?</b></p>
+<p>При миллионах или миллиардах объектов в выборке вычисление полного градиента на каждом шаге слишком дорого. Приближённые методы (мини-батч SGD) жертвуют точностью шага, но во много раз ускоряют обучение.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:problems_of_gradient_descent:end -->
+        <!-- md:replace:mle:start -->
+<li class="question" data-md-source="true" data-md-id="mle" data-badge-type="additional" data-interview="4">
+  <div class="name" id="mle">
+    Принцип максимума правдоподобия
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><a href="https://habr.com/ru/articles/830326/" target="_blank" rel="noopener"><b>Принцип максимума правдоподобия</b></a> (MLE, Maximum Likelihood Estimation) — это метод, пришедший из теорвера. Его идея — в оценивании параметров модели, максимизируя правдоподобие наблюдаемых данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Правдоподобие</b> (likelihood function) — это вероятность получить наблюдаемую выборку при конкретном значении параметра.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Оценка максимального правдоподобия</b> — значение параметра, которое максимизирует правдоподобие.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Интуиция в том, что существует некая генеральная совокупность, из которой к нам в руки попала некоторая выборка. Мы хотим понять, каким образом устроена <b>генеральная совокупность</b>. Для этого мы делаем предположение, что выборка, которая к нам пришла, соответствует определенной модели. В простейшем случае, мы можем сформулировать предположение так: выборка к нам пришла из распределения с плотностью $f(x | \theta)$. Параметр $\theta$ является константой, <b>мы его не знаем и пытаемся оценить по выборке</b>.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Максимум правдоподобия для нормального распределения" src="../images/math/numerical/mle.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева: выборка (точки на оси) и гауссиана с параметром $\mu$; розовые отрезки — плотности $p(x_i \mid \mu)$, их произведение и есть правдоподобие $L(\mu)$. Справа: $\log L(\mu)$ при движении $\mu$. Максимум достигается ровно в выборочном среднем $\hat\mu = \bar x$ — это и есть оценка максимального правдоподобия.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Как математически задать функцию правдоподобия?</p>
+<ul>
+<li><b>Дискретный случай</b>: <span class="latex-copy-wrap" data-latex="$$L(\theta) = \mathbb{P}(x_1, ..., x_n | \theta)$$">$$L(\theta) = \mathbb{P}(x_1, ..., x_n | \theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></li>
+<li><b>Непрерывный случай</b>: <span class="latex-copy-wrap" data-latex="$$L(\theta) = f(x_1, ..., x_n | \theta)$$">$$L(\theta) = f(x_1, ..., x_n | \theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></li>
+</ul>
+<p>Если наблюдаемые величины $x_i$ <b>независимы</b>, тогда функцию плотности распределения можно разбить на отдельные множители:</p>
+<p><span class="latex-copy-wrap" data-latex="$$L(\theta) = f(x_1 | \theta) \cdot ... \cdot f(x_n | \theta) = \prod_{i=1}^nf(x_i | \theta)$$">$$L(\theta) = f(x_1 | \theta) \cdot ... \cdot f(x_n | \theta) = \prod_{i=1}^nf(x_i | \theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p><b>Мы разбили функцию многомерного распределения в произведение одномерных (маргинальных) плотностей распределения</b>. Это ключевой момент, который используется, например, в наивном байесовском классификаторе: это позволяет нам <b>свести $n$-мерную задачу к последовательности одномерных задачек</b>, <b>которые намного проще решать</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Ключевой задачей является <b>максимизация правдоподобия</b>:</p>
+<p><span class="latex-copy-wrap" data-latex="$$L(\theta) = \prod_{i=1}^nf(x_i | \theta) \to \max_{\theta}$$">$$L(\theta) = \prod_{i=1}^nf(x_i | \theta) \to \max_{\theta}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>или</p>
+<p><span class="latex-copy-wrap" data-latex="$$\hat\theta^{MLE}=\arg\max_\theta L(\theta)$$">$$\hat\theta^{MLE}=\arg\max_\theta L(\theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Перед нами — некоторая функция, и нам нужно найти, при каких параметрах она достигает своего максимума. <b>Попахивает задачей поиска <a href="../math/calculus.html#extremum_of_function" target="_blank" rel="noopener">экстремальных значений</a></b>, а это значит, что нам нужно считать производные и приравнивать их к нулю — все как при поиске экстремумов, которые мы рассматривали в мат. анализе.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Считать производную от произведения функций — сложно, поэтому давайте упростим задачу и воспользуемся свойствами логарифма и производных, перейдя тем самым от произведения к сумме:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\ln L(\theta) = \ln \left( \prod_{i=1}^n f(x_i | \theta)\right) =\sum_{i=1}^n \ln{f(x_i | \theta)}$$">$$\ln L(\theta) = \ln \left( \prod_{i=1}^n f(x_i | \theta)\right) =\sum_{i=1}^n \ln{f(x_i | \theta)}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Тогда</p>
+<p><span class="latex-copy-wrap" data-latex="$$\frac{\partial \ln{L}}{\partial \theta}=\sum_{i=1}^n\frac{\partial \ln{f(x_i | \theta)}}{\partial\theta} = 0$$">$$\frac{\partial \ln{L}}{\partial \theta}=\sum_{i=1}^n\frac{\partial \ln{f(x_i | \theta)}}{\partial\theta} = 0$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Отсюда и находим $\theta$.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Стоит отметить, что задача принципа максимума правдоподобия эквивалентна задаче поиска минимума эмпирического риска. Почему так? Пусть $X^{\ell} = (x_i, y_i)_{i=1}^{\ell} \sim p(x, y|w)$. Пусть это выборка $X^{\ell}$ независимых одинаково распределенных объектов (i.i.d.). Пусть $\mathcal{L}$ — функция потерь. Тогда:</p>
+<ul>
+<li><p><b>Максимизация правдоподобия:</b>
+<span class="latex-copy-wrap" data-latex="$$L(w; X^{\ell}) = \ln \prod_{i=1}^{\ell} p({x_i, y_i}|w) = \sum_{i=1}^{\ell} \textcolor{red}{\ln \underbrace{p(x_i, y_i|w)}_{\text{совместн. распред.}}} \;\; \to\; \max_{w}.$$">$$L(w; X^{\ell}) = \ln \prod_{i=1}^{\ell} p({x_i, y_i}|w) = \sum_{i=1}^{\ell} \textcolor{red}{\ln \underbrace{p(x_i, y_i|w)}_{\text{совместн. распред.}}} \;\; \to\; \max_{w}.$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+</li>
+<li><p><b>Минимизация аппроксимированного эмпирического риска:</b>
+<span class="latex-copy-wrap" data-latex="$$\widetilde{Q}(w; X^{\ell}) = \sum_{i=1}^{\ell} \textcolor{orange}{\overbrace{\mathcal{L}(y_i; \underbrace{f(x_i, w)}_{\text{предсказание}})}^{\text{ошибка на объекте } x_i}} \;\; \to\; \min_{w}.$$">$$\widetilde{Q}(w; X^{\ell}) = \sum_{i=1}^{\ell} \textcolor{orange}{\overbrace{\mathcal{L}(y_i; \underbrace{f(x_i, w)}_{\text{предсказание}})}^{\text{ошибка на объекте } x_i}} \;\; \to\; \min_{w}.$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+</li>
+<li><p><b>Эти два принципа эквивалентны, если положить:</b>
+<span class="latex-copy-wrap" data-latex="$$- \textcolor{red}{\ln \underbrace{p(x_i, y_i|w)}_{\text{совместн. распред.}}} = \textcolor{orange}{\mathcal{L}(y_i; \underbrace{f(x_i, w)}_{\text{предсказание}})}.$$">$$- \textcolor{red}{\ln \underbrace{p(x_i, y_i|w)}_{\text{совместн. распред.}}} = \textcolor{orange}{\mathcal{L}(y_i; \underbrace{f(x_i, w)}_{\text{предсказание}})}.$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+</li>
+</ul>
+<p><span class="latex-copy-wrap" data-latex="$$\boxed{\text{порождающая модель } p \quad \Longleftrightarrow \quad \text{разделяющая модель } f \text{ и } \mathcal{L}}$$">$$\boxed{\text{порождающая модель } p \quad \Longleftrightarrow \quad \text{разделяющая модель } f \text{ и } \mathcal{L}}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое принцип максимума правдоподобия (MLE)?</b></p>
+<p>Метод оценки параметров модели путём максимизации функции правдоподобия — вероятности получить наблюдаемую выборку при данных параметрах: $\hat{\theta}^{MLE} = \arg\max_\theta L(\theta)$.</p>
+</li>
+<li><p><b>Что такое функция правдоподобия и почему при независимых наблюдениях она записывается как произведение?</b></p>
+<p>$L(\theta) = \prod_{i=1}^n f(x_i|\theta)$. При независимости наблюдений совместная плотность разбивается на произведение маргинальных — это позволяет свести $n$-мерную задачу к $n$ одномерным.</p>
+</li>
+<li><p><b>Зачем при MLE переходят к логарифму правдоподобия?</b></p>
+<p>Логарифм превращает произведение в сумму: $\ln L(\theta) = \sum_{i=1}^n \ln f(x_i|\theta)$. С суммой проще дифференцировать, а максимум сохраняется (логарифм — монотонная функция).</p>
+</li>
+<li><p><b>В чём эквивалентность задачи MLE и минимизации эмпирического риска?</b></p>
+<p>Если положить $-\ln p(x_i, y_i|w) = \mathcal{L}(y_i; f(x_i, w))$, то максимизация правдоподобия совпадает с минимизацией суммарной функции потерь. Это показывает, что обучение нейросетей со многими функциями потерь статистически обосновано через MLE.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:mle:end -->
+      </ol>
+    </main>
+    <script src="../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body>
+</html>

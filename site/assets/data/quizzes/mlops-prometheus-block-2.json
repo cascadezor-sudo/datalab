@@ -1,0 +1,83 @@
+{
+  "id": "mlops:prometheus:block-2",
+  "title": "Prometheus · Блок 2: инструментирование, PromQL и алерты",
+  "description": "Проверка перед блоком 3: prometheus_client и /metrics, labels и cardinality, rate, histogram_quantile, sum by и absent, alerting rules, состояния алерта, for и AlertManager.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_cardinality",
+      "type": "single",
+      "q": "Почему нельзя делать `user_id` или `request_id` label-ом метрики?",
+      "options": [
+        "Prometheus не поддерживает строковые labels",
+        "Каждая уникальная комбинация labels — отдельный time series, и высокая cardinality переполняет TSDB",
+        "Такие labels нельзя использовать в `sum by`",
+        "Labels разрешены только у Counter"
+      ],
+      "answer": [1],
+      "explain": "Labels вроде модели, статуса или региона полезны; уникальные идентификаторы взрывают число рядов."
+    },
+    {
+      "id": "b2_scrape",
+      "type": "single",
+      "q": "Метрики объявлены через `prometheus_client`, эндпоинт `/metrics` работает, но в Prometheus данных нет. Что забыли?",
+      "options": [
+        "Вызвать `.inc()` у всех Gauge",
+        "Перезапустить Grafana",
+        "Задать buckets у Counter",
+        "Добавить сервис в `scrape_configs` в `prometheus.yml`"
+      ],
+      "answer": [3],
+      "explain": "Pull-модель: пока сервиса нет в scrape-конфиге (или в service discovery), Prometheus его не опрашивает."
+    },
+    {
+      "id": "b2_rate",
+      "type": "single",
+      "q": "Зачем к Counter применять `rate()`, а не смотреть на сырое значение?",
+      "options": [
+        "Сырое значение — накопленная сумма, а `rate()` даёт события в секунду и корректно обрабатывает сброс при рестарте",
+        "Без `rate()` Counter нельзя вывести на график",
+        "`rate()` превращает Counter в Histogram",
+        "`rate()` нужен только для Gauge"
+      ],
+      "answer": [0],
+      "explain": "`rate(inference_requests_total[5m])` — RPS за последние 5 минут."
+    },
+    {
+      "id": "b2_absent",
+      "type": "single",
+      "q": "Какая функция PromQL подходит для алерта «сервис перестал отдавать метрики»?",
+      "options": [
+        "`increase()`",
+        "`topk()`",
+        "`absent()`",
+        "`predict_linear()`"
+      ],
+      "answer": [2],
+      "explain": "`absent(up{job=\"inference-service\"} == 1)` вернёт значение, если метрики нет или сервис не отвечает."
+    },
+    {
+      "id": "b2_for_pending",
+      "type": "single",
+      "q": "Условие правила с `for: 5m` выполняется уже 2 минуты. В каком состоянии алерт?",
+      "options": ["inactive", "pending", "firing", "resolved"],
+      "answer": [1],
+      "explain": "Пока условие не держится дольше `for`, алерт в pending; это защищает от шума кратковременных всплесков."
+    },
+    {
+      "id": "b2_alertmanager",
+      "type": "multi",
+      "q": "Какие утверждения об алертинге верны? (несколько ответов)",
+      "options": [
+        "Prometheus вычисляет правила, а AlertManager решает, куда отправить уведомление, с учётом routing, grouping и silencing",
+        "AlertManager сам опрашивает сервисы и вычисляет PromQL-правила",
+        "Лучше всего алертить на каждый рост CPU и диска",
+        "`group_by` и `group_interval` защищают от шторма из сотни одинаковых уведомлений"
+      ],
+      "answer": [0, 3],
+      "explain": "Алертят прежде всего на симптомы — error rate, latency, lag, — а не на каждую причину вроде CPU."
+    }
+  ]
+}

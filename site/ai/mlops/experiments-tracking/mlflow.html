@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MLflow</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Experiment Tracking</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">MLflow</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Experiment Tracking</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">MLflow</h1>
+        <p class="section-shell__desc">Материалы по MLflow и трекингу экспериментов.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="mlflow_intro" data-interview="4" data-title-link="https://mlflow.org/">
+  <div class="name" id="mlflow_intro">
+    <a class="question-title-link" href="https://mlflow.org/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое MLflow?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>MLflow</b> — open-source платформа для управления жизненным циклом ML-моделей: эксперименты, метрики, параметры, артефакты, модели, model registry и деплой. В контексте experiment tracking чаще всего используют модуль <b>MLflow Tracking</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>MLflow решает проблему «какой код, данные и гиперпараметры дали этот результат». Каждый запуск обучения сохраняется как <b>run</b> внутри <b>experiment</b>. В run обычно попадают:</p>
+<ul>
+<li>параметры: <code>learning_rate</code>, <code>batch_size</code>, <code>model_name</code></li>
+<li>метрики: <code>loss</code>, <code>accuracy</code>, <code>f1</code>, <code>roc_auc</code></li>
+<li>артефакты: графики, confusion matrix, веса модели, отчёты</li>
+<li>теги: автор, git commit, dataset version, окружение</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>Без трекинга эксперименты быстро превращаются в набор ноутбуков и файлов <code>model_final_v7.pkl</code>. MLflow делает историю воспроизводимой: можно сравнить запуски, понять, почему один run лучше другого, восстановить модель и передать её дальше в production-процесс.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Компоненты MLflow">
+<table class="task-table">
+<thead><tr><th>Компонент</th><th>Зачем нужен</th></tr></thead>
+<tbody>
+<tr><td><b>Tracking</b></td><td>Логирование параметров, метрик, артефактов и моделей</td></tr>
+<tr><td><b>Projects</b></td><td>Упаковка запуска эксперимента с окружением и entry point</td></tr>
+<tr><td><b>Models</b></td><td>Единый формат сохранения моделей разных фреймворков</td></tr>
+<tr><td><b>Model Registry</b></td><td>Версионирование моделей, стадии, approval flow</td></tr>
+<tr><td><b>Deployments</b></td><td>Интеграция с serving-платформами и провайдерами</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое experiment и run в MLflow?</b></p>
+<p>Experiment — логическая группа запусков. Run — один конкретный запуск обучения или оценки с параметрами, метриками и артефактами.</p>
+</li>
+<li><p><b>Что обычно логируют в MLflow Tracking?</b></p>
+<p>Гиперпараметры, метрики, артефакты, модель, теги окружения, версию данных и git commit.</p>
+</li>
+<li><p><b>Почему MLflow важен для MLOps?</b></p>
+<p>Он связывает эксперимент, модель и артефакты в воспроизводимую историю, которую можно сравнивать, ревьюить и передавать в registry.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlflow_tracking_server" data-interview="2" data-title-link="https://mlflow.org/docs/latest/tracking.html">
+  <div class="name" id="mlflow_tracking_server">
+    <a class="question-title-link" href="https://mlflow.org/docs/latest/tracking.html" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">MLflow Tracking Server<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>MLflow Tracking Server</b> — HTTP-сервис, через который клиенты логируют runs, параметры, метрики и артефакты. Он отделяет код обучения от места хранения metadata и файлов.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Архитектура">
+<p>Типичная production-схема MLflow состоит из двух хранилищ:</p>
+<ul>
+<li><b>Backend store</b> — metadata: experiments, runs, params, metrics, tags. Обычно PostgreSQL или MySQL.</li>
+<li><b>Artifact store</b> — файлы: модели, графики, отчёты, датасеты-семплы. Обычно S3, MinIO, GCS, Azure Blob или файловая система.</li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="text">Training job -&gt; MLflow Tracking Server -&gt; PostgreSQL
+                         |
+                         v
+                    S3 / MinIO</div><div class="code-block" data-lang="bash">mlflow server \
+  --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow \
+  --artifacts-destination s3://mlflow-artifacts \
+  --host 0.0.0.0 \
+  --port 5000</div>
+<div class="info-card-auto" data-type="warning" data-title="Важные ограничения">
+<p>Для локальной разработки можно использовать <code>mlruns/</code> на диске. Для команды так делать нельзя: runs будут жить на машине одного человека, артефакты легко потерять, а доступы и бэкапы станут неуправляемыми. Командный MLflow почти всегда требует отдельный tracking server, БД и object storage.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен MLflow Tracking Server?</b></p>
+<p>Чтобы несколько пользователей и пайплайнов логировали эксперименты в одно централизованное место через HTTP API.</p>
+</li>
+<li><p><b>Чем backend store отличается от artifact store?</b></p>
+<p>Backend store хранит metadata runs. Artifact store хранит файлы: модели, изображения, отчёты и другие артефакты.</p>
+</li>
+<li><p><b>Почему SQLite или локальный <code>mlruns/</code> плохи для команды?</b></p>
+<p>Они плохо подходят для совместного доступа, бэкапов, прав, масштабирования и надёжного хранения артефактов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="mlflow_logging" data-interview="3" data-title-link="https://mlflow.org/docs/latest/python_api/mlflow.html">
+  <div class="name" id="mlflow_logging">
+    <a class="question-title-link" href="https://mlflow.org/docs/latest/python_api/mlflow.html" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Логирование экспериментов в MLflow<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В MLflow логирование обычно происходит прямо в training script. Код явно создаёт run, записывает параметры до обучения, метрики во время обучения, а в конце сохраняет модель и артефакты.</p>
+
+</div>
+<div class="code-block" data-lang="python">import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score
+
+mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_experiment("churn-classification")
+
+params = {"n_estimators": 300, "max_depth": 8, "random_state": 42}
+
+with mlflow.start_run():
+    mlflow.log_params(params)
+
+    model = RandomForestClassifier(**params)
+    model.fit(X_train, y_train)
+
+    preds = model.predict(X_valid)
+    mlflow.log_metric("valid_f1", f1_score(y_valid, preds))
+    mlflow.sklearn.log_model(model, name="model")</div>
+<div class="info-card-auto" data-type="remark" data-title="Autologging">
+<p>MLflow умеет <b>autologging</b> для популярных библиотек: scikit-learn, XGBoost, LightGBM, PyTorch, TensorFlow, Keras и других. Это удобно для быстрого старта, но в production лучше явно логировать ключевые параметры, бизнес-метрики и артефакты, потому что autologging не знает контекст задачи.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частая ошибка">
+<p>Метрика без контекста почти бесполезна. <code>accuracy=0.91</code> нужно связывать с версией датасета, split-ом, кодом, seed, preprocessing pipeline и business cutoff. Иначе лучший run невозможно честно воспроизвести.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какая минимальная единица логирования в MLflow?</b></p>
+<p>Run. Внутри него сохраняются параметры, метрики, теги, артефакты и модель.</p>
+</li>
+<li><p><b>Чем <code>log_param</code> отличается от <code>log_metric</code>?</b></p>
+<p>Param — фиксированная настройка запуска. Metric — численное значение результата, часто меняется по шагам или эпохам.</p>
+</li>
+<li><p><b>Почему autologging не заменяет явное логирование?</b></p>
+<p>Autologging не знает бизнес-контекст, версию данных, дополнительные графики, правила отбора модели и специфичные метрики проекта.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlflow_registry" data-interview="4" data-title-link="https://mlflow.org/docs/latest/model-registry.html">
+  <div class="name" id="mlflow_registry">
+    <a class="question-title-link" href="https://mlflow.org/docs/latest/model-registry.html" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">MLflow Model Registry<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>MLflow Model Registry</b> — хранилище версий моделей поверх MLflow Tracking. Оно позволяет зарегистрировать модель из run, назначить версию, описать изменения и управлять жизненным циклом модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Experiment tracking отвечает на вопрос «что происходило во время эксперимента». Model Registry отвечает на вопрос «какую модель можно использовать дальше». Обычно flow выглядит так:</p>
+<ol>
+<li>training job логирует run</li>
+<li>модель сохраняется как artifact</li>
+<li>лучший run регистрируется как новая model version</li>
+<li>модель проходит ревью</li>
+<li>serving или batch inference забирает утверждённую версию</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что хранить в описании версии">
+<p>Для каждой версии модели полезно фиксировать:</p>
+<ul>
+<li>ссылку на run</li>
+<li>версию данных и период обучения</li>
+<li>метрики offline-валидации</li>
+<li>результаты shadow/A/B-теста, если они есть</li>
+<li>ограничения применения модели</li>
+<li>changelog: что поменялось относительно прошлой версии</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Registry не заменяет governance">
+<p>Registry хранит версии и metadata, но сам по себе не гарантирует качество модели. Нужны правила: кто может переводить модель в production, какие проверки обязательны, где лежит отчёт валидации, как откатываться на прошлую версию.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Model Registry отличается от Tracking?</b></p>
+<p>Tracking хранит историю экспериментов. Registry хранит версии моделей, которые рассматриваются для дальнейшего использования.</p>
+</li>
+<li><p><b>Что такое model version?</b></p>
+<p>Конкретная зарегистрированная версия модели, обычно связанная с run и его артефактами.</p>
+</li>
+<li><p><b>Почему registry важен перед production?</b></p>
+<p>Он создаёт управляемую точку передачи модели из экспериментов в inference, ревью, тестирование и откат.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

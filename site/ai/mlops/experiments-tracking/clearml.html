@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClearML</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Experiment Tracking</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">ClearML</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Experiment Tracking</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">ClearML</h1>
+        <p class="section-shell__desc">Материалы по ClearML и управлению экспериментами.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="clearml_intro" data-interview="2" data-title-link="https://clear.ml/">
+  <div class="name" id="clearml_intro">
+    <a class="question-title-link" href="https://clear.ml/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое ClearML?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>ClearML</b> — open-source MLOps-платформа для experiment tracking, управления артефактами, очередями задач, удалённого запуска экспериментов, оркестрации и model management.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ClearML часто выбирают, когда нужна не только витрина экспериментов, но и контроль исполнения: можно залогировать локальный эксперимент, затем воспроизвести его через agent на другой машине или GPU-сервере.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ClearML полезен в командах, где много вычислительных ресурсов и эксперименты нужно запускать управляемо:</p>
+<ul>
+<li>логировать параметры, метрики, графики и артефакты</li>
+<li>запускать задачи на удалённых worker-ах</li>
+<li>управлять очередями GPU-задач</li>
+<li>воспроизводить эксперименты по сохранённому окружению</li>
+<li>хранить модели и датасеты</li>
+<li>строить пайплайны поверх ClearML Tasks</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Основные сущности">
+<table class="task-table">
+<thead><tr><th>Сущность</th><th>Смысл</th></tr></thead>
+<tbody>
+<tr><td><b>Task</b></td><td>Один эксперимент, job или шаг пайплайна</td></tr>
+<tr><td><b>Project</b></td><td>Группа задач</td></tr>
+<tr><td><b>Queue</b></td><td>Очередь задач для agent-ов</td></tr>
+<tr><td><b>Agent</b></td><td>Worker, который забирает задачи из очереди и запускает их</td></tr>
+<tr><td><b>Dataset</b></td><td>Версионированный датасет ClearML</td></tr>
+<tr><td><b>Model</b></td><td>Зарегистрированная модель или checkpoint</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Task в ClearML?</b></p>
+<p>Базовая единица работы: эксперимент, job или шаг пайплайна с параметрами, логами, метриками и артефактами.</p>
+</li>
+<li><p><b>Чем ClearML отличается от простого tracking tool?</b></p>
+<p>Он умеет не только логировать, но и запускать задачи через agents, очереди и удалённые worker-ы.</p>
+</li>
+<li><p><b>Когда ClearML особенно полезен?</b></p>
+<p>Когда нужно централизованно управлять экспериментами, GPU-очередями и воспроизводимыми удалёнными запусками.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="clearml_task_logging" data-interview="1" data-title-link="https://clear.ml/docs/latest/docs/getting_started/ds/ds_first_steps/">
+  <div class="name" id="clearml_task_logging">
+    <a class="question-title-link" href="https://clear.ml/docs/latest/docs/getting_started/ds/ds_first_steps/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Task и логирование в ClearML<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В ClearML эксперимент начинается с <code>Task.init()</code>. После этого ClearML автоматически подхватывает многие логи популярных библиотек, а также позволяет явно записывать параметры, метрики, графики и артефакты.</p>
+
+</div>
+<div class="code-block" data-lang="python">from clearml import Task
+
+task = Task.init(
+    project_name="churn-classification",
+    task_name="random-forest-baseline",
+)
+
+params = {"n_estimators": 300, "max_depth": 8}
+params = task.connect(params)
+
+model = train_model(**params)
+score = evaluate(model)
+
+logger = task.get_logger()
+logger.report_scalar("f1", "valid", value=score, iteration=0)
+task.upload_artifact("model", artifact_object="model.pkl")</div>
+<div class="info-card-auto" data-type="remark" data-title="Автоматический захват">
+<p>ClearML может автоматически сохранять stdout/stderr, git information, installed packages, arguments, TensorBoard events, matplotlib-графики и модели из популярных фреймворков. Это удобно, но важные бизнес-метрики и версии данных всё равно лучше логировать явно.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Конфигурация окружения">
+<p>ClearML воспроизводит задачу только настолько хорошо, насколько хорошо описаны зависимости, данные и entry point. Если датасет лежит на локальном диске без версионирования, удалённый agent не сможет корректно повторить запуск.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>С чего начинается ClearML-эксперимент в коде?</b></p>
+<p>С создания Task через <code>Task.init(project_name=..., task_name=...)</code>.</p>
+</li>
+<li><p><b>Что делает <code>task.connect()</code>?</b></p>
+<p>Связывает словарь или объект конфигурации с Task, чтобы параметры были видны и воспроизводимы в UI.</p>
+</li>
+<li><p><b>Почему autologging недостаточно для production-экспериментов?</b></p>
+<p>Нужно явно фиксировать версию данных, бизнес-метрики, ограничения и артефакты, которые autologging не знает.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="clearml_agent_queues" data-interview="1" data-title-link="https://clear.ml/docs/latest/docs/clearml_agent/">
+  <div class="name" id="clearml_agent_queues">
+    <a class="question-title-link" href="https://clear.ml/docs/latest/docs/clearml_agent/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">ClearML Agent и очереди задач<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>ClearML Agent</b> — worker-процесс, который слушает очередь, забирает задачи из ClearML Server, подготавливает окружение и запускает код на доступной машине.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Agent превращает experiment tracking в управляемое исполнение. Исследователь может подготовить task локально, отправить её в очередь <code>gpu-a100</code>, а agent на сервере выполнит её с нужными ресурсами.</p>
+
+</div>
+<div class="code-block" data-lang="text">Developer -&gt; ClearML Server -&gt; Queue -&gt; ClearML Agent -&gt; GPU machine</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем нужны очереди">
+<p>Очереди позволяют разделять ресурсы:</p>
+<ul>
+<li><code>cpu</code> — лёгкие preprocessing и baseline-задачи</li>
+<li><code>gpu-t4</code> — недорогие DL-эксперименты</li>
+<li><code>gpu-a100</code> — тяжёлое обучение</li>
+<li><code>prod-eval</code> — регулярная оценка production-моделей</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ресурсы и изоляция">
+<p>Agent запускает чужой код на worker-машине, поэтому нужны правила изоляции: Docker, лимиты ресурсов, доступы к данным, secret management и разграничение очередей. Иначе experiment platform становится способом случайно сломать общий GPU-сервер.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает ClearML Agent?</b></p>
+<p>Забирает задачи из очереди, создаёт окружение и запускает код на worker-машине.</p>
+</li>
+<li><p><b>Зачем в ClearML нужны очереди?</b></p>
+<p>Чтобы распределять задачи по типам ресурсов, приоритетам и worker-группам.</p>
+</li>
+<li><p><b>Какой главный operational-риск у agents?</b></p>
+<p>Запуск произвольного кода на общих ресурсах без изоляции, лимитов и контроля доступов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="clearml_datasets_pipelines" data-interview="1" data-title-link="https://clear.ml/docs/latest/docs/">
+  <div class="name" id="clearml_datasets_pipelines">
+    <a class="question-title-link" href="https://clear.ml/docs/latest/docs/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Datasets, Models и Pipelines в ClearML<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ClearML закрывает больше, чем tracking: в нём есть версии датасетов, модели и пайплайны. Это помогает связать данные, обучение и последующую оценку в одну управляемую цепочку.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что входит в полный flow">
+<table class="task-table">
+<thead><tr><th>Этап</th><th>ClearML-сущность</th></tr></thead>
+<tbody>
+<tr><td>Подготовка данных</td><td>Dataset version</td></tr>
+<tr><td>Обучение</td><td>Task</td></tr>
+<tr><td>Сохранение модели</td><td>Output Model</td></tr>
+<tr><td>Оценка</td><td>Evaluation Task</td></tr>
+<tr><td>Пайплайн</td><td>PipelineController или pipeline tasks</td></tr>
+<tr><td>Удалённое исполнение</td><td>Queue + Agent</td></tr>
+</tbody>
+</table>
+</div>
+<div class="code-block" data-lang="python">from clearml.automation.controller import PipelineController
+
+pipe = PipelineController(
+    project="churn-classification",
+    name="train-evaluate-register",
+)
+
+pipe.add_step(name="prepare_data", base_task_project="templates", base_task_name="prepare-data")
+pipe.add_step(name="train", parents=["prepare_data"], base_task_project="templates", base_task_name="train")
+pipe.add_step(name="evaluate", parents=["train"], base_task_project="templates", base_task_name="evaluate")
+
+pipe.start()</div>
+<div class="info-card-auto" data-type="warning" data-title="Не начинай с большого пайплайна">
+<p>Для новой команды лучше сначала наладить качественный tracking и удалённый запуск задач. Пайплайны стоит добавлять, когда отдельные шаги уже воспроизводимы и понятно, какие артефакты передаются между ними.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что даёт ClearML Dataset?</b></p>
+<p>Версионирование датасетов и связь конкретной версии данных с задачами обучения.</p>
+</li>
+<li><p><b>Зачем нужны Pipeline Tasks?</b></p>
+<p>Чтобы связать подготовку данных, обучение, оценку и регистрацию модели в управляемый DAG.</p>
+</li>
+<li><p><b>Почему пайплайн лучше строить после tracking?</b></p>
+<p>Если отдельные шаги невоспроизводимы, пайплайн только автоматизирует хаос и усложняет отладку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

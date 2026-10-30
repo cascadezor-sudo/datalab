@@ -1,0 +1,1587 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Словарь IT-сленга</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <link href="../../assets/css/dictionary.css" rel="stylesheet" />
+    <link href="../../assets/css/images.css" rel="stylesheet" />
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/components/dictionary-sidebar.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="dictionary">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="../../assets/icons/it-slang.png" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Словарь IT-сленга</h1>
+            <p class="subtitle">Популярные термины и выражения в IT-индустрии</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="dictionary-content">
+        <section class="dictionary-section">
+          <h2 class="section-title">🔧 Разработка и процессы</h2>
+          
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip"
+                    data-title="Boilerplate"
+                    data-definition="Boilerplate code — шаблонный, повторяющийся код, который приходится писать из‑за ограничений фреймворка или языка. Обычно это служебные обёртки, настройка, конфигурация, которая не несёт бизнес‑логики, но нужна, чтобы приложение вообще запустилось.">Boilerplate</span>
+            </h3>
+            <p class="term-description">Boilerplate — шаблонный служебный код без бизнес‑логики</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip"
+                    data-title="Spaghetti code"
+                    data-definition="Spaghetti code — запутанный, плохо структурированный код с множеством взаимных зависимостей, глобальных состояний и вложенных if‑else. Такой код сложно читать, тестировать и изменять без поломок. Часто возникает из‑за множества быстрых правок без рефакторинга.">Spaghetti code</span>
+            </h3>
+            <p class="term-description">Spaghetti code — запутанный код, который сложно поддерживать</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Task / Таска" 
+                    data-definition="Задача, задание в работе. Обычно используется в контексте управления проектами и трекеров задач (Jira, Trello и т.д.).">Task</span> / 
+              <span class="term-tooltip" 
+                    data-title="Таска" 
+                    data-definition="Русскоязычный вариант слова 'task' — задача, задание.">Таска</span>
+            </h3>
+            <p class="term-description">Задачка, задача в работе</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Pull Request / ПР" 
+                    data-definition="Запрос на слияние изменений из одной <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветки</a> в другую. Процесс, когда разработчик предлагает внести свои изменения в основную ветку проекта. <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Подробнее про Pull Request →</a>">Pull Request</span> / 
+              <span class="term-tooltip" 
+                    data-title="ПР" 
+                    data-definition="Сокращение от <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Pull Request</a> — запрос на слияние изменений в коде.">ПР</span>
+            </h3>
+            <p class="term-description">Запрос на слияние изменений в коде</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Артефакт" 
+                    data-definition="Результат работы разработчика: скомпилированный код, документация, диаграммы, тесты и другие продукты разработки. В <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>CI/CD</a> — собранные файлы для <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>деплоя</a>.">Артефакт</span>
+            </h3>
+            <p class="term-description">Artifact — результат работы (код, документация, сборки)</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Коммит" 
+                    data-definition="Сохранение изменений в системе контроля версий (<a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>). Каждый <a href="../../github/basics.html#commit" target='_blank' class='term-tooltip-link'>коммит</a> содержит набор изменений и сообщение, описывающее что было сделано.">Коммит</span>
+            </h3>
+            <p class="term-description">Commit — сохранение изменений в Git</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Мердж" 
+                    data-definition="Слияние изменений из одной <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветки</a> в другую. Процесс объединения кода от разных разработчиков или из разных веток. <a href="../../github/basics.html#merge-conflicts" target='_blank' class='term-tooltip-link'>Подробнее про слияние →</a>">Мердж</span>
+            </h3>
+            <p class="term-description">Merge — слияние веток в Git</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Черрипикнуть" 
+                    data-definition="Cherry-pick — процесс выборочного применения одного или нескольких <a href="../../github/basics.html#commit" target='_blank' class='term-tooltip-link'>коммитов</a> из одной <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветки</a> в другую. Позволяет взять конкретные изменения без слияния всей ветки. Также может означать выбор самого лучшего примера для, например, демонстрации заказчику.">Черрипикнуть</span>
+            </h3>
+            <p class="term-description">Cherry-pick — выборочное применение коммитов или выбор лучшего примера.</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Дебажить" 
+                    data-definition="Debug — процесс поиска и исправления ошибок в коде. Включает анализ кода, использование отладчиков, логирование и тестирование для выявления причин неправильного поведения программы.">Дебажить</span>
+            </h3>
+            <p class="term-description">Debug — поиск и исправление ошибок</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Релиз" 
+                    data-definition="Выпуск новой версии продукта или приложения. Обычно включает в себя <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>сборку</a>, тестирование и публикацию для пользователей.">Релиз</span>
+            </h3>
+            <p class="term-description">Release — выпуск новой версии продукта</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Деплой" 
+                    data-definition="Deploy — процесс переноса кода из среды разработки на рабочий сервер. Включает сборку и упаковку приложения, его тестирование и развёртывание на сервере. Обычно выполняется через <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>CI/CD</a> для автоматизации процесса.">Деплой</span>
+            </h3>
+            <p class="term-description">Deploy — развертывание приложения</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Ревью / Код-ревью" 
+                    data-definition="Code Review — процесс анализа исходного кода, который помогает его улучшить и найти ошибки. Обычно код-ревью проводит не тот, кто его писал, а сторонний программист. Так можно взглянуть на код свежим взглядом и получить новые идеи по его совершенствованию. Проводится перед <a href="../../github/basics.html#merge-conflicts" target='_blank' class='term-tooltip-link'>слиянием</a> в <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Pull Request</a>.">Ревью</span> / 
+              <span class="term-tooltip" 
+                    data-title="Код-ревью" 
+                    data-definition="Code Review — процесс анализа исходного кода для улучшения и поиска ошибок.">Код-ревью</span>
+            </h3>
+            <p class="term-description">Code Review — проверка кода коллегами</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Бранч" 
+                    data-definition="Branch — <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветка</a> в системе контроля версий. Отдельная линия разработки, позволяющая работать над функционалом независимо от основной ветки.">Бранч</span>
+            </h3>
+            <p class="term-description">Branch — ветка в Git</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Фиче ветка" 
+                    data-definition="Feature Branch — <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветка</a> в <a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>, созданная для разработки новой функциональности. Позволяет изолировать работу над фичей от основной ветки до момента готовности к <a href="../../github/basics.html#merge-conflicts" target='_blank' class='term-tooltip-link'>слиянию</a>.">Фиче ветка</span> / 
+              <span class="term-tooltip" 
+                    data-title="Feature Branch" 
+                    data-definition="Feature Branch — ветка для разработки новой функциональности.">Feature Branch</span>
+            </h3>
+            <p class="term-description">Feature Branch — ветка для разработки новой функциональности</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Dev Branch" 
+                    data-definition="Development Branch — ветка разработки, где собираются изменения перед <a href="../../github/basics.html#merge-conflicts" target='_blank' class='term-tooltip-link'>слиянием</a> в основную ветку (main/master). Обычно используется для тестирования и интеграции изменений от разных разработчиков перед релизом.">Dev Branch</span> / 
+              <span class="term-tooltip" 
+                    data-title="Dev ветка" 
+                    data-definition="Development Branch — ветка разработки для интеграции изменений.">Dev ветка</span>
+            </h3>
+            <p class="term-description">Development Branch — ветка разработки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Тикет" 
+                    data-definition="Ticket — задача или запрос в системе отслеживания задач (Jira, Trello, GitHub Issues). Обычно содержит описание проблемы или требования.">Тикет</span>
+            </h3>
+            <p class="term-description">Ticket — задача в трекере</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Билд" 
+                    data-definition="Build — процесс компиляции и сборки приложения из исходного кода. Результат сборки — готовый к запуску продукт.">Билд</span>
+            </h3>
+            <p class="term-description">Build — сборка приложения</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Репозиторий" 
+                    data-definition="Repository (Repo) — хранилище кода в системе контроля версий (<a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>). Может быть локальным или удаленным (на <a href="../../github/index.html" target='_blank' class='term-tooltip-link'>GitHub</a>, GitLab и т.д.).">Репозиторий</span> / 
+              <span class="term-tooltip" 
+                    data-title="Репо" 
+                    data-definition="Сокращение от Repository — хранилище кода в <a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>.">Репо</span>
+            </h3>
+            <p class="term-description">Repository — хранилище кода</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Git Flow" 
+                    data-definition="Git Flow — модель ветвления в <a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>, которая определяет структуру веток для разработки. Включает основные ветки (main, develop) и вспомогательные (feature, release, hotfix).">Git Flow</span>
+            </h3>
+            <p class="term-description">Git Flow — модель ветвления в Git</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Trunk-Based Development" 
+                    data-definition="Trunk-Based Development (разработка от одной ветки) — модель ветвления, при которой все разработчики коммитят в одну основную ветку (trunk/main). Короткоживущие ветки создаются только для изоляции изменений и быстро мержатся обратно. Требует сильной практики <a href="../../github/basics.html#ci-cd" target='_blank' class='term-tooltip-link'>CI/CD</a>, тестов и частых небольших коммитов. Альтернатива Git Flow в более простом варианте.">Trunk-Based Development</span>
+            </h3>
+            <p class="term-description">Trunk-Based Development — разработка от одной основной ветки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Версионирование" 
+                    data-definition="Versioning — процесс присвоения версий продукту, API или библиотеке. Обычно используется семантическое версионирование (SemVer): MAJOR.MINOR.PATCH (например, 2.1.3).">Версионирование</span>
+            </h3>
+            <p class="term-description">Versioning — присвоение версий продукту</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Реджект" 
+                    data-definition="Reject — отклонение изменений, обычно в контексте <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Pull Request</a> или предложения. Означает, что изменения не приняты и требуют доработки.">Реджект</span>
+            </h3>
+            <p class="term-description">Reject — отклонение изменений</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Аппрув" 
+                    data-definition="Approve — одобрение изменений, обычно в контексте <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Pull Request</a>. Означает, что код проверен и готов к <a href="../../github/basics.html#merge-conflicts" target='_blank' class='term-tooltip-link'>слиянию</a>.">Аппрув</span>
+            </h3>
+            <p class="term-description">Approve — одобрение изменений</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Канареечный релиз" 
+                    data-definition="Canary Release — стратегия развертывания, при которой новая версия приложения развертывается для небольшой части пользователей (обычно 1-5%) перед полным релизом. Позволяет выявить проблемы на раннем этапе с минимальным воздействием на всех пользователей. Название происходит от канареек, которых раньше использовали в шахтах для обнаружения опасных газов.">Канареечный релиз</span>
+            </h3>
+            <p class="term-description">Canary Release — постепенное развертывание новой версии</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Мерж-реквест" 
+                    data-definition="Merge Request — альтернативное название <a href="../../github/basics.html#pull-request" target='_blank' class='term-tooltip-link'>Pull Request</a>, используемое в GitLab. Запрос на слияние изменений из одной <a href="../../github/basics.html#branches" target='_blank' class='term-tooltip-link'>ветки</a> в другую.">Мерж-реквест</span> / 
+              <span class="term-tooltip" 
+                    data-title="Merge Request" 
+                    data-definition="Merge Request — запрос на слияние изменений (термин GitLab).">Merge Request</span>
+            </h3>
+            <p class="term-description">Merge Request — запрос на слияние (GitLab)</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Реверт" 
+                    data-definition="Revert — откат <a href="../../github/basics.html#commit" target='_blank' class='term-tooltip-link'>коммита</a> или изменений в <a href="../../github/basics.html#git" target='_blank' class='term-tooltip-link'>Git</a>. Создает новый коммит, который отменяет изменения предыдущего коммита, сохраняя историю.">Реверт</span>
+            </h3>
+            <p class="term-description">Revert — откат коммита в Git</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">💬 Коммуникация и команда</h2>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Синк" 
+                    data-definition="Созвон, видеоконференция или другая встреча">Синк</span>
+            </h3>
+            <p class="term-description">Синхронное общение, созвон</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Стендап" 
+                    data-definition="Короткая ежедневная встреча команды, где каждый рассказывает что сделал, что планирует и какие есть блокеры. Обычно длится 15-30 минут.">Стендап</span>
+            </h3>
+            <p class="term-description">Standup — ежедневная короткая встреча команды</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Ретро" 
+                    data-definition="Ретроспектива — встреча команды для обсуждения того, что прошло хорошо, что можно улучшить, и планирования изменений на следующий спринт.">Ретро</span>
+            </h3>
+            <p class="term-description">Retrospective — ретроспектива команды</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Онбординг" 
+                    data-definition="Onboarding — процесс адаптации нового сотрудника в команде. Включает знакомство с проектом, процессами, инструментами и командой.">Онбординг</span>
+            </h3>
+            <p class="term-description">Onboarding — адаптация нового сотрудника</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Оффбординг" 
+                    data-definition="Offboarding — процесс выхода сотрудника из команды или компании. Включает передачу знаний, закрытие доступов и документацию.">Оффбординг</span>
+            </h3>
+            <p class="term-description">Offboarding — процесс выхода сотрудника</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Менторинг" 
+                    data-definition="Mentoring — процесс наставничества, когда опытный разработчик помогает менее опытному коллеге развиваться профессионально.">Менторинг</span>
+            </h3>
+            <p class="term-description">Mentoring — наставничество</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="One-to-one" 
+                    data-definition="1-on-1 (One-to-One) — индивидуальная встреча между руководителем и подчиненным для обсуждения работы, развития, обратной связи и решения вопросов. Обычно проводится регулярно (раз в неделю или две недели).">One-to-one</span> / 
+              <span class="term-tooltip" 
+                    data-title="1-on-1" 
+                    data-definition="1-on-1 — индивидуальная встреча руководителя и подчиненного.">1-on-1</span>
+            </h3>
+            <p class="term-description">1-on-1 — индивидуальная встреча</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Планерка" 
+                    data-definition="Планировочная встреча — встреча команды для планирования работы на период (неделю, <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>спринт</a>). Обсуждение задач, приоритетов и распределения работы.">Планерка</span>
+            </h3>
+            <p class="term-description">Planning meeting — планировочная встреча</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Дейли" 
+                    data-definition="Daily — сокращение от Daily Standup, ежедневная короткая встреча команды. Синоним <a href="../../ai/interviews/dictionary.html" target='_blank' class='term-tooltip-link'>стендапа</a>.">Дейли</span> / 
+              <span class="term-tooltip" 
+                    data-title="Daily Standup" 
+                    data-definition="Daily Standup — ежедневная короткая встреча команды.">Daily Standup</span>
+            </h3>
+            <p class="term-description">Daily Standup — ежедневная встреча команды</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Грейд" 
+                    data-definition="Grade — уровень специалиста в компании, определяющий его позицию в иерархии и уровень компенсации. Обычно используется система грейдов (например, Junior, Middle, Senior, Lead) для структурирования карьерного роста.">Грейд</span>
+            </h3>
+            <p class="term-description">Grade — уровень специалиста в компании</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">🚀 Методологии и практики</h2>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="MVP" 
+                    data-definition="Minimum Viable Product — минимально жизнеспособный продукт. Версия продукта с минимальным набором функций, достаточным для проверки гипотез и получения обратной связи от пользователей.">MVP</span>
+            </h3>
+            <p class="term-description">Minimum Viable Product — минимально жизнеспособный продукт</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Спринт" 
+                    data-definition="Sprint — небольшой временной интервал (обычно 1-4 недели), в течение которого команда работает над определённым набором задач или функций продукта. По итогам спринта команда представляет результаты работы. На этой концепции основаны гибкие методологии <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Scrum</a> и <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Agile</a>. В конце спринта проводится демо и ретроспектива.">Спринт</span>
+            </h3>
+            <p class="term-description">Sprint — короткий период работы над задачами</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Эджайл" 
+                    data-definition="Agile — гибкая методология разработки, основанная на итеративном подходе, сотрудничестве и быстрой адаптации к изменениям. Включает <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Скрам</a> и Канбан. <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Подробнее →</a>">Эджайл</span>
+            </h3>
+            <p class="term-description">Agile — гибкая методология разработки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Скрам" 
+                    data-definition="Scrum — фреймворк для управления проектами в рамках <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Agile</a>. Включает роли (Product Owner, Scrum Master), артефакты (Product Backlog, Бэклог) и события (Sprint, Daily Scrum). <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Подробнее →</a>">Скрам</span>
+            </h3>
+            <p class="term-description">Scrum — фреймворк управления проектами</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Канбан" 
+                    data-definition="Методология управления работой, визуализирующая задачи на доске с колонками (например: To Do, In Progress, Done). Помогает видеть поток работы и ограничивать количество задач в работе. Является частью <a href="../../ai/interviews/scrum.html" target='_blank' class='term-tooltip-link'>Agile</a> методологии.">Канбан</span>
+            </h3>
+            <p class="term-description">Kanban — методология визуализации работы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Бэклог" 
+                    data-definition="Backlog — список задач и требований, которые планируется реализовать в будущем. Обычно приоритизирован и постоянно обновляется.">Бэклог</span>
+            </h3>
+            <p class="term-description">Backlog — список планируемых задач</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Стори" 
+                    data-definition="User Story — описание функциональности с точки зрения пользователя. Обычно в формате: 'Как [роль], я хочу [действие], чтобы [результат]'.">Стори</span>
+            </h3>
+            <p class="term-description">User Story — описание функциональности</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Эстимейт" 
+                    data-definition="Estimate — оценка времени или сложности задачи. Обычно используется для планирования спринта.">Эстимейт</span>
+            </h3>
+            <p class="term-description">Estimate — оценка сложности задачи</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Квартал" 
+                    data-definition="Quarter — период в три месяца (Q1, Q2, Q3, Q4). Используется для планирования и отчетности в компаниях. Обычно связан с финансовыми и бизнес-целями.">Квартал</span>
+            </h3>
+            <p class="term-description">Quarter — период в три месяца</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Майлстоун" 
+                    data-definition="Milestone — важная веха или этап в проекте. Точка, когда достигается определенная цель или завершается значительная часть работы.">Майлстоун</span>
+            </h3>
+            <p class="term-description">Milestone — важная веха в проекте</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Эпик" 
+                    data-definition="Epic — большая функциональность или группа связанных задач, которая разбивается на более мелкие стори. Обычно реализуется в течение нескольких спринтов.">Эпик</span>
+            </h3>
+            <p class="term-description">Epic — большая функциональность</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Демо" 
+                    data-definition="Demo — демонстрация выполненной работы команды. Обычно проводится в конце спринта, чтобы показать стейкхолдерам результаты.">Демо</span>
+            </h3>
+            <p class="term-description">Demo — демонстрация выполненной работы</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">🐛 Технические термины</h2>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Баг" 
+                    data-definition="Ошибка в программе, которая приводит к неправильному поведению. Название происходит от реального жука (bug), найденного в одном из первых компьютеров.">Баг</span>
+            </h3>
+            <p class="term-description">Bug — ошибка в программе</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Фича" 
+                    data-definition="Feature — новая функциональность или возможность в продукте. Что-то, что добавляет ценность для пользователя.">Фича</span>
+            </h3>
+            <p class="term-description">Feature — новая функциональность</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Рефакторинг" 
+                    data-definition="Refactoring — процесс изменения внутренней структуры кода без изменения его функциональности. Может включать упрощение кода, повышение гибкости и производительности. Позволяет улучшить код, исправить ошибки и сделать его понятным и простым с точки зрения поддержки. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">Рефакторинг</span>
+            </h3>
+            <p class="term-description">Refactoring — улучшение кода без изменения функциональности</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Легаси" 
+                    data-definition="Legacy — старый код, система или технология, которая все еще используется, но считается устаревшей. Обычно сложно поддерживать и модифицировать.">Легаси</span>
+            </h3>
+            <p class="term-description">Legacy — устаревший код или система</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Техдолг" 
+                    data-definition="Technical Debt — накопленные проблемы в коде, которые нужно решить в будущем. Результат быстрой разработки или устаревших решений, которые усложняют поддержку и развитие проекта.">Техдолг</span>
+            </h3>
+            <p class="term-description">Technical Debt — накопленные проблемы в коде</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Хотфикс" 
+                    data-definition="Hotfix — быстрое и временное решение проблемы, которое обычно внедряется без полного тестирования. Используется в ситуациях, когда нужно быстро восстановить работу системы или предотвратить потенциальный ущерб от ошибки в продакшн-версии. После внедрения хотфикса рекомендуется провести более полное тестирование системы.">Хотфикс</span>
+            </h3>
+            <p class="term-description">Hotfix — срочное исправление критической ошибки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Костыль" 
+                    data-definition="Workaround / Hack — временное решение проблемы, которое работает, но не является правильным или элегантным. Обычно используется, когда нужно быстро решить проблему, но планируется переделать позже.">Костыль</span>
+            </h3>
+            <p class="term-description">Workaround — временное решение проблемы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="SaaS" 
+                    data-definition="Software as a Service — модель предоставления программного обеспечения как услуги через интернет. Пользователи платят за подписку и используют приложение через браузер, не устанавливая его локально.">SaaS</span>
+            </h3>
+            <p class="term-description">Software as a Service — программное обеспечение как услуга</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Роллбэк" 
+                    data-definition="Rollback — откат изменений к предыдущей версии. Используется, когда новая версия вызывает проблемы, и нужно вернуться к стабильной версии.">Роллбэк</span>
+            </h3>
+            <p class="term-description">Rollback — откат к предыдущей версии</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Code Freeze" 
+                    data-definition="Code Freeze — период, когда запрещено вносить изменения в код перед релизом. Используется для стабилизации версии и подготовки к выпуску.">Code Freeze</span>
+            </h3>
+            <p class="term-description">Code Freeze — заморозка изменений перед релизом</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Продакшн / Прод" 
+                    data-definition="Production — завершающий этап разработки после сборки, тестирования и развёртывания программы на рабочем сервере. Рабочая среда, где работает реальное приложение для пользователей. Отдать в продакшн — значит сделать продукт доступным для пользователей.">Продакшн</span> / 
+              <span class="term-tooltip" 
+                    data-title="Прод" 
+                    data-definition="Сокращение от Production — рабочая среда для пользователей.">Прод</span>
+            </h3>
+            <p class="term-description">Production — рабочая среда для пользователей</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Дев" 
+                    data-definition="Development — среда разработки, где разработчики работают над новым функционалом и тестируют изменения.">Дев</span>
+            </h3>
+            <p class="term-description">Development — среда разработки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="АПИ" 
+                    data-definition="API (Application Programming Interface) — интерфейс для взаимодействия между приложениями. Набор правил и протоколов для обмена данными. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">АПИ</span>
+            </h3>
+            <p class="term-description">API — интерфейс для взаимодействия приложений</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Эндпоинт" 
+                    data-definition="Endpoint — конкретный URL или адрес, по которому можно обратиться к API для получения или отправки данных.">Эндпоинт</span>
+            </h3>
+            <p class="term-description">Endpoint — точка доступа к API</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Микросервис" 
+                    data-definition="Microservice — архитектурный подход, при котором приложение состоит из небольших независимых сервисов, каждый из которых решает конкретную задачу.">Микросервис</span>
+            </h3>
+            <p class="term-description">Microservice — независимый сервис в архитектуре</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Монолит" 
+                    data-definition="Monolith — архитектурный подход, при котором все компоненты приложения объединены в единое целое. Противоположность микросервисам.">Монолит</span>
+            </h3>
+            <p class="term-description">Monolith — единое приложение</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Стек" 
+                    data-definition="Tech Stack — набор технологий, фреймворков, библиотек и инструментов, используемых для разработки проекта. Например, стек может включать язык программирования, фреймворк, базу данных и инструменты для развёртывания.">Стек</span>
+            </h3>
+            <p class="term-description">Tech Stack — набор технологий для разработки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Фреймворк" 
+                    data-definition="Framework — готовая структура и набор инструментов, на основе которых ведётся разработка на разных языках программирования. Включает библиотеки, классы и функции. Например, Django — популярный фреймворк на Python, а Spring используется при работе с Java.">Фреймворк</span>
+            </h3>
+            <p class="term-description">Framework — каркас для разработки</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Паттерн" 
+                    data-definition="Design Pattern — типовое решение часто встречающейся проблемы в проектировании программного обеспечения. Паттерны помогают структурировать код, делают его более понятным и поддерживаемым. Примеры: Singleton, Factory, Observer, MVC. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">Паттерн</span>
+            </h3>
+            <p class="term-description">Design Pattern — паттерн программирования</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Синтаксический сахар" 
+                    data-definition="Syntactic Sugar — синтаксические конструкции в языке программирования, которые делают код более читаемым и удобным для написания, но не добавляют новой функциональности. Упрощают запись часто используемых паттернов. Например, в Python списковые включения (list comprehensions) — это синтаксический сахар для циклов. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">Синтаксический сахар</span>
+            </h3>
+            <p class="term-description">Syntactic Sugar — упрощение синтаксиса для удобства</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="ГПУ" 
+                    data-definition="GPU (Graphics Processing Unit) — графический процессор, специализированный процессор для параллельных вычислений. Широко используется в <a href="../../ai/ml/dl.html" target='_blank' class='term-tooltip-link'>машинном обучении</a> для ускорения обучения моделей благодаря способности выполнять множество операций одновременно.">ГПУ</span>
+            </h3>
+            <p class="term-description">GPU — графический процессор для параллельных вычислений</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="ЦПУ" 
+                    data-definition="CPU (Central Processing Unit) — центральный процессор, основной компонент компьютера, выполняющий инструкции программ. Обрабатывает данные последовательно, в отличие от <a href="../../ai/ml/dl.html" target='_blank' class='term-tooltip-link'>GPU</a>, который специализируется на параллельных вычислениях.">ЦПУ</span>
+            </h3>
+            <p class="term-description">CPU — центральный процессор</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Джоба" 
+                    data-definition="Job — задача или процесс, выполняемый системой. В контексте разработки может означать фоновую задачу, задачу в очереди (job queue), задачу в <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>CI/CD</a> пайплайне или задачу в системе управления задачами.">Джоба</span>
+            </h3>
+            <p class="term-description">Job — задача или процесс в системе</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Локалхост" 
+                    data-definition="Localhost — адрес, который указывает на локальный компьютер (127.0.0.1). Используется для доступа к приложению, запущенному на той же машине, где работает браузер или клиент.">Локалхост</span>
+            </h3>
+            <p class="term-description">Localhost — адрес локального компьютера</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Ребут" 
+                    data-definition="Reboot — перезагрузка системы, сервера или устройства. Процесс полного выключения и последующего включения для применения изменений, устранения проблем или обновления системы.">Ребут</span>
+            </h3>
+            <p class="term-description">Reboot — перезагрузка системы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Хардкод" 
+                    data-definition="Hardcode — жёстко закодированные значения в программе, которые не могут быть изменены без изменения кода. Обычно считается антипаттерном, так как усложняет настройку и поддержку приложения.">Хардкод</span>
+            </h3>
+            <p class="term-description">Hardcode — жёстко закодированные значения</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Инстанс" 
+                    data-definition="Instance — экземпляр объекта или запущенный экземпляр приложения/сервиса. В контексте облачных сервисов — виртуальная машина или контейнер, на котором работает приложение.">Инстанс</span>
+            </h3>
+            <p class="term-description">Instance — экземпляр объекта или сервиса</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Опенсорс" 
+                    data-definition="Open Source — программное обеспечение с открытым исходным кодом. Любой пользователь имеет право его использовать, менять и создавать новые проекты на его основе. Пример опенсорс-продукта — браузер Firefox, операционная система Linux.">Опенсорс</span>
+            </h3>
+            <p class="term-description">Open Source — открытый исходный код</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Пет-проект" 
+                    data-definition="Pet Project — небольшие задачи и проекты, не связанные с основной работой, которые специалист делает в свободное время. Pet-проекты полезны для изучения новых технологий или прокачки навыков. Например, пет-проектом веб-разработчика может быть создание мобильного приложения.">Пет-проект</span>
+            </h3>
+            <p class="term-description">Pet Project — любительский проект для обучения</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Пинг" 
+                    data-definition="Ping — утилита для проверки доступности сетевого узла. Отправляет пакеты данных и измеряет время отклика. В сленге 'пингануть' или 'дернуть' означает проверить доступность сервера или связаться с кем-то.">Пинг</span> / 
+              <span class="term-tooltip" 
+                    data-title="Пингануть" 
+                    data-definition="Проверить доступность сервера или связаться с кем-то.">Пингануть</span>
+            </h3>
+            <p class="term-description">Ping — проверка доступности сетевого узла</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Дрова" 
+                    data-definition="Driver — драйвер, программное обеспечение, которое позволяет операционной системе взаимодействовать с аппаратным обеспечением (принтер, видеокарта, сетевая карта и т.д.). В сленге часто называется 'дровами'.">Дрова</span> / 
+              <span class="term-tooltip" 
+                    data-title="Драйвер" 
+                    data-definition="Driver — программное обеспечение для взаимодействия с аппаратным обеспечением.">Драйвер</span>
+            </h3>
+            <p class="term-description">Driver — программное обеспечение для работы с оборудованием</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Либы" 
+                    data-definition="Libraries — библиотеки, наборы готовых функций и классов для использования в программах. Позволяют не писать код с нуля, а использовать уже готовые решения. В сленге часто сокращается до 'либы'.">Либы</span> / 
+              <span class="term-tooltip" 
+                    data-title="Библиотеки" 
+                    data-definition="Libraries — наборы готовых функций и классов для программирования.">Библиотеки</span>
+            </h3>
+            <p class="term-description">Libraries — наборы готовых функций и классов</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Сериализация" 
+                    data-definition="Serialization — процесс преобразования объекта или структуры данных в формат, который можно сохранить или передать по сети (например, JSON, XML, бинарный формат). Позволяет сохранить состояние объекта и восстановить его позже.">Сериализация</span>
+            </h3>
+            <p class="term-description">Serialization — преобразование объекта в формат для хранения или передачи</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Десериализация" 
+                    data-definition="Deserialization — обратный процесс <a href="../../ai/interviews/dictionary.html" target='_blank' class='term-tooltip-link'>сериализации</a>, восстановление объекта из сохраненного формата (JSON, XML, бинарного формата).">Десериализация</span>
+            </h3>
+            <p class="term-description">Deserialization — восстановление объекта из сохраненного формата</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="UX/UI" 
+                    data-definition="User Experience / User Interface — UX (пользовательский опыт) и UI (пользовательский интерфейс). UX отвечает за то, как пользователь взаимодействует с продуктом, а UI — за визуальное оформление интерфейса. Оба важны для создания удобных и привлекательных приложений.">UX/UI</span>
+            </h3>
+            <p class="term-description">User Experience / User Interface — пользовательский опыт и интерфейс</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Профилирование" 
+                    data-definition="Profiling — анализ производительности программы для выявления узких мест и оптимизации. Помогает найти, какие части кода выполняются медленно и потребляют больше всего ресурсов.">Профилирование</span>
+            </h3>
+            <p class="term-description">Profiling — анализ производительности программы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Тайм-аут" 
+                    data-definition="Timeout — максимальное время ожидания ответа от сервера или выполнения операции. Если ответ не получен в течение этого времени, операция прерывается с ошибкой тайм-аута. Используется для предотвращения бесконечного ожидания.">Тайм-аут</span> / 
+              <span class="term-tooltip" 
+                    data-title="Timeout" 
+                    data-definition="Timeout — максимальное время ожидания ответа.">Timeout</span>
+            </h3>
+            <p class="term-description">Timeout — максимальное время ожидания ответа</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="404" 
+                    data-definition="HTTP 404 — код ошибки 'Not Found', означающий, что запрашиваемый ресурс (страница, файл) не найден на сервере. Одна из самых распространенных ошибок в веб-разработке.">404</span>
+            </h3>
+            <p class="term-description">HTTP 404 — ошибка 'Not Found'</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="500" 
+                    data-definition="HTTP 500 — код ошибки 'Internal Server Error', означающий внутреннюю ошибку сервера. В сленге 'пятисотить' означает, что сервер возвращает ошибку 500.">500</span> / 
+              <span class="term-tooltip" 
+                    data-title="Пятисотить" 
+                    data-definition="Сервер возвращает ошибку 500 (Internal Server Error).">Пятисотить</span>
+            </h3>
+            <p class="term-description">HTTP 500 — внутренняя ошибка сервера</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">👥 Роли и должности</h2>
+          <figure style="text-align: center;">
+            <img src="../../images/interviews/titles.png" style="width: 80%">
+            <figcaption>Иерархия ролей и должностей</figcaption>
+          </figure>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Тимлид" 
+                    data-definition="Team Lead — руководитель команды разработчиков. Отвечает за координацию работы команды, техническое руководство и развитие команды.">Тимлид</span>
+            </h3>
+            <p class="term-description">Team Lead — руководитель команды</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="ПМ" 
+                    data-definition="Project Manager — менеджер проекта, который отвечает за планирование, координацию и контроль выполнения проекта.">ПМ</span>
+            </h3>
+            <p class="term-description">Project Manager — менеджер проекта</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="ПО" 
+                    data-definition="Product Owner — владелец продукта, который определяет требования, приоритеты и видение продукта. Работает с командой разработки и стейкхолдерами.">ПО</span>
+            </h3>
+            <p class="term-description">Product Owner — владелец продукта</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Девопс" 
+                    data-definition="DevOps Engineer — специалист, который объединяет разработку и эксплуатацию. Отвечает за автоматизацию процессов, CI/CD, инфраструктуру и мониторинг.">Девопс</span>
+            </h3>
+            <p class="term-description">DevOps Engineer — специалист по автоматизации и инфраструктуре</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Дата инженер" 
+                    data-definition="Data Engineer — специалист, который проектирует, строит и поддерживает инфраструктуру для работы с данными. Отвечает за ETL-процессы, data pipelines, хранение и обработку больших объемов данных.">Дата инженер</span>
+            </h3>
+            <p class="term-description">Data Engineer — специалист по инфраструктуре данных</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="AI инженер" 
+                    data-definition="AI Engineer — специалист, который разрабатывает и внедряет системы искусственного интеллекта и машинного обучения. Работает с моделями, <a href="../../ai/ml/index.html" target='_blank' class='term-tooltip-link'>ML</a>-пайплайнами, оптимизацией и деплоем AI-решений в продакшн.">AI инженер</span>
+            </h3>
+            <p class="term-description">AI Engineer — специалист по разработке AI/ML систем</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Data Scientist" 
+                    data-definition="Data Scientist — специалист, который анализирует данные, строит модели машинного обучения и извлекает инсайты из данных. Работает на стыке статистики, программирования и предметной области для решения бизнес-задач.">Data Scientist</span>
+            </h3>
+            <p class="term-description">Data Scientist — специалист по анализу данных и ML</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="МЛопс" 
+                    data-definition="MLOps Engineer — специалист, который занимается автоматизацией процессов разработки, развертывания и мониторинга моделей машинного обучения. Совмещает практики машинного обучения и DevOps для обеспечения надежного цикла ML-проектов.">МЛопс</span>
+            </h3>
+            <p class="term-description">MLOps Engineer — инженер по автоматизации ML процессов и инфраструктуры</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="QA" 
+                    data-definition="Quality Assurance — специалист по обеспечению качества. Отвечает за тестирование продукта и поиск ошибок.">QA</span>
+            </h3>
+            <p class="term-description">Quality Assurance — тестировщик</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Фронтенд" 
+                    data-definition="Frontend Developer — разработчик пользовательского интерфейса. Работает с тем, что видит пользователь в браузере. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">Фронтенд</span>
+            </h3>
+            <p class="term-description">Frontend Developer — разработчик интерфейса</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Бэкенд" 
+                    data-definition="Backend Developer — разработчик серверной части приложения. Работает с логикой, базами данных и <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>API</a>. <a href="../../python/base.html" target='_blank' class='term-tooltip-link'>Подробнее про Python →</a>">Бэкенд</span>
+            </h3>
+            <p class="term-description">Backend Developer — разработчик серверной части</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Фуллстек" 
+                    data-definition="Full Stack Developer — разработчик, который работает и с фронтендом, и с бэкендом. Универсальный специалист.">Фуллстек</span>
+            </h3>
+            <p class="term-description">Full Stack Developer — универсальный разработчик</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">🔐 Безопасность и инфраструктура</h2>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="CI/CD" 
+                    data-definition="Continuous Integration / Continuous Deployment — автоматизация процессов интеграции кода и развертывания. Позволяет быстро и безопасно выпускать изменения через <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>GitHub Actions</a>. <a href="../../github/workflow.html" target='_blank' class='term-tooltip-link'>Подробнее →</a>">CI/CD</span>
+            </h3>
+            <p class="term-description">Continuous Integration/Deployment — автоматизация сборки и деплоя</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Докер" 
+                    data-definition="<a href="../../ai/mlops/docker.html" target='_blank' class='term-tooltip-link'>Docker</a> — платформа для контейнеризации приложений. Позволяет упаковать приложение со всеми зависимостями в контейнер.">Докер</span>
+            </h3>
+            <p class="term-description">Docker — платформа контейнеризации</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Кубер" 
+                    data-definition="<a href="../../ai/mlops/k8s.html" target='_blank' class='term-tooltip-link'>Kubernetes</a> (K8s) — система оркестрации <a href="../../ai/mlops/docker.html" target='_blank' class='term-tooltip-link'>контейнеров</a>. Управляет развертыванием, масштабированием и работой контейнерных приложений.">Кубер</span>
+            </h3>
+            <p class="term-description">Kubernetes — оркестрация контейнеров</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Машина" 
+                    data-definition="Сервер или компьютер в сленге ML-инженеров. Обычно используется для обозначения вычислительной машины, на которой запускаются модели машинного обучения, обрабатываются данные или выполняются вычисления.">Машина</span> / 
+              <span class="term-tooltip" 
+                    data-title="Тачка" 
+                    data-definition="Сленговое название сервера или вычислительной машины, особенно популярное среди ML-инженеров. Например: 'запустил модель на тачке с <a href="../../ai/ml/dl.html" target='_blank' class='term-tooltip-link'>GPU</a>'.">Тачка</span>
+            </h3>
+            <p class="term-description">Сервер или вычислительная машина (сленг ML-инженеров)</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Виртуалка" 
+                    data-definition="VM (Virtual Machine) — виртуальная машина, эмулируемая компьютерная система, работающая внутри физической машины. Позволяет запускать несколько изолированных операционных систем на одном физическом сервере.">Виртуалка</span> / 
+              <span class="term-tooltip" 
+                    data-title="VM" 
+                    data-definition="Virtual Machine — виртуальная машина, изолированная среда для запуска приложений.">VM</span>
+            </h3>
+            <p class="term-description">Virtual Machine — виртуальная машина</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Хост" 
+                    data-definition="Host — компьютер или сервер, который предоставляет услуги или ресурсы другим устройствам в сети. Может быть физическим сервером или виртуальной машиной.">Хост</span>
+            </h3>
+            <p class="term-description">Host — компьютер или сервер в сети</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Прокси" 
+                    data-definition="Proxy — промежуточный сервер между клиентом и целевым сервером. Используется для кеширования, фильтрации трафика, балансировки нагрузки, анонимизации или обхода ограничений доступа.">Прокси</span>
+            </h3>
+            <p class="term-description">Proxy — промежуточный сервер</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip"
+                    data-title="Data Lake"
+                    data-definition="Data Lake — хранилище сырых данных в их исходном формате (логи, события, таблицы, файлы) в объектном сторидже (S3, GCS и т.п.). Используется как единый слой для хранения данных, из которого потом строят витрины, отчёты и ML‑фичи.">Data Lake</span>
+            </h3>
+            <p class="term-description">Data Lake — большое хранилище сырых данных в облаке</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Инфраструктура" 
+                    data-definition="Infrastructure — техническая основа для работы приложения: серверы, сети, базы данных, системы хранения и другие ресурсы.">Инфраструктура</span>
+            </h3>
+            <p class="term-description">Infrastructure — техническая основа системы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Мониторинг" 
+                    data-definition="Monitoring — отслеживание состояния системы, производительности и доступности. Помогает быстро обнаруживать проблемы.">Мониторинг</span>
+            </h3>
+            <p class="term-description">Monitoring — отслеживание состояния системы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Логи" 
+                    data-definition="Logs — записи о событиях в системе. Используются для отладки, анализа проблем и аудита действий.">Логи</span>
+            </h3>
+            <p class="term-description">Logs — записи о событиях системы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Метрики" 
+                    data-definition="Metrics — количественные показатели работы системы: время отклика, использование ресурсов, количество запросов и т.д.">Метрики</span>
+            </h3>
+            <p class="term-description">Metrics — количественные показатели системы</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Алерт" 
+                    data-definition="Alert — уведомление о проблеме или важном событии в системе. Обычно отправляется в систему мониторинга или команде.">Алерт</span>
+            </h3>
+            <p class="term-description">Alert — уведомление о проблеме</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="SLA" 
+                    data-definition="Service Level Agreement — соглашение об уровне обслуживания. Договор между поставщиком услуги и клиентом, определяющий ожидаемый уровень качества и доступности сервиса. Обычно выражается в процентах доступности (например, 99.9% uptime).">SLA</span>
+            </h3>
+            <p class="term-description">Service Level Agreement — соглашение об уровне обслуживания</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Vault" 
+                    data-definition="Vault — система для безопасного хранения секретов, паролей, API-ключей и других конфиденциальных данных. Обеспечивает шифрование, контроль доступа и аудит использования секретов. Популярные решения: HashiCorp Vault, AWS Secrets Manager.">Vault</span>
+            </h3>
+            <p class="term-description">Vault — система для безопасного хранения секретов</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Кластер" 
+                    data-definition="Cluster — группа связанных серверов или узлов, работающих вместе как единая система. Используется для повышения производительности, отказоустойчивости и масштабируемости. Примеры: Kubernetes кластер, кластер баз данных.">Кластер</span>
+            </h3>
+            <p class="term-description">Cluster — группа серверов, работающих как единая система</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Композ" 
+                    data-definition="Docker Compose — инструмент для определения и запуска многоконтейнерных <a href="../../ai/mlops/docker.html" target='_blank' class='term-tooltip-link'>Docker</a> приложений. Позволяет описать все сервисы, сети и тома в одном файле YAML и запустить их одной командой.">Композ</span> / 
+              <span class="term-tooltip" 
+                    data-title="Docker Compose" 
+                    data-definition="Docker Compose — инструмент для управления многоконтейнерными приложениями.">Docker Compose</span>
+            </h3>
+            <p class="term-description">Docker Compose — инструмент для многоконтейнерных приложений</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">🧪 Тестирование</h2>
+          <figure style="text-align: center">
+            <img src="../../images/interviews/unittestspassing.png" style="width: 35%">
+          </figure>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Юнит-тест" 
+                    data-definition="Unit Test — тест отдельной функции или метода. Проверяет, что небольшая часть кода работает правильно изолированно.">Юнит-тест</span>
+            </h3>
+            <p class="term-description">Unit Test — тест отдельной функции</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Интеграционный тест" 
+                    data-definition="Integration Test — тест взаимодействия нескольких компонентов системы. Проверяет, что части системы работают вместе корректно.">Интеграционный тест</span>
+            </h3>
+            <p class="term-description">Integration Test — тест взаимодействия компонентов</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="E2E тест" 
+                    data-definition="End-to-End Test — тест полного пользовательского сценария от начала до конца. Имитирует реальное использование приложения.">E2E тест</span>
+            </h3>
+            <p class="term-description">End-to-End Test — тест полного сценария</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Регрессия" 
+                    data-definition="Regression — ситуация, когда после внесения изменений перестает работать то, что работало раньше. Регрессионное тестирование проверяет, что новые изменения не сломали существующий функционал.">Регрессия</span>
+            </h3>
+            <p class="term-description">Regression — поломка существующего функционала</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Мок" 
+                    data-definition="Mock — имитация объекта или сервиса для тестирования. Позволяет изолировать тестируемый код от внешних зависимостей.">Мок</span>
+            </h3>
+            <p class="term-description">Mock — имитация для тестирования</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Покрытие" 
+                    data-definition="Code Coverage — процент кода, который выполняется тестами. Показывает, насколько хорошо протестировано приложение.">Покрытие</span>
+            </h3>
+            <p class="term-description">Code Coverage — процент протестированного кода</p>
+          </div>
+        </section>
+
+        <section class="dictionary-section">
+          <h2 class="section-title">💾 Базы данных</h2>
+          <figure style="text-align: center;">
+            <img src="../../images/interviews/rowsaffected.png" style="width: 35%">
+          </figure>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="SQL" 
+                    data-definition="Structured Query Language — язык запросов к реляционным базам данных. Используется для работы с данными в таблицах.">SQL</span>
+            </h3>
+            <p class="term-description">Structured Query Language — язык запросов к БД</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="NoSQL" 
+                    data-definition="Not Only SQL — базы данных, которые не используют табличную структуру. Включают документные, ключ-значение, графовые БД.">NoSQL</span>
+            </h3>
+            <p class="term-description">Not Only SQL — нереляционные базы данных</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Миграция" 
+                    data-definition="Migration — изменение структуры базы данных. Позволяет версионировать схему БД и применять изменения последовательно.">Миграция</span>
+            </h3>
+            <p class="term-description">Migration — изменение структуры БД</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="ETL" 
+                    data-definition="Extract, Transform, Load — процесс извлечения данных из источников, их преобразования и загрузки в целевую систему. Основной процесс в работе дата инженеров.">ETL</span>
+            </h3>
+            <p class="term-description">Extract, Transform, Load — процесс обработки данных</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Индекс" 
+                    data-definition="Index — структура данных для ускорения поиска в базе данных. Аналогия с алфавитным указателем в книге.">Индекс</span>
+            </h3>
+            <p class="term-description">Index — структура для ускорения поиска</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Транзакция" 
+                    data-definition="Transaction — группа операций, которые выполняются как единое целое. Либо все операции выполняются успешно, либо откатываются.">Транзакция</span>
+            </h3>
+            <p class="term-description">Transaction — атомарная группа операций</p>
+          </div>
+
+          <div class="dictionary-item">
+            <h3 class="term-name">
+              <span class="term-tooltip" 
+                    data-title="Репликация" 
+                    data-definition="Replication — копирование данных на несколько серверов. Используется для повышения доступности и производительности.">Репликация</span>
+            </h3>
+            <p class="term-description">Replication — копирование данных на несколько серверов</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../authGuard.js"></script>
+    <script src="../../assets/js/init-page.js"></script>
+    <script>
+      // Сортировка терминов в алфавитном порядке внутри каждой секции
+      document.addEventListener('DOMContentLoaded', function() {
+        const sections = document.querySelectorAll('.dictionary-section');
+        
+        sections.forEach(section => {
+          // Находим все элементы внутри секции
+          const sectionTitle = section.querySelector('.section-title');
+          const figures = Array.from(section.querySelectorAll('figure'));
+          const items = Array.from(section.querySelectorAll('.dictionary-item'));
+          
+          if (items.length === 0) return;
+          
+          // Извлекаем название термина для сортировки из первого span с data-title
+          items.forEach(item => {
+            const firstTooltip = item.querySelector('.term-tooltip[data-title]');
+            if (firstTooltip) {
+              // Берем название из data-title, убираем лишние символы для сортировки
+              let title = firstTooltip.getAttribute('data-title');
+              // Если есть "/", берем первую часть
+              if (title.includes(' / ')) {
+                title = title.split(' / ')[0];
+              }
+              item._sortKey = title.toLowerCase();
+            } else {
+              item._sortKey = '';
+            }
+          });
+          
+          // Сортируем по алфавиту (учитывая русские буквы)
+          items.sort((a, b) => {
+            return a._sortKey.localeCompare(b._sortKey, 'ru', { sensitivity: 'base' });
+          });
+          
+          // Очищаем секцию от всех элементов (кроме заголовка)
+          const fragment = document.createDocumentFragment();
+          
+          // Добавляем заголовок
+          if (sectionTitle) {
+            fragment.appendChild(sectionTitle);
+          }
+          
+          // Добавляем figure элементы
+          figures.forEach(figure => {
+            fragment.appendChild(figure);
+          });
+          
+          // Добавляем отсортированные элементы
+          items.forEach(item => {
+            fragment.appendChild(item);
+            delete item._sortKey; // Очищаем временное свойство
+          });
+          
+          // Очищаем секцию и добавляем отсортированные элементы
+          section.innerHTML = '';
+          section.appendChild(fragment);
+        });
+      });
+    </script>
+  </body>
+</html>

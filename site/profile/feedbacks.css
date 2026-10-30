@@ -1,0 +1,2668 @@
+/* ============================================
+   FEEDBACKS PAGE - ДИЗАЙН-ТОКЕНЫ И ТЕМА
+   Полностью автономная система стилей
+   ============================================ */
+
+/* === ДИЗАЙН-ТОКЕНЫ ===
+   Важно: НЕ на :root. Иначе var(--bg-card) и др. вычисляются по светлой теме html
+   и наследуются под body.dark как «кремовый» фон + тёмный текст (сломанный Vibecode).
+   Привязка на .feedback-page — как у палитр Earth/Sepia/Graphite. */
+.feedback-page {
+  --fb-color-bg: var(--bg-card);
+  --fb-color-bg-secondary: var(--bg-secondary);
+  --fb-color-bg-hover: color-mix(in srgb, var(--text) 6%, var(--bg-card));
+  --fb-color-text-primary: var(--text);
+  --fb-color-text-secondary: var(--text-muted);
+  --fb-color-text-muted: var(--text-subtle);
+  --fb-color-border: var(--border-color);
+  --fb-color-border-light: color-mix(
+    in srgb,
+    var(--border) 55%,
+    var(--bg-card)
+  );
+
+  --fb-color-primary: var(--brand);
+  --fb-color-primary-hover: var(--brand-hover);
+  --fb-color-primary-light: var(--brand-light);
+  --fb-color-success: var(--success);
+  --fb-color-success-hover: color-mix(
+    in srgb,
+    var(--success) 88%,
+    var(--text) 12%
+  );
+  --fb-color-success-light: var(--success-light);
+  --fb-color-info: var(--brand);
+  --fb-color-info-hover: var(--brand-hover);
+  --fb-color-danger: var(--danger);
+  --fb-color-danger-hover: color-mix(
+    in srgb,
+    var(--danger) 90%,
+    var(--text) 10%
+  );
+  --fb-color-warning: var(--warning);
+  --fb-color-warning-light: var(--warning-light);
+
+  --fb-modal-bg: color-mix(in srgb, var(--bg-elevated) 88%, var(--text) 12%);
+  --fb-modal-section: var(--bg-secondary);
+  --fb-modal-card: var(--bg-card);
+
+  --fb-radius-sm: var(--radius-sm);
+  --fb-radius-md: var(--radius-md);
+  --fb-radius-lg: var(--radius-lg);
+  --fb-radius-xl: var(--radius-xl);
+
+  --fb-shadow-sm: var(--shadow-sm);
+  --fb-shadow-md: var(--shadow-md);
+  --fb-shadow-lg: var(--shadow-lg);
+  --fb-shadow-xl: var(--shadow-xl);
+
+  --fb-spacing-xs: 4px;
+  --fb-spacing-sm: 8px;
+  --fb-spacing-md: 16px;
+  --fb-spacing-lg: 24px;
+  --fb-spacing-xl: 32px;
+
+  --fb-gradient-primary: var(--gradient-primary);
+
+  --fb-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Roboto",
+    "Helvetica Neue", Arial, sans-serif;
+  --fb-font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  --fb-font-size-sm: 12px;
+  --fb-font-size-base: 14px;
+  --fb-font-size-lg: 15px;
+  --fb-font-size-xl: 16px;
+  --fb-font-size-2xl: 1.25rem;
+  --fb-font-size-3xl: 1.45rem;
+  --fb-font-size-4xl: 2rem;
+  --fb-font-size-5xl: 2.5rem;
+
+  font-family: var(--fb-font-family);
+  color: var(--fb-color-text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* === UTILITY КЛАССЫ === */
+.fb-list-clean {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fb-flex {
+  display: flex;
+}
+
+.fb-flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fb-flex-start {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fb-spacing-md);
+}
+
+.fb-rounded-sm {
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-rounded-md {
+  border-radius: var(--fb-radius-md);
+}
+
+.fb-rounded-lg {
+  border-radius: var(--fb-radius-lg);
+}
+
+.fb-rounded-xl {
+  border-radius: var(--fb-radius-xl);
+}
+
+.fb-shadow-sm {
+  box-shadow: var(--fb-shadow-sm);
+}
+
+.fb-shadow-md {
+  box-shadow: var(--fb-shadow-md);
+}
+
+.fb-shadow-lg {
+  box-shadow: var(--fb-shadow-lg);
+}
+
+/* Шапка: общие стили .page-header в pages-modern.css */
+
+/* === СЕКЦИЯ ФИДБЕКОВ === */
+.feedback-page .feedbacks-section {
+  margin-top: var(--fb-spacing-sm);
+}
+
+.feedback-page #createFeedbackBtnContainer {
+  margin-bottom: var(--fb-spacing-md);
+}
+
+.feedback-page .feedbacks-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--fb-spacing-lg);
+  align-items: start;
+  margin-bottom: var(--fb-spacing-xl);
+}
+
+@media (max-width: 1024px) {
+  .feedback-page .feedbacks-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .feedback-page .feedbacks-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.feedback-page .feedbacks-list .empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--fb-color-text-muted);
+  padding: 40px var(--fb-spacing-lg);
+  background: var(--fb-color-bg);
+  border: 2px dashed var(--fb-color-border);
+  border-radius: var(--fb-radius-lg);
+  transition: all 0.3s ease;
+}
+
+.feedback-page .feedbacks-list .empty-state:hover {
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--border-color));
+  background: var(--brand-light);
+}
+
+/* === КАРТОЧКА ФИДБЕКА === */
+.feedback-page .feedback-item {
+  margin: 0;
+}
+
+.feedback-page .feedback-card {
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-lg);
+  padding: var(--fb-spacing-lg);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  box-shadow: var(--fb-shadow-sm);
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.feedback-page .feedback-card:hover {
+  box-shadow: var(--fb-shadow-md);
+  transform: translateY(-4px);
+  border-color: var(--fb-color-primary);
+}
+
+.feedback-page .feedback-card.unread {
+  background: var(--fb-color-primary-light);
+}
+
+.feedback-page .feedback-card.read {
+  opacity: 0.85;
+}
+
+.feedback-page .feedback-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--fb-spacing-md);
+  gap: var(--fb-spacing-sm);
+}
+
+.feedback-page .feedback-card-badges {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: var(--fb-spacing-xs);
+}
+
+.feedback-page .feedback-card-title {
+  font-weight: 700;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-xl);
+  margin-bottom: var(--fb-spacing-sm);
+  line-height: 1.3;
+}
+
+.feedback-page .feedback-card-student {
+  font-weight: 600;
+  color: var(--fb-color-text-secondary);
+  font-size: var(--fb-font-size-base);
+  margin-bottom: var(--fb-spacing-xs);
+}
+
+.feedback-page .feedback-card-date {
+  font-size: var(--fb-font-size-sm);
+  color: var(--fb-color-text-secondary);
+}
+
+.feedback-page .feedback-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  padding: var(--fb-spacing-xs) 10px;
+  border-radius: 20px;
+  font-size: var(--fb-font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  margin-bottom: var(--fb-spacing-md);
+}
+
+.feedback-page .feedback-card-badges .feedback-card-status {
+  margin-bottom: 0;
+}
+
+.feedback-page .feedback-card-company-badge {
+  max-width: 12rem;
+  padding: 3px 8px;
+  overflow: hidden;
+  color: var(--fb-color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-color));
+  border-radius: 6px;
+}
+
+/* HR-собеседование: тот же бейдж, но брендовым цветом — отличается от чипа
+   компании, рядом с которым стоит. */
+.feedback-page .feedback-card-company-badge--hr {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 9%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--brand) 25%, var(--border-color));
+}
+
+/* Технический собес: тот же бейдж без заливки — иначе он неотличим от чипа
+   компании, который стоит следом. */
+.feedback-page .feedback-card-company-badge--tech {
+  background: transparent;
+}
+
+/* Мок: приглушённый серый — тренировка, а не настоящий собес. */
+.feedback-page .feedback-card-company-badge--mock {
+  background: var(--fb-color-bg-secondary);
+  border-color: var(--border-color);
+}
+
+.feedback-page .feedback-card-status.read {
+  background: var(--fb-color-success-light);
+  color: var(--fb-color-success);
+}
+
+.feedback-page .feedback-card-preview {
+  color: var(--fb-color-text-secondary);
+  font-size: var(--fb-font-size-base);
+  line-height: 1.6;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+/* === ЗАГОЛОВОК ФИДБЕКА === */
+.feedback-page .feedback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--fb-spacing-md);
+  gap: var(--fb-spacing-md);
+}
+
+.feedback-page .feedback-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-spacing-xs);
+  flex: 1;
+}
+
+.feedback-page .student-name {
+  font-weight: 600;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-lg);
+  margin-bottom: var(--fb-spacing-xs);
+}
+
+.feedback-page .feedback-date {
+  font-size: var(--fb-font-size-sm);
+  color: var(--fb-color-text-secondary);
+}
+
+.feedback-page .feedback-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  padding: var(--fb-spacing-xs) 10px;
+  border-radius: 20px;
+  font-size: var(--fb-font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.feedback-page .feedback-status.unread {
+  background: var(--fb-color-primary-light);
+  color: var(--fb-color-primary);
+}
+
+.feedback-page .feedback-status.read {
+  background: var(--fb-color-success-light);
+  color: var(--fb-color-success);
+}
+
+.feedback-page .feedback-toggle {
+  background: none;
+  border: none;
+  color: var(--fb-color-text-secondary);
+  cursor: pointer;
+  padding: var(--fb-spacing-xs) var(--fb-spacing-sm);
+  border-radius: var(--fb-radius-sm);
+  transition: all 0.2s ease;
+  font-size: var(--fb-font-size-base);
+  display: flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  font-family: var(--fb-font-family);
+}
+
+.feedback-page .feedback-toggle:hover {
+  background: var(--fb-color-primary-light);
+  color: var(--fb-color-text-primary);
+}
+
+/* === ТЕЛО ФИДБЕКА === */
+.feedback-page .feedback-body {
+  max-height: none;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.feedback-page .feedback-body.collapsed {
+  display: none;
+}
+
+/* === КОНТЕНТ ФИДБЕКА === */
+.feedback-page .feedback-content {
+  margin-bottom: var(--fb-spacing-md);
+  line-height: 1.7;
+  color: var(--fb-color-text-primary);
+  max-width: 850px;
+  margin-left: auto;
+  margin-right: auto;
+  isolation: isolate;
+}
+
+/* Контент внутри модалки */
+.feedback-page .fb-modal-body .feedback-content {
+  padding: 0;
+  max-width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.feedback-page .feedback-content h2 {
+  font-size: var(--fb-font-size-3xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: var(--fb-spacing-xl);
+  margin-bottom: var(--fb-spacing-md);
+  color: var(--fb-color-text-primary);
+  line-height: 1.3;
+}
+
+.feedback-page .feedback-content h3 {
+  font-size: var(--fb-font-size-2xl);
+  font-weight: 600;
+  margin-top: var(--fb-spacing-lg);
+  margin-bottom: var(--fb-spacing-md);
+  color: var(--fb-color-text-primary);
+  line-height: 1.4;
+}
+
+.feedback-page .feedback-content h4 {
+  font-size: var(--fb-font-size-xl);
+  font-weight: 600;
+  margin-top: var(--fb-spacing-lg);
+  margin-bottom: var(--fb-spacing-sm);
+  color: var(--fb-color-text-primary);
+}
+
+.feedback-page .feedback-content h2:first-child,
+.feedback-page .feedback-content h3:first-child,
+.feedback-page .feedback-content h4:first-child {
+  margin-top: 0;
+}
+
+.feedback-page .feedback-content p {
+  margin: var(--fb-spacing-md) 0;
+  line-height: 1.7;
+  color: var(--fb-color-text-primary);
+}
+
+.feedback-page .feedback-content ul,
+.feedback-page .feedback-content ol {
+  margin: var(--fb-spacing-md) 0;
+  padding-left: var(--fb-spacing-lg);
+}
+
+.feedback-page .feedback-content li {
+  margin: var(--fb-spacing-sm) 0;
+  line-height: 1.6;
+  color: var(--fb-color-text-primary);
+}
+
+/* Вложенные списки */
+.feedback-page .feedback-content ul ul,
+.feedback-page .feedback-content ol ul,
+.feedback-page .feedback-content ul ol,
+.feedback-page .feedback-content ol ol {
+  margin: var(--fb-spacing-xs) 0;
+  padding-left: var(--fb-spacing-md);
+}
+
+/* Исправление списков внутри модалки */
+.feedback-page .fb-modal-content ul {
+  margin: 6px 0 !important;
+  padding-left: 20px !important;
+  max-width: 100% !important;
+}
+
+.feedback-page .fb-modal-content ul li {
+  margin-bottom: 4px !important;
+  line-height: 1.35 !important;
+  max-width: 100% !important;
+}
+
+.feedback-page .feedback-content a {
+  color: var(--fb-color-primary);
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.feedback-page .feedback-content a:hover {
+  color: var(--fb-color-primary-hover);
+}
+
+.feedback-page .feedback-content code {
+  background: var(--fb-color-primary-light);
+  padding: 2px var(--fb-spacing-sm);
+  border-radius: var(--fb-radius-sm);
+  font-family: var(--fb-font-mono);
+  font-size: 0.9em;
+  color: var(--fb-color-text-primary);
+}
+
+.feedback-page .feedback-content pre {
+  background: rgba(106, 90, 205, 0.05);
+  padding: var(--fb-spacing-md);
+  border-radius: var(--fb-radius-md);
+  overflow-x: auto;
+  margin: var(--fb-spacing-md) 0;
+  border: 1px solid var(--fb-color-primary-light);
+}
+
+[data-theme="dark"] .feedback-page .feedback-content pre {
+  background: rgba(106, 90, 205, 0.1);
+  border-color: rgba(106, 90, 205, 0.2);
+}
+
+.feedback-page .feedback-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.feedback-page .feedback-content hr {
+  border: none;
+  border-top: 1px solid var(--fb-color-border);
+  margin: var(--fb-spacing-xl) 0;
+  opacity: 0.5;
+}
+
+/* === CALLOUT БЛОКИ === */
+.feedback-page .feedback-content .callout {
+  padding: var(--fb-spacing-md) var(--fb-spacing-lg);
+  margin: var(--fb-spacing-lg) 0;
+  border-radius: 16px;
+  background: var(--fb-color-bg-secondary);
+  box-shadow: var(--fb-shadow-sm);
+  border: 1px solid var(--fb-color-border-light);
+}
+
+/* Светлая тема - разные типы callout */
+.feedback-page .feedback-content .callout.tip {
+  background: rgba(16, 185, 129, 0.05);
+  border-color: rgba(16, 185, 129, 0.15);
+}
+
+.feedback-page .feedback-content .callout.note {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.15);
+}
+
+.feedback-page .feedback-content .callout.warning {
+  background: rgba(245, 158, 11, 0.05);
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+.feedback-page .feedback-content .callout.important {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Темная тема */
+[data-theme="dark"] .feedback-page .feedback-content .callout {
+  background: var(--fb-modal-card);
+  box-shadow: var(--fb-shadow-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-content .callout.tip {
+  background: var(--fb-modal-card);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-content .callout.note {
+  background: var(--fb-modal-card);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-content .callout.warning {
+  background: var(--fb-modal-card);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-content .callout.important {
+  background: var(--fb-modal-card);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* === БЛОКИ СЕКЦИЙ === */
+.feedback-page .feedback-block {
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+  border-radius: 16px;
+  padding: var(--fb-spacing-xl) var(--fb-spacing-lg);
+  margin: var(--fb-spacing-xl) 0;
+  box-shadow: var(--fb-shadow-sm);
+  transition: all 0.25s ease;
+  max-width: 850px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
+/* Блоки секций внутри модалки */
+.feedback-page .fb-modal-body .feedback-block {
+  margin-top: 16px !important;
+  margin-bottom: 0 !important;
+}
+
+/* Блоки секций внутри модалки в тёмной теме */
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-block {
+  background: var(--fb-modal-section);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+}
+
+.feedback-page .feedback-block:hover {
+  box-shadow: var(--fb-shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Свернутый блок - визуальный контраст */
+.feedback-page .feedback-block.collapsed {
+  background: var(--fb-color-bg-secondary);
+  padding: var(--fb-spacing-md) var(--fb-spacing-lg);
+  border-bottom: 2px solid var(--fb-color-border);
+  border-radius: 16px;
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-block.collapsed {
+  background: var(--fb-modal-section);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.feedback-page .feedback-block-title {
+  font-size: var(--fb-font-size-3xl);
+  font-weight: 700;
+  margin-bottom: var(--fb-spacing-md);
+  margin-top: 0;
+  color: var(--fb-color-text-primary);
+  padding-bottom: var(--fb-spacing-sm);
+  border-bottom: 1px solid var(--fb-color-border);
+}
+
+.feedback-page .feedback-block-content {
+  margin-top: var(--fb-spacing-lg);
+  line-height: 1.7;
+  font-size: var(--fb-font-size-base);
+  overflow: visible;
+  transition: opacity 0.3s ease;
+  max-height: none;
+  opacity: 1;
+}
+
+.feedback-page .feedback-block.collapsed .feedback-block-content {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Типографика внутри блоков (как в .feedback-content), в т.ч. для фидбека в модалке видосов */
+.feedback-page .feedback-block-content h2 {
+  font-size: var(--fb-font-size-3xl);
+  font-weight: 700;
+  margin-top: var(--fb-spacing-xl);
+  margin-bottom: var(--fb-spacing-md);
+  color: var(--fb-color-text-primary);
+  line-height: 1.3;
+}
+.feedback-page .feedback-block-content h3 {
+  font-size: var(--fb-font-size-2xl);
+  font-weight: 600;
+  margin-top: var(--fb-spacing-lg);
+  margin-bottom: var(--fb-spacing-md);
+  color: var(--fb-color-text-primary);
+  line-height: 1.4;
+}
+.feedback-page .feedback-block-content h4 {
+  font-size: var(--fb-font-size-xl);
+  font-weight: 600;
+  margin-top: var(--fb-spacing-lg);
+  margin-bottom: var(--fb-spacing-sm);
+  color: var(--fb-color-text-primary);
+}
+.feedback-page .feedback-block-content h2:first-child,
+.feedback-page .feedback-block-content h3:first-child,
+.feedback-page .feedback-block-content h4:first-child {
+  margin-top: 0;
+}
+.feedback-page .feedback-block-content p {
+  margin: var(--fb-spacing-md) 0;
+  line-height: 1.7;
+  color: var(--fb-color-text-primary);
+}
+.feedback-page .feedback-block-content ul,
+.feedback-page .feedback-block-content ol {
+  margin: var(--fb-spacing-md) 0;
+  padding-left: var(--fb-spacing-lg);
+}
+.feedback-page .feedback-block-content li {
+  margin: var(--fb-spacing-sm) 0;
+  line-height: 1.6;
+  color: var(--fb-color-text-primary);
+}
+.feedback-page .feedback-block-content ul ul,
+.feedback-page .feedback-block-content ol ul,
+.feedback-page .feedback-block-content ul ol,
+.feedback-page .feedback-block-content ol ol {
+  margin: var(--fb-spacing-xs) 0;
+  padding-left: var(--fb-spacing-md);
+}
+.feedback-page .feedback-block-content a {
+  color: var(--fb-color-primary);
+  text-decoration: underline;
+}
+.feedback-page .feedback-block-content a:hover {
+  color: var(--fb-color-primary-hover);
+}
+.feedback-page .feedback-block-content code {
+  background: var(--fb-color-primary-light);
+  padding: 2px var(--fb-spacing-sm);
+  border-radius: var(--fb-radius-sm);
+  font-family: var(--fb-font-mono);
+  font-size: 0.9em;
+  color: var(--fb-color-text-primary);
+}
+.feedback-page .feedback-block-content blockquote,
+.feedback-page .feedback-block-content .callout {
+  padding: var(--fb-spacing-md) var(--fb-spacing-lg);
+  margin: var(--fb-spacing-lg) 0;
+  border-radius: 16px;
+  background: var(--fb-color-bg-secondary);
+  border: 1px solid var(--fb-color-border-light);
+  box-shadow: var(--fb-shadow-sm);
+  line-height: 1.7;
+  color: var(--fb-color-text-primary);
+}
+/* Первый/последний абзац внутри callout не добавляет отступ поверх
+   собственных полей блока — иначе сверху и снизу набегает лишние ~16px */
+.feedback-page .feedback-content .callout > :first-child,
+.feedback-page .feedback-content blockquote > :first-child,
+.feedback-page .feedback-block-content .callout > :first-child,
+.feedback-page .feedback-block-content blockquote > :first-child {
+  margin-top: 0;
+}
+.feedback-page .feedback-content .callout > :last-child,
+.feedback-page .feedback-content blockquote > :last-child,
+.feedback-page .feedback-block-content .callout > :last-child,
+.feedback-page .feedback-block-content blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.feedback-page .feedback-block-content .callout.tip {
+  background: rgba(16, 185, 129, 0.05);
+  border-color: rgba(16, 185, 129, 0.15);
+}
+[data-theme="dark"] .feedback-page .feedback-block-content blockquote,
+[data-theme="dark"] .feedback-page .feedback-block-content .callout {
+  background: var(--fb-modal-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-block-content .callout.tip {
+  background: var(--fb-modal-card);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.feedback-page .feedback-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.feedback-page .feedback-block-toggle {
+  background: none;
+  border: none;
+  color: var(--fb-color-text-secondary);
+  cursor: pointer;
+  padding: var(--fb-spacing-xs) var(--fb-spacing-sm);
+  border-radius: var(--fb-radius-sm);
+  transition: all 0.2s ease;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  margin-left: var(--fb-spacing-md);
+  font-family: var(--fb-font-family);
+}
+
+.feedback-page .feedback-block-toggle:hover {
+  color: var(--fb-color-text-primary);
+  background: var(--fb-color-primary-light);
+}
+
+.feedback-page .feedback-block.collapsed .feedback-block-toggle {
+  color: var(--fb-color-text-muted);
+}
+
+.feedback-page .feedback-block-toggle-icon {
+  transition: transform 0.3s ease;
+  display: inline-block;
+}
+
+.feedback-page .feedback-block.collapsed .feedback-block-toggle-icon {
+  transform: rotate(-90deg);
+}
+
+/* === ВОПРОСЫ ДЛЯ ПРОРАБОТКИ === */
+.feedback-page .feedback-questions {
+  margin-top: var(--fb-spacing-md);
+  padding: var(--fb-spacing-md);
+  background: var(--fb-color-warning-light);
+  border-radius: 16px;
+  box-shadow: var(--fb-shadow-sm);
+  max-width: 850px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Вопросы внутри модалки */
+.feedback-page .fb-modal-body .feedback-questions {
+  margin-top: 16px !important;
+  margin-bottom: 0 !important;
+}
+
+/* Вопросы внутри модалки в тёмной теме */
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-questions {
+  background: var(--fb-modal-section);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+}
+
+/* Переопределение теплых фонов в модалке (светлая тема) */
+.feedback-page .fb-modal-content .feedback-block.section-for-review,
+.feedback-page .fb-modal-content .feedback-questions,
+.feedback-page .fb-modal-content .feedback-questions-section {
+  background: var(--fb-color-bg) !important;
+  border: 1px solid var(--fb-color-border) !important;
+  color: var(--fb-color-text-primary) !important;
+}
+
+/* Полное удаление теплых цветов в модалке */
+.feedback-page
+  .fb-modal-content
+  [style*="background"]:not([style*="rgba(255"]):not([style*="rgb(255"]),
+.feedback-page .fb-modal-content .warm,
+.feedback-page .fb-modal-content .feedback-block.warm,
+.feedback-page .fb-modal-content .section-warm,
+.feedback-page .fb-modal-content [class*="warm"] {
+  background: var(--fb-color-bg) !important;
+  color: var(--fb-color-text-primary) !important;
+  border-color: var(--fb-color-border) !important;
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-content [style*="background"]:not([style*="rgba(13"]):not([style*="rgba(19"]):not( [style*="rgba(21"] ),
+[data-theme="dark"] .feedback-page .fb-modal-content .warm,
+[data-theme="dark"] .feedback-page .fb-modal-content .feedback-block.warm,
+[data-theme="dark"] .feedback-page .fb-modal-content .section-warm,
+[data-theme="dark"] .feedback-page .fb-modal-content [class*="warm"] {
+  background: var(--fb-modal-section) !important;
+  color: var(--fb-color-text-primary) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.feedback-page .feedback-questions-title {
+  font-weight: 600;
+  color: var(--fb-color-text-primary);
+  margin-bottom: var(--fb-spacing-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fb-spacing-sm);
+  font-size: var(--fb-font-size-xl);
+}
+
+.feedback-page .feedback-questions-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  font-size: var(--fb-font-size-base);
+  color: var(--fb-color-text-secondary);
+}
+
+.feedback-page .feedback-questions-progress-bar {
+  width: 120px;
+  height: 8px;
+  background: var(--fb-color-primary-light);
+  border-radius: var(--fb-radius-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+.feedback-page .feedback-questions-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--fb-color-primary), #8b7ed8);
+  border-radius: var(--fb-radius-sm);
+  transition: width 0.3s ease;
+}
+
+.feedback-page .feedback-questions hr {
+  display: none !important;
+}
+
+.feedback-page .feedback-questions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feedback-page .feedback-question-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fb-spacing-md);
+  padding: 10px 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Сжатие чеклиста внутри модалки */
+.feedback-page .fb-modal-content .feedback-questions-section li,
+.feedback-page .fb-modal-content .feedback-question-item {
+  margin: 4px 0 !important;
+  padding: 2px 0 !important;
+  line-height: 1.25 !important;
+  max-width: 100% !important;
+}
+
+.feedback-page .fb-modal-content .feedback-questions-list li {
+  margin: 4px 0 !important;
+  padding: 2px 0 !important;
+  line-height: 1.25 !important;
+}
+
+.feedback-page .feedback-question-checkbox {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--fb-color-primary);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-question-checkbox {
+  accent-color: #6b82ff;
+}
+
+.feedback-page .feedback-question-text {
+  flex: 1;
+  color: var(--fb-color-text-primary);
+  line-height: 1.5;
+  font-size: var(--fb-font-size-lg);
+}
+
+.feedback-page .feedback-question-item.completed .feedback-question-text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.feedback-page .feedback-question-item.completed {
+  opacity: 0.7;
+}
+
+/* === ВОПРОСЫ В СЕКЦИЯХ === */
+.feedback-page .feedback-section-questions-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--fb-spacing-md) 0;
+}
+
+.feedback-page .feedback-section-question-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fb-spacing-md);
+  padding: 10px 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Сжатие секций вопросов внутри модалки */
+.feedback-page .fb-modal-content .feedback-section-question-item {
+  margin: 4px 0 !important;
+  padding: 2px 0 !important;
+  line-height: 1.25 !important;
+  max-width: 100% !important;
+}
+
+.feedback-page .fb-modal-content .feedback-section-questions-list {
+  margin: 6px 0 !important;
+}
+
+.feedback-page .feedback-section-question-checkbox {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--fb-color-primary);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .feedback-page .fb-modal-body .feedback-section-question-checkbox {
+  accent-color: #6b82ff;
+}
+
+.feedback-page .feedback-section-question-text {
+  flex: 1;
+  color: var(--fb-color-text-primary);
+  line-height: 1.5;
+  font-size: var(--fb-font-size-lg);
+}
+
+.feedback-page
+  .feedback-section-question-item.completed
+  .feedback-section-question-text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.feedback-page .feedback-section-question-item.completed {
+  opacity: 0.7;
+}
+
+/* === СИСТЕМА КНОПОК (УНИФИЦИРОВАННАЯ) === */
+.feedback-page .btn {
+  padding: 10px 18px;
+  border-radius: var(--fb-radius-md);
+  font-weight: 600;
+  font-size: var(--fb-font-size-base);
+  font-family: var(--fb-font-family);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  box-shadow: var(--fb-shadow-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fb-spacing-sm);
+}
+
+.feedback-page .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--fb-shadow-md);
+}
+
+.feedback-page .btn:active {
+  transform: translateY(0);
+}
+
+.feedback-page .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.feedback-page .btn--primary {
+  background: linear-gradient(135deg, var(--brand), var(--brand-secondary));
+  color: var(--brand-text);
+}
+
+.feedback-page .btn--primary:hover {
+  background: linear-gradient(135deg, var(--brand-hover), var(--accent-hover));
+}
+
+.feedback-page .btn--success {
+  background: var(--fb-color-success);
+  color: white;
+}
+
+.feedback-page .btn--success:hover {
+  background: var(--fb-color-success-hover);
+}
+
+.feedback-page .btn--info {
+  background: var(--fb-color-info);
+  color: white;
+}
+
+.feedback-page .btn--info:hover {
+  background: var(--fb-color-info-hover);
+}
+
+.feedback-page .btn--danger {
+  background: var(--fb-color-danger);
+  color: white;
+}
+
+.feedback-page .btn--danger:hover {
+  background: var(--fb-color-danger-hover);
+}
+
+.feedback-page .btn--outline {
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-secondary);
+  border: 1px solid var(--fb-color-border);
+  box-shadow: none;
+}
+
+.feedback-page .btn--outline:hover {
+  background: var(--fb-color-bg-hover);
+  border-color: var(--fb-color-text-secondary);
+  color: var(--fb-color-text-primary);
+}
+
+/* Старые классы для обратной совместимости - используют базовый .btn */
+.feedback-page .btn-mark-read,
+.feedback-page .btn-edit-feedback,
+.feedback-page .btn-delete-feedback,
+.feedback-page .btn-create-feedback,
+.feedback-page .btn-cancel,
+.feedback-page .btn-primary {
+  padding: 10px 18px;
+  border-radius: var(--fb-radius-md);
+  font-weight: 600;
+  font-size: var(--fb-font-size-base);
+  font-family: var(--fb-font-family);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  box-shadow: var(--fb-shadow-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fb-spacing-sm);
+}
+
+.feedback-page .btn-mark-read:hover,
+.feedback-page .btn-edit-feedback:hover,
+.feedback-page .btn-delete-feedback:hover,
+.feedback-page .btn-create-feedback:hover,
+.feedback-page .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--fb-shadow-md);
+}
+
+.feedback-page .btn-mark-read {
+  background: var(--fb-color-success);
+  color: white;
+}
+
+.feedback-page .btn-mark-read:hover {
+  background: var(--fb-color-success-hover);
+}
+
+.feedback-page .btn-edit-feedback {
+  background: var(--fb-color-info);
+  color: white;
+}
+
+.feedback-page .btn-edit-feedback:hover {
+  background: var(--fb-color-info-hover);
+}
+
+.feedback-page .btn-delete-feedback {
+  background: var(--fb-color-danger);
+  color: white;
+}
+
+.feedback-page .btn-delete-feedback:hover {
+  background: var(--fb-color-danger-hover);
+}
+
+/* Кнопка удаления в модалке — мягкий контраст под палитру */
+[data-theme="dark"] body .feedback-page .fb-modal-body .btn-delete-feedback,
+.feedback-page .fb-modal-body .btn-delete-feedback {
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-body .btn-delete-feedback:hover,
+.feedback-page .fb-modal-body .btn-delete-feedback:hover {
+  background: color-mix(in srgb, var(--danger) 22%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.feedback-page .btn-create-feedback,
+.feedback-page .btn-primary {
+  background: linear-gradient(135deg, var(--brand), var(--brand-secondary));
+  color: var(--brand-text);
+}
+
+.feedback-page .btn-create-feedback:hover,
+.feedback-page .btn-primary:hover {
+  background: linear-gradient(135deg, var(--brand-hover), var(--accent-hover));
+}
+
+.feedback-page .btn-cancel {
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-secondary);
+  border: 1px solid var(--fb-color-border);
+  box-shadow: none;
+}
+
+.feedback-page .btn-cancel:hover {
+  background: var(--fb-color-bg-hover);
+  border-color: var(--fb-color-text-secondary);
+  color: var(--fb-color-text-primary);
+}
+
+/* === ДЕЙСТВИЯ === */
+.feedback-page .feedback-actions {
+  display: flex;
+  gap: var(--fb-spacing-sm);
+  margin-top: var(--fb-spacing-md);
+  flex-wrap: wrap;
+}
+
+/* === ФИЛЬТР === */
+.feedback-page .feedbacks-filter {
+  margin-bottom: var(--fb-spacing-lg);
+  padding: var(--fb-spacing-md);
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-lg);
+  box-shadow: var(--fb-shadow-sm);
+}
+
+.feedback-page .feedbacks-filter-label {
+  display: block;
+  margin-bottom: var(--fb-spacing-sm);
+  font-weight: 500;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-base);
+}
+
+.feedback-page .feedbacks-filter-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fb-spacing-sm);
+  min-height: 44px;
+  margin: 0 0 var(--fb-spacing-sm);
+  padding: var(--fb-spacing-sm) var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg-hover);
+  color: var(--fb-color-text-primary);
+  cursor: pointer;
+}
+
+.feedback-page .feedbacks-filter-checkbox input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--fb-color-primary);
+  flex: 0 0 auto;
+}
+
+.feedback-page .feedbacks-filter-checkbox span {
+  display: grid;
+  gap: 2px;
+}
+
+.feedback-page .feedbacks-filter-checkbox strong {
+  font-size: var(--fb-font-size-sm);
+}
+
+.feedback-page .feedbacks-filter-checkbox small {
+  color: var(--fb-color-text-secondary);
+  font-size: var(--fb-font-size-sm);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.feedback-page .feedbacks-filter-checkbox:focus-within {
+  border-color: var(--fb-color-primary);
+  box-shadow: 0 0 0 3px var(--fb-color-primary-light);
+}
+
+.feedback-page .feedbacks-filter-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--fb-spacing-sm);
+}
+
+.feedback-page .feedbacks-filter-field {
+  display: grid;
+  gap: var(--fb-spacing-xs);
+  color: var(--fb-color-text-secondary);
+  font-size: var(--fb-font-size-sm);
+  font-weight: 600;
+}
+
+.feedback-page .feedbacks-filter-search,
+.feedback-page .feedbacks-filter-select {
+  width: 100%;
+  padding: 10px var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-primary);
+  font-family: var(--fb-font-family);
+  font-size: var(--fb-font-size-base);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.feedback-page .feedbacks-filter-search:focus,
+.feedback-page .feedbacks-filter-select:focus {
+  outline: none;
+  border-color: var(--fb-color-primary);
+  box-shadow: 0 0 0 3px var(--fb-color-primary-light);
+}
+
+@media (min-width: 768px) {
+  .feedback-page .feedbacks-filter-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* === МОДАЛЬНЫЕ ОКНА (УНИФИЦИРОВАННЫЕ) === */
+.feedback-page .modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  animation: fb-fadeIn 0.2s ease;
+  box-sizing: border-box;
+}
+
+.feedback-page .modal.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes fb-fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.feedback-page .modal-content {
+  background: var(--fb-color-bg);
+  border-radius: var(--fb-radius-xl);
+  padding: var(--fb-spacing-lg);
+  max-width: 560px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--fb-shadow-xl);
+  animation: fb-slideUp 0.3s ease;
+  position: relative;
+  box-sizing: border-box;
+  margin: 0 auto;
+  border: 1px solid var(--fb-color-border);
+}
+
+.feedback-page .modal-content * {
+  box-sizing: border-box;
+}
+
+.feedback-page .modal-content form {
+  width: 100%;
+  max-width: 100%;
+}
+
+@keyframes fb-slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.feedback-page .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--fb-spacing-lg);
+  padding-bottom: var(--fb-spacing-md);
+  border-bottom: 1px solid var(--fb-color-border);
+}
+
+.feedback-page .modal-header h2 {
+  margin: 0;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-3xl);
+  font-weight: 700;
+}
+
+.feedback-page .modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--fb-color-text-secondary);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--fb-radius-md);
+  transition: all 0.2s ease;
+  font-family: var(--fb-font-family);
+}
+
+.feedback-page .modal-close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--fb-color-danger);
+}
+
+/* === ФОРМЫ === */
+.feedback-page .form-group {
+  margin-bottom: var(--fb-spacing-lg);
+  width: 100%;
+  max-width: 100%;
+}
+
+.feedback-page .form-group label {
+  display: block;
+  margin-bottom: var(--fb-spacing-sm);
+  font-weight: 500;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-base);
+}
+
+.feedback-page .form-group textarea {
+  width: 100%;
+  max-width: 100%;
+  min-height: 200px;
+  padding: var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-primary);
+  font-family: var(--fb-font-family);
+  font-size: var(--fb-font-size-base);
+  resize: vertical;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  line-height: 1.6;
+}
+
+.feedback-page .form-group textarea:focus {
+  outline: none;
+  border-color: var(--fb-color-primary);
+  box-shadow: 0 0 0 3px var(--fb-color-primary-light);
+}
+
+.feedback-page .form-group input {
+  width: 100%;
+  padding: var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-primary);
+  font-family: var(--fb-font-family);
+  font-size: var(--fb-font-size-base);
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.feedback-page .form-group input:focus {
+  outline: none;
+  border-color: var(--fb-color-primary);
+  box-shadow: 0 0 0 3px var(--fb-color-primary-light);
+}
+
+.feedback-page .form-group select {
+  width: 100%;
+  padding: var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg);
+  color: var(--fb-color-text-primary);
+  font-family: var(--fb-font-family);
+  font-size: var(--fb-font-size-base);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.feedback-page .form-group select:focus {
+  outline: none;
+  border-color: var(--fb-color-primary);
+  box-shadow: 0 0 0 3px var(--fb-color-primary-light);
+}
+
+.feedback-page .form-hint {
+  font-size: var(--fb-font-size-sm);
+  color: var(--fb-color-text-secondary);
+  margin-top: var(--fb-spacing-xs);
+  line-height: 1.5;
+}
+
+/* Футер модалки - правильный стиль */
+.feedback-page .fb-modal-content .modal-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px !important;
+  margin: 0 -40px -32px -40px !important;
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  backdrop-filter: var(--surface-glass-blur);
+  border-top: 1px solid var(--border-color);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  z-index: 10;
+}
+
+.feedback-page .fb-modal-content .feedback-actions {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0 0 !important;
+  margin: 24px 0 0 !important;
+  background: transparent;
+  backdrop-filter: none;
+  border-top: 1px solid var(--border-color);
+  box-shadow: none;
+  border-radius: 0;
+  z-index: auto;
+}
+
+.feedback-page .fb-modal-content .modal-actions *,
+.feedback-page .fb-modal-content .feedback-actions * {
+  margin-top: 0 !important;
+}
+
+.feedback-page .fb-modal-content .modal-actions button,
+.feedback-page .fb-modal-content .feedback-actions button {
+  padding: 10px 20px;
+  font-size: 15px;
+  border-radius: 8px;
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content .modal-actions {
+  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--text) 12%);
+  border-top-color: var(--border-color);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content .feedback-actions {
+  background: transparent;
+  border-top-color: var(--border-color);
+  box-shadow: none;
+}
+
+.feedback-page .feedback-content .katex-display,
+.feedback-page .feedback-block-content .katex-display,
+.feedback-page .feedback-questions .katex-display,
+.feedback-page .fb-q-body .katex-display {
+  display: block;
+  width: 100%;
+  margin: 1rem auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  -webkit-overflow-scrolling: touch;
+}
+
+.feedback-page .feedback-content .katex-display > .katex,
+.feedback-page .feedback-block-content .katex-display > .katex,
+.feedback-page .feedback-questions .katex-display > .katex,
+.feedback-page .fb-q-body .katex-display > .katex {
+  display: inline-block;
+  max-width: none !important;
+  text-align: initial;
+}
+
+/* === ЗАГРУЗКА === */
+.feedback-page .loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--fb-color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  grid-column: 1 / -1;
+}
+
+.feedback-page .loading-spinner {
+  border: 3px solid var(--fb-color-primary-light);
+  border-top: 3px solid var(--fb-color-primary);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: fb-spin 1s linear infinite;
+  margin: 0 auto var(--fb-spacing-md);
+}
+
+@keyframes fb-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* === МОДАЛЬНОЕ ОКНО ПРОСМОТРА ФИДБЕКА === */
+.feedback-page .fb-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10000;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.feedback-page .fb-modal.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+.feedback-page .fb-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.feedback-page .fb-modal-content {
+  position: relative;
+  z-index: 10001;
+  background: var(--surface-glass-bg);
+  backdrop-filter: var(--surface-glass-blur);
+  border-radius: var(--radius-xl);
+  max-width: 960px !important;
+  width: 92vw;
+  max-height: 90vh;
+  overflow-x: hidden !important;
+  overflow-y: hidden;
+  padding: 32px 40px;
+  border: 1px solid var(--surface-glass-border);
+  box-shadow: var(--surface-glass-shadow), var(--shadow-xl);
+  margin: var(--fb-spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+}
+
+/* Запрет на переполнение всех элементов внутри модалки */
+.feedback-page .fb-modal-content * {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.feedback-page .fb-modal-content > .fb-modal-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Тёмная тема: стекло и тени уже из tokens для body.dark */
+[data-theme="dark"] body .feedback-page .fb-modal-content {
+  border-color: var(--surface-glass-border);
+}
+
+/* Тени для скролла внутри модалки */
+.feedback-page .fb-modal-content::before,
+.feedback-page .fb-modal-content::after {
+  content: "";
+  position: sticky;
+  left: 0;
+  right: 0;
+  height: 16px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.feedback-page .fb-modal-content::before {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.12), transparent);
+  margin-top: -32px;
+}
+
+.feedback-page .fb-modal-content::after {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.12), transparent);
+  margin-bottom: -32px;
+}
+
+.feedback-page .fb-modal-content::before,
+.feedback-page .fb-modal-content::after {
+  display: none;
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content::before {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--text) 14%, transparent),
+    transparent
+  );
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content::after {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--text) 14%, transparent),
+    transparent
+  );
+}
+
+/* Кастомный скроллбар для модального окна (светлая тема) */
+.feedback-page .fb-modal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.feedback-page .fb-modal-content::-webkit-scrollbar-track {
+  background: var(--fb-color-bg-secondary);
+  border-radius: 4px;
+}
+
+.feedback-page .fb-modal-content::-webkit-scrollbar-thumb {
+  background: var(--fb-color-primary);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.feedback-page .fb-modal-content::-webkit-scrollbar-thumb:hover {
+  background: var(--fb-color-primary-hover);
+}
+
+/* Firefox */
+.feedback-page .fb-modal-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fb-color-primary) var(--fb-color-bg-secondary);
+}
+
+/* Темная тема для скроллбара */
+[data-theme="dark"] body .feedback-page .fb-modal-content::-webkit-scrollbar-track {
+  background: var(--fb-color-bg-secondary);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content::-webkit-scrollbar-thumb {
+  background: var(--brand);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-hover);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-content {
+  scrollbar-color: var(--brand) var(--fb-color-bg-secondary);
+}
+
+/* Пружинная анимация для модалки */
+@keyframes fb-modal-spring {
+  0% {
+    transform: scale(0.92) translateY(12px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.02) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+.feedback-page .fb-modal.show .fb-modal-content {
+  animation: fb-modal-spring 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.feedback-page .fb-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 32px !important;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  backdrop-filter: blur(4px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-radius: var(--fb-radius-xl) var(--fb-radius-xl) 0 0;
+  margin-bottom: 12px !important;
+  margin-top: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.feedback-page .fb-modal-header h2 {
+  margin: 0;
+  font-size: var(--fb-font-size-2xl);
+  font-weight: 700;
+  color: var(--fb-color-text-primary);
+}
+
+.feedback-page .fb-modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--fb-color-text-muted);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.feedback-page .fb-modal-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--fb-color-danger);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-close:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.feedback-page .fb-modal-body {
+  padding: 0 32px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Исправление отступов для первого элемента в модалке */
+.feedback-page .fb-modal-content > *:first-child {
+  margin-top: 0 !important;
+}
+
+.feedback-page .fb-modal-body > *:first-child {
+  margin-top: 0 !important;
+}
+
+.feedback-page .feedback-modal-header-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--fb-spacing-xl);
+  padding: 0 0 var(--fb-spacing-lg) 0;
+  border-bottom: 1px solid var(--fb-color-border);
+  gap: var(--fb-spacing-md);
+}
+
+.feedback-page .feedback-modal-meta {
+  flex: 1;
+}
+
+.feedback-page .feedback-modal-title {
+  font-weight: 700;
+  color: var(--fb-color-text-primary);
+  font-size: var(--fb-font-size-2xl);
+  margin-bottom: var(--fb-spacing-sm);
+  line-height: 1.3;
+}
+
+.feedback-page .feedback-modal-student {
+  font-weight: 600;
+  color: var(--fb-color-text-secondary);
+  font-size: var(--fb-font-size-base);
+  margin-bottom: var(--fb-spacing-xs);
+}
+
+.feedback-page .feedback-modal-date {
+  font-size: var(--fb-font-size-sm);
+  color: var(--fb-color-text-secondary);
+}
+
+.feedback-page .feedback-modal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  padding: var(--fb-spacing-xs) 10px;
+  border-radius: 20px;
+  font-size: var(--fb-font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.feedback-page .feedback-modal-status.unread {
+  background: color-mix(in srgb, var(--brand) 12%, var(--bg-secondary));
+  color: var(--fb-color-primary);
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border-color));
+}
+
+[data-theme="dark"] body .feedback-page .feedback-modal-status.unread {
+  background: var(--info-light);
+  color: var(--brand);
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, transparent);
+}
+
+.feedback-page .feedback-modal-status.read {
+  background: var(--fb-color-success-light);
+  color: var(--fb-color-success);
+}
+
+/* === АДАПТИВНОСТЬ === */
+@media (max-width: 768px) {
+  .feedback-page .container {
+    padding: var(--fb-spacing-md);
+  }
+
+  .feedback-page .fb-modal-content {
+    width: 95vw;
+    max-width: 960px !important;
+    max-height: 95vh;
+    margin: var(--fb-spacing-md);
+    padding: 24px;
+    overflow-x: hidden !important;
+  }
+
+  .feedback-page .fb-modal-header {
+    padding: 16px 24px !important;
+  }
+
+  .feedback-page .fb-modal-body {
+    padding: 0 24px !important;
+  }
+
+  .feedback-page .fb-modal-content .modal-actions,
+  .feedback-page .fb-modal-content .feedback-actions {
+    margin: 0 -24px -24px -24px !important;
+    padding: 12px 16px !important;
+  }
+
+  .feedback-page .fb-modal-content .feedback-actions {
+    margin: 20px 0 0 !important;
+    padding: 14px 0 0 !important;
+  }
+
+  .feedback-page .feedback-block {
+    padding: var(--fb-spacing-lg);
+    margin: var(--fb-spacing-lg) 0;
+  }
+
+  .feedback-page .feedback-block-title {
+    font-size: var(--fb-font-size-2xl);
+  }
+
+  .feedback-page .modal-content {
+    width: 95%;
+    padding: var(--fb-spacing-lg);
+  }
+
+  .feedback-page .feedback-actions {
+    flex-direction: column;
+  }
+
+  .feedback-page .feedback-actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .feedback-page .feedback-header {
+    flex-direction: column;
+    gap: var(--fb-spacing-sm);
+  }
+
+  .feedback-page .feedback-block-title {
+    font-size: var(--fb-font-size-xl);
+  }
+}
+
+/* === CODE BLOCKS в callout и секциях === */
+.feedback-page .feedback-block-content pre,
+.feedback-page .feedback-content .callout pre,
+.feedback-page .fb-modal-body .callout pre {
+  background: var(--fb-color-bg-secondary);
+  border: 1px solid var(--fb-color-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-family: var(--fb-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+
+.feedback-page .feedback-block-content pre code,
+.feedback-page .feedback-content .callout pre code,
+.feedback-page .fb-modal-body .callout pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--fb-color-text-primary);
+  white-space: pre;
+}
+
+/* pre / code в контенте фидбека */
+[data-theme="dark"] body .feedback-page .feedback-block-content pre,
+[data-theme="dark"] body .feedback-page .feedback-content .callout pre,
+[data-theme="dark"] body .feedback-page .fb-modal-body .callout pre {
+  background: color-mix(in srgb, var(--text) 6%, var(--bg-secondary));
+  border-color: var(--border-color);
+}
+
+/* Скролл-бар у code block */
+.feedback-page pre::-webkit-scrollbar {
+  height: 4px;
+}
+.feedback-page pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.feedback-page pre::-webkit-scrollbar-thumb {
+  background: var(--fb-color-border);
+  border-radius: 4px;
+}
+
+/* =============================================
+   Q&A QUESTION BLOCKS — нумерация и структура
+   ============================================= */
+
+/* Карточка одного вопроса */
+.feedback-page .fb-q-block {
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+  border-radius: 12px;
+  padding: 0;
+  margin: 12px 0;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease;
+}
+
+.feedback-page .fb-q-block:hover {
+  box-shadow: var(--fb-shadow-md);
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-body .fb-q-block {
+  background: var(--fb-modal-card);
+  border-color: var(--border-color);
+}
+
+/* Заголовок вопроса с номером */
+.feedback-page .fb-q-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--fb-color-bg-secondary);
+  border-bottom: 1px solid var(--fb-color-border-light);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fb-color-text-primary);
+  line-height: 1.45;
+}
+
+[data-theme="dark"] body .feedback-page .fb-modal-body .fb-q-title {
+  background: color-mix(in srgb, var(--text) 5%, var(--bg-secondary));
+  border-bottom-color: var(--border-color);
+}
+
+/* Кружок с номером вопроса */
+.feedback-page .fb-q-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  background: var(--fb-color-primary);
+  color: var(--brand-text);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+  letter-spacing: 0;
+}
+
+.feedback-page .fb-q-title-text {
+  flex: 1;
+}
+
+/* Toggle кнопка вопроса */
+.feedback-page .fb-q-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  color: var(--fb-color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.feedback-page .fb-q-toggle:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] .feedback-page .fb-q-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.feedback-page .fb-q-toggle-icon {
+  font-size: 13px;
+  transition: transform 0.25s ease;
+  display: inline-block;
+}
+
+.feedback-page .fb-q-block.collapsed .fb-q-toggle-icon {
+  transform: rotate(-90deg);
+}
+
+/* Тело блока вопроса */
+.feedback-page .fb-q-body {
+  overflow: hidden;
+}
+
+.feedback-page .fb-q-block.collapsed .fb-q-body {
+  display: none;
+}
+
+/* Тело карточки вопроса */
+.feedback-page .fb-q-block .fb-student-answer,
+.feedback-page .fb-q-body > p,
+.feedback-page .fb-q-body > ul,
+.feedback-page .fb-q-body > ol,
+.feedback-page .fb-q-body > .callout,
+.feedback-page .fb-q-body > pre {
+  margin: 0;
+  padding: 12px 18px;
+}
+
+/* Маркеры списка не должны выпадать за левый край строки-ряда */
+.feedback-page .fb-q-body > ul,
+.feedback-page .fb-q-body > ol {
+  padding-left: calc(18px + var(--fb-spacing-md));
+}
+
+/* Разделители между элементами внутри блока */
+.feedback-page .fb-q-body > p + p,
+.feedback-page .fb-q-body > p + ul,
+.feedback-page .fb-q-body > ul + p {
+  padding-top: 0;
+}
+
+/* Ответ студента — акцент пары бренда */
+.feedback-page .fb-student-answer {
+  background: color-mix(in srgb, var(--brand) 9%, var(--bg-card));
+  border-left: 3px solid var(--brand);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--brand) 14%, var(--border-color));
+  padding: 12px 18px !important;
+}
+
+[data-theme="dark"] body .feedback-page .fb-student-answer {
+  background: color-mix(in srgb, var(--brand) 12%, var(--bg-card));
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--brand) 18%,
+    var(--border-color)
+  );
+}
+
+.feedback-page .fb-student-answer-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--brand);
+  margin-bottom: 5px;
+  opacity: 0.92;
+}
+
+[data-theme="dark"] body .feedback-page .fb-student-answer-label {
+  color: var(--brand-hover);
+}
+
+.feedback-page .fb-student-answer-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fb-color-text-primary);
+}
+
+/* Параграфы внутри карточки — зона анализа/комментариев */
+.feedback-page .fb-q-body > p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fb-color-text-secondary);
+  border-bottom: 1px solid var(--fb-color-border-light);
+}
+
+.feedback-page .fb-q-body > p:last-child {
+  border-bottom: none;
+}
+
+/* Callout внутри карточки — совет как правильно */
+.feedback-page .fb-q-body > .callout {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  border-bottom: 1px solid var(--fb-color-border-light);
+  margin: 0 !important;
+}
+
+.feedback-page .fb-q-body > .callout:last-child {
+  border-bottom: none;
+}
+
+.feedback-page .fb-q-body > .callout.tip {
+  background: rgba(16, 185, 129, 0.06);
+  border-bottom-color: rgba(16, 185, 129, 0.12);
+}
+
+[data-theme="dark"] .feedback-page .fb-q-body > .callout.tip {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+/* Списки внутри карточки */
+.feedback-page .fb-q-body > ul,
+.feedback-page .fb-q-body > ol {
+  border-bottom: 1px solid var(--fb-color-border-light);
+}
+
+.feedback-page .fb-q-body > ul:last-child,
+.feedback-page .fb-q-body > ol:last-child {
+  border-bottom: none;
+}
+
+/* pre/code внутри карточки */
+.feedback-page .fb-q-body > pre {
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+
+/* =============================================
+   УЛУЧШЕННЫЙ ДИЗАЙН — SECTION ACCENTS & POLISH
+   ============================================= */
+
+/* --- Цветовые акценты секций --- */
+.feedback-page .feedback-block.section-interview {
+  border-left: 3px solid var(--brand);
+}
+.feedback-page .feedback-block.section-hr {
+  border-left: 3px solid var(--brand-secondary);
+}
+.feedback-page .feedback-block.section-difficulties {
+  border-left: 3px solid var(--warning);
+}
+.feedback-page .feedback-block.section-strengths {
+  border-left: 3px solid var(--success);
+}
+.feedback-page .feedback-block.section-verdict {
+  border-left: 3px solid var(--brand);
+}
+.feedback-page .feedback-block.section-topics {
+  border-left: 3px solid var(--accent);
+}
+.feedback-page .feedback-block.section-next-call {
+  border-left: 3px solid var(--warning);
+}
+
+/* Тонированный фон заголовка секции */
+.feedback-page .feedback-block.section-interview .feedback-block-title {
+  color: var(--brand);
+}
+.feedback-page .feedback-block.section-hr .feedback-block-title {
+  color: var(--brand-secondary);
+}
+.feedback-page .feedback-block.section-difficulties .feedback-block-title {
+  color: var(--warning);
+}
+.feedback-page .feedback-block.section-strengths .feedback-block-title {
+  color: var(--success);
+}
+.feedback-page .feedback-block.section-verdict .feedback-block-title {
+  color: var(--brand);
+}
+.feedback-page .feedback-block.section-topics .feedback-block-title {
+  color: var(--accent);
+}
+.feedback-page .feedback-block.section-next-call .feedback-block-title {
+  color: var(--warning);
+}
+
+/* --- Улучшенные карточки фидбека --- */
+.feedback-page .feedback-card {
+  border-radius: 14px;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.feedback-page .feedback-card.unread {
+  background: var(--fb-color-bg);
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--border-color));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--brand) 14%, transparent),
+    var(--fb-shadow-sm);
+}
+
+.feedback-page .feedback-card-title {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.feedback-page .feedback-card-date {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+/* --- Статус-бейдж: чище --- */
+.feedback-page .feedback-card-status {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.feedback-page .feedback-card-status.unread {
+  background: color-mix(in srgb, var(--brand) 12%, var(--bg-secondary));
+  color: var(--fb-color-primary);
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border-color));
+}
+
+[data-theme="dark"] body .feedback-page .feedback-card-status.unread {
+  background: var(--info-light);
+  color: var(--brand);
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, transparent);
+}
+
+.feedback-page .feedback-card-status.read {
+  background: rgba(60, 207, 145, 0.1);
+  color: #2eb87d;
+  border: 1px solid rgba(60, 207, 145, 0.2);
+}
+
+/* --- Блок секции: чище, строже --- */
+.feedback-page .feedback-block {
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.feedback-page .feedback-block-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 12px;
+}
+
+.feedback-page .feedback-block-header {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--fb-color-border-light);
+  margin-bottom: 0;
+}
+
+/* --- Кнопка toggle блока --- */
+.feedback-page .feedback-block-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  background: var(--fb-color-bg-secondary);
+  color: var(--fb-color-text-muted);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.feedback-page .feedback-block-toggle:hover {
+  background: var(--fb-color-primary-light);
+  color: var(--fb-color-primary);
+}
+
+/* --- Прогресс-бар: современнее --- */
+.feedback-page .feedback-questions-progress-bar {
+  height: 6px;
+  background: var(--fb-color-bg-secondary);
+  border-radius: 99px;
+  border: 1px solid var(--fb-color-border-light);
+}
+
+.feedback-page .feedback-questions-progress-fill {
+  background: linear-gradient(
+    90deg,
+    var(--fb-color-primary),
+    var(--fb-color-success)
+  );
+  border-radius: 99px;
+}
+
+/* --- Чекбоксы: кастомный стиль --- */
+.feedback-page .feedback-question-checkbox,
+.feedback-page .feedback-section-question-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 2px solid var(--fb-color-border);
+  border-radius: 5px;
+  background: var(--fb-color-bg);
+  cursor: pointer;
+  position: relative;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  margin-top: 3px;
+}
+
+.feedback-page .feedback-question-checkbox:checked,
+.feedback-page .feedback-section-question-checkbox:checked {
+  background: var(--fb-color-primary);
+  border-color: var(--fb-color-primary);
+}
+
+.feedback-page .feedback-question-checkbox:checked::after,
+.feedback-page .feedback-section-question-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0px;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.feedback-page .feedback-question-checkbox:hover:not(:checked),
+.feedback-page .feedback-section-question-checkbox:hover:not(:checked) {
+  border-color: var(--fb-color-primary);
+}
+
+/* --- Вопрос-пункт: современнее --- */
+.feedback-page .feedback-question-item,
+.feedback-page .feedback-section-question-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Вложенный список чек-боксов под родительским пунктом */
+.feedback-page
+  .feedback-section-question-item
+  > .feedback-section-questions-list,
+.feedback-page .feedback-question-item > .feedback-section-questions-list,
+.feedback-page .feedback-question-item > .feedback-questions-list {
+  flex: 0 0 100%;
+  /* 18px checkbox + 10px gap = 28px — совпадает с началом текста label */
+  padding-left: 28px;
+  margin: 2px 0 0 0;
+}
+
+.feedback-page .feedback-question-item:hover,
+.feedback-page .feedback-section-question-item:hover {
+  background: var(--fb-color-bg-secondary);
+}
+
+.feedback-page .feedback-question-text,
+.feedback-page .feedback-section-question-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.feedback-page .feedback-question-item.completed,
+.feedback-page .feedback-section-question-item.completed {
+  opacity: 0.55;
+}
+
+/* --- Textarea для MD: моноширинный шрифт --- */
+.feedback-page #fbContent,
+.feedback-page #editFbContent {
+  font-family: var(--fb-font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  min-height: 400px;
+  tab-size: 2;
+  resize: vertical;
+}
+
+/* --- Form hint: code inline --- */
+.feedback-page .form-hint code {
+  background: var(--fb-color-primary-light);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--fb-font-mono);
+  font-size: 11px;
+  color: var(--fb-color-primary);
+}
+
+/* --- Блок вопросов для проработки: убираем yellow bg внутри модалки --- */
+.feedback-page .fb-modal-body .feedback-questions {
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+}
+
+/* --- Анимация появления блоков --- */
+@keyframes fb-block-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.feedback-page .fb-modal-body .feedback-block,
+.feedback-page .fb-modal-body .feedback-questions {
+  animation: fb-block-in 0.2s ease both;
+}
+
+.feedback-page .fb-modal-body .feedback-block:nth-child(1) {
+  animation-delay: 0ms;
+}
+.feedback-page .fb-modal-body .feedback-block:nth-child(2) {
+  animation-delay: 40ms;
+}
+.feedback-page .fb-modal-body .feedback-block:nth-child(3) {
+  animation-delay: 80ms;
+}
+.feedback-page .fb-modal-body .feedback-block:nth-child(4) {
+  animation-delay: 120ms;
+}
+.feedback-page .fb-modal-body .feedback-block:nth-child(5) {
+  animation-delay: 160ms;
+}
+.feedback-page .fb-modal-body .feedback-questions {
+  animation-delay: 200ms;
+}
+
+/* Тёмная тема: плашки как график в отчётах (tokens — surface-glass) */
+[data-theme="dark"] body .feedback-page .feedback-card,
+[data-theme="dark"] body .feedback-page .feedbacks-list .empty-state,
+[data-theme="dark"] body .feedback-page .feedbacks-filter {
+  background: var(--surface-glass-bg);
+  -webkit-backdrop-filter: var(--surface-glass-blur);
+  backdrop-filter: var(--surface-glass-blur);
+  border-color: var(--surface-glass-border);
+  box-shadow: var(--surface-glass-shadow);
+}
+
+[data-theme="dark"] body .feedback-page .feedback-card.unread {
+  /* Vibecode dark: плотная карточка и акцентная рамка без грязной заливки. */
+  background: var(--bg-card);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--border-color));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--brand) 16%, transparent),
+    var(--fb-shadow-sm);
+}
+
+[data-theme="dark"] body .feedback-page .feedbacks-filter-select {
+  background: var(--surface-glass-bg);
+  -webkit-backdrop-filter: var(--surface-glass-blur);
+  backdrop-filter: var(--surface-glass-blur);
+  border-color: var(--surface-glass-border);
+}
+
+/* === REAL INTERVIEW METADATA === */
+.feedback-page .interview-type-group {
+  display: grid;
+  gap: var(--fb-spacing-sm);
+  padding: var(--fb-spacing-md);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-md);
+  background: var(--fb-color-bg-secondary);
+}
+
+.feedback-page .interview-type-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fb-spacing-sm);
+  width: fit-content;
+  margin: 0;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--fb-color-text-primary);
+}
+
+.feedback-page .interview-type-toggle input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--brand);
+}
+
+.feedback-page .interview-company-field {
+  display: grid;
+  gap: var(--fb-spacing-xs);
+}
+
+.feedback-page .interview-company-field[hidden] {
+  display: none;
+}
+
+.feedback-page .interview-company-field input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.625rem 0.75rem;
+  color: var(--fb-color-text-primary);
+  font: inherit;
+  background: var(--fb-color-bg);
+  border: 1px solid var(--fb-color-border);
+  border-radius: var(--fb-radius-sm);
+}
+
+[data-theme="dark"] body .feedback-page .feedback-card-preview,
+[data-theme="dark"] body .feedback-page .feedback-card-date {
+  color: color-mix(
+    in srgb,
+    var(--fb-color-text-secondary) 45%,
+    var(--fb-color-text-primary) 55%
+  );
+}

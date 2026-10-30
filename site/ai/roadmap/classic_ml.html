@@ -1,0 +1,528 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Classic ML</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet">
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        renderMathInElement(document.body, {
+          // customised options
+          // • auto-render specific keys, e.g.:
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          // • rendering keys, e.g.:
+          throwOnError: false
+        });
+      });
+    </script>
+    <script src="../../assets/js/components/navigation.js"></script> 
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Classic ML</h1>
+            <p class="subtitle">Основы классического машинного обучения</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../../roadmap/index.html" class="page-header-button">Назад к карте разделов</a>
+          </div>
+        </div>
+      </header>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <div class="callout tip">
+        Основы по
+        <b>классическому</b>
+        и
+        <b>глубокому обучению</b>
+        . С дальнейшей специализацией в интересующую область (CV, NLP, Time Series, RecSys, etc.) По
+        классическим моделям есть
+        <a href="https://ods.ai/tracks/classic-models-autumn24">неплохой курс от ODS</a>
+      </div>
+      
+    
+      <div class="block">
+        <ul><!-- roadmap-md:block:1:start -->
+          <li class="roadmap-from-md" data-md-id="supervised_learning"><a href="../../ai/ml/classic.html#supervised_learning" target="_blank" rel="noopener">Задача обучения с учителем</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="samples"><a href="../../ai/ml/classic.html#samples" target="_blank" rel="noopener">Выборки</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ml_definition"><a href="../../ai/ml/classic.html#ml_definition" target="_blank" rel="noopener">Понятие машинного обучения и типы задач</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="classification_definition"><a href="../../ai/ml/classic.html#classification_definition" target="_blank" rel="noopener">Определение классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regression_definition"><a href="../../ai/ml/classic.html#regression_definition" target="_blank" rel="noopener">Определение регрессии</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="loss_functions"><a href="../../ai/ml/classic.html#loss_functions" target="_blank" rel="noopener">Функция потерь и эмпирический риск</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regression"><a href="../../ai/ml/classic.html#regression" target="_blank" rel="noopener">Регрессия</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="clf-losses"><a href="../../ai/ml/classic.html#clf-losses" target="_blank" rel="noopener">Функции потерь классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regr-losses"><a href="../../ai/ml/classic.html#regr-losses" target="_blank" rel="noopener">Функции потерь регрессии</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="classification_metrics"><a href="../../ai/ml/classic.html#classification_metrics" target="_blank" rel="noopener">Метрики классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="binary_clf_metrics_def"><a href="../../ai/ml/classic.html#binary_clf_metrics_def" target="_blank" rel="noopener">Определение метрик бинарной классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="multiclass_clf_metrics"><a href="../../ai/ml/classic.html#multiclass_clf_metrics" target="_blank" rel="noopener">Метрики многоклассовой классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="probability_clf"><a href="../../ai/ml/classic.html#probability_clf" target="_blank" rel="noopener">Вероятность классификации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="clf_metrics_optimization"><a href="../../ai/ml/classic.html#clf_metrics_optimization" target="_blank" rel="noopener">Оптимизация метрик классификации</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#metrics-clf-bin" target="_blank" rel="noopener">Метрики бинарной классификации</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#metrics-clf-multi" target="_blank" rel="noopener">Метрики многоклассовой классификации</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regression_metrics"><a href="../../ai/ml/classic.html#regression_metrics" target="_blank" rel="noopener">Метрики регрессии</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regression_error_percentiles"><a href="../../ai/ml/classic.html#regression_error_percentiles" target="_blank" rel="noopener">Квантили абсолютной ошибки</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#metrics-regr" target="_blank" rel="noopener">Метрики регрессии</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="conformal_prediction"><a href="../../ai/ml/classic.html#conformal_prediction" target="_blank" rel="noopener">Conformal prediction</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="d2_score"><a href="../../ai/ml/classic.html#d2_score" target="_blank" rel="noopener">$D^2$ score</a>
+          </li>
+          <!-- roadmap-md:block:1:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:2:start -->
+          <li class="roadmap-from-md" data-md-id="cross_validation"><a href="../../ai/ml/classic.html#cross_validation" target="_blank" rel="noopener">Кросс-валидация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="stratification"><a href="../../ai/ml/classic.html#stratification" target="_blank" rel="noopener">Стратификация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="k-fold"><a href="../../ai/ml/classic.html#k-fold" target="_blank" rel="noopener">k-Fold</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="leave_one_out"><a href="../../ai/ml/classic.html#leave_one_out" target="_blank" rel="noopener">Leave-One-Out</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="stratified_k_fold"><a href="../../ai/ml/classic.html#stratified_k_fold" target="_blank" rel="noopener">Stratified K-Fold</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="regularization"><a href="../../ai/ml/classic.html#regularization" target="_blank" rel="noopener">Регуляризация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="hyperparameters"><a href="../../ai/ml/classic.html#hyperparameters" target="_blank" rel="noopener">Гиперпараметры</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bias_variance_decomposition"><a href="../../ai/ml/classic.html#bias_variance_decomposition" target="_blank" rel="noopener">Bias-Variance decomposition</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="train_val_test_split"><a href="../../ai/ml/classic.html#train_val_test_split" target="_blank" rel="noopener">Train/validation/test split</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="eda"><a href="../../ai/ml/classic.html#eda" target="_blank" rel="noopener">EDA: разведывательный анализ данных</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tabular_preprocessing"><a href="../../ai/ml/classic.html#tabular_preprocessing" target="_blank" rel="noopener">Предобработка табличных данных</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="feature_scaling"><a href="../../ai/ml/classic.html#feature_scaling" target="_blank" rel="noopener">Масштабирование признаков</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="categorical_encoding"><a href="../../ai/ml/classic.html#categorical_encoding" target="_blank" rel="noopener">Кодирование категориальных признаков</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="imputation"><a href="../../ai/ml/classic.html#imputation" target="_blank" rel="noopener">Imputation: заполнение пропусков</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="miceforest"><a href="../../ai/ml/classic.html#miceforest" target="_blank" rel="noopener">MiceForest</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="smote"><a href="../../ai/ml/classic.html#smote" target="_blank" rel="noopener">SMOTE</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="rfecv"><a href="../../ai/ml/classic.html#rfecv" target="_blank" rel="noopener">RFECV</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bayesian_optimization"><a href="../../ai/ml/classic.html#bayesian_optimization" target="_blank" rel="noopener">Bayesian optimization</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="classic_ml_workflow"><a href="../../ai/ml/classic.html#classic_ml_workflow" target="_blank" rel="noopener">Пайплайн классической ML-модели</a>
+          </li>
+          <!-- roadmap-md:block:2:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:3:start -->
+          <li class="roadmap-from-md" data-md-id="logistic_regression"><a href="../../ai/ml/classic.html#logistic_regression" target="_blank" rel="noopener">Логистическая регрессия</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="decision_trees"><a href="../../ai/ml/classic.html#decision_trees" target="_blank" rel="noopener">Решающие деревья</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="decision_tree_criteria"><a href="../../ai/ml/classic.html#decision_tree_criteria" target="_blank" rel="noopener">Критерии ветвления</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="decision_tree_regression"><a href="../../ai/ml/classic.html#decision_tree_regression" target="_blank" rel="noopener">Деревья для регрессии</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#house-prices-part1" target="_blank" rel="noopener">House Prices I</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tree_pros_cons"><a href="../../ai/ml/classic.html#tree_pros_cons" target="_blank" rel="noopener">Плюсы и минусы решающих деревьев</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tree_regularization"><a href="../../ai/ml/classic.html#tree_regularization" target="_blank" rel="noopener">Как можно регуляризировать решающее дерево?</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#online-shoppers-part1" target="_blank" rel="noopener">Конверсия в интернет-магазине I</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#students-dropout-part1" target="_blank" rel="noopener">Раннее выявление риска отчисления I</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ensembles_bagging"><a href="../../ai/ml/classic.html#ensembles_bagging" target="_blank" rel="noopener">Ансамбли: Bagging</a>
+          </li>
+          <!-- roadmap-md:block:3:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:4:start -->
+          <li class="roadmap-from-md" data-md-id="random_forest"><a href="../../ai/ml/classic.html#random_forest" target="_blank" rel="noopener">Random Forest (случайный лес)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ensembles_boosting"><a href="../../ai/ml/classic.html#ensembles_boosting" target="_blank" rel="noopener">Boosting</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gradient_boosting"><a href="../../ai/ml/classic.html#gradient_boosting" target="_blank" rel="noopener">Gradient Boosting (градиентный бустинг)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="xgboost_catboost_lightgbm"><a href="../../ai/ml/classic.html#xgboost_catboost_lightgbm" target="_blank" rel="noopener">XGBoost, CatBoost, LightGBM</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#house-prices-part2" target="_blank" rel="noopener">House Prices II: ансамбли и бустинг</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#online-shoppers-part2" target="_blank" rel="noopener">Конверсия в интернет-магазине II: ансамбли</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#students-dropout-part2" target="_blank" rel="noopener">Раннее выявление риска отчисления II: ансамбли</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="stacking"><a href="../../ai/ml/classic.html#stacking" target="_blank" rel="noopener">Stacking, blending</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="hist_gradient_boosting"><a href="../../ai/ml/classic.html#hist_gradient_boosting" target="_blank" rel="noopener">HistGradientBoosting</a>
+          </li>
+          <!-- roadmap-md:block:4:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:5:start -->
+          <li class="roadmap-from-md" data-md-id="clustering"><a href="../../ai/ml/classic.html#clustering" target="_blank" rel="noopener">Кластеризация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="clustering_metrics"><a href="../../ai/ml/classic.html#clustering_metrics" target="_blank" rel="noopener">Метрики кластеризации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="kmeans"><a href="../../ai/ml/classic.html#kmeans" target="_blank" rel="noopener">KMeans</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="kmedoids"><a href="../../ai/ml/classic.html#kmedoids" target="_blank" rel="noopener">KMedoids</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="kmeans++"><a href="../../ai/ml/classic.html#kmeans++" target="_blank" rel="noopener">KMeans++</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="dbscan"><a href="../../ai/ml/classic.html#dbscan" target="_blank" rel="noopener">DBSCAN</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="hierarchical"><a href="../../ai/ml/classic.html#hierarchical" target="_blank" rel="noopener">Иерархическая</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="spectral"><a href="../../ai/ml/classic.html#spectral" target="_blank" rel="noopener">Спектральная</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#clustering-tasks" target="_blank" rel="noopener">Customer Segmentation</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="knn"><a href="../../ai/ml/classic.html#knn" target="_blank" rel="noopener">Алгоритм классификации: KNN (k-ближайших соседей)</a>
+          </li>
+          <!-- roadmap-md:block:5:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:6:start -->
+          <li class="roadmap-from-md" data-md-id="naive_bayes"><a href="../../ai/ml/classic.html#naive_bayes" target="_blank" rel="noopener">Наивный байесовский классификатор</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="svm"><a href="../../ai/ml/classic.html#svm" target="_blank" rel="noopener">SVM (метод опорных векторов)</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#online-shoppers-part3" target="_blank" rel="noopener">Конверсия в интернет-магазине III: воспроизводимый проект</a>
+            </span>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#students-dropout-part3" target="_blank" rel="noopener">Раннее выявление риска отчисления III: воспроизводимый проект</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="pca"><a href="../../ai/ml/classic.html#pca" target="_blank" rel="noopener">PCA</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="mds"><a href="../../ai/ml/classic.html#mds" target="_blank" rel="noopener">MDS</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sne"><a href="../../ai/ml/classic.html#sne" target="_blank" rel="noopener">SNE</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tsne"><a href="../../ai/ml/classic.html#tsne" target="_blank" rel="noopener">t-SNE</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="umap"><a href="../../ai/ml/classic.html#umap" target="_blank" rel="noopener">UMAP</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/classic_ml.html#dim-reduction-viz" target="_blank" rel="noopener">Визуализация данных через PCA, t-SNE, UMAP</a>
+            </span>
+          </li>
+          <!-- roadmap-md:block:6:end --></ul>
+      </div></main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

@@ -1,0 +1,273 @@
+/* ── Ввод ответа в практике по математике (math-answer.js) ────────────────
+   Цвета — токены tokens.css: они же переопределены для тёмной темы. */
+
+.mans {
+  --mans-ok: var(--success, #16a34a);
+  --mans-bad: var(--danger, #dc2626);
+  --mans-warn: var(--warning, #d97706);
+  --mans-ring: color-mix(in srgb, var(--brand, #2563eb) 22%, transparent);
+
+  margin-top: 20px;
+  border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.16));
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-card, #fff);
+  color: var(--text, #1a1a1a);
+  transition: border-color var(--transition-fast, 0.15s ease);
+}
+
+.mans--solved {
+  border-color: var(--mans-ok);
+}
+
+.mans-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+
+.mans-title {
+  font-weight: 600;
+}
+
+.mans-hint {
+  margin-top: 2px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-muted, #4a5568);
+}
+
+/* Сетка «подпись | значение»: скобки соседних полей стоят на одной линии,
+   сколько бы ни весили подписи. */
+.mans-fields {
+  display: grid;
+  grid-template-columns: fit-content(30%) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px 14px;
+  padding: 16px;
+}
+
+.mans-field {
+  display: contents;
+}
+
+.mans-label {
+  min-width: 0;
+}
+
+.mans-choices,
+.mans-value,
+.mans-note {
+  grid-column: 2;
+}
+
+.mans-value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mans-eq {
+  color: var(--text-muted, #4a5568);
+}
+
+.mans-note {
+  margin-top: -10px;
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-muted, #4a5568);
+}
+
+@media (max-width: 560px) {
+  .mans-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .mans-choices,
+  .mans-value,
+  .mans-note {
+    grid-column: 1;
+  }
+
+  .mans-choices,
+  .mans-value {
+    margin-bottom: 10px;
+  }
+}
+
+/* Скобки вектора и матрицы — как у bmatrix: вертикальная черта с «усами». */
+.mans-bracket {
+  position: relative;
+  padding: 4px 12px;
+}
+
+.mans-bracket::before,
+.mans-bracket::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  border: 2px solid currentcolor;
+  opacity: 0.7;
+}
+
+.mans-bracket::before {
+  left: 0;
+  border-right: 0;
+}
+
+.mans-bracket::after {
+  right: 0;
+  border-left: 0;
+}
+
+.mans-grid {
+  display: grid;
+  gap: 6px 8px;
+}
+
+.mans-cell {
+  width: 6.5ch;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.16));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg, #fff);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition:
+    border-color var(--transition-fast, 0.15s ease),
+    box-shadow var(--transition-fast, 0.15s ease);
+}
+
+.mans-cell--wide {
+  width: 11ch;
+}
+
+.mans-cell:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--mans-ring);
+}
+
+.mans-cell--ok {
+  border-color: var(--mans-ok);
+  background: color-mix(in srgb, var(--mans-ok) 10%, var(--bg, #fff));
+}
+
+.mans-cell--bad {
+  border-color: var(--mans-bad);
+  background: color-mix(in srgb, var(--mans-bad) 10%, var(--bg, #fff));
+}
+
+.mans-cell--parse {
+  border-color: var(--mans-warn);
+  background: color-mix(in srgb, var(--mans-warn) 12%, var(--bg, #fff));
+}
+
+.mans-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mans-choice {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.16));
+  border-radius: var(--radius-full, 9999px);
+  background: var(--bg, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mans-choice:hover {
+  border-color: var(--brand, #2563eb);
+}
+
+.mans-choice:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+.mans-choice[aria-checked="true"] {
+  border-color: var(--brand, #2563eb);
+  background: color-mix(in srgb, var(--brand, #2563eb) 14%, var(--bg, #fff));
+  font-weight: 600;
+}
+
+.mans-field--ok .mans-choice[aria-checked="true"] {
+  border-color: var(--mans-ok);
+  background: color-mix(in srgb, var(--mans-ok) 14%, var(--bg, #fff));
+}
+
+.mans-field--bad .mans-choice[aria-checked="true"] {
+  border-color: var(--mans-bad);
+  background: color-mix(in srgb, var(--mans-bad) 12%, var(--bg, #fff));
+}
+
+.mans-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+
+.mans-keypad {
+  display: flex;
+  gap: 6px;
+}
+
+.mans-key {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.16));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-secondary, #edeae3);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mans-status {
+  flex: 1 1 200px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-muted, #4a5568);
+}
+
+.mans-status--ok {
+  color: var(--mans-ok);
+  font-weight: 600;
+}
+
+.mans-status--bad {
+  color: var(--mans-bad);
+}
+
+.mans-status--warn {
+  color: var(--mans-warn);
+}
+
+.mans-submit {
+  min-height: 36px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--brand, #2563eb);
+  color: var(--brand-text, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mans-submit:hover {
+  background: var(--brand-hover, #1d4ed8);
+}
+
+.mans-submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

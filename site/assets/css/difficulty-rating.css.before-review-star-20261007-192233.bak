@@ -1,0 +1,265 @@
+/* Панель действий под вопросом: оценка сложности, «Прочитано», жалоба,
+   AI-помощь и кнопка «свернуть» (её вешает lazy-questions.js). Все классы
+   создаёт difficulty-rating.js. */
+
+.question-difficulty-container,
+.question-difficulty-container--skeleton {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border, #d0d7de);
+  background: color-mix(
+    in srgb,
+    var(--bg-secondary, #f3f4f6) 45%,
+    var(--bg-card, #fff)
+  );
+}
+
+.question-difficulty-container--skeleton {
+  justify-content: space-between;
+}
+
+.question-difficulty-container .question-report-section,
+.question-difficulty-container .question-ai-help-section {
+  flex: 0 0 auto;
+}
+
+/* Слева: подпись + звёзды; всё остальное прижато вправо */
+.difficulty-left-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+}
+
+.difficulty-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6c757d);
+}
+
+/* Две дорожки звёзд одна над другой: серая кликабельная и золотая,
+   обрезанная по ширине (JS ставит width в процентах). */
+.difficulty-stars {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+}
+
+.difficulty-stars .stars-track {
+  position: relative;
+  display: inline-block;
+}
+
+.difficulty-stars .stars-base,
+.difficulty-stars .stars-fill {
+  display: inline-block;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.difficulty-stars .stars-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.difficulty-star {
+  display: inline-block;
+  padding: 0 2px;
+  font-size: 20px;
+  color: color-mix(in srgb, var(--text-muted, #64748b) 30%, transparent);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.difficulty-stars .stars-fill .difficulty-star {
+  color: var(--warning, #d97706);
+  cursor: default;
+}
+
+.difficulty-stars .stars-base:hover .difficulty-star {
+  color: var(--warning, #d97706);
+}
+
+.difficulty-stars .stars-base .difficulty-star:hover {
+  transform: scale(1.15);
+}
+
+.difficulty-stars .stars-base .difficulty-star:hover ~ .difficulty-star {
+  color: color-mix(in srgb, var(--text-muted, #64748b) 30%, transparent);
+}
+
+.difficulty-stars .stars-base .difficulty-star.active {
+  position: relative;
+}
+
+.difficulty-stars .stars-base .difficulty-star.active::after {
+  content: "Нажми ещё раз, чтобы снять";
+  position: absolute;
+  bottom: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.difficulty-stars .stars-base .difficulty-star.active:hover::after {
+  opacity: 1;
+}
+
+.difficulty-star:focus-visible {
+  outline: 2px solid var(--warning, #d97706);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Справа: «Прочитано» */
+.difficulty-progress-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.difficulty-progress-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong, #cbd5e1);
+  border-radius: 10px;
+  background: var(--bg-card, #fff);
+  color: var(--text, #1f2937);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.difficulty-progress-btn:hover {
+  border-color: var(--success, #16a34a);
+  color: var(--success, #16a34a);
+}
+
+.difficulty-progress-btn .progress-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.difficulty-progress-btn.completed {
+  background: var(--success, #16a34a);
+  border-color: var(--success, #16a34a);
+  color: #fff;
+}
+
+.difficulty-progress-btn.completed:hover {
+  filter: brightness(0.94);
+  color: #fff;
+}
+
+/* Автопроверяемые задачи: кнопка только показывает статус */
+.difficulty-progress-btn--auto {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.difficulty-progress-btn--auto:hover {
+  border-color: var(--border-strong, #cbd5e1);
+  color: var(--text, #1f2937);
+}
+
+.difficulty-progress-btn--auto.completed {
+  opacity: 1;
+}
+
+.difficulty-average {
+  display: none;
+}
+
+.difficulty-user-rating {
+  display: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--success, #16a34a) 10%, transparent);
+  color: var(--success, #16a34a);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .question-difficulty-container,
+  .question-difficulty-container--skeleton {
+    padding: 12px 16px;
+  }
+
+  .difficulty-left-section {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .difficulty-star {
+    font-size: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .difficulty-star,
+  .difficulty-progress-btn {
+    transition: none;
+  }
+
+  .difficulty-stars .stars-base .difficulty-star:hover {
+    transform: none;
+  }
+}
+
+@media print {
+  .question-difficulty-container,
+  .question-difficulty-container--skeleton {
+    display: none;
+  }
+}
+
+
+.difficulty-review-later-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong, #cbd5e1);
+  border-radius: 10px;
+  background: var(--bg-card, #fff);
+  color: var(--text, #1f2937);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.difficulty-review-later-btn:hover,
+.difficulty-review-later-btn.is-marked {
+  border-color: var(--warning, #d97706);
+  color: var(--warning, #d97706);
+}

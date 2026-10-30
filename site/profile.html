@@ -1,0 +1,2024 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Профиль</title>
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/css/styles.css" />
+    <link rel="stylesheet" href="assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="assets/css/navigation.css" />
+    <link rel="stylesheet" href="assets/css/profile.css" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<style>
+      /* User Welcome Section */
+      .user-welcome {
+        max-width: 800px;
+        margin: 0 auto 40px auto;
+        padding: 30px;
+        background: var(--card-bg);
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+        animation: slideInUp 0.4s ease-out;
+        text-align: center;
+      }
+
+      @keyframes slideInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .user-welcome::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(
+          135deg,
+          rgba(106, 90, 205, 0.08) 0%,
+          rgba(255, 111, 145, 0.04) 100%
+        );
+        pointer-events: none;
+      }
+
+      .user-welcome-avatar {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        background: var(--gradient-primary);
+        color: white;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+        font-weight: 700;
+        margin-bottom: 16px;
+        box-shadow: 0 8px 24px rgba(106, 90, 205, 0.3);
+        position: relative;
+        z-index: 1;
+        overflow: hidden;
+      }
+
+      .user-welcome-avatar.avatar-has-photo {
+        font-size: 0;
+        padding: 0;
+      }
+
+      .user-welcome-avatar.avatar-has-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 50%;
+      }
+
+      .user-welcome-name {
+        font-size: 28px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0 0 8px 0;
+        position: relative;
+        z-index: 1;
+      }
+
+      .user-welcome-email {
+        font-size: 14px;
+        color: var(--text-secondary);
+        margin: 0;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Заголовок страницы */
+      .page-header {
+        animation: slideInUp 0.3s ease-out;
+      }
+
+      .profile-progress-row {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        /* Ряды «Прогресса» читаются как один блок, поэтому отступ между ними
+           меньше стандартных 40px у .cards-grid (перед следующим h2 отступ
+           сохраняется за счет его собственного margin-top) */
+        margin-bottom: 24px;
+      }
+
+      /* Внутри grid-ряда расстояние задает gap, свой отступ плитке не нужен */
+      .profile-progress-row .activity-grid-card {
+        margin-bottom: 0;
+      }
+
+      .profile-progress-row > :nth-child(1),
+      .profile-progress-row > :nth-child(2) {
+        grid-column: span 3;
+      }
+
+      .profile-progress-row > :nth-child(n + 3) {
+        grid-column: span 2;
+      }
+
+      /* Второй ряд — три равные плитки: прогресс по курсу, достижения, офферы.
+         Иначе виджет прогресса оставался один на строке с пустотой справа. */
+      .profile-progress-row.profile-progress-row--triple > :nth-child(n) {
+        grid-column: span 2;
+      }
+
+      @media (max-width: 900px) {
+        .profile-progress-row {
+          grid-template-columns: 1fr;
+        }
+
+        .profile-progress-row > * {
+          grid-column: 1 / -1 !important;
+        }
+      }
+    </style>
+
+    <script src="assets/js/components/navigation.js"></script>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body class="profile" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="assets/icons/online-profile.svg" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Профиль</h1>
+            <p class="subtitle">Все для отслеживания прогресса</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="main.html" class="page-header-button">На главную</a>
+          </div>
+        </div>
+      </header>
+
+      <div class="user-welcome" id="userWelcome" style="display: none">
+        <div class="user-welcome-avatar" id="userWelcomeAvatar">?</div>
+        <div class="user-welcome-name" id="userWelcomeName"></div>
+        <div class="user-welcome-email" id="userWelcomeEmail"></div>
+      </div>
+
+      <h2>Основное</h2>
+      <div class="cards-grid">
+        <a href="tests/index.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/test.png" alt="Тесты" />
+            </div>
+            <h3 class="card-title">Тесты</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Просмотр и прохождение тестов по разным разделам
+            </p>
+            <span class="card-link">Посмотреть тесты</span>
+          </div>
+        </a>
+
+        <a href="my-reports.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/report.png" alt="Отчеты" />
+            </div>
+            <h3 class="card-title">Отчеты</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Просмотр и составление ежедневных отчетов
+            </p>
+            <span class="card-link">Посмотреть отчеты</span>
+          </div>
+        </a>
+
+        <!-- Feedbacks Card -->
+        <a href="profile/feedbacks.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/feedback.png" alt="Обратная связь" />
+            </div>
+            <h3 class="card-title">Обратная связь</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Просмотр обратной связи от ментора и вопросов для следующего
+              созвона
+            </p>
+            <span class="card-link">Посмотреть обратную связь</span>
+          </div>
+        </a>
+
+        <a href="spaced-repetition.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/topics-progress.svg" alt="Повторение" />
+            </div>
+            <h3 class="card-title">Повторение</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Карточки по теоретическому минимуму из изученных вопросов
+            </p>
+            <span class="card-link">Открыть карточки</span>
+          </div>
+        </a>
+      </div>
+
+      <h2>Прогресс</h2>
+      <div class="cards-grid profile-progress-row">
+        <div
+          id="profileActivityGrid"
+          class="profile-activity-grid"
+          aria-live="polite"
+        ></div>
+
+        <a href="wallet.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap" aria-hidden="true">
+              <svg
+                viewBox="0 0 64 64"
+                aria-hidden="true"
+                focusable="false"
+                class="coin-icon"
+              >
+                <use href="#grad-coin"></use>
+              </svg>
+            </div>
+            <h3 class="card-title">Кошелёк</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              На счёте:
+              <strong
+                ><span data-wallet-balance>—</span>
+                <span data-wallet-unit>градов</span></strong
+              >. Грады — валюта платформы: за вопросы, тесты, карточки, отчёты и
+              серию дней.
+            </p>
+            <span class="card-link">Открыть кошелёк</span>
+          </div>
+        </a>
+
+        <!-- Прогресс по курсу: виджет с процентом и полосой (как на лидерборде до переноса сюда) -->
+        <!-- <a href="roadmap/index.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/topics-progress.svg" alt="Прогресс по темам" />
+            </div>
+            <h3 class="card-title">Прогресс по темам</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Визуализация вашего прогресса по всем темам курса с детальной статистикой
+            </p>
+            <span class="card-link">Посмотреть прогресс</span>
+          </div>
+        </a> -->
+      </div>
+      <div class="cards-grid profile-progress-row profile-progress-row--triple">
+        <div id="profileProgressWidget" class="card profile-progress-widget">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/progress.svg" alt="Прогресс по курсу" />
+            </div>
+            <h3 class="card-title">Прогресс по курсу</h3>
+          </div>
+          <div class="card-content">
+            <div class="profile-progress-bar-wrap">
+              <div
+                class="profile-progress-bar"
+                role="progressbar"
+                aria-valuenow="0"
+                aria-valuemin="0"
+                aria-valuemax="100"
+              >
+                <div
+                  class="profile-progress-fill"
+                  id="profileProgressFill"
+                  style="width: 0%"
+                ></div>
+              </div>
+              <div class="profile-progress-text" id="profileProgressText">
+                0% изучено
+              </div>
+            </div>
+            <p class="card-description" style="margin-top: 8px">
+              <a href="roadmap/index.html">Прогресс по разделам</a>
+            </p>
+          </div>
+        </div>
+
+        <!-- Progress Card -->
+        <!-- Achievements Card -->
+        <a href="achievements.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/achievement.png" alt="Достижения" />
+            </div>
+            <h3 class="card-title">Достижения</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Просмотр ваших достижений</p>
+            <span class="card-link">Посмотреть достижения</span>
+          </div>
+        </a>
+
+        <!-- Offers Card -->
+        <a href="profile/offers.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/offer.png" alt="Офферы" />
+            </div>
+            <h3 class="card-title">Офферы</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Внеси информацию о полученных офферах, отслеживай полученные
+              предложения
+            </p>
+            <span class="card-link">Посмотреть офферы</span>
+          </div>
+        </a>
+      </div>
+
+      <h2>Настройки</h2>
+      <div class="cards-grid">
+        <a href="profile/notifications.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="assets/icons/notifications.svg" alt="Уведомления" />
+            </div>
+            <h3 class="card-title">Уведомления</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Комментарии ментора, события и важные обновления
+            </p>
+            <span class="card-link">Открыть уведомления</span>
+          </div>
+        </a>
+
+        <a href="profile/sessions.html" class="card">
+          <div class="card-header">
+            <div class="card-icon profile">
+              <img src="assets/icons/settings.svg" alt="Безопасность" />
+            </div>
+            <h3 class="card-title">Безопасность</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Активные сессии, история входов и выход на всех устройствах
+            </p>
+            <span class="card-link">Открыть сессии</span>
+          </div>
+        </a>
+
+        <!-- Settings Card -->
+        <a href="profile/settings.html" class="card">
+          <div class="card-header">
+            <div class="card-icon profile">
+              <img src="assets/icons/settings.svg" alt="Настройки" />
+            </div>
+            <h3 class="card-title">Настройки</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Изменение имени, статуса и управление учетной записью
+            </p>
+            <span class="card-link">Открыть настройки</span>
+          </div>
+        </a>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+
+    <!-- Config loader -->
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/components/gamification.js"></script>
+    <script src="assets/js/components/activity-grid.js"></script>
+    <script src="assets/js/avatar-upload.js"></script>
+
+    <!-- Система уведомлений -->
+    <script src="assets/js/notifications.js"></script>
+
+    <!-- Manual Firebase initialization -->
+    <script>
+      // Initialize Firebase manually for this page
+    </script>
+
+    <script>
+      // Ждем полной загрузки DOM
+      document.addEventListener("DOMContentLoaded", function () {
+        // Инициализация Firebase и базы данных
+        async function initializeFirebase() {
+          try {
+            // Проверяем, что Firebase SDK загружен
+            if (typeof firebase === "undefined") {
+              console.error("Firebase SDK not loaded");
+              return;
+            }
+
+            // Проверяем, что configLoader доступен
+            if (typeof window.configLoader === "undefined") {
+              console.error("ConfigLoader not available");
+              return;
+            }
+
+            // Загружаем конфигурацию Firebase
+            const firebaseConfig =
+              await window.configLoader.loadFirebaseConfig();
+
+            // Инициализируем Firebase приложение
+            if (!firebase.apps.length) {
+              firebase.initializeApp(firebaseConfig);
+            } else {
+            }
+
+            // Создаем ссылку на базу данных
+            db = firebase.database();
+
+            // Получаем текущего пользователя
+            currentUser = firebase.auth().currentUser;
+            if (currentUser) {
+              // Инициализируем систему геймификации
+              if (window.gamificationSystem) {
+                await window.gamificationSystem.initialize(firebaseConfig);
+              }
+              initializeNotifications().catch((error) => {
+                console.error("❌ Ошибка инициализации уведомлений:", error);
+              });
+              loadProfileProgressWidget();
+              loadProfileActivityGrid();
+              loadUserWelcome();
+            } else {
+              // Listen for auth state changes
+              firebase.auth().onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                  // Инициализируем систему геймификации
+                  if (window.gamificationSystem) {
+                    await window.gamificationSystem.initialize(firebaseConfig);
+                  }
+                  initializeNotifications().catch((error) => {
+                    console.error(
+                      "❌ Ошибка инициализации уведомлений:",
+                      error,
+                    );
+                  });
+                  loadProfileProgressWidget();
+                  loadProfileActivityGrid();
+                  loadUserWelcome();
+                } else {
+                  window.location.href = "/index.html";
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Failed to initialize Firebase for profile:", error);
+            console.error("Error details:", error.message, error.stack);
+          }
+        }
+
+        async function loadUserWelcome() {
+          const welcomeEl = document.getElementById("userWelcome");
+          const avatarEl = document.getElementById("userWelcomeAvatar");
+          const nameEl = document.getElementById("userWelcomeName");
+          const emailEl = document.getElementById("userWelcomeEmail");
+          if (!welcomeEl || !avatarEl || !currentUser || !db) return;
+
+          try {
+            const snap = await db.ref("users/" + currentUser.uid).once("value");
+            const userData = snap.val() || {};
+            const displayName = userData.displayName || currentUser.email || "";
+            const firstWord = displayName
+              .split(/[\s(@]/)[0]
+              .replace(/[^A-Za-zА-Яа-яЁё]/g, "");
+            const initials = firstWord
+              ? (firstWord + "??").substring(0, 2).toUpperCase()
+              : "??";
+
+            avatarEl.textContent = initials;
+            if (nameEl)
+              nameEl.textContent =
+                displayName.replace(/\s*\(.*\)\s*$/, "").trim() || displayName;
+            if (emailEl) emailEl.textContent = currentUser.email || "";
+            welcomeEl.style.display = "";
+
+            // Load avatar photo if available
+            if (typeof window.avatarUpload !== "undefined") {
+              let avatarUrl = userData.avatarUrl || null;
+              if (avatarUrl && avatarUrl.indexOf("?t=") === -1) {
+                avatarUrl += "?t=" + Date.now();
+              }
+              window.avatarUpload.applyToElement(avatarEl, avatarUrl, initials);
+            }
+          } catch (e) {
+            console.warn("loadUserWelcome failed:", e);
+          }
+        }
+
+        // Прогресс по курсу: загрузка и отображение полосы
+        async function loadProfileProgressWidget() {
+          const fillEl = document.getElementById("profileProgressFill");
+          const textEl = document.getElementById("profileProgressText");
+          const widgetEl = document.getElementById("profileProgressWidget");
+          if (!fillEl || !textEl || !widgetEl || !currentUser || !db) return;
+          try {
+            const [listRes, progressSnap] = await Promise.all([
+              fetch("/assets/js/config/questions-list.json"),
+              db.ref("users/" + currentUser.uid + "/progress").once("value"),
+            ]);
+            const listData = listRes.ok
+              ? await listRes.json()
+              : { categories: {} };
+            const progress = (progressSnap && progressSnap.val()) || {};
+            const categories = listData.categories || {};
+            const uniqueIds = new Set();
+            Object.entries(categories).forEach(([catName, ids]) => {
+              if (catName === "interviews") return;
+              if (Array.isArray(ids)) ids.forEach((id) => uniqueIds.add(id));
+            });
+            const total = uniqueIds.size;
+            const completed = Object.keys(progress).filter(
+              (qId) => progress[qId] && progress[qId].completed === true,
+            ).length;
+            const pct =
+              total > 0
+                ? Math.min(Math.round((completed / total) * 100), 100)
+                : 0;
+            fillEl.style.width = pct + "%";
+            fillEl.setAttribute("aria-valuenow", pct);
+            textEl.textContent = t("{percent}% изучено", { percent: pct });
+            widgetEl
+              .querySelector('[role="progressbar"]')
+              .setAttribute("aria-valuenow", pct);
+          } catch (e) {
+            console.warn("Profile progress widget:", e);
+          }
+        }
+
+        async function loadProfileActivityGrid() {
+          const container = document.getElementById("profileActivityGrid");
+          if (!container || !currentUser || !db || !window.ActivityGrid) return;
+          await window.ActivityGrid.load({
+            db,
+            uid: currentUser.uid,
+            container,
+            weeks: 26,
+          });
+        }
+
+        // ===== СИСТЕМА УВЕДОМЛЕНИЙ =====
+
+        // Элементы уведомлений
+        const notificationsList = document.getElementById("notificationsList");
+        const notificationsEmpty =
+          document.getElementById("notificationsEmpty");
+        const notificationsLoading = document.getElementById(
+          "notificationsLoading",
+        );
+        const markAllReadBtn = document.getElementById("markAllReadBtn");
+        const tabBtns = document.querySelectorAll(".tab-btn");
+
+        // Состояние уведомлений
+        let notifications = [];
+        let currentTab = "all";
+        let unreadCount = 0;
+
+        // Функция загрузки уведомлений
+        async function loadNotifications() {
+          if (!db || !currentUser) {
+            console.warn(
+              "⚠️ loadNotifications: отсутствует база данных или пользователь",
+            );
+            return;
+          }
+
+          try {
+            showNotificationsLoading(true);
+
+            // Используем глобальную систему уведомлений вместо собственной логики
+            if (
+              window.notificationSystem &&
+              window.notificationSystem.notifications
+            ) {
+              notifications = [...window.notificationSystem.notifications];
+              unreadCount = window.notificationSystem.unreadCount;
+
+              // Обновляем UI
+              updateNotificationsUI();
+              showNotificationsLoading(false);
+              return;
+            }
+
+            // Загружаем статус прочитанных уведомлений из Firebase
+            const userNotificationsRef = db.ref(
+              `users/${currentUser.uid}/notifications`,
+            );
+            const userNotificationsSnapshot =
+              await userNotificationsRef.once("value");
+            const userNotificationsData = userNotificationsSnapshot.val() || {};
+
+            // Загружаем события, где пользователь является студентом
+            const eventsRef = db.ref("events");
+            const eventsSnapshot = await eventsRef.once("value");
+            const eventsData = eventsSnapshot.val() || {};
+
+            const userNotifications = [];
+
+            // Обрабатываем каждое событие
+            for (const [eventId, event] of Object.entries(eventsData)) {
+              if (event.studentId === currentUser.uid) {
+                // Уведомление о создании события (задания/встречи)
+                if (event.createdAt) {
+                  // Определяем тип события по полю type из базы данных
+                  let eventType = event.type || "assignment";
+                  let eventTitle = "";
+
+                  // Устанавливаем заголовок в зависимости от типа
+                  switch (eventType) {
+                    case "assignment":
+                      eventType = "task";
+                      eventTitle = "Новое задание";
+                      break;
+                    case "mock":
+                      eventType = "mock";
+                      eventTitle = "Новое мок-собеседование запланировано";
+                      break;
+                    case "meeting":
+                      eventType = "meeting";
+                      eventTitle = "Новая встреча запланирована";
+                      break;
+                    default:
+                      eventType = "task";
+                      eventTitle = "Новое задание";
+                  }
+
+                  // Также проверяем по полю dueAt - если есть дедлайн, то это задание
+                  if (event.dueAt && eventType === "task") {
+                    eventTitle = "Новое задание с дедлайном";
+                  }
+
+                  // Добавляем имя ментора в заголовок, если это не текущий пользователь
+                  if (event.createdBy && event.createdBy !== currentUser.uid) {
+                    try {
+                      const mentorRef = db.ref(`users/${event.createdBy}`);
+                      const mentorSnapshot = await mentorRef.once("value");
+                      const mentorData = mentorSnapshot.val();
+
+                      if (mentorData && mentorData.displayName) {
+                        eventTitle += ` от ${mentorData.displayName}`;
+                      } else if (mentorData && mentorData.email) {
+                        eventTitle += ` от ${mentorData.email}`;
+                      }
+                    } catch (error) {
+                      console.warn(
+                        "Не удалось получить информацию о менторе:",
+                        error,
+                      );
+                    }
+                  }
+
+                  // Формируем текст уведомления с дополнительной информацией
+                  let notificationText =
+                    event.description || "Описание отсутствует";
+
+                  // Добавляем информацию о дедлайне для заданий
+                  let dueDateStr = "";
+                  if (event.dueAt && eventType === "task") {
+                    const dueDate = new Date(event.dueAt);
+                    dueDateStr = dueDate.toLocaleDateString("ru-RU", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+                    // НЕ добавляем дедлайн в текст уведомления - он отображается отдельно
+                  }
+
+                  // Для встреч и моков НЕ добавляем время начала в текст - только для внутреннего использования
+                  if (
+                    event.startAt &&
+                    (eventType === "meeting" || eventType === "mock")
+                  ) {
+                    const startDate = new Date(event.startAt);
+                    const startDateStr = startDate.toLocaleDateString("ru-RU", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+                    // НЕ добавляем время начала в текст уведомления
+                  }
+
+                  // НЕ добавляем информацию о менторе в текст уведомления - она уже есть в заголовке
+
+                  // Проверяем статус события - если помечено как "готово", пропускаем
+                  if (event.status === "completed" || event.status === "done") {
+                    continue;
+                  }
+
+                  // Проверяем, прочитано ли это уведомление
+                  const notificationId = `event-${eventId}`;
+                  const notificationData =
+                    userNotificationsData[notificationId] || {};
+                  const isRead = notificationData.read || false;
+                  const isViewed = notificationData.viewed || false;
+
+                  userNotifications.push({
+                    id: notificationId,
+                    type: "event",
+                    eventType: eventType,
+                    title: eventTitle,
+                    text: notificationText,
+                    eventId: eventId,
+                    timestamp: event.createdAt,
+                    read: isRead,
+                    viewed: isViewed,
+                    mentorId: event.createdBy,
+                    dueDate: event.dueAt,
+                    dueDateStr: dueDateStr,
+                    startDate: event.startAt,
+                  });
+                }
+
+                // Уведомления о комментариях от ментора
+                if (event.submissions) {
+                  for (const [commentId, comment] of Object.entries(
+                    event.submissions,
+                  )) {
+                    // Пропускаем комментарии самого студента
+                    if (comment.author !== currentUser.uid) {
+                      // Получаем имя автора комментария
+                      let authorName = comment.authorName || "Ментор";
+
+                      // Если authorName не установлен, пытаемся получить из Firebase
+                      if (!comment.authorName && comment.author) {
+                        try {
+                          const userRef = db.ref(`users/${comment.author}`);
+                          const userSnapshot = await userRef.once("value");
+                          const userData = userSnapshot.val();
+
+                          if (userData && userData.displayName) {
+                            authorName = userData.displayName;
+                          } else if (userData && userData.email) {
+                            authorName = userData.email;
+                          }
+                        } catch (error) {
+                          console.warn(
+                            "Не удалось получить информацию о пользователе:",
+                            error,
+                          );
+                        }
+                      }
+
+                      // Формируем текст комментария с дополнительной информацией
+                      let commentText = comment.text;
+                      if (event.description) {
+                        commentText += `\n\n📝 В задании: ${event.description}`;
+                      }
+
+                      // Формируем заголовок комментария с временем
+                      const commentTime = new Date(comment.timestamp);
+                      const commentTimeStr = commentTime.toLocaleDateString(
+                        "ru-RU",
+                        {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        },
+                      );
+                      const commentTitle = `Комментарий от ${authorName} (${commentTimeStr})`;
+
+                      // Проверяем, прочитано ли это уведомление
+                      const commentNotificationId = `comment-${commentId}`;
+                      const commentNotificationData =
+                        userNotificationsData[commentNotificationId] || {};
+                      const isCommentRead =
+                        commentNotificationData.read || false;
+                      const isCommentViewed =
+                        commentNotificationData.viewed || false;
+
+                      userNotifications.push({
+                        id: commentNotificationId,
+                        type: "comment",
+                        title: commentTitle,
+                        text: commentText,
+                        eventId: eventId,
+                        eventTitle: event.description || "Задание",
+                        commentId: commentId,
+                        timestamp: comment.timestamp,
+                        read: isCommentRead,
+                        viewed: isCommentViewed,
+                        authorId: comment.author,
+                        authorName: authorName,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+
+            // Сортируем по времени (новые сначала)
+            notifications = userNotifications.sort(
+              (a, b) => b.timestamp - a.timestamp,
+            );
+            unreadCount = notifications.filter((n) => !n.read).length;
+
+            // Обновляем UI
+            updateNotificationsUI();
+
+            showNotificationsLoading(false);
+
+            // НЕ обновляем бейдж в заголовке - никаких индикаторов в шапке
+          } catch (error) {
+            console.error("❌ Ошибка загрузки уведомлений:", error);
+            console.error("📋 Детали ошибки:", error.message, error.stack);
+            showNotificationsLoading(false);
+          }
+        }
+
+        // Функция обновления UI уведомлений
+        function updateNotificationsUI() {
+          if (!notificationsList) {
+            console.warn(
+              "⚠️ updateNotificationsUI: элемент notificationsList не найден",
+            );
+            return;
+          }
+
+          // Фильтруем по текущей вкладке
+          let filteredNotifications = notifications;
+          if (currentTab !== "all") {
+            filteredNotifications = notifications.filter((n) => {
+              const matches = (() => {
+                if (currentTab === "comments") return n.type === "comment";
+                if (currentTab === "events") return n.type === "event";
+                if (currentTab === "mentor")
+                  return n.type === "event" || n.type === "comment";
+                return true;
+              })();
+
+              return matches;
+            });
+          } else {
+          }
+
+          // Показываем/скрываем пустое состояние
+          if (filteredNotifications.length === 0) {
+            notificationsList.style.display = "none";
+            notificationsEmpty.hidden = false;
+
+            // Если нет уведомлений, очищаем все индикаторы
+            if (notifications.length === 0) {
+              clearAllNotificationIndicators();
+            }
+          } else {
+            notificationsList.style.display = "block";
+            notificationsEmpty.hidden = true;
+          }
+
+          // Очищаем список
+          notificationsList.innerHTML = "";
+
+          // Сортируем ВСЕ уведомления по времени (новые сначала) - ВАЖНО!
+          const sortedNotifications = [...filteredNotifications].sort(
+            (a, b) => b.timestamp - a.timestamp,
+          );
+
+          // Ограничиваем количество комментариев до 5
+          let commentsToShow = [];
+          let otherNotifications = [];
+
+          sortedNotifications.forEach((notification) => {
+            if (notification.type === "comment") {
+              commentsToShow.push(notification);
+            } else {
+              otherNotifications.push(notification);
+            }
+          });
+
+          // Показываем только первые 5 комментариев
+          const visibleComments = commentsToShow.slice(0, 5);
+          const hiddenComments = commentsToShow.slice(5);
+
+          // Добавляем все события и первые 5 комментариев (уже отсортированные по времени)
+          [...otherNotifications, ...visibleComments].forEach(
+            (notification) => {
+              const notificationElement =
+                createNotificationElement(notification);
+              if (notificationElement) {
+                notificationsList.appendChild(notificationElement);
+
+                // Проверяем, что элемент действительно добавлен
+                const addedElement = notificationsList.querySelector(
+                  `[data-notification-id="${notification.id}"]`,
+                );
+                if (addedElement) {
+                  // Проверяем CSS свойства элемента
+                  const computedStyle = window.getComputedStyle(addedElement);
+                } else {
+                }
+              } else {
+              }
+            },
+          );
+
+          // Показываем кнопку "Смотреть еще" если есть скрытые комментарии
+          if (hiddenComments.length > 0) {
+            const showMoreContainer =
+              document.getElementById("showMoreComments");
+            if (showMoreContainer) {
+              showMoreContainer.hidden = false;
+              const showMoreBtn = document.getElementById(
+                "showMoreCommentsBtn",
+              );
+              if (showMoreBtn) {
+                const countSpan = showMoreBtn.querySelector(".btn-count");
+                if (countSpan) {
+                  countSpan.textContent = ` (${hiddenComments.length})`;
+                }
+              }
+            }
+          } else {
+            const showMoreContainer =
+              document.getElementById("showMoreComments");
+            if (showMoreContainer) {
+              showMoreContainer.hidden = true;
+            }
+          }
+
+          // Обновляем кнопку "Отметить все как прочитанные"
+          markAllReadBtn.disabled = unreadCount === 0;
+
+          // НЕ обновляем бейдж в заголовке - никаких индикаторов в шапке
+
+          // Обновляем индикатор в навигации
+          updateNavigationNotificationIndicator();
+
+          // Дополнительная отладочная информация о CSS
+          if (notificationsList) {
+            const computedStyle = window.getComputedStyle(notificationsList);
+          }
+
+          // Автоматически отмечаем уведомления как прочитанные при просмотре
+          markNotificationsAsViewed(filteredNotifications);
+        }
+
+        // Функция обрезки длинного текста
+        function truncateText(text, maxLength = 120) {
+          if (!text) return "";
+
+          if (text.length <= maxLength) return text;
+
+          // Обрезаем текст и ищем последнее полное слово
+          let truncated = text.substring(0, maxLength);
+          const lastSpaceIndex = truncated.lastIndexOf(" ");
+
+          // Если есть пробел, обрезаем по последнему полному слову
+          if (lastSpaceIndex > maxLength * 0.8) {
+            // Если пробел находится в последних 20% текста
+            truncated = truncated.substring(0, lastSpaceIndex);
+          }
+
+          return truncated.trim() + "...";
+        }
+
+        // Безопасный markdown-парсер (ссылки + буллеты)
+        function parseMarkdownLinks(text = "") {
+          // Обрезаем текст до 45 символов и добавляем троеточие
+          const src = String(text).replace(/\r\n?/g, "\n").trim();
+
+          // Парсим markdown ссылки [text](url) -> text
+          let processed = src.replace(
+            /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+            "$1",
+          );
+
+          // Парсим жирный текст **text** -> text
+          processed = processed.replace(/\*\*([^*]+)\*\*/g, "$1");
+
+          // Парсим код `text` -> text
+          processed = processed.replace(/`([^`]+)`/g, "$1");
+
+          // Парсим буллеты - заменяем на строчку через ";"
+          processed = processed.replace(/^[-*•]\s+/gm, ""); // убираем маркеры буллетов
+          processed = processed.replace(/\n/g, "; "); // заменяем переносы строк на "; "
+
+          // Обрезаем до 45 символов
+          if (processed.length > 45) {
+            return processed.substring(0, 45) + "...";
+          }
+          return processed;
+        }
+
+        // Функция создания элемента уведомления
+        function createNotificationElement(notification) {
+          const div = document.createElement("div");
+          div.className = `notification-item ${notification.read ? "" : "unread"}`;
+          div.dataset.notificationId = notification.id;
+
+          // Добавляем задержку анимации для каскадного появления
+          const index = Array.from(
+            document.querySelectorAll(".notification-item"),
+          ).length;
+          div.style.animationDelay = `${index * 0.1}s`;
+
+          const icon = getNotificationIcon(notification);
+          const typeClass = getNotificationTypeClass(notification);
+          const timeText = formatTime(notification.timestamp);
+
+          // Сначала парсим markdown в HTML (без обрезки текста)
+          const processedHtml = parseMarkdownLinks(notification.text);
+
+          // Дедлайн для правого верхнего угла
+          const deadlineHTML =
+            notification.eventType === "task" && notification.dueDateStr
+              ? `<div class="notification-deadline">⏰ Дедлайн: ${notification.dueDateStr}</div>`
+              : "";
+
+          div.innerHTML = `
+            <div class="notification-header">
+              <div class="notification-icon">${icon}</div>
+              <div class="notification-content">
+                <div class="notification-title">${notification.title}</div>
+                <div class="notification-text">${processedHtml}</div>
+              </div>
+              <div class="notification-header-right">
+                ${deadlineHTML}
+                <div class="notification-type ${typeClass}">${getNotificationTypeText(notification)}</div>
+              </div>
+            </div>
+            <div class="notification-meta">
+              <div class="notification-time">🕐 ${timeText}</div>
+            </div>
+          `;
+
+          // Добавляем обработчик клика
+          div.addEventListener("click", () => {
+            handleNotificationClick(notification);
+          });
+
+          return div;
+        }
+
+        // Функция получения иконки для уведомления
+        function getNotificationIcon(notification) {
+          switch (notification.type) {
+            case "comment":
+              return "💬";
+            case "event":
+              switch (notification.eventType) {
+                case "task":
+                  return "📚";
+                case "assignment":
+                  return "📚";
+                case "meeting":
+                  return "🤝";
+                case "mock":
+                  return "🎤";
+                default:
+                  return "📅";
+              }
+            default:
+              return "🔔";
+          }
+        }
+
+        // Функция получения класса типа уведомления
+        function getNotificationTypeClass(notification) {
+          if (notification.type === "comment") return "comment";
+          if (notification.type === "event") {
+            // Проверяем, просрочено ли задание
+            if (notification.eventType === "task" && notification.dueDate) {
+              const dueDate = new Date(notification.dueDate);
+              const now = new Date();
+              if (dueDate < now) {
+                return "overdue";
+              }
+            }
+
+            switch (notification.eventType) {
+              case "task":
+                return "task";
+              case "assignment":
+                return "assignment";
+              case "meeting":
+                return "meeting";
+              case "mock":
+                return "mock";
+              default:
+                return "event";
+            }
+          }
+          return "event";
+        }
+
+        // Функция получения текста типа уведомления
+        function getNotificationTypeText(notification) {
+          if (notification.type === "comment") return "Комментарий";
+          if (notification.type === "event") {
+            // Проверяем, просрочено ли задание
+            if (notification.eventType === "task" && notification.dueDate) {
+              const dueDate = new Date(notification.dueDate);
+              const now = new Date();
+              if (dueDate < now) {
+                return "Просрочено";
+              }
+            }
+
+            switch (notification.eventType) {
+              case "task":
+                return "Задание";
+              case "assignment":
+                return "Задание";
+              case "meeting":
+                return "Встреча";
+              case "mock":
+                return "Мок-собес";
+              default:
+                return "Событие";
+            }
+          }
+          return "Уведомление";
+        }
+
+        // Функция получения текста типа события
+        function getEventTypeText(eventType) {
+          switch (eventType) {
+            case "task":
+              return "задание";
+            case "assignment":
+              return "задание";
+            case "meeting":
+              return "встреча";
+            case "mock":
+              return "мок-собес";
+            default:
+              return "событие";
+          }
+        }
+
+        // Функция форматирования времени
+        function formatTime(timestamp) {
+          const now = Date.now();
+          const diff = now - timestamp;
+          const minutes = Math.floor(diff / (1000 * 60));
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+          if (minutes < 1) return "Только что";
+          if (minutes < 60) return `${minutes} мин назад`;
+          if (hours < 24) return `${hours} ч назад`;
+          if (days < 7) return `${days} дн назад`;
+
+          return new Date(timestamp).toLocaleDateString("ru-RU");
+        }
+
+        // Функция обработки клика по уведомлению
+        async function handleNotificationClick(notification) {
+          // Отмечаем как прочитанное
+          if (!notification.read) {
+            notification.read = true;
+            unreadCount--;
+
+            // Сохраняем статус в Firebase
+            try {
+              if (db && currentUser) {
+                const userRef = db.ref(
+                  `users/${currentUser.uid}/notifications/${notification.id}`,
+                );
+                await userRef.set({
+                  read: true,
+                  readAt: Date.now(),
+                });
+              }
+            } catch (error) {
+              console.warn("Не удалось сохранить статус уведомления:", error);
+            }
+
+            updateNotificationsUI();
+          }
+
+          // Переходим к событию
+          if (notification.eventId) {
+            window.location.href = `/calender/?event=${notification.eventId}`;
+          }
+        }
+
+        // Функция показа/скрытия загрузки
+        function showNotificationsLoading(show) {
+          if (notificationsLoading) {
+            const oldDisplay = notificationsLoading.style.display;
+            notificationsLoading.style.display = show ? "block" : "none";
+
+            // Дополнительная проверка
+            setTimeout(() => {
+              const computedStyle =
+                window.getComputedStyle(notificationsLoading);
+            }, 100);
+          } else {
+          }
+        }
+
+        // Функция обновления бейджа уведомлений в заголовке
+        function updateNotificationsBadge() {
+          // НЕ показываем никаких индикаторов в шапке профиля
+          // Красная точка только в навигационной панели
+        }
+
+        // Функция обновления бейджа в заголовке страницы
+        function updatePageTitleBadge() {
+          // НЕ показываем бейдж в заголовке страницы профиля
+          // Только анимированная цифра в шапке
+        }
+
+        // Функция отметки всех как прочитанных
+        async function markAllAsRead() {
+          try {
+            if (db && currentUser) {
+              // Сохраняем статус каждого уведомления в Firebase
+              const updates = {};
+              notifications.forEach((n) => {
+                if (!n.read) {
+                  n.read = true;
+                  updates[`notifications/${n.id}`] = {
+                    read: true,
+                    readAt: Date.now(),
+                  };
+                }
+              });
+
+              if (Object.keys(updates).length > 0) {
+                const userRef = db.ref(`users/${currentUser.uid}`);
+                await userRef.update(updates);
+              }
+            }
+          } catch (error) {
+            console.warn("Не удалось сохранить статус уведомлений:", error);
+          }
+
+          unreadCount = 0;
+          updateNotificationsUI();
+        }
+
+        // Функция полной очистки всех индикаторов уведомлений
+        async function clearAllNotificationIndicators() {
+          try {
+            // 1. Очищаем индикаторы в навигации сайта
+            const profileLinks = document.querySelectorAll(
+              'a[href*="profile"], a[href*="profile.html"]',
+            );
+            profileLinks.forEach((link) => {
+              const href = link.getAttribute("href");
+              const indicator = link.querySelector(
+                ".nav-notification-indicator",
+              );
+              if (indicator) {
+                // Для карточек профиля удаляем индикатор полностью (в т.ч. обратная связь — не про уведомления)
+                if (
+                  href &&
+                  (href.includes("/profile/progress") ||
+                    href.includes("/profile/offers") ||
+                    href.includes("/profile/settings") ||
+                    href.includes("feedbacks"))
+                ) {
+                  indicator.remove();
+                } else {
+                  indicator.classList.remove("has-notifications");
+                  indicator.classList.add("no-notifications", "hidden");
+                  indicator.style.display = "none";
+                }
+              }
+            });
+
+            // 2. Очищаем индикаторы на иконках профиля
+            const profileIcons = document.querySelectorAll(
+              ".avatar, .profile-icon, .user-icon, [data-profile-icon], .nav-profile-icon, .user-avatar",
+            );
+            profileIcons.forEach((icon) => {
+              const indicator = icon.querySelector(
+                ".nav-notification-indicator",
+              );
+              if (indicator) {
+                indicator.classList.remove("has-notifications");
+                indicator.classList.add("no-notifications", "hidden");
+                indicator.style.display = "none";
+              }
+            });
+
+            // 3. Очищаем индикатор на аватаре профиля
+            const avatar = document.querySelector("#avatar");
+            if (avatar) {
+              const avatarIndicator = avatar.querySelector(
+                ".avatar-notification-indicator",
+              );
+              if (avatarIndicator) {
+                avatarIndicator.classList.remove("has-notifications");
+                avatarIndicator.classList.add("no-notifications", "hidden");
+                avatarIndicator.style.display = "none";
+              }
+            }
+
+            // 4. Очищаем индикатор в шапке профиля (если есть)
+            const profileHeader = document.querySelector(".page-header");
+            if (profileHeader) {
+              const headerIndicator = profileHeader.querySelector(
+                ".header-notification-indicator",
+              );
+              if (headerIndicator) {
+                headerIndicator.classList.remove("has-notifications");
+                headerIndicator.classList.add("no-notifications", "hidden");
+                headerIndicator.style.display = "none";
+              }
+            }
+
+            // 5. Очищаем бейдж в заголовке страницы (если есть)
+            const pageTitle = document.querySelector("#title");
+            if (pageTitle) {
+              const titleBadge = pageTitle.querySelector(
+                ".title-notification-badge",
+              );
+              if (titleBadge) {
+                titleBadge.remove();
+              }
+            }
+
+            // 6. Очищаем бейдж уведомлений в шапке (если есть)
+            const notificationsBadge =
+              document.getElementById("notificationsBadge");
+            if (notificationsBadge) {
+              notificationsBadge.style.display = "none";
+            }
+
+            // 7. Обновляем Firebase - помечаем все уведомления как прочитанные
+            if (db && currentUser) {
+              try {
+                const userRef = db.ref(`users/${currentUser.uid}`);
+                await userRef.update({
+                  notificationsReadAt: Date.now(),
+                });
+              } catch (error) {
+                console.warn("⚠️ Не удалось обновить Firebase:", error);
+              }
+            }
+          } catch (error) {
+            console.error("❌ Ошибка при очистке индикаторов:", error);
+          }
+        }
+
+        // Обработчики для вкладок уведомлений
+        if (tabBtns) {
+          tabBtns.forEach((btn) => {
+            btn.addEventListener("click", () => {
+              // Убираем активный класс со всех кнопок
+              tabBtns.forEach((b) => b.classList.remove("active"));
+
+              // Добавляем активный класс к нажатой кнопке
+              btn.classList.add("active");
+
+              // Обновляем текущую вкладку
+              currentTab = btn.dataset.tab;
+
+              // Обновляем UI уведомлений
+              updateNotificationsUI();
+            });
+          });
+        } else {
+          console.warn("⚠️ Кнопки вкладок не найдены");
+        }
+
+        if (markAllReadBtn) {
+          markAllReadBtn.addEventListener("click", markAllAsRead);
+        }
+
+        // Обработчик для кнопки "Смотреть еще"
+        const showMoreCommentsBtn = document.getElementById(
+          "showMoreCommentsBtn",
+        );
+        if (showMoreCommentsBtn) {
+          showMoreCommentsBtn.addEventListener("click", showMoreComments);
+        }
+
+        // Функция инициализации уведомлений
+        async function initializeNotifications() {
+          if (db && currentUser) {
+            // Инициализируем глобальную систему уведомлений
+            if (
+              window.notificationSystem &&
+              !window.notificationSystem.isInitialized
+            ) {
+              // Получаем конфигурацию Firebase для инициализации
+              const firebaseConfig = {
+                databaseURL: db.app.options.databaseURL,
+                apiKey: db.app.options.apiKey,
+                authDomain: db.app.options.authDomain,
+                projectId: db.app.options.projectId,
+                storageBucket: db.app.options.storageBucket,
+                messagingSenderId: db.app.options.messagingSenderId,
+                appId: db.app.options.appId,
+              };
+
+              try {
+                await window.notificationSystem.initialize(firebaseConfig);
+                // Ждем загрузки уведомлений из глобальной системы
+                await window.notificationSystem.loadNotifications();
+                // Загружаем уведомления в профиль
+                loadNotifications();
+              } catch (error) {
+                console.warn(
+                  "⚠️ Не удалось инициализировать глобальную систему уведомлений:",
+                  error,
+                );
+                loadNotifications();
+              }
+            } else if (
+              window.notificationSystem &&
+              window.notificationSystem.isInitialized
+            ) {
+              // Если система уже инициализирована, загружаем уведомления
+              if (window.notificationSystem.notifications.length === 0) {
+                await window.notificationSystem.loadNotifications();
+              }
+
+              // Загружаем уведомления в профиль
+              loadNotifications();
+            } else {
+              loadNotifications();
+            }
+            // НЕ настраиваем бейдж в заголовке - никаких индикаторов в шапке
+            cleanupOldNotifications().catch((error) => {
+              console.error("❌ Ошибка очистки старых уведомлений:", error);
+            });
+            updateNavigationNotificationIndicator();
+
+            // Автоматически обновляем уведомления каждые 5 минут
+            setInterval(async () => {
+              if (db && currentUser) {
+                try {
+                  await loadNotifications();
+                } catch (error) {
+                  console.error(
+                    "❌ Ошибка автоматического обновления уведомлений:",
+                    error,
+                  );
+                }
+              }
+            }, 300000); // 5 минут
+          } else {
+            console.warn(
+              "⚠️ Не удалось инициализировать уведомления: отсутствует пользователь или база данных",
+            );
+          }
+        }
+
+        // Функция очистки старых уведомлений (старше 30 дней)
+        async function cleanupOldNotifications() {
+          if (!db || !currentUser) return;
+
+          try {
+            const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+            const userNotificationsRef = db.ref(
+              `users/${currentUser.uid}/notifications`,
+            );
+            const userNotificationsSnapshot =
+              await userNotificationsRef.once("value");
+            const userNotificationsData = userNotificationsSnapshot.val() || {};
+
+            const updates = {};
+            let hasUpdates = false;
+
+            // Удаляем уведомления старше 30 дней
+            for (const [notificationId, notificationData] of Object.entries(
+              userNotificationsData,
+            )) {
+              if (
+                notificationData.readAt &&
+                notificationData.readAt < thirtyDaysAgo
+              ) {
+                updates[notificationId] = null; // null удаляет поле
+                hasUpdates = true;
+              }
+            }
+
+            if (hasUpdates) {
+              await userNotificationsRef.update(updates);
+            }
+          } catch (error) {
+            console.warn("Не удалось очистить старые уведомления:", error);
+          }
+        }
+
+        // Функция автоматической отметки уведомлений как просмотренных
+        async function markNotificationsAsViewed(notificationsToMark) {
+          if (!db || !currentUser || !notificationsToMark.length) return;
+
+          try {
+            const updates = {};
+            let hasUpdates = false;
+
+            // Отмечаем уведомления как просмотренные (но не прочитанные)
+            for (const notification of notificationsToMark) {
+              if (!notification.read && !notification.viewed) {
+                updates[`notifications/${notification.id}/viewed`] = true;
+                updates[`notifications/${notification.id}/viewedAt`] =
+                  Date.now();
+                notification.viewed = true;
+                hasUpdates = true;
+              }
+            }
+
+            if (hasUpdates) {
+              const userRef = db.ref(`users/${currentUser.uid}`);
+              await userRef.update(updates);
+            }
+          } catch (error) {
+            console.warn(
+              "Не удалось отметить уведомления как просмотренные:",
+              error,
+            );
+          }
+        }
+
+        // Функция показа всех комментариев
+        function showAllComments() {
+          if (!notificationsList) return;
+
+          // Получаем все комментарии, отсортированные по времени
+          const allComments = notifications
+            .filter((n) => n.type === "comment")
+            .sort((a, b) => b.timestamp - a.timestamp);
+
+          // Очищаем список
+          notificationsList.innerHTML = "";
+
+          // Показываем все комментарии
+          allComments.forEach((notification) => {
+            const notificationElement = createNotificationElement(notification);
+            notificationsList.appendChild(notificationElement);
+          });
+
+          // Скрываем кнопку "Смотреть еще"
+          const showMoreContainer = document.getElementById("showMoreComments");
+          showMoreContainer.hidden = true;
+        }
+
+        // Функция показа комментариев по 5 штук
+        function showMoreComments() {
+          if (!notificationsList) return;
+
+          // Получаем текущую вкладку
+          const currentTab =
+            document.querySelector(".tab-btn.active")?.dataset.tab || "all";
+
+          // Фильтруем комментарии по текущей вкладке
+          let filteredComments = notifications.filter(
+            (n) => n.type === "comment",
+          );
+          if (currentTab !== "all") {
+            filteredComments = notifications.filter((n) => {
+              if (currentTab === "comments") return n.type === "comment";
+              return false;
+            });
+          }
+
+          // Сортируем по времени (новые сначала)
+          filteredComments.sort((a, b) => b.timestamp - a.timestamp);
+
+          // Получаем текущее количество показанных комментариев
+          const currentShown =
+            notificationsList.querySelectorAll(".notification-item").length;
+          const otherNotifications = notifications.filter(
+            (n) => n.type !== "comment",
+          );
+
+          // Показываем следующие 5 комментариев
+          const nextComments = filteredComments.slice(
+            currentShown,
+            currentShown + 5,
+          );
+
+          // Добавляем новые комментарии
+          nextComments.forEach((notification) => {
+            const notificationElement = createNotificationElement(notification);
+            notificationsList.appendChild(notificationElement);
+          });
+
+          // Обновляем кнопку "Смотреть еще"
+          const showMoreContainer = document.getElementById("showMoreComments");
+          const showMoreBtn = document.getElementById("showMoreCommentsBtn");
+          const btnCount = showMoreBtn?.querySelector(".btn-count");
+
+          const remainingComments = filteredComments.slice(currentShown + 5);
+          if (remainingComments.length > 0) {
+            if (btnCount) {
+              btnCount.textContent = `+${remainingComments.length}`;
+            }
+          } else {
+            showMoreContainer.hidden = true;
+          }
+        }
+
+        // Функция создания и обновления индикатора уведомлений в навигации
+        function updateNavigationNotificationIndicator() {
+          // НЕ создаем индикатор в шапке профиля - только анимированная цифра
+
+          // Если нет уведомлений, очищаем все индикаторы
+          if (notifications.length === 0) {
+            clearAllNotificationIndicators();
+            return;
+          }
+
+          // Ищем ссылки на профиль в навигации сайта
+          updateSiteNavigationIndicator();
+
+          // Также обновляем индикатор на текущей странице профиля
+          updateCurrentPageNotificationIndicator();
+        }
+
+        // Функция обновления индикатора в навигации сайта
+        function updateSiteNavigationIndicator() {
+          // Ищем все ссылки на профиль в навигации
+          const profileLinks = document.querySelectorAll(
+            'a[href*="profile"], a[href*="profile.html"]',
+          );
+
+          profileLinks.forEach((link) => {
+            // Пропускаем карточки на странице профиля (progress, offers, settings, обратная связь)
+            const href = link.getAttribute("href");
+            if (
+              href &&
+              (href.includes("/profile/progress") ||
+                href.includes("/profile/offers") ||
+                href.includes("/profile/settings") ||
+                href.includes("feedbacks"))
+            ) {
+              const existingIndicator = link.querySelector(
+                ".nav-notification-indicator",
+              );
+              if (existingIndicator) existingIndicator.remove();
+              return;
+            }
+
+            // Проверяем, есть ли уже индикатор
+            let indicator = link.querySelector(".nav-notification-indicator");
+
+            if (!indicator) {
+              // Создаем индикатор
+              indicator = document.createElement("div");
+              indicator.className = "nav-notification-indicator";
+              link.style.position = "relative";
+              link.appendChild(indicator);
+            }
+
+            // Обновляем состояние индикатора
+            if (unreadCount > 0) {
+              indicator.classList.remove("hidden", "no-notifications");
+              indicator.classList.add("has-notifications");
+              indicator.style.display = "block";
+            } else {
+              indicator.classList.remove("has-notifications");
+              indicator.classList.add("no-notifications");
+              // Немедленно скрываем индикатор при отсутствии уведомлений
+              indicator.classList.add("hidden");
+              indicator.style.display = "none";
+            }
+          });
+
+          // Ищем иконку профиля в навигации (если есть)
+          const profileIcons = document.querySelectorAll(
+            ".avatar, .profile-icon, .user-icon, [data-profile-icon], .nav-profile-icon, .user-avatar",
+          );
+          profileIcons.forEach((icon) => {
+            let indicator = icon.querySelector(".nav-notification-indicator");
+
+            if (!indicator) {
+              indicator = document.createElement("div");
+              indicator.className = "nav-notification-indicator";
+              icon.style.position = "relative";
+              icon.appendChild(indicator);
+            }
+
+            // Обновляем состояние индикатора
+            if (unreadCount > 0) {
+              indicator.classList.remove("hidden", "no-notifications");
+              indicator.classList.add("has-notifications");
+              indicator.style.display = "block";
+            } else {
+              indicator.classList.remove("has-notifications");
+              indicator.classList.add("no-notifications");
+              setTimeout(() => {
+                if (unreadCount === 0) {
+                  indicator.classList.add("hidden");
+                }
+              }, 1000);
+            }
+          });
+        }
+
+        // Функция обновления индикатора на текущей странице профиля
+        function updateCurrentPageNotificationIndicator() {
+          // Проверяем, находимся ли мы на странице профиля
+          if (window.location.pathname.includes("profile")) {
+            // Также обновляем индикатор на аватаре
+            const avatar = document.querySelector("#avatar");
+            if (avatar) {
+              let avatarIndicator = avatar.querySelector(
+                ".avatar-notification-indicator",
+              );
+
+              if (!avatarIndicator) {
+                avatarIndicator = document.createElement("div");
+                avatarIndicator.className = "avatar-notification-indicator";
+                avatar.style.position = "relative";
+                avatar.appendChild(avatarIndicator);
+              }
+
+              // Обновляем состояние индикатора
+              if (unreadCount > 0) {
+                avatarIndicator.classList.remove("hidden", "no-notifications");
+                avatarIndicator.classList.add("has-notifications");
+                avatarIndicator.style.display = "block";
+              } else {
+                avatarIndicator.classList.remove("has-notifications");
+                avatarIndicator.classList.add("no-notifications");
+                setTimeout(() => {
+                  if (unreadCount === 0) {
+                    avatarIndicator.classList.add("hidden");
+                  }
+                }, 1000);
+              }
+            }
+          }
+        }
+
+        // Функция setupNotificationsBadge удалена - никаких индикаторов в шапке профиля
+
+        // Ждем загрузки Firebase SDK и configLoader
+        let waitAttempts = 0;
+        const maxWaitAttempts = 50; // 5 секунд максимум
+
+        function waitForDependencies() {
+          waitAttempts++;
+
+          if (
+            typeof firebase !== "undefined" &&
+            typeof window.configLoader !== "undefined"
+          ) {
+            initializeFirebase();
+          } else if (waitAttempts >= maxWaitAttempts) {
+            console.error("Dependencies not available after maximum attempts");
+            alert(
+              t("Ошибка загрузки зависимостей. Попробуйте обновить страницу."),
+            );
+          } else {
+            setTimeout(waitForDependencies, 100);
+          }
+        }
+
+        // Начинаем ожидание загрузки зависимостей с небольшой задержкой
+        setTimeout(waitForDependencies, 100);
+      });
+    </script>
+  </body>
+</html>

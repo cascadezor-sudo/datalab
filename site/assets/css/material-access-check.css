@@ -1,0 +1,93 @@
+/* Проверка доступа к материалам: скрываем контент до завершения guard */
+html.material-access-checking body {
+  visibility: hidden;
+}
+
+html.material-access-checking #material-access-check-overlay,
+html.material-access-checking #material-access-denied-overlay {
+  visibility: visible;
+}
+
+#material-access-check-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--bg-primary, #f8fafc);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  transition: opacity 0.25s ease;
+}
+
+html[data-theme="dark"] #material-access-check-overlay,
+[data-theme="dark"] body #material-access-check-overlay {
+  background: var(--bg-primary, #0f1115);
+}
+
+#material-access-check-overlay.is-hiding {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#material-access-check-overlay.is-aborted {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.material-access-check-label {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
+}
+
+html[data-theme="dark"] .material-access-check-label,
+[data-theme="dark"] body .material-access-check-label {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+}
+
+.material-access-check-wave {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+}
+
+.material-access-check-wave span {
+  display: block;
+  width: 6px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent-color, #8b5cf6);
+  animation: material-access-wave 1s ease-in-out infinite;
+}
+
+.material-access-check-wave span:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.material-access-check-wave span:nth-child(3) {
+  animation-delay: 0.2s;
+}
+.material-access-check-wave span:nth-child(4) {
+  animation-delay: 0.3s;
+}
+.material-access-check-wave span:nth-child(5) {
+  animation-delay: 0.4s;
+}
+
+@keyframes material-access-wave {
+  0%,
+  100% {
+    height: 12px;
+    opacity: 0.45;
+  }
+  50% {
+    height: 28px;
+    opacity: 1;
+  }
+}

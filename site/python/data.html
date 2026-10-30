@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Python для анализа данных (pandas, numpy, EDA)</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../assets/code-styles.css" rel="stylesheet" />
+  <link href="../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../assets/js/components/questions-toc.js"></script>
+  <script src="../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../assets/js/core.js"></script>
+  <script defer="" src="../assets/js/questions.js"></script>
+  <script defer="" src="../assets/js/controls.js"></script>
+  <script defer="" src="../assets/katex/katex.min.js"></script>
+  <script defer="" src="../assets/katex/auto-render.min.js"></script>
+  <script src="../assets/js/components/lazy-questions.js"></script>
+  <script src="../assets/js/init-head.js"></script>
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/anchor-scroll.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/components/section-hero.js"></script>
+  <script src="../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../assets/js/components/difficulty-rating.js"></script>
+  <script src="../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../assets/js/components/info-cards.js"></script>
+  <script src="../assets/js/components/quiz.js"></script>
+  <script src="../assets/js/components/block-tests.js"></script>
+  <script src="../assets/js/components/question-presentation.js"></script>
+  <script src="../assets/js/components/question-badges.js"></script>
+  <script src="../assets/js/components/term-definitions.js"></script>
+  <script src="../assets/js/components/term-tooltip.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../python/index.html">Python</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Python для анализа данных</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Python for Analytics</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">11 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Python для анализа данных (pandas, numpy, EDA)</h1>
+        <p class="section-shell__desc">Инструменты аналитика данных: Jupyter Workflow, векторизация NumPy, глубокая работа с Pandas (groupby, merge, pivot_table) и визуализация в Matplotlib и Seaborn.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="jupyter_analysis_workflow" data-interview="4">
+  <div class="name" id="jupyter_analysis_workflow">
+    Рабочий процесс в Jupyter Notebook
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Product Analyst / Data Scientist):</b> Практический вопрос по культуре разработки: <i>«Как вы организуете воспроизводимый исследовательский анализ (EDA) в Jupyter Notebook? Как бороться с проблемой скрытого состояния (Hidden State), версионированием в Git и как эффективно переносить прототипы из ноутбуков в продакшен-пайплайны?»</i></p>
+<p>Если совсем простыми словами: <b>Jupyter — это лабораторный журнал, а не склад готового ПО</b>. Он идеален для интерактивных графиков и гипотез, но без дисциплины быстро превращается в свалку ячеек, запущенных в случайном порядке, которые невозможно повторить через неделю.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Стандарты зрелого рабочего процесса в Jupyter Notebook:</p>
+<ol>
+<li><b>Проблема скрытого состояния (Hidden State):</b>
+    Если запустить ячейку 10, затем изменить переменную в ячейке 2 и не перезапустить ядро, ноутбук находится в недокументированном состоянии.
+    <i>Золотое правило:</i> Перед коммитом всегда выполнять <b>Restart Kernel and Run All Cells</b>. Ноутбук должен стабильно проходить сквозной запуск от начала до конца.
+</li>
+<li><b>Магические команды IPython (Magics):</b>
+    - `%load_ext autoreload` / `%autoreload 2`: Автоматическая перезагрузка внешних Python-модулей при их изменении на диске без рестарта ядра.
+    - `%timeit -n 100 -r 5`: Прецизионный замер времени выполнения кода.
+    - `%%prun`: Профилирование вызовов функций внутри ячейки.
+</li>
+<li><b>Версионирование в Git и Jupytext:</b>
+    Формат `.ipynb` — это тяжелый JSON, содержащий бинарные base64-картинки графиков. Коммитить сырые аутпуты — плохая практика.
+    <i>Решения:</i> Использование `nbstripout` (очистка вывода перед коммитом) или `jupytext` (двусторонняя синхронизация ноутбука с чистым `.py` файлом в формате percent-script `# %%`).
+</li>
+<li><b>Структура аналитического ноутбука:</b>
+    1. Назначение и контекст задачи (Markdown). 2. Импорты и фиксация seed. 3. Загрузка и валидация схемы данных. 4. Очистка и EDA. 5. Проверка статистических гипотез. 6. Бизнес-выводы и рекомендации.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена:</b>
+Аналитик презентовал результаты A/B теста руководству: эффект $+12\%$.
+При повторном открытии ноутбука разработчиком результат не сошелся (эффект $+1\%$).
+Причина: аналитик выполнил фильтрацию выбросов в отдельной ячейке, затем стер ее, сохранив измененную переменную в оперативной памяти.
+Внедрение pre-commit хука `nbstripout` и обязательного сквозного прогона исключило подобные инциденты в команде.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Эталонный заголовок воспроизводимого ноутбука аналитика
+# %% [markdown]
+# # Исследование когортного оттока пользователей за Q3 2026
+# **Автор:** Senior Product Analyst
+# **Цель:** Изолировать причину падения 30-day Retention в когорте Августа.
+
+# %% Настройка среды и авто-перезагрузки модулей
+%load_ext autoreload
+%autoreload 2
+
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Фиксация глобальных настроек отображения
+pd.set_option('display.max_columns', 50)
+pd.set_option('display.max_rows', 20)
+pd.set_option('display.float_format', lambda x: f'{x:,.3f}')
+np.random.seed(42)
+
+print(f"Pandas version: {pd.__version__}")
+print(f"NumPy version:  {np.__version__}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск ячеек в произвольном непоследовательном порядке.</b> Создает иллюзию работоспособности кода, который невозможно воспроизвести заново.</li>
+        <li><b>Коммит в репозиторий ноутбуков с мегабайтами встроенных изображений и датафреймов.</b> Засоряет Git-историю и делает код-ревью через веб-интерфейс невозможным.</li>
+        <li><b>Хранение паролей к боевым базам данных прямо в ячейках ноутбука.</b> Утечка учетных записей; учетные данные должны загружаться строго через переменные окружения (.env).</li>
+        <li><b>Написание монолитных 5000-строчных скриптов внутри одного ноутбука.</b> Повторно используемую логику следует оформлять в функции и выносить в отдельные `.py` файлы пакета.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: обязательно упомяните <b>nbstripout</b> или <b>Jupytext</b>, а также привычку оформлять чистые пайплайны. Это демонстрирует высокую инженерную культуру дата-аналитика.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое проблема скрытого состояния (Hidden State) в Jupyter?</b></p><p>Ситуация, когда переменные в памяти ядра не соответствуют текущему тексту ячеек из-за их выполнения не по порядку.</p></li>
+        <li><p><b>Зачем использовать `%load_ext autoreload`?</b></p><p>Чтобы импортированные функции из локальных `.py` файлов мгновенно обновлялись в ноутбуке при сохранении без перезапуска ядра.</p></li>
+        <li><p><b>Почему формат `.ipynb` плохо версионируется в Git?</b></p><p>Потому что это сложный JSON, в котором любые изменения вывода (графики, таймстемпы выполнения) создают огромные нечитаемые диффы.</p></li>
+        <li><p><b>Как работает инструмент Jupytext?</b></p><p>Связывает `.ipynb` с обычным `.py` скриптом, позволяя редактировать код в IDE и хранить в Git чистый текстовый дифф без артефактов вывода.</p></li>
+        <li><p><b>Какое правило является обязательным перед отправкой ноутбука коллегам?</b></p><p>Выполнить Restart Kernel & Run All Cells и убедиться в отсутствии ошибок от начала до конца.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="numpy_vectorization" data-interview="5">
+  <div class="name" id="numpy_vectorization">
+    NumPy и векторизация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst / Python Core):</b> Фундаментальный технический вопрос: <i>«Что такое векторизация и механизм Broadcasting в NumPy? Почему векторизованные операции на порядки быстрее циклов for в чистом Python и как устроено размещение массива ndarray в оперативной памяти?»</i></p>
+<p>Если совсем простыми словами: <b>чистый Python — это медленный курьер, который носит по одному яблоку в коробке, а NumPy — железнодорожный состав</b>. Вместо интерпретации типа каждой отдельной переменной в цикле процессору скармливается непрерывный блок памяти на языке Си, обрабатываемый за считанные такты через SIMD-инструкции.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Низкоуровневое устройство массивов и правила векторизации:</p>
+<ol>
+<li><b>Анатомия объекта ndarray:</b>
+    - Непрерывный блок памяти (C-contiguous buffer) фиксированного типа (homogeneous dtype, например `float64`).
+    - Метаданные: `shape` (размерности), `dtype` (размер элемента в байтах), `strides` (шаг в байтах при переходе к следующему элементу вдоль каждой оси).
+    - В отличие от списка Python `list[float]`, где хранятся указатели на разрозненные объекты в куче (Pointer Indirection), NumPy размещает числа вплотную друг к другу в L1/L2 кэше процессора.
+</li>
+<li><b>Правила согласования размерностей (Broadcasting Rules):</b>
+    Две размерности совместимы, если:
+    1. Они равны ($d_1 = d_2$), <b>ИЛИ</b>
+    2. Одна из них равна единице ($d_1 = 1$ или $d_2 = 1$).
+    NumPy виртуально растягивает единичную ось без физического дублирования данных в памяти (stride по этой оси устанавливается в $0$ байт!).
+</li>
+<li><b>Сравнение вычислительной сложности:</b>
+    Поэлементное умножение двух массивов длины $N$:
+    - Python `for x, y in zip(a, b)`: $O(N)$ с колоссальными накладными расходами на проверку типов (dynamic dispatch) и распаковку объектов.
+    - NumPy `a * b`: $O(N)$ на чистом C с оптимизацией векторизации AVX-512 (до 16 чисел `float32` за 1 процессорный такт!).
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический бенчмарк: Расчет евклидовых расстояний:</b>
+Вычисление попарных расстояний между $1000$ точками и $1000$ центроидами ($1\,000\,000$ пар):
+- Вложенный цикл Python: $\approx 2.45$ секунды.
+- Векторизованный Broadcasting `np.linalg.norm(A[:, None, :] - B[None, :, :], axis=-1)`: $\approx 0.015$ секунды (ускорение в $160$ раз!).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Демонстрация векторизации и механизма Broadcasting в NumPy
+import numpy as np
+import time
+
+n_points = 5000000
+
+# Создаем два массива случайных величин
+a = np.random.randn(n_points).astype(np.float64)
+b = np.random.randn(n_points).astype(np.float64)
+
+# 1. Медленный подход: цикл Python
+t0 = time.perf_counter()
+res_loop = [x * y + 2.0 for x, y in zip(a[:100000], b[:100000])] # замеряем только 100k, иначе слишком долго
+t_loop_scaled = (time.perf_counter() - t0) * 50 # экстраполяция на 5 млн
+
+# 2. Быстрый подход: векторизация NumPy (SIMD)
+t0 = time.perf_counter()
+res_vectorized = a * b + 2.0
+t_numpy = time.perf_counter() - t0
+
+print(f"Размер данных: 5,000,000 элементов")
+print(f"Время цикла Python (оценка): {t_loop_scaled:6.3f} сек.")
+print(f"Время NumPy векторизации:    {t_numpy:6.3f} сек.")
+print(f"Ускорение вычислений:        в {t_loop_scaled / t_numpy:6.1f} раз!")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование цикла for для обхода элементов массива ndarray.</b> Полностью нивелирует преимущества NumPy и работает медленнее стандартных списков Python.</li>
+        <li><b>Создание огромных промежуточных тензоров при Broadcasting.</b> Выражение `A[:, None] - B[None, :]` для $100\,000$ элементов создаст матрицу $100\,000 \times 100\,000$, вызвав падение по Out Of Memory (OOM).</li>
+        <li><b>Ошибочное предположение о копировании данных при сглаживании или срезах.</b> Срезы `arr[1:5]` создают View (представление), а не копию. Изменение среза меняет исходный массив!</li>
+        <li><b>Непреднамеренное повышение типов (Type Upcasting).</b> Сложение `float32` и `float64` неявно удваивает потребление памяти массивом.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: объясните механизм <b>Strides</b> (шагов смещения по памяти). Упоминание того, что при Broadcasting размерность 1 имеет шаг `stride = 0`, производит сильное впечатление на интервьюера.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Broadcasting в NumPy?</b></p><p>Механизм автоматического виртуального согласования массивов разной формы для выполнения поэлементных операций без физического копирования данных.</p></li>
+        <li><p><b>Почему векторизация работает быстрее циклов Python?</b></p><p>Благодаря непрерывному размещению в памяти, отсутствию динамической проверки типов на каждой итерации и задействованию SIMD-инструкций CPU.</p></li>
+        <li><p><b>Что такое Strides (шаги) в ndarray?</b></p><p>Кортеж чисел, показывающий, на сколько байт нужно сместиться в памяти, чтобы перейти к следующему элементу вдоль соответствующей оси.</p></li>
+        <li><p><b>Создает ли срез `a[::2]` копию массива?</b></p><p>Нет, срез возвращает View (представление), ссылающееся на тот же буфер памяти с измененным stride.</p></li>
+        <li><p><b>Когда две размерности совместимы по правилам Broadcasting?</b></p><p>Когда они строго равны либо когда одна из них равна 1.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_dataframe" data-interview="4">
+  <div class="name" id="pandas_dataframe">
+    Основы Pandas: DataFrame и Series
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst):</b> Базовый архитектурный вопрос: <i>«Как устроены структуры данных Series и DataFrame в Pandas? Как оптимизировать потребление оперативной памяти датафреймом в 3-5 раз при работе с большими датасетами?»</i></p>
+<p>Если совсем простыми словами: <b>Series — это именованный одномерный массив с индексами, а DataFrame — двумерная таблица из таких колонок</b>. По умолчанию Pandas выделяет память с огромным запасом (64-битные типы и строки-указатели), из-за чего таблица на 500 МБ на диске может раздуться до 5 ГБ в RAM.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Внутреннее устройство и техники оптимизации памяти (Memory Optimization):</p>
+<ol>
+<li><b>BlockManager в архитектуре Pandas:</b>
+    - Внутри DataFrame колонки одинакового типа группируются в многомерные блоки (`FloatBlock`, `IntBlock`, `ObjectBlock`).
+    - Тип `object` хранит не сами строки, а 64-битные указатели на Python-объекты `PyObject` в куче, порождая колоссальный оверхед памяти и кэш-промахи CPU.
+</li>
+<li><b>Понижение числовых типов (Downcasting):</b>
+    - По умолчанию целые числа читаются как `int64` (8 байт на число). Если значения лежат в диапазоне $0-100$, достаточно `uint8` (1 байт) — <b>экономия $87.5\%$</b>.
+    - Дробные числа: перевод `float64` в `float32` экономит ровно $50\%$ памяти.
+</li>
+<li><b>Категориальный тип данных (Categorical dtype):</b>
+    - Для строковых полей с повторяющимися значениями (статусы, города, категории, пол) тип `category` заменяет строки на словарь целых чисел (`codes` + `categories`).
+    - Снижает потребление памяти строковой колонки в $5-10$ раз и многократно ускоряет операции `groupby`.
+</li>
+<li><b>Глубокий аудит памяти:</b>
+    Вызов `df.info()` показывает поверхностный размер. Реальное потребление с учетом строковых объектов показывает строго `df.info(memory_usage='deep')`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс оптимизации памяти на 5 млн строк:</b>
+Датасет логов пользователей:
+- До оптимизации: все числовые поля `int64`/`float64`, строки `object`. Общий объем RAM: $2\,450$ МБ.
+- Применение `downcast='integer'` + `category` для полей `country` и `device`:
+- После оптимизации: $410$ МБ (<b>сокращение потребления памяти на $83\%$</b>!). Ноутбук перестал падать в OOM при построении отчетов.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Универсальная функция оптимизации памяти Pandas DataFrame
+import pandas as pd
+import numpy as np
+
+def optimize_dataframe_memory(df):
+    start_mem = df.memory_usage(deep=True).sum() / (1024**2)
+    
+    for col in df.columns:
+        col_type = df[col].dtype
+        
+        # Оптимизация целых чисел
+        if np.issubdtype(col_type, np.integer):
+            df[col] = pd.to_numeric(df[col], downcast='integer')
+            
+        # Оптимизация вещественных чисел
+        elif np.issubdtype(col_type, np.floating):
+            df[col] = pd.to_numeric(df[col], downcast='float')
+            
+        # Оптимизация строковых объектов с низкой кардинальностью
+        elif col_type == 'object':
+            num_unique = df[col].nunique()
+            num_total = len(df[col])
+            if num_unique / num_total < 0.5: # если уникальных значений меньше 50%
+                df[col] = df[col].astype('category')
+                
+    end_mem = df.memory_usage(deep=True).sum() / (1024**2)
+    reduction = 100 * (start_mem - end_mem) / start_mem
+    print(f"Память ДО: {start_mem:.2f} МБ | Память ПОСЛЕ: {end_mem:.2f} МБ | Снижение: {reduction:.1f}%")
+    return df
+
+# Тест на демонстрационном датафрейме
+sample_df = pd.DataFrame({
+    'id': np.arange(100000, dtype=np.int64),
+    'status': np.random.choice(['active', 'cancelled', 'refunded'], size=100000),
+    'rating': np.random.choice([1, 2, 3, 4, 5], size=100000).astype(np.int64),
+    'price': np.random.uniform(10.0, 500.0, size=100000).astype(np.float64)
+})
+
+sample_df = optimize_dataframe_memory(sample_df)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Оценка потребления памяти через df.info() без параметра memory_usage='deep'.</b> Показывает ложно заниженный объем памяти, игнорируя реальный вес строковых объектов в куче.</li>
+        <li><b>Перевод в тип category колонок с высокой кардинальностью (High-cardinality strings, например уникальные ID или UUID).</b> Только увеличит расход памяти из-за накладных расходов на поддержание словаря.</li>
+        <li><b>Забывание о том, что операции над category могут неявно возвращать object.</b> Некоторые строковые методы `.str` сбрасывают тип категории обратно в object.</li>
+        <li><b>Хранение дат в виде строк object вместо типа datetime64[ns].</b> Строковые даты занимают в 4 раза больше памяти и не поддерживают временные выборки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: напишите функцию downcasting на доске или расскажите про разницу между `object` (указатели на PyObject) и `category` (словарь + integer codes). Это базовый критерий мидл-аналитика.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем Series отличается от DataFrame?</b></p><p>Series — это одномерный массив с индексными метками; DataFrame — двумерная табличная структура, состоящая из столбцов Series с общим индексом.</p></li>
+        <li><p><b>Зачем использовать dtype='category'?</b></p><p>Для эффективного хранения строк с ограниченным набором уникальных значений, снижающего расход RAM до 90%.</p></li>
+        <li><p><b>Почему df.info() по умолчанию не показывает точный размер строковых колонок?</b></p><p>Потому что он считает размер массива указателей, не выполняя глубокий обход реальных объектов в куче Python.</p></li>
+        <li><p><b>Как безопасно понизить разрядность целочисленных колонок в Pandas?</b></p><p>С помощью функции `pd.to_numeric(df[col], downcast='integer')`.</p></li>
+        <li><p><b>Что такое BlockManager в архитектуре Pandas?</b></p><p>Внутренний компонент Pandas, управляющий группировкой столбцов одинакового типа в единые двумерные блоки памяти NumPy.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_selection" data-interview="4">
+  <div class="name" id="pandas_selection">
+    Выборка и фильтрация в Pandas (loc, iloc, query)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst):</b> Каверзный вопрос по индексации: <i>«В чем принципиальная разница между .loc, .iloc и методом .query()? Почему возникает предупреждение SettingWithCopyWarning, чем оно опасно и как гарантировать корректное изменение данных в датафрейме?»</i></p>
+<p>Если совсем простыми словами: <b>.loc ищет по именам и подписям, а .iloc — по физическим порядковым номерам строк и столбцов</b>. Цепочечная фильтрация `df[mask]['col'] = val` — главная причина скрытых багов в Python: вы можете случайно модифицировать временную копию в воздухе, оставив исходный датафрейм нетронутым.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ методов доступа и фильтрации:</p>
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Тип адресации</th><th>Границы диапазона (Slicing)</th><th>Пример</th></tr></thead>
+<tbody>
+<tr><td><b>.loc[rows, cols]</b></td><td>По меткам индекса и именам колонок (Labels)</td><td><b>Включая обе границы</b> $[start, stop]$</td><td><code>df.loc['2026-01-01':'2026-01-05', 'revenue']</code></td></tr>
+<tr><td><b>.iloc[rows, cols]</b></td><td>По целочисленным позициям (Integer index)</td><td>Полуинтервал $[start, stop)$ (как в Python)</td><td><code>df.iloc[0:5, 1:3]</code> (первые 5 строк)</td></tr>
+<tr><td><b>.query('expr')</b></td><td>Строковое выражение (NumExpr движок)</td><td>Логическая фильтрация строк</td><td><code>df.query('age > 25 and status in @valid_list')</code></td></tr>
+</tbody>
+</table>
+<p><b>Механика SettingWithCopyWarning:</b>
+Когда вы пишете `df[df['a'] > 0]['b'] = 10`, операция делится на два шага:
+1. `__getitem__`: возвращает результат фильтрации (неизвестно: срез памяти или новая копия).
+2. `__setitem__`: пытается записать значение `10`.
+Если `__getitem__` вернул копию, значение запишется во временный объект, который тут же уничтожится сборщиком мусора, а исходный `df` не изменится!
+<i>Правильное решение:</i> Всегда использовать единый метод `.loc`: `df.loc[df['a'] > 0, 'b'] = 10`.</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический пример лаконичного кода с .query():</b>
+Вместо громоздких скобок и битовых операторов:
+`df[(df['country'] == 'RU') & (df['age'] >= 18) & (df['spend'] > 1000)]`
+Используется читаемый синтаксис:
+`min_spend = 1000`
+`df.query("country == 'RU' and age >= 18 and spend > @min_spend")`</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Безопасная фильтрация и модификация без SettingWithCopyWarning
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({
+    'user_id': [1, 2, 3, 4, 5],
+    'balance': [100.0, -20.0, 0.0, 50.0, -10.0],
+    'is_debtor': [False, False, False, False, False]
+})
+
+# ОШИБКА (вызовет SettingWithCopyWarning или не сохранит данные):
+# df[df['balance'] < 0]['is_debtor'] = True
+
+# ПРАВИЛЬНО: использование .loc с предикатом и целевой колонкой
+df.loc[df['balance'] < 0, 'is_debtor'] = True
+
+# Использование .query() с внешней переменной через символ @
+threshold = 40.0
+wealthy_users = df.query('balance > @threshold and is_debtor == False')
+
+print("Результирующий датафрейм:")
+print(df)
+print("\nОтфильтрованные пользователи с балансом > 40:")
+print(wealthy_users)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Цепочечная индексация df[condition][column] = value.</b> Вызывает SettingWithCopyWarning и может привести к тихому сбою записи данных.</li>
+        <li><b>Забывание о том, что срез .loc включает правую границу диапазона.</b> `df.loc[0:5]` вернет 6 строк (с 0 по 5 включительно), тогда как `df.iloc[0:5]` вернет 5 строк.</li>
+        <li><b>Использование логических операторов and / or вместо побитовых & / | в булевых масках.</b> В выражениях вида `df[(df['a'] > 1) & (df['b'] < 5)]` оператор `and` вызовет ошибку `ValueError: The truth value of a Series is ambiguous`.</li>
+        <li><b>Забывание круглых скобок вокруг условий при битовой фильтрации.</b> Приоритет битовых операций `&` выше операций сравнения `>`: `df[df['a'] > 1 & df['b'] < 5]` приведет к синтаксической ошибке.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: если вас спросят про `SettingWithCopyWarning`, четко объясните разницу между View (представлением) и Copy (копией) и покажите, что `.loc[mask, col] = val` решает проблему на корню.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем главное отличие .loc от .iloc?</b></p><p>.loc адресует строки и столбцы по их меткам/именам; .iloc адресует строго по целочисленным позициям от 0 до N-1.</p></li>
+        <li><p><b>Включает ли срез .loc правую границу диапазона?</b></p><p>Да, в отличие от стандартных срезов Python, срез `.loc['a':'c']` включает элемент `'c'`.</p></li>
+        <li><p><b>Почему возникает предупреждение SettingWithCopyWarning?</b></p><p>Когда Pandas не может гарантировать, выполняется ли присваивание в исходный датафрейм (View) или во временную копию (Copy).</p></li>
+        <li><p><b>Как обратиться к внешней Python-переменной внутри метода .query()?</b></p><p>Через префикс `@` (например, `df.query('col > @my_var')`).</p></li>
+        <li><p><b>Почему нельзя использовать `and` при фильтрации через булевы маски Series?</b></p><p>Потому что `and` пытается вычислить единую булеву истинность всего массива, что неоднозначно; нужно использовать побитовое `&`.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_groupby" data-interview="5">
+  <div class="name" id="pandas_groupby">
+    Группировка данных (groupby) и агрегации
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data / Product Analyst):</b> Один из главных вопросов на лайвкодинге: <i>«Как работает парадигма Split-Apply-Combine в Pandas? Чем принципиально отличаются методы .agg(), .transform(), .filter() и .apply()? Почему злоупотребление .apply() драматически замедляет выполнение кода?»</i></p>
+<p>Если совсем простыми словами: <b>.agg() сжимает каждую группу в одну строчку (агрегация), а .transform() считает статистику группы и размножает ее обратно на все строки исходного размера</b>. Метод `.apply()` — это медленный универсальный молоток, который вызывает интерпретатор Python построчно, игнорируя быстрые C-оптимизации.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия Split-Apply-Combine и методов агрегации:</p>
+<ol>
+<li><b>Парадигма Хэдли Уикхема (Split-Apply-Combine):</b>
+    - <b>Split:</b> Разбиение датафрейма на группы по значениям ключей.
+    - <b>Apply:</b> Применение вычислений к каждой группе автономно.
+    - <b>Combine:</b> Сборка результатов в единую результирующую структуру данных.
+</li>
+<li><b>Различия между методами обработки групп:</b>
+    <ul>
+    <li><b>.agg() (Aggregate):</b> Уменьшает размерность. Возвращает по 1 значению на группу. Поддерживает оптимизированные функции Cython: `'mean'`, `'sum'`, `'count'`, `'std'`.</li>
+    <li><b>.transform():</b> Сохраняет исходную размерность. Результат имеет точно такое же число строк, как исходный датафрейм. Идеально для нормализации признаков (Z-score внутри когорты) и расчета доли строки от общего объема группы.</li>
+    <li><b>.filter():</b> Фильтрует целые группы по предикату (например, оставить только категории, где суммарная выручка превысила 1 млн рублей).</li>
+    <li><b>.apply():</b> Универсальная функция обратного вызова (Python callback). Вызывает функцию на каждом под-датафрейме. <b>В 20-100 раз медленнее .agg()</b> из-за невозможности векторизации.</li>
+    </ul>
+</li>
+<li><b>Именованная агрегация (Named Aggregation):</b>
+    Современный стандарт читаемого синтаксиса без создания запутанных MultiIndex-колонок:
+    `df.groupby('dept').agg(avg_salary=('salary', 'mean'), max_age=('age', 'max'))`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический пример применения .transform():</b>
+Задача: рассчитать отклонение чека конкретной покупки от среднего чека в данном городе:
+`df['city_avg_spend'] = df.groupby('city')['spend'].transform('mean')`
+`df['spend_diff'] = df['spend'] - df['city_avg_spend']`
+Без джойнов и промежуточных таблиц — в одну строчку с сохранением индексов!</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Сравнение .agg(), .transform() и Named Aggregation в Pandas
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({
+    'category': ['Electronics', 'Electronics', 'Electronics', 'Clothing', 'Clothing'],
+    'item': ['Phone', 'Laptop', 'Headphones', 'Shirt', 'Jeans'],
+    'price': [50000, 120000, 8000, 3000, 6000]
+})
+
+# 1. Named Aggregation через .agg(): компактные плоские колонки
+summary = df.groupby('category').agg(
+    total_revenue=('price', 'sum'),
+    avg_price=('price', 'mean'),
+    item_count=('item', 'count')
+).reset_index()
+
+# 2. Использование .transform() для расчета доли товара внутри его категории
+df['category_total'] = df.groupby('category')['price'].transform('sum')
+df['category_share_pct'] = (df['price'] / df['category_total']) * 100.0
+
+print("Сводная аналитика по категориям (.agg):")
+print(summary)
+print("\nИсходный датафрейм с долями категорий (.transform):")
+print(df[['category', 'item', 'price', 'category_share_pct']])</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование .apply() для стандартных математических агрегаций.</b> Вызов `df.groupby('x').apply(lambda g: g['y'].sum())` работает в десятки раз медленнее нативного `.agg('sum')`.</li>
+        <li><b>Забывание reset_index() или as_index=False.</b> Группировка по умолчанию превращает ключи группировки в индекс, что создает неудобства при последующих операциях слияния.</li>
+        <li><b>Работа с категориальными переменными без observed=True.</b> При группировке по категориальным колонкам Pandas по умолчанию создает декартово произведение всех возможных категорий, включая пустые комбинации.</li>
+        <li><b>Случайная мутация глобальных переменных внутри функций для .apply().</b> Функция в .apply() вызывается на первой группе дважды (для проверки возвращаемого типа), что может исказить сайд-эффекты.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: продемонстрируйте знание <b>Named Aggregation</b> (синтаксис `new_col=('source_col', 'agg_func')`) и мощь <b>.transform()</b>. Это сразу отличает опытного практика от новичка.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между .agg() и .transform()?</b></p><p>.agg() сворачивает каждую группу в одно итоговое значение; .transform() возвращает массив той же длины, что и исходная группа, транслируя результат на каждую строку.</p></li>
+        <li><p><b>Что такое Named Aggregation в Pandas?</b></p><p>Синтаксис `.agg(col_name=('orig_col', 'func'))`, позволяющий задавать имена колонок и типы агрегаций без появления сложного двухуровневого MultiIndex.</p></li>
+        <li><p><b>Почему метод .apply() работает медленнее векторизованных агрегаций?</b></p><p>Потому что он выполняет итеративный вызов пользовательской Python-функции на уровне каждой подгруппы без низкоуровневых оптимизаций C/Cython.</p></li>
+        <li><p><b>Что делает метод .filter() у объекта groupby?</b></p><p>Фильтрует и возвращает строки тех групп целиком, для которых пользовательское условие вернуло True.</p></li>
+        <li><p><b>Зачем использовать параметр `as_index=False` в groupby?</b></p><p>Чтобы ключи группировки оставались обычными столбцами датафрейма, а не перемещались в индекс.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_merge" data-interview="5">
+  <div class="name" id="pandas_merge">
+    Слияние таблиц: merge, join, concat
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst):</b> Стандартный блок задач по манипуляции данными: <i>«В чем различия между pd.merge(), df.join() и pd.concat()? Как работает валидация кардинальности связей (параметр validate), почему при Left Join целочисленные колонки могут неявно превратиться во float и как отладить пропущенные ключи с помощью indicator=True?»</i></p>
+<p>Если совсем простыми словами: <b>merge — это SQL-джойны по колонкам, join — быстрое соединение по индексам строк, а concat — склеивание таблиц стопкой (друг под другом или бок о бок)</b>. Неявные дубликаты ключей в джойнах — скрытый кошмар аналитика, раздувающий размер таблицы в миллионы строк из-за эффекта декартова произведения.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методология и правила объединения данных в Pandas:</p>
+<ol>
+<li><b>Типы операций соединения:</b>
+    - `pd.merge(df1, df2, on='key', how='inner|left|right|outer|cross')`: Полный аналог реляционного SQL JOIN по любым совпадающим столбцам.
+    - `df1.join(df2, on='key')`: Соединение, оптимизированное для объединения по индексам строк (Index-based join).
+    - `pd.concat([df1, df2], axis=0|1)`: Физическое конкатенирование вдоль оси: `axis=0` (добавление новых строк снизу), `axis=1` (приклеивание новых колонок справа).
+</li>
+<li><b>Защита от декартова взрыва (Параметр `validate`):</b>
+    Параметр `validate` гарантирует соответствие кардинальности связей:
+    - `'one_to_one'` (1:1): Ключи уникальны в обеих таблицах.
+    - `'one_to_many'` (1:N): Ключ уникален в левой таблице.
+    - `'many_to_one'` (N:1): Ключ уникален в правой таблице.
+    Если в таблице окажутся неожиданные дубликаты, Pandas мгновенно выбросит исключение `MergeError`, предотвратив искажение бизнес-метрик.
+</li>
+<li><b>Аудит джойнов через `indicator=True`:</b>
+    Создает служебную колонку `_merge` со значениями `'left_only'`, `'right_only'`, `'both'`, позволяя мгновенно изолировать несошедшиеся записи.
+</li>
+<li><b>Проблема Int $\to$ Float в классическом Pandas:</b>
+    В старых версиях NumPy стандартный `int64` не поддерживал `NaN`. Если при `left join` ключ не находился, вся целочисленная колонка неявно приводилась к `float64`. В современном Pandas это решается использованием расширенного типа `Int64` (Nullable Integer) или PyArrow backend.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Потеря денег из-за дубликата ключей:</b>
+Таблица заказов ($10\,000$ строк) объединялась с таблицей скидок по `user_id`.
+В таблице скидок для одного пользователя было две активные записи.
+Джойн размножил строки, сумма выручки задвоилась, и отчет завысил продажи на $3.5$ млн рублей.
+Использование `validate='many_to_one'` выбросило бы ошибку на этапе выполнения и предотвратило выпуск ошибочного отчета.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Безопасное слияние датафреймов с валидацией связей и аудитом индикатором
+import pandas as pd
+
+orders = pd.DataFrame({
+    'order_id': [101, 102, 103, 104],
+    'customer_id': [1, 2, 3, 99], # клиент 99 отсутствует в базе клиентов
+    'amount': [1500, 2300, 500, 4200]
+})
+
+customers = pd.DataFrame({
+    'customer_id': [1, 2, 3],
+    'city': ['Москва', 'Санкт-Петербург', 'Казань']
+})
+
+# Слияние с проверкой Many-to-One и индикатором сопоставления
+merged_df = pd.merge(
+    orders,
+    customers,
+    on='customer_id',
+    how='left',
+    validate='many_to_one', # выбросит ошибку, если в customers найдутся дубли customer_id!
+    indicator=True
+)
+
+print("Результат объединения с аудитом _merge:")
+print(merged_df)
+
+# Изоляция заказов с потерянными клиентами:
+unmatched = merged_df[merged_df['_merge'] == 'left_only']
+print(f"\nЗаказов без найденного профиля клиента: {len(unmatched)}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Неконтролируемое декартово произведение (Cartesian Product) при джойне таблиц с дубликатами ключей.</b> Количество строк взрывообразно увеличивается, искажая все суммы и средние чеки.</li>
+        <li><b>Конкатенация таблиц pd.concat([df1, df2]) без ignore_index=True.</b> Приводит к дублированию индексных меток, что вызывает трудноуловимые баги при последующей выборке `.loc`.</li>
+        <li><b>Несовпадение типов ключей объединения (например, str '123' и int 123).</b> Pandas вернет пустой результат объединения без предупреждений.</li>
+        <li><b>Забывание суффиксов (suffixes) при совпадении имен колонок.</b> Приводит к автоматическому созданию колонок `col_x` и `col_y`, ломающим дальнейший код обработки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: всегда упоминайте аргумент <b>validate='many_to_one'</b> и флаг <b>indicator=True</b>. Это визитная карточка инженера, знающего цену качеству данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем pd.merge() отличается от pd.concat()?</b></p><p>merge соединяет таблицы горизонтально по совпадающим ключам (как SQL JOIN); concat склеивает массивы вдоль заданной оси (по строкам или колонкам).</p></li>
+        <li><p><b>Зачем использовать параметр `validate` в pd.merge()?</b></p><p>Для автоматической проверки ожидаемой кардинальности связи (1:1, 1:N, N:1) и защиты от появления дубликатов.</p></li>
+        <li><p><b>Что показывает колонка `_merge` при включенном `indicator=True`?</b></p><p>Источники строки: 'both' (ключ найден в обеих), 'left_only' (только в левой), 'right_only' (только в правой).</p></li>
+        <li><p><b>Почему в классическом Pandas целочисленные колонки при Left Join превращаются в float?</b></p><p>Потому что стандартные целочисленные типы NumPy не поддерживают значение NaN; пропуски кодируются через float64.</p></li>
+        <li><p><b>Как избежать изменения типов при наличии пропусков в целочисленных полях?</b></p><p>Использовать Nullable integer тип Pandas (`Int64` с большой буквы) или типы PyArrow.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_pivot_melt" data-interview="4">
+  <div class="name" id="pandas_pivot_melt">
+    Решейпинг данных: pivot_table и melt
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Product Analyst / BI):</b> Практическая трансформация матриц: <i>«В чем разница между широким (Wide) и длинным (Long / Tidy) форматами данных? Как трансформировать данные между ними с помощью pivot_table() и melt(), чем pivot отличается от pivot_table и как расплющить (flatten) составной MultiIndex колонок после сведения?»</i></p>
+<p>Если совсем простыми словами: <b>melt плавит широкую сводную таблицу в длинный столбик наблюдений, а pivot_table кристаллизует длинные факты в двумерную матрицу с подсчетом итогов</b>. Для визуализаций в Seaborn и баз данных нужен узкий длинный формат (Tidy Data), а для отчетов в Excel — широкий.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Принципы Tidy Data и механика решейпинга:</p>
+<ol>
+<li><b>Концепция аккуратных данных (Tidy Data):</b>
+    1. Каждая переменная образует отдельный столбец.
+    2. Каждое наблюдение образует отдельную строку.
+    3. Каждый тип наблюдаемой единицы образует отдельную таблицу.
+</li>
+<li><b>Метод melt() (Wide $\to$ Long / Unpivot):</b>
+    - Принимает фиксированные столбцы-идентификаторы (`id_vars`) и столбцы-значения (`value_vars`).
+    - Схлопывает десятки горизонтальных столбцов (например, `sales_jan`, `sales_feb`, `sales_mar`) в две строгие колонки: имя переменной (`variable`) и ее значение (`value`).
+</li>
+<li><b>Методы pivot() и pivot_table() (Long $\to$ Wide):</b>
+    - `df.pivot()`: Требует строгой уникальности комбинации индексов и колонок. Если есть дубликаты — падает с ошибкой `ValueError: Index contains duplicate entries`.
+    - `df.pivot_table()`: Поддерживает агрегацию при совпадении ключей (`aggfunc='mean|sum|count'`) и подсчет общих итогов (`margins=True`).
+</li>
+<li><b>Схлопывание иерархического MultiIndex:</b>
+    После применения `pivot_table` колонки часто становятся двухуровневыми.
+    <i>Техника расплющивания:</i> `df.columns = ['_'.join(col).strip() for col in df.columns.values]`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический сценарий: Подготовка когортной матрицы:</b>
+Сырые логи содержат строки: `(cohort, month_offset, active_users)`.
+Аналитик применяет:
+`matrix = df.pivot_table(index='cohort', columns='month_offset', values='active_users', aggfunc='sum')`
+Получается идеальная треугольная матрица удержания, готовая для экспорта в дашборд или отрисовки тепловой карты (Heatmap).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Полный цикл трансформации: Wide -> Long (melt) -> Wide (pivot_table)
+import pandas as pd
+
+# 1. Исходная широкая таблица (Wide format)
+wide_df = pd.DataFrame({
+    'branch': ['Москва', 'СПб'],
+    'q1_sales': [150000, 90000],
+    'q2_sales': [180000, 110000],
+    'q3_sales': [210000, 125000]
+})
+
+# 2. Перевод в длинный формат Tidy Data через melt()
+long_df = pd.melt(
+    wide_df,
+    id_vars=['branch'],
+    value_vars=['q1_sales', 'q2_sales', 'q3_sales'],
+    var_name='quarter',
+    value_name='revenue'
+)
+# Очистка названий кварталов
+long_df['quarter'] = long_df['quarter'].str.replace('_sales', '').str.upper()
+
+# 3. Обратное сведение через pivot_table с подсчетом итогов
+pivot_result = pd.pivot_table(
+    long_df,
+    index='branch',
+    columns='quarter',
+    values='revenue',
+    aggfunc='sum',
+    margins=True,       # итоговые суммы
+    margins_name='ИТОГО'
+)
+
+print("Длинный формат (Long / Tidy):")
+print(long_df)
+print("\nСводная таблица с итогами (pivot_table):")
+print(pivot_result)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Попытка использовать pivot() вместо pivot_table() на данных с дубликатами ключей.</b> Запрос немедленно завершится ошибкой ValueError; при наличии дубликатов всегда используйте pivot_table().</li>
+        <li><b>Оставление двухуровневого MultiIndex в колонках после сведения.</b> Создает проблемы при последующей сериализации в CSV/Parquet или переименовании столбцов.</li>
+        <li><b>Потеря идентификаторов строк при вызове melt() из-за пропуска аргумента id_vars.</b> Все столбцы схлопнутся в одну плоскую пару колонок, потеряв связь с контекстом строки.</li>
+        <li><b>Забывание заполнения пропусков fill_value в сводной таблице.</b> Если в какой-то ячейке не было наблюдений, появится NaN, ломающий последующие суммирования.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: подчеркните, что <b>длинный формат (Tidy Data)</b> является золотым стандартом для баз данных, ML-моделей и библиотек визуализации (Seaborn), а <b>широкий формат</b> удобен для человеческого восприятия.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между форматами Wide и Long (Tidy)?</b></p><p>В Wide формате измерения разнесены по разным столбцам; в Long формате каждое отдельное наблюдение занимает ровно одну строку.</p></li>
+        <li><p><b>Чем df.pivot() отличается от df.pivot_table()?</b></p><p>pivot() не поддерживает агрегацию и требует уникальности ключей; pivot_table() агрегирует дубликаты функцией aggfunc.</p></li>
+        <li><p><b>Какую задачу решает метод pd.melt()?</b></p><p>Преобразует широкую таблицу в длинную, собирая множество колонок в пары 'имя переменной' и 'значение'.</p></li>
+        <li><p><b>Зачем нужен аргумент `margins=True` в pivot_table()?</b></p><p>Для автоматического добавления итоговых строк и столбцов (Total / All) с подсчетом агрегатов.</p></li>
+        <li><p><b>Как расплющить (flatten) составной MultiIndex колонок после pivot_table?</b></p><p>С помощью спискового включения: `df.columns = ['_'.join(col).strip() for col in df.columns]`.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_datetime" data-interview="4">
+  <div class="name" id="pandas_datetime">
+    Работа со временем: DatetimeIndex и resample
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data / Time-Series Analyst):</b> Практическая работа с временными рядами: <i>«Как устроены типы Timestamp, DatetimeIndex и Timedelta в Pandas? Чем .resample() отличается от скользящего окна .rolling(), почему важно явно передавать параметр format в pd.to_datetime() и как корректно работать с таймзонами?»</i></p>
+<p>Если совсем простыми словами: <b>resample — это GROUP BY по календарным корзинам времени (например, сжать секунды в часы), а rolling — это скользящее окно фиксированной ширины (например, среднее за последние 7 дней на каждую дату)</b>. Парсинг дат без явного формата — главная причина замедления пайплайнов в десятки раз.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектура временных рядов в Pandas:</p>
+<ol>
+<li><b>Оптимизация парсинга через `pd.to_datetime(format=...)`:</b>
+    - Без указания формата Pandas запускает эвристический перебор регулярных выражений для каждой строки, что занимает минуты на больших данных.
+    - Передача точной маски (например, `format='%Y-%m-%d %H:%M:%S'`) ускоряет парсинг в <b>20-50 раз</b>.
+</li>
+<li><b>Группировка по времени: `.resample()` vs `.rolling()`:</b>
+    - **.resample('1D' / '1h'):** Меняет частоту дискретизации (Downsampling или Upsampling). Уменьшает число строк датасета, схлопывая события внутри дискретных отрезков времени.
+    - **.rolling(window='7D'):** Скользящее окно. Сохраняет исходное количество строк, вычисляя метрику по окну предшествующих наблюдений.
+</li>
+<li><b>Работа с часовыми поясами (Timezones):</b>
+    - Наивные метки (Timezone-naive) не привязаны к поясу. Сравнение naive и aware меток вызывает ошибку `TypeError`.
+    - Метод `.dt.tz_localize('UTC')`: привязка временного пояса.
+    - Метод `.dt.tz_convert('Europe/Moscow')`: перевод меток в локальное время с учетом переходов на сезонное время.
+</li>
+<li><b>Новые строгие частоты в Pandas 2.2+:</b>
+    Устаревшие суффиксы `M` (Month End) и `Q` (Quarter End) заменены на эксплицитные `ME` и `QE` во избежание неоднозначностей.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический кейс: Анализ аномалий в логах платежей:</b>
+Задача: рассчитать 7-дневное скользящее среднее числа сбоев оплаты по часам:
+`daily_failures = df.resample('1D', on='event_time')['failed'].sum()`
+`smoothed = daily_failures.rolling(window=7, min_periods=1).mean()`
+График `smoothed` сглаживает естественную недельную сезонность и моментально выявляет реальные системные сбои эквайринга.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Работа с временными рядами: парсинг, часовые пояса, resample и rolling
+import pandas as pd
+import numpy as np
+
+# Генерация минутных временных меток за 3 дня
+date_rng = pd.date_range(start='2026-10-01', periods=4320, freq='min')
+ts_df = pd.DataFrame({
+    'timestamp_str': date_rng.strftime('%Y-%m-%d %H:%M:%S'),
+    'transactions': np.random.poisson(lam=5, size=len(date_rng))
+})
+
+# 1. Быстрый прецизионный парсинг с явным форматом
+ts_df['dt'] = pd.to_datetime(ts_df['timestamp_str'], format='%Y-%m-%d %H:%M:%S')
+
+# 2. Локализация часового пояса в UTC и конвертация в МСК (+3)
+ts_df['dt_msk'] = ts_df['dt'].dt.tz_localize('UTC').dt.tz_convert('Europe/Moscow')
+
+# 3. Агрегация по часам через resample()
+hourly_summary = (
+    ts_df.set_index('dt_msk')
+    .resample('1h')['transactions']
+    .sum()
+    .to_frame(name='hourly_total')
+)
+
+# 4. Скользящее среднее за 24 часа для сглаживания суточных колебаний
+hourly_summary['rolling_24h_avg'] = hourly_summary['hourly_total'].rolling(window=24, min_periods=1).mean()
+
+print("Часовая агрегация с 24-часовым скользящим трендом:")
+print(hourly_summary.head(10))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Парсинг миллионов строковых дат через pd.to_datetime() без параметра format.</b> Приводит к мучительно долгому выполнению скрипта; всегда указывайте явный формат `%Y-%m-%d`.</li>
+        <li><b>Сравнение дат с часовым поясом (tz-aware) и без пояса (tz-naive).</b> Приводит к фатальной ошибке TypeError: Cannot compare tz-naive and tz-aware timestamps.</li>
+        <li><b>Путаница между .resample() и .rolling().</b> resample агрегирует данные в дискретные корзины, уменьшая число строк; rolling вычисляет окно по каждой строке без изменения их числа.</li>
+        <li><b>Неучет нерегулярных временных рядов при использовании целочисленного окна rolling(window=7).</b> Если в данных есть пропуски дней, окно из 7 строк охватит не 7 дней, а произвольный диапазон. Используйте строковое окно `window='7D'`.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: обратите внимание на разницу между строковым окном по времени (`rolling('7D')`) и окном по количеству строк (`rolling(7)`). Это классическая ловушка на практических секциях.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему передача параметра format критична при вызове pd.to_datetime()?</b></p><p>Она исключает долгий эвристический перебор регулярок и ускоряет парсинг строковых дат в 20-50 раз.</p></li>
+        <li><p><b>В чем различие между методами .resample() и .rolling()?</b></p><p>.resample() группирует данные по временным интервалам со сжатием строк; .rolling() вычисляет статистику в скользящем окне без сжатия числа строк.</p></li>
+        <li><p><b>Чем отличаются методы tz_localize() и tz_convert()?</b></p><p>tz_localize() привязывает исходно наивную метку к часовому поясу; tz_convert() переводит метку из одного пояса в другой со сдвигом часов.</p></li>
+        <li><p><b>Какая опасность возникает при использовании целочисленного окна `rolling(N)` на нерегулярных рядах?</b></p><p>Окно N строк не соответствует N календарным дням, если в ряде присутствуют пропущенные даты.</p></li>
+        <li><p><b>Что означает аргумент `min_periods` в методе .rolling()?</b></p><p>Минимальное количество непустых наблюдений в окне, необходимое для расчета значения (иначе возвращается NaN).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="pandas_missing_duplicates" data-interview="4">
+  <div class="name" id="pandas_missing_duplicates">
+    Очистка данных: пропуски и дубликаты
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Analyst):</b> Фундаментальный этап подготовки данных: <i>«Какие механизмы образования пропусков существуют (MCAR, MAR, MNAR) и как выбирать между удалением (dropna), заполнением средним/медианой и интерполяцией? Как устроена логика поиска дубликатов с параметром keep и почему проверка `np.nan == np.nan` возвращает False?»</i></p>
+<p>Если совсем простыми словами: <b>пропуск — это не просто пустая клетка, это информация о сбое или поведении клиента</b>. Если пользователь скрыл свой доход, заполнение пропуска средней зарплатой исказит портрет аудитории, а слепое удаление строк через `dropna()` может уничтожить половину выборки.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Классификация природы пропусков и стратегии обработки:</p>
+<ol>
+<li><b>Типология пропущенных значений (Donald Rubin):</b>
+    - **MCAR (Missing Completely at Random):** Пропуск случаен и никак не зависит от данных (например, случайный сбой датчика). Безопасно удалять строки или заполнять медианой.
+    - **MAR (Missing at Random):** Вероятность пропуска зависит от других наблюдаемых полей (например, молодые пользователи реже указывают домашний телефон). Заполняется моделями на основе других признаков.
+    - **MNAR (Missing Not at Random):** Вероятность пропуска напрямую связана со скрытым значением (люди с огромным доходом отказываются его называть). Заполнение средним категорически запрещено; требуется отдельный флаг `is_missing = 1`.
+</li>
+<li><b>Математическая специфика NaN в стандарте IEEE 754:</b>
+    По определению стандарта число с плавающей точкой NaN не равно ничему, включая себя самого: `np.nan == np.nan` возвращает `False`.
+    Проверку необходимо выполнять строго через `pd.isna(x)` или `np.isnan(x)`.
+</li>
+<li><b>Стратегии заполнения:</b>
+    - Численные признаки с выбросами: строго <b>медианой</b> (`df['val'].fillna(df['val'].median())`).
+    - Временные ряды: прямое распространение (`ffill` — forward fill) или линейная интерполяция (`interpolate()`).
+    - Категории: отдельная категория `'Unknown'` во избежание потери паттерна отсутствия ответа.
+</li>
+<li><b>Дедупликация и параметр `keep`:</b>
+    Метод `df.drop_duplicates(subset=['user_id', 'date'], keep='first|last|False')`:
+    - `'first'`: сохранить первое вхождение (требует предварительной сортировки!).
+    - `'last'`: сохранить последнее вхождение.
+    - `False`: удалить все дублирующиеся строки целиком.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Ошибка заполнения пропусков чека:</b>
+В чеках интернет-магазина для части заказов не проставилась сумма доставки.
+Джуниор заполнил пропуски средней стоимостью доставки ($350$ руб.).
+В результате заказы самовывозом (где доставка была бесплатной и логично отсутствовала) получили искусственную наценку, а юнит-экономика самовывоза оказалась искажена.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Комплексный аудит пропусков и воспроизводимая дедупликация
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({
+    'user_id': [101, 102, 103, 101, 104, 105],
+    'created_at': pd.to_datetime(['2026-10-01', '2026-10-02', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-04']),
+    'income': [50000, np.nan, 80000, 55000, np.nan, 1200000], # 1.2M - сильный выброс
+    'city': ['Москва', 'СПб', None, 'Москва', 'Казань', 'Москва']
+})
+
+# 1. Диагностика процента пропусков по колонкам
+missing_report = pd.DataFrame({
+    'missing_count': df.isna().sum(),
+    'missing_share_pct': (df.isna().mean() * 100).round(2)
+})
+
+# 2. Робастное заполнение дохода: медианой (устойчивой к выбросу 1.2M)
+income_median = df['income'].median()
+df['income_imputed'] = df['income'].fillna(income_median)
+
+# 3. Добавление индикатора пропуска (сохранение паттерна MNAR)
+df['income_was_missing'] = df['income'].isna().astype(int)
+
+# 4. Корректная дедупликация по user_id с сохранением самой свежей записи
+# Сначала сортируем, затем сохраняем keep='last'
+df_dedup = df.sort_values('created_at').drop_duplicates(subset=['user_id'], keep='last')
+
+print("Отчет по пропускам:")
+print(missing_report)
+print(f"\nМедиана дохода для заполнения: {income_median:,.0f} руб.")
+print("\nДатафрейм после дедупликации (сохранена самая свежая версия user 101):")
+print(df_dedup[['user_id', 'created_at', 'income_imputed', 'income_was_missing']])</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Заполнение пропусков средним арифметическим при наличии сильных выбросов.</b> Выбросы смещают среднее, искажая распределение признака; используйте устойчивую медиану.</li>
+        <li><b>Удаление дубликатов методом drop_duplicates() без предварительной сортировки по дате.</b> Без сортировки параметр keep='first' сохранит случайную запись вместо самой актуальной.</li>
+        <li><b>Проверка равенства val == np.nan в условиях.</b> Всегда возвращает False из-за стандарта IEEE 754; используйте строго `pd.isna()`.</li>
+        <li><b>Слепое применение df.dropna() ко всему датафрейму.</b> Если пропуски распределены по разным колонкам, удаление строк может стереть до 80% всего массива данных.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: классифицируйте пропуски по Рубину (MCAR, MAR, MNAR) и всегда предлагайте добавлять бинарный флаг-индикатор пропуска `col_is_missing = 1` при импутации признаков.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему проверка `np.nan == np.nan` возвращает False?</b></p><p>Согласно стандарту IEEE 754 для чисел с плавающей точкой, значение NaN (Not a Number) не равно ничему, включая само себя.</p></li>
+        <li><p><b>В чем различие между пропусками типов MCAR и MNAR?</b></p><p>MCAR — пропуски полностью случайны; MNAR — вероятность пропуска напрямую зависит от скрытого истинного значения пропущенного признака.</p></li>
+        <li><p><b>Почему медиана предпочтительнее среднего при заполнении численных пропусков?</b></p><p>Медиана робастна (устойчива) к асимметрии распределения и экстремальным выбросам.</p></li>
+        <li><p><b>Что делает параметр `keep='last'` в методе drop_duplicates()?</b></p><p>Сохраняет последнее встреченное вхождение дублирующейся строки, удаляя все предшествующие.</p></li>
+        <li><p><b>Зачем при заполнении пропусков создавать дополнительный флаг `is_missing`?</b></p><p>Чтобы сохранить информацию о факте пропуска, которая сама по себе может быть сильным предиктивным сигналом.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="chart_choice_matplotlib" data-interview="4">
+  <div class="name" id="chart_choice_matplotlib">
+    Визуализация в Matplotlib
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Product Analyst / BI):</b> Практическая визуализация данных: <i>«Как устроен объектно-ориентированный интерфейс (Object-Oriented API) Matplotlib в сравнении с pyplot? По каким правилам выбирается тип графика под тип данных и почему ось Y столбчатых диаграмм обязана начинаться с нуля?»</i></p>
+<p>Если совсем простыми словами: <b>Figure — это холст или рамка картины, а Axes — сам график с координатными осями внутри нее</b>. Графики создаются для принятия бизнес-решений: неправильный выбор масштаба или типа диаграммы вводит стейкхолдеров в заблуждение и дискредитирует аналитика.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Матрица выбора визуализации и правила Data Storytelling:</p>
+<ol>
+<li><b>Объектно-ориентированный API (OO API) vs Pyplot:</b>
+    - `plt.plot()` (Pyplot) — процедурный интерфейс в стиле MATLAB, управляющий неявным глобальным состоянием. Приводит к конфликтам при создании сложных дашбордов.
+    - `fig, ax = plt.subplots()` (OO API) — эксплицитное управление объектами. Позволяет тонко настраивать сетки подграфиков, две шкалы Y и аннотации.
+</li>
+<li><b>Матрица выбора диаграммы:</b>
+    - **Сравнение дискретных категорий:** Горизонтальный или вертикальный <i>Bar Chart</i> (столбчатая диаграмма).
+    - **Динамика во времени (Тренды):** <i>Line Chart</i> (линейный график).
+    - **Корреляция и взаимосвязь двух непрерывных величин:** <i>Scatter Plot</i> (точечная диаграмма) или <i>Hexbin</i>.
+    - **Распределение непрерывной величины:** <i>Histogram</i> (гистограмма), <i>KDE</i> или <i>Boxplot</i>.
+</li>
+<li><b>Критическое правило нулевой базовой линии:</b>
+    Столбчатые диаграммы (Bar Charts) кодируют величину <b>высотой столбика</b>. Если обрезать ось Y (например, начать график со значения $90$ при значениях $92$ и $98$), разница покажется визуально четырехкратной ($400\%$), хотя в реальности она составляет всего $6.5\%$.
+    <i>Линейные графики:</i> могут начинаться не с нуля, так как они кодируют наклон и угол изменения, а не площадь.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Пример искажения данных в менеджменте:</b>
+Конверсия в оплату выросла с $4.1\%$ до $4.3\%$.
+Аналитик построил Bar Chart с шкалой от $4.0\%$ до $4.4\%$.
+Столбик вырос визуально в 3 раза, создав у руководства ложное ощущение триумфа.
+На совете директоров выяснилось реальное положение дел, что подорвало доверие к аналитическому отделу.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Создание профессионального двухпанельного графика через OO API Matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Демонстрационные данные
+months = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн']
+revenue = [12.5, 14.2, 13.8, 16.5, 18.0, 21.2] # млн руб
+margin_pct = [22.0, 23.5, 21.8, 24.0, 25.5, 26.8] # %
+
+fig, ax1 = plt.subplots(figsize=(9, 5), dpi=100)
+
+# 1. Столбчатая диаграмма выручки на левой оси Y (начинается строго с 0!)
+bars = ax1.bar(months, revenue, color='#2b5c8f', width=0.5, label='Выручка (млн руб.)')
+ax1.set_ylabel('Выручка, млн руб.', fontsize=12, color='#2b5c8f')
+ax1.set_ylim(0, 25) # ноль обязателен!
+ax1.grid(axis='y', linestyle='--', alpha=0.4)
+
+# 2. Вторичная ось Y для процентной маржинальности (линейный график)
+ax2 = ax1.twinx()
+line = ax2.plot(months, margin_pct, color='#d95f02', marker='o', linewidth=2.5, label='Маржинальность (%)')
+ax2.set_ylabel('Маржинальность, %', fontsize=12, color='#d95f02')
+ax2.set_ylim(15, 30)
+
+# Добавление подписей значений над столбиками
+for bar in bars:
+    yval = bar.get_height()
+    ax1.text(bar.get_x() + bar.get_width()/2.0, yval + 0.4, f'{yval:.1f}', ha='center', va='bottom', fontsize=10)
+
+plt.title('Динамика выручки и маржинальности за H1 2026', fontsize=14, fontweight='bold', pad=15)
+fig.tight_layout()
+plt.show()</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Усечение базовой линии оси Y на столбчатых диаграммах (Bar Charts).</b> Грубо манипулирует восприятием человека и искажает пропорции данных.</li>
+        <li><b>Использование круговых диаграмм (Pie Charts) с более чем 3-4 секторами.</b> Человеческий глаз плохо оценивает углы и площади; используйте отсортированный горизонтальный Bar Chart.</li>
+        <li><b>Смешивание процедурного синтаксиса plt.* и объектного ax.* в одном скрипте.</b> Приводит к трудноуловимым багам наложения элементов на неактивные подграфики.</li>
+        <li><b>Визуальный шум (Chartjunk): радужные градиенты, 3D эффекты, избыточные рамки.</b> Отвлекает от сути инсайта; дизайн графика должен быть минималистичным и строгим.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: формулируйте мысль как профессионал: <i>«Я использую объектно-ориентированный интерфейс subplots, строго слежу за нулевой базой на Bar Charts и убираю весь лишний визуальный шум (Chartjunk)»</i>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между Figure и Axes в Matplotlib?</b></p><p>Figure — это общее окно или полотно графической области; Axes — это конкретный подграфик с осями координат, шкалами и графическими элементами.</p></li>
+        <li><p><b>Почему ось Y столбчатой диаграммы обязана начинаться с нуля?</b></p><p>Потому что зритель подсознательно сравнивает площади и высоты столбиков, и усечение оси создает иллюзию колоссальной разницы там, где ее нет.</p></li>
+        <li><p><b>Как создать вторую независимую ось Y для отображения разных метрик?</b></p><p>С помощью метода `ax2 = ax1.twinx()`.</p></li>
+        <li><p><b>Когда линейный график предпочтительнее столбчатой диаграммы?</b></p><p>Когда данные представляют собой непрерывную временную последовательность и важно передать темп (производную) изменений.</p></li>
+        <li><p><b>Что такое Chartjunk?</b></p><p>Визуальные элементы оформления диаграммы (3D объемы, пестрые текстуры, тяжелые сетки), не несущие полезной информации и мешающие чтению данных.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="seaborn_distributions" data-interview="4">
+  <div class="name" id="seaborn_distributions">
+    Анализ распределений в Seaborn
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data / Product Analyst):</b> Статистическая визуализация: <i>«Как исследовать распределение продуктовой метрики с помощью Seaborn? В чем различия и ограничения Histplot, KDE, Boxplot, Violinplot и ECDF? Почему ящичковая диаграмма (Boxplot) и график средней могут скрывать мультимодальность данных?»</i></p>
+<p>Если совсем простыми словами: <b>одно число (среднее или медиана) скрывает реальность</b>. Если у вас половина пользователей платит 100 рублей, а половина — 10 000 рублей, среднее покажет 5050 рублей, хотя таких клиентов в природе не существует. Графики распределений показывают истинный рельеф ваших данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ инструментов исследования распределений в Seaborn:</p>
+<ol>
+<li><b>Гистограмма (Histplot):</b>
+    - Разбивает непрерывный диапазон на равные корзины (Bins).
+    - <i>Ограничение:</i> Форма распределения сильно зависит от выбранного числа корзин (`bins`). Слишком мало — потеря деталей; слишком много — шум и гребенка.
+</li>
+<li><b>Оценка плотности ядра (KDE — Kernel Density Estimation):</b>
+    - Строит сглаженную кривую плотности вероятности методом ядерного сглаживания.
+    - <i>Ловушка KDE:</i> Параметр сглаживания (`bw_adjust`). При избыточном сглаживании два отдельных пика сливаются в один; кроме того, KDE может «размазать» плотность в отрицательную область для строго положительных метрик (например, времени ответа).
+</li>
+<li><b>Эмпирическая функция распределения (ECDF — Empirical Cumulative Distribution):</b>
+    - `sns.ecdfplot(x)`: <b>Золотой стандарт строгого анализа</b>.
+    - Не требует подбора параметров (нет корзин и сглаживания).
+    - Позволяет мгновенно находить любые перцентили: $y = 0.90 \implies$ 90-й перцентиль задержки или чека.
+</li>
+<li><b>Ящик с усами (Boxplot) vs Скрипичная диаграмма (Violinplot):</b>
+    - *Boxplot:* Показывает квартили ($Q_1, \text{Median}, Q_3$) и усы Тьюки ($1.5 \times IQR$).
+    - *Опасность Boxplot:* Скрывает бимодальность! Бимодальное распределение (два пика) и равномерное распределение могут иметь абсолютно идентичный Boxplot.
+    - *Violinplot:* Совмещает Boxplot внутри с симметричной KDE снаружи, наглядно показывая бимодальность и форму распределения.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из практики: Изоляция проблемы производительности API:</b>
+Инженер доложил, что среднее время ответа бэкенда — $210$ мс (норма).
+Аналитик построил `sns.ecdfplot()` и `sns.histplot()`:
+Выяснилось бимодальное распределение: $90\%$ запросов отвечают за $20$ мс из кэша, а $10\%$ запросов уходят в тяжелый таймаут на $2\,000$ мс.
+Среднее скрывало катастрофу каждого десятого пользователя, которую мгновенно раскрыл график распределения.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Исследование скошенного продуктового распределения через Seaborn
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+
+np.random.seed(42)
+# Симуляция чеков: логнормальное тяжелое распределение с выбросами
+spends = np.random.lognormal(mean=4.5, sigma=0.8, size=2000)
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), dpi=100)
+
+# 1. Histplot с логарифмической шкалой и KDE
+sns.histplot(spends, kde=True, log_scale=True, ax=axes[0], color='#2b5c8f')
+axes[0].set_title('Histplot с лог-шкалой (Сумма чека)')
+axes[0].set_xlabel('Чек, руб. (log-scale)')
+
+# 2. Boxplot: демонстрация квартилей и выбросов (усы Тьюки)
+sns.boxplot(x=spends, ax=axes[1], color='#41b6c4')
+axes[1].set_title('Boxplot (Усы: 1.5 * IQR)')
+axes[1].set_xlabel('Чек, руб.')
+
+# 3. ECDFplot: накопленная вероятность (точный поиск перцентилей)
+sns.ecdfplot(spends, ax=axes[2], color='#d95f02', linewidth=2)
+axes[2].axhline(0.90, color='gray', linestyle='--', alpha=0.7)
+p90 = np.percentile(spends, 90)
+axes[2].axvline(p90, color='gray', linestyle='--', alpha=0.7)
+axes[2].set_title(f'ECDF (90-й перцентиль = {p90:.0f} руб.)')
+axes[2].set_xlabel('Чек, руб.')
+axes[2].set_ylabel('Кумулятивная доля')
+
+plt.tight_layout()
+plt.show()</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Принятие решений на основе среднего арифметического для скошенных распределений.</b> В продуктовых метриках с длинными хвостами (чеки, время сессий) среднее кардинально завышено; используйте медиану и перцентили.</li>
+        <li><b>Использование KDE с параметрами по умолчанию для строго неотрицательных величин.</b> KDE может нарисовать ложную ненулевую плотность вероятности в области отрицательных чисел.</li>
+        <li><b>Забывание о том, что Boxplot не показывает количество наблюдений.</b> Boxplot по 10 наблюдениям выглядит так же солидно, как по 100 000, создавая ложную уверенность.</li>
+        <li><b>Неучет влияния размера корзины (binwidth) в гистограммах.</b> Слишком широкий bin скрывает выбросы и пики распределения.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: назовите <b>ECDF</b> как самый надежный инструмент анализа перцентилей без артефактов сглаживания. Это сразу выделяет сильного прикладного статистика.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем ключевое преимущество ECDF перед гистограммой и KDE?</b></p><p>ECDF не требует подбора гиперпараметров (числа корзин или ширины окна сглаживания) и отображает реальные перцентили выборки без искажений.</p></li>
+        <li><p><b>Что обозначают границы коробки в Boxplot?</b></p><p>Первый квартиль $Q_1$ (25%), медиану (50%) и третий квартиль $Q_3$ (75%); расстояние между ними — интерквартильный размах $IQR$.</p></li>
+        <li><p><b>Как определяются усы Тьюки в стандартном Boxplot?</b></p><p>Они простираются до крайних точек данных в пределах $1.5 	imes IQR$ от квартилей; все точки за ними считаются потенциальными выбросами.</p></li>
+        <li><p><b>Какую опасность несет слепое доверие графику Boxplot?</b></p><p>Он скрывает форму распределения: равномерное и бимодальное распределения могут иметь одинаковый Boxplot.</p></li>
+        <li><p><b>Что показывает Violinplot?</b></p><p>Комбинацию Boxplot и зеркальной оценки плотности ядра (KDE), позволяющую наглядно видеть мультимодальность и форму распределения.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

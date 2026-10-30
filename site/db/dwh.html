@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Хранилища данных DWH и ClickHouse</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../assets/code-styles.css" rel="stylesheet" />
+  <link href="../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../assets/js/components/questions-toc.js"></script>
+  <script src="../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../assets/js/core.js"></script>
+  <script defer="" src="../assets/js/questions.js"></script>
+  <script defer="" src="../assets/js/controls.js"></script>
+  <script defer="" src="../assets/katex/katex.min.js"></script>
+  <script defer="" src="../assets/katex/auto-render.min.js"></script>
+  <script src="../assets/js/components/lazy-questions.js"></script>
+  <script src="../assets/js/init-head.js"></script>
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/anchor-scroll.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/components/section-hero.js"></script>
+  <script src="../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../assets/js/components/difficulty-rating.js"></script>
+  <script src="../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../assets/js/components/info-cards.js"></script>
+  <script src="../assets/js/components/quiz.js"></script>
+  <script src="../assets/js/components/block-tests.js"></script>
+  <script src="../assets/js/components/question-presentation.js"></script>
+  <script src="../assets/js/components/question-badges.js"></script>
+  <script src="../assets/js/components/term-definitions.js"></script>
+  <script src="../assets/js/components/term-tooltip.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../db/index.html">Базы данных</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">DWH и ClickHouse</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">DWH & ClickHouse</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">9 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Хранилища данных DWH и ClickHouse</h1>
+        <p class="section-shell__desc">Архитектура хранилищ данных (DWH): реляционные модели, схемы Звезда и Снежинка, ETL/ELT процессы и колоночная СУБД ClickHouse для аналитики больших данных.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="db_types_relational_nosql" data-interview="4">
+  <div class="name" id="db_types_relational_nosql">
+    Реляционные БД vs NoSQL базы данных
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Engineer / Analytics Engineer):</b> Архитектурный вопрос: <i>«В каких сценариях реляционная модель данных (RDBMS) превосходит NoSQL, а когда NoSQL является единственным разумным выбором? Как теорема CAP и компромиссы PACELC определяют выбор между PostgreSQL, MongoDB, Redis и Cassandra?»</i></p>
+<p>Если совсем простыми словами: <b>реляционные БД гарантируют абсолютную строгость и порядок данных ценой горизонтального масштабирования, а NoSQL жертвует строгостью связей ради масштабируемости и скорости записи</b>. Реляционная БД — это бухгалтерский гроссбух с жесткими графами, а NoSQL — гибкая картотека или распределенное хранилище документов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ архитектур и механизмов хранения:</p>
+<table class="task-table">
+<thead><tr><th>Параметр</th><th>Реляционные БД (RDBMS)</th><th>Документные (MongoDB)</th><th>Ключ-Значение (Redis)</th><th>Ширококолоночные (Cassandra)</th></tr></thead>
+<tbody>
+<tr><td><b>Структура данных</b></td><td>Таблицы, строки, строгая схема (Schema-on-write)</td><td>Вложенные JSON/BSON документы</td><td>Пары Key-Value, структуры данных в RAM</td><td>Разреженные строки с миллионами колонок</td></tr>
+<tr><td><b>Движок хранения</b></td><td>B-Tree, WAL (Write-Ahead Log)</td><td>WiredTiger (B-Tree)</td><td>Хеш-таблицы, Skip-List в памяти</td><td>LSM-Tree (Log-Structured Merge-Tree)</td></tr>
+<tr><td><b>Гарантии</b></td><td>Строгий ACID на уровне транзакций</td><td>ACID внутри документа (или реплики)</td><td>Однопоточная атомарность команд</td><td>CAP: AP (Eventual Consistency), tunable consistency</td></tr>
+<tr><td><b>Джойны (JOINs)</b></td><td>Мощные, оптимизированные Hash/Merge Join</td><td>Ограниченные ($lookup), не рекомендуются</td><td>Отсутствуют</td><td>Отсутствуют</td></tr>
+<tr><td><b>Масштабирование</b></td><td>Вертикальное (Scale-Up), read-реплики</td><td>Горизонтальное шардирование (Sharding)</td><td>Кластерное партиционирование</td><td>Линейное горизонтальное (Masterless ring)</td></tr>
+</tbody>
+</table>
+<p><b>Теорема CAP и теорема PACELC:</b>
+В распределенной системе при сетевом разделении (Partition tolerance, $P$) вы обязаны выбирать между Согласованностью (Consistency, $C$) и Доступностью (Availability, $A$). В нормальном состоянии (без сбоев) теорема PACELC требует выбора между Задержкой (Latency, $L$) и Согласованностью ($C$).</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Архитектура в продакшене: Полиглотная персистентность (Polyglot Persistence):</b>
+В современном сервисе (например, онлайн-банке или такси) не выбирают одну базу:
+1. <b>PostgreSQL:</b> Балансы, транзакции, биллинг, пользователи (строгий ACID, ошибки исключены).
+2. <b>Redis:</b> Сессии, кэш профилей, скользящие счетчики лимитов запросов (Rate Limiting).
+3. <b>MongoDB / DynamoDB:</b> Каталог товаров со свободными атрибутами, драфты документов, корзины.
+4. <b>ClickHouse:</b> Клиентские события, клики, аудит-логи, финансовая аналитика (OLAP).</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Реляционный подход (PostgreSQL): Строгая нормализация и целостность через Foreign Keys
+CREATE TABLE customers (
+    customer_id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE orders (
+    order_id BIGSERIAL PRIMARY KEY,
+    customer_id BIGINT NOT NULL REFERENCES customers(customer_id) ON DELETE RESTRICT,
+    total_amount NUMERIC(12, 2) NOT NULL CHECK (total_amount >= 0),
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Быстрый джойн с гарантиями целостности данных
+SELECT c.email, COUNT(o.order_id) AS total_orders, SUM(o.total_amount) AS revenue
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.status = 'completed'
+GROUP BY c.customer_id, c.email;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование NoSQL только из-за популярности без реальной потребности в шардировании.</b> В 90% проектов одного хорошо настроенного PostgreSQL хватает на терабайты данных.</li>
+        <li><b>Попытка эмулировать реляционные связи и джойны в MongoDB на стороне приложения.</b> Приводит к лавинообразным сетевым запросам (проблема N+1) и нарушению целостности.</li>
+        <li><b>Забывание про Eventual Consistency в распределенных NoSQL базах.</b> Чтение сразу после записи в Cassandra может вернуть старое значение, если кворум чтения/записи не настроен ($R + W \le N$).</li>
+        <li><b>Хранение аналитических миллиардных логов в реляционной OLTP базе.</b> Таблицы раздувают B-Tree индексы, вызывают блокировки и приводят к деградации продакшена.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: демонстрируйте понимание теоремы <b>CAP / PACELC</b> и концепции <b>Polyglot Persistence</b>. Не противопоставляйте базы как «хорошие» и «плохие», а формулируйте их как инструменты под конкретные паттерны доступа (Access Patterns).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что утверждает теорема CAP?</b></p><p>В распределенной системе невозможно одновременно обеспечить Consistency (согласованность), Availability (доступность) и Partition tolerance (устойчивость к разделению сети).</p></li>
+        <li><p><b>Что расширяет теорема PACELC по сравнению с CAP?</b></p><p>Она описывает компромисс между Latency (задержкой) и Consistency (согласованностью) в нормальном режиме работы системы без сетевых аварий.</p></li>
+        <li><p><b>В чем различие движков хранения B-Tree и LSM-Tree?</b></p><p>B-Tree оптимизировано для быстрых точечных чтений ($O(\log N)$) со случайной записью; LSM-Tree оптимизировано для сверхбыстрой последовательной записи с последующим фоновым слиянием.</p></li>
+        <li><p><b>Что такое Eventual Consistency (согласованность в конечном счете)?</b></p><p>Гарантия того, что при отсутствии новых обновлений все реплики распределенной системы со временем сойдутся к одинаковому состоянию.</p></li>
+        <li><p><b>Что такое Polyglot Persistence?</b></p><p>Архитектурный подход, при котором каждый тип данных в приложении хранится в СУБД того типа, который лучше всего подходит для ее обработки.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="er_diagrams" data-interview="4">
+  <div class="name" id="er_diagrams">
+    ER-диаграммы и моделирование данных
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Database Architect / Data Analyst):</b> Базовый системный вопрос: <i>«Как составить корректную концептуальную и логическую ER-диаграмму для сущностей предметной области? Как разрешаются связи многие-ко-многим (N:M), чем отличаются идентифицирующие и неидентифицирующие связи и как работают каскадные ограничения?»</i></p>
+<p>Если совсем простыми словами: <b>ER-диаграмма — это архитектурный чертеж базы данных</b>. Она показывает, какие объекты существуют в реальном мире (Сущности), какими свойствами они обладают (Атрибуты) и какими правилами они связаны между собой (Связи и Кардинальности).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Компоненты и методология ER-моделирования (Нотация Crow's Foot / «Воронья лапка»):</p>
+<ol>
+<li><b>Типы кардинальности связей (Cardinality):</b>
+    <ul>
+    <li><b>Один к одному (1:1):</b> Например, Пользователь $\leftrightarrow$ Профиль безопасности. Внешний ключ с ограничением `UNIQUE`.</li>
+    <li><b>Один ко многим (1:N):</b> Автор $\leftrightarrow$ Книги, Клиент $\leftrightarrow$ Заказы. Внешний ключ на стороне «многие».</li>
+    <li><b>Многие ко многим (N:M):</b> Студенты $\leftrightarrow$ Курсы, Товары $\leftrightarrow$ Теги. <b>Нельзя реализовать напрямую в реляционной БД</b>: требует связующей таблицы (Junction / Bridge table).</li>
+    </ul>
+</li>
+<li><b>Идентифицирующие vs Неидентифицирующие связи:</b>
+    - <i>Идентифицирующая (Identifying):</i> Дочерняя сущность не может существовать без родительской, а первичный ключ родителя входит в составной первичный ключ потомка (например, `Order` и `OrderItem`).
+    - <i>Неидентифицирующая (Non-identifying):</i> Внешний ключ является обычным атрибутом, потомок может существовать автономно (например, `User` и `Department`).
+</li>
+<li><b>Правила ссылочной целостности (Referential Integrity Actions):</b>
+    - `ON DELETE RESTRICT / NO ACTION`: Запретить удаление родителя при наличии ссылающихся потомков.
+    - `ON DELETE CASCADE`: Автоматически удалить всех потомков при удалении родителя.
+    - `ON DELETE SET NULL`: Обнулить внешний ключ в дочерних строках.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический кейс: Разрешение связи N:M в E-commerce:</b>
+Сущности: `Orders` (Заказы) и `Products` (Товары).
+Один заказ содержит множество товаров; один товар продается во множестве заказов.
+<i>Решение:</i> Создание промежуточной таблицы `OrderItems`:
+`OrderItems(order_id, product_id, quantity, unit_price_at_purchase)`.
+Обратите внимание: цена покупки (`unit_price_at_purchase`) обязана храниться в связующей таблице, иначе при изменении цены товара в каталоге исказится вся историческая финансовая отчетность!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Реализация связи N:M со связующей таблицей и каскадным контролем
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    sku VARCHAR(64) UNIQUE NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    current_price NUMERIC(10, 2) NOT NULL
+);
+
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    order_date TIMESTAMPTZ DEFAULT NOW(),
+    customer_id INT NOT NULL
+);
+
+-- Связующая таблица (Junction Table)
+CREATE TABLE order_items (
+    order_id INT NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,
+    product_id INT NOT NULL REFERENCES products(product_id) ON DELETE RESTRICT,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    historical_price NUMERIC(10, 2) NOT NULL, -- фиксация цены на момент покупки
+    PRIMARY KEY (order_id, product_id)
+);
+
+-- Индекс на внешний ключ для быстрого обратного поиска товаров
+CREATE INDEX idx_order_items_product_id ON order_items(product_id);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Забывание создания индексов на столбцы внешних ключей (Foreign Keys).</b> В PostgreSQL внешние ключи НЕ индексируются автоматически. Без индекса удаление строки в родительской таблице вызовет тяжелый `Seq Scan` дочерней таблицы.</li>
+        <li><b>Хранение изменяемых атрибутов только в справочниках.</b> Если не зафиксировать цену или ФИО в исторической таблице транзакций, отчеты за прошлые годы изменятся задним числом.</li>
+        <li><b>Использование ON DELETE CASCADE без глубокого анализа рисков.</b> Случайное удаление одного пользователя может каскадно стереть миллионы связанных документов и транзакций.</li>
+        <li><b>Циклические зависимости внешних ключей.</b> Создание таблиц A references B и B references A блокирует вставку и удаление данных.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: всегда поясняйте, почему внешние ключи требуют ручного создания индексов в реляционных базах данных. Это моментально выделяет инженера с опытом работы под высокими нагрузками.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как в реляционных СУБД физически реализуется связь N:M?</b></p><p>Через третью промежуточную таблицу (Junction / Associative Table), содержащую внешние ключи на обе исходные сущности.</p></li>
+        <li><p><b>Чем идентифицирующая связь отличается от неидентифицирующей?</b></p><p>В идентифицирующей связи первичный ключ родителя входит в составной первичный ключ дочерней таблицы.</p></li>
+        <li><p><b>Зачем вручную создавать индексы на столбцы внешних ключей (FK)?</b></p><p>Чтобы ускорить операции JOIN и предотвратить блокирующий последовательный скан таблицы при проверке ограничений целостности.</p></li>
+        <li><p><b>Что произойдет при `ON DELETE RESTRICT`?</b></p><p>СУБД выбросит ошибку и заблокирует удаление строки из родительской таблицы, если на нее ссылается хотя бы одна строка потомка.</p></li>
+        <li><p><b>Почему атрибут `цена` должен дублироваться в таблице позиций заказа?</b></p><p>Для фиксации исторической стоимости на момент заключения сделки, так как цена в справочнике товаров будет меняться со временем.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="oltp_vs_olap" data-interview="5">
+  <div class="name" id="oltp_vs_olap">
+    OLTP vs OLAP архитектуры
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Senior Data / Analytics Engineer):</b> Фундаментальный вопрос по архитектуре СУБД: <i>«В чем физическая разница между строчным (Row-oriented) и колоночным (Column-oriented) хранением данных на диске? Почему ClickHouse считывает миллионы строк в секунду на агрегациях, а PostgreSQL захлебывается, и почему в ClickHouse нельзя реализовать классический OLTP?»</i></p>
+<p>Если совсем простыми словами: <b>строчная база хранит данные строками (горизонтально), а колоночная — столбцами (вертикально)</b>. Чтобы посчитать сумму выручки по 100 млн записей, строчной базе нужно прочитать с диска все адреса, телефоны и комментарии каждой строки. Колоночная база читает только один столбец с цифрами, тратя в 100 раз меньше дискового ввода-вывода.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Физическое устройство страниц на диске и алгоритмы выполнения:</p>
+<ol>
+<li><b>Строчное хранилище (Row-Oriented / OLTP — PostgreSQL, MySQL):</b>
+    - Данные группируются по строкам: $[ID_1, Name_1, Age_1, Amount_1], [ID_2, Name_2, Age_2, Amount_2], \dots$
+    - Страница памяти ($8$ КБ в Postgres) содержит все атрибуты нескольких записей.
+    - <i>Плюс:</i> Мгновенная вставка строки целиком (`INSERT`) и атомарное чтение/изменение профиля пользователя по индексу (`SELECT * WHERE id = 123`).
+    - <i>Минус:</i> Для аналитического запроса `SELECT AVG(Amount) FROM users` с диска читаются абсолютно все поля, забивая кэш и шину ввода-вывода (I/O Bottleneck).
+</li>
+<li><b>Колоночное хранилище (Column-Oriented / OLAP — ClickHouse, Snowflake, Vertica):</b>
+    - Каждый столбец пишется в отдельный файл на диске: файл `ID`, файл `Name`, файл `Amount`.
+    - <i>Плюс 1: Чтение только запрошенных колонок (Column Pruning).</i> Если запрошен один столбец из ста, с диска считывается только $1\%$ данных.
+    - <i>Плюс 2: Колоссальное сжатие (Data Compression).</i> Данные в одном столбце однородны (например, тысячи одинаковых статусов `'active'`). Алгоритмы LZ4, ZSTD, Run-Length Encoding (RLE), Delta и DoubleDelta сжимают колонку в $5-15$ раз.
+    - <i>Плюс 3: Векторная обработка (SIMD Execution).</i> Процессор обрабатывает массив значений одной инструкцией (AVX2/AVX-512) без накладных расходов на разбор типов.
+    - <i>Минус:</i> Точечный `INSERT` или `UPDATE` одной строки требует обращения ко всем отдельным файлам столбцов, вызывая дисковый кризис.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Сравнение I/O на реальном запросе:</b>
+Таблица: $100\,000\,000$ строк, $20$ колонок, общий размер $50$ ГБ.
+Запрос: `SELECT country, SUM(spent) FROM users GROUP BY country;`
+- <b>PostgreSQL:</b> Считывает все $50$ ГБ с диска. Время выполнения: $\approx 60-120$ секунд.
+- <b>ClickHouse:</b> Считывает только 2 колонки (`country` и `spent`), сжатые алгоритмами ZSTD до $200$ МБ. Время выполнения: $\approx 0.08$ секунды (в $1000$ раз быстрее!).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Симуляция разницы объемов дискового ввода-вывода (I/O) между Row и Column хранилищами
+n_rows = 100_000_000
+n_cols = 30
+bytes_per_row = 256 # средняя ширина строки 256 байт
+query_cols_needed = 2 # аналитический запрос читает только 2 колонки из 30
+bytes_per_target_cols = 16 # 8 байт int + 8 байт float
+
+# Row-oriented (OLTP)
+io_row_bytes = n_rows * bytes_per_row
+io_row_gb = io_row_bytes / (1024**3)
+
+# Column-oriented (OLAP) со сжатием 1:6
+compression_ratio = 6.0
+io_col_bytes = (n_rows * bytes_per_target_cols) / compression_ratio
+io_col_gb = io_col_bytes / (1024**3)
+
+speedup_factor = io_row_bytes / io_col_bytes
+
+print(f"Объем дискового I/O для OLTP (Row):    {io_row_gb:6.2f} ГБ")
+print(f"Объем дискового I/O для OLAP (Column): {io_col_gb:6.2f} ГБ")
+print(f"Выигрыш в дисковом трафике:         в {speedup_factor:6.1f} раз!")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск тяжелых аналитических агрегаций на основной OLTP базе в часы пик.</b> Вызывает блокировки, вымывает кэш страниц и парализует оформление заказов пользователями.</li>
+        <li><b>Использование колоночной СУБД для точечных транзакций и частых UPDATE по первичному ключу.</b> Колоночные базы не предназначены для частых мутаций и деградируют при таких нагрузках.</li>
+        <li><b>Запись в OLAP СУБД одиночными строками (Single-row INSERTs).</b> Каждая вставка создает крошечный кусок данных на диске; вставлять данные нужно пачками (Batches) от 10 000 строк.</li>
+        <li><b>Использование SELECT * в аналитических запросах к колоночной базе.</b> Уничтожает главное преимущество OLAP, заставляя СУБД считывать все файлы столбцов с диска.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: золотое правило ответа — <i>«OLTP оптимизирует операции по строкам (запись, обновление, выборка конкретной сущности), а OLAP оптимизирует агрегации по миллионам значений ограниченного набора столбцов»</i>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем ключевое физическое отличие Row-store от Column-store?</b></p><p>В Row-store строки хранятся последовательно на диске; в Column-store значения одного столбца хранятся в непрерывном блоке данных.</p></li>
+        <li><p><b>Почему колоночные базы сжимают данные эффективнее строчных?</b></p><p>Потому что значения в одном столбце имеют одинаковый тип данных, часто упорядочены и содержат высокую повторяемость.</p></li>
+        <li><p><b>Что такое Column Pruning (отсечение столбцов)?</b></p><p>Способность оптимизатора OLAP считывать с диска только те колонки, которые явно присутствуют в запросе SELECT/WHERE/GROUP BY.</p></li>
+        <li><p><b>Почему в OLAP не рекомендуются точечные UPDATE отдельных строк?</b></p><p>Потому что обновление требует перезаписи фрагментов множества физически раздельных файлов столбцов.</p></li>
+        <li><p><b>Что такое векторизованная обработка запросов (SIMD)?</b></p><p>Выполнение процессорной операции сразу над вектором (массивом) значений в регистрах CPU за один машинный такт.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dwh_data_lake" data-interview="4">
+  <div class="name" id="dwh_data_lake">
+    DWH, Data Lake и Lakehouse
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Enterprise Data Architect):</b> Концептуальный вопрос: <i>«В чем эволюционная разница между Data Warehouse, Data Lake и современной концепцией Data Lakehouse? Что представляет собой Медальонная архитектура (Medallion Architecture) и как Delta Lake / Apache Iceberg решают проблемы сырых файлов в S3?»</i></p>
+<p>Если совсем простыми словами: <b>Data Warehouse — это чистый склад готовой продукции с жесткими правилами, Data Lake — гигантский резервуар сырой нефти любых форматов, а Lakehouse — современный нефтеперерабатывающий комплекс</b>, дающий озеру транзакционную строгость склада без потери его безграничной вместимости.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Эволюция архитектур корпоративных данных:</p>
+<ol>
+<li><b>Data Warehouse (DWH — Корпоративное хранилище):</b>
+    - <i>Подход:</i> <b>Schema-on-Write</b> (данные очищаются и валидируются до попадания в базу).
+    - <i>Плюсы:</i> Строгий контроль качества, идеальная согласованность, высокая скорость SQL.
+    - <i>Минусы:</i> Дороговизна хранения, неповоротливость схемы, невозможность хранить полуструктурированные (JSON, XML) и неструктурированные данные (аудио, изображения).
+</li>
+<li><b>Data Lake (Озеро данных — Hadoop, AWS S3, MinIO):</b>
+    - <i>Подход:</i> <b>Schema-on-Read</b> (данные сохраняются в сыром виде, схема накладывается при чтении).
+    - <i>Плюсы:</i> Бесконечная масштабируемость, сверхдешевое хранилище, любые форматы (Parquet, CSV, AVRO, Video).
+    - <i>Минусы:</i> Риск превращения в «Болото данных» (Data Swamp), отсутствие ACID транзакций, сложность версионирования и удаления персональных данных (GDPR).
+</li>
+<li><b>Data Lakehouse (Apache Iceberg, Delta Lake, Apache Hudi):</b>
+    - Объединение дешевого объектного хранилища S3 с метаданными и слоем управления транзакциями.
+    - <i>Возможности:</i> ACID-транзакции поверх Parquet, Time Travel (запросы к состоянию на любую дату), Schema Evolution (безопасное изменение схемы без перезаписи файлов), слияние UPSERT/MERGE.
+</li>
+<li><b>Медальонная архитектура (Medallion Architecture):</b>
+    - <b>Bronze (Сырой слой):</b> Неизменяемый снимок первоисточников (Raw ingestion, append-only).
+    - <b>Silver (Очищенный слой):</b> Очищенные, дедуплицированные, валидированные таблицы сущностей.
+    - <b>Gold (Бизнес-слой / DM):</b> Финальные агрегированные витрины данных для BI и ML.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена:</b>
+Финтех-компания получала терабайты банковских событий в секунду.
+- <i>Bronze:</i> Потоковый Kafka $\to$ запись в S3 в формате Parquet (сырой JSON).
+- <i>Silver:</i> Spark/dbt чистит дубликаты, типизирует даты, проверяет целостность в формате Apache Iceberg.
+- <i>Gold:</i> Формируются витрины транзакционной активности клиентов и синхронизируются в ClickHouse для генерации отчетов за $50$ миллисекунд в реальном времени.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Концептуальная логика операции MERGE INTO в формате Lakehouse (Apache Iceberg / Delta)
+import pandas as pd
+
+# Текущее состояние таблицы Silver (Iceberg)
+silver_table = pd.DataFrame([
+    {'user_id': 101, 'status': 'pending', 'updated_at': '2026-10-01 10:00'},
+    {'user_id': 102, 'status': 'active',  'updated_at': '2026-10-01 11:00'}
+])
+
+# Новая порция сырых данных из Bronze (микро-батч)
+incoming_batch = pd.DataFrame([
+    {'user_id': 101, 'status': 'active',  'updated_at': '2026-10-02 12:00'}, # обновление существующего
+    {'user_id': 103, 'status': 'active',  'updated_at': '2026-10-02 12:05'}  # новая запись
+])
+
+# Эмуляция ACID MERGE INTO (Upsert) в Lakehouse:
+merged = pd.concat([silver_table, incoming_batch])
+# Дедупликация с сохранением самой свежей версии по user_id
+lakehouse_state = (
+    merged.sort_values('updated_at')
+    .groupby('user_id')
+    .last()
+    .reset_index()
+)
+
+print("Результирующее состояние таблицы после Lakehouse ACID Upsert:")
+print(lakehouse_state)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Превращение Data Lake в 'Data Swamp' (Болото данных).</b> Загрузка гигабайтов сырых файлов без каталога метаданных, документации и мониторинга качества делает данные бесполезными.</li>
+        <li><b>Попытка строить BI-дашборды прямо поверх неструктурированного Bronze слоя.</b> Медленные запросы, ошибки типизации и падения отчетов.</li>
+        <li><b>Игнорирование версионирования схем (Schema Evolution).</b> Добавление разработчиками нового поля в JSON ломает пайплайны, если формат хранения не поддерживает обратную совместимость.</li>
+        <li><b>Хранение миллионов крошечных файлов (Small Files Problem).</b> Каждый файл размером 10 КБ в HDFS/S3 создает колоссальные накладные расходы на чтение метаданных. Необходима регулярная компактизация (Compaction).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: используйте термин <b>Медальонная архитектура (Bronze $\to$ Silver $\to$ Gold)</b> и объясните, как современные форматы <b>Iceberg / Delta</b> устраняют границы между DWH и озерами данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между Schema-on-Write и Schema-on-Read?</b></p><p>Schema-on-Write требует валидации структуры до записи в базу (DWH); Schema-on-Read сохраняет сырые данные, накладывая схему при запросе (Data Lake).</p></li>
+        <li><p><b>Какие ключевые функции добавляет Apache Iceberg поверх обычного S3/Parquet?</b></p><p>ACID транзакции, Time Travel (чтение исторических снапшотов), Schema Evolution и изоляцию изменений.</p></li>
+        <li><p><b>Что входит в слой Bronze медальонной архитектуры?</b></p><p>Сырые неизменяемые первоисточники данных, сохраняемые по принципу Append-only без очистки.</p></li>
+        <li><p><b>Что такое Data Swamp (болото данных)?</b></p><p>Озеро данных, лишенное каталога, управления доступом и метаданных, в котором невозможно ориентироваться.</p></li>
+        <li><p><b>В чем проблема 'Small Files' в озерах данных?</b></p><p>Миллионы микро-файлов перегружают неймноды и каталоги метаданных, драматически замедляя операции сканирования.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="star_snowflake_schema" data-interview="4">
+  <div class="name" id="star_snowflake_schema">
+    Схемы Звезда и Снежинка (Star and Snowflake)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (BI Developer / Analytics Engineer):</b> Проектирование витрин данных: <i>«В чем принципиальная разница между моделированием схем 'Звезда' (Star Schema) и 'Снежинка' (Snowflake Schema) по Ральфу Кимбаллу? Какая схема предпочтительнее в современных аналитических СУБД и почему?»</i></p>
+<p>Если совсем простыми словами: <b>в Звезде измерения денормализованы и подключаются к таблице фактов в один шаг, а в Снежинке измерения нормализованы на цепочки подтаблиц</b>. Звезда проще для человека и быстрее считается на современных серверах; Снежинка экономит байты на диске ценой усложнения SQL-запросов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ архитектур многомерного моделирования:</p>
+<ol>
+<li><b>Таблицы Фактов (Fact Tables):</b>
+    Содержат числовые метрики бизнес-событий (сумма платежа, количество товаров, длительность звонка) и суррогатные ключи измерений.
+    - <i>Аддитивные факты:</i> Можно суммировать по любым измерениям (выручка, количество).
+    - <i>Полуаддитивные факты:</i> Можно суммировать по клиентам, но нельзя по времени (остаток на банковском счете).
+    - <i>Неаддитивные факты:</i> Нельзя суммировать вообще (процентная ставка, скидка $10\%$).
+</li>
+<li><b>Схема «Звезда» (Star Schema):</b>
+    - Таблица фактов находится в центре, таблицы измерений — вокруг.
+    - <i>Денормализация:</i> Например, в таблице `dim_product` поля `category_name`, `subcategory_name`, `brand` хранятся прямо в одной строке без выноса в отдельные таблицы.
+    - <i>Преимущества:</i> Простейшие запросы (ровно 1 джойн на каждое измерение), максимальная скорость сканирования в MPP/OLAP системах, прозрачность для BI-инструментов.
+</li>
+<li><b>Схема «Снежинка» (Snowflake Schema):</b>
+    - Измерения нормализованы (3-я нормальная форма): `dim_product` ссылается на `dim_subcategory`, которая ссылается на `dim_category`.
+    - <i>Преимущества:</i> Устранение избыточности строковых названий (экономия диска в 1980-х годах).
+    - <i>Недостатки:</i> Многоуровневые тяжелые джойны, запутанный SQL, медленная агрегация.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Практический выбор в modern DWH:</b>
+В эпоху облачных колоночных баз (ClickHouse, Snowflake, BigQuery, Redshift) <b>схема «Звезда» является безоговорочным стандартом</b>.
+Стоимость дискового пространства упала в тысячи раз, а колоночные СУБД сжимают повторяющиеся строки измерений алгоритмами Dictionary/LZ4 практически в ноль. Тратить ресурсы CPU на соединение 5 нормализованных таблиц ради экономии 10 мегабайт памяти экономически нецелесообразно.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Эталонная схема «Звезда» (Star Schema) для аналитической витрины продаж
+-- 1. Таблицы измерений (де-нормализованы)
+CREATE TABLE dim_customers (
+    customer_key INT PRIMARY KEY,
+    customer_id VARCHAR(64) NOT NULL,
+    full_name VARCHAR(255),
+    city VARCHAR(100),
+    country VARCHAR(100),
+    segment VARCHAR(50) -- Enterprise, SMB, B2C
+);
+
+CREATE TABLE dim_products (
+    product_key INT PRIMARY KEY,
+    sku VARCHAR(64) NOT NULL,
+    product_name VARCHAR(255),
+    category_name VARCHAR(100),    -- В Снежинке было бы вынесено в отдельную таблицу
+    brand_name VARCHAR(100)
+);
+
+CREATE TABLE dim_date (
+    date_key INT PRIMARY KEY, -- формат YYYYMMDD (20261008)
+    full_date DATE NOT NULL,
+    day_of_week VARCHAR(16),
+    month_name VARCHAR(16),
+    quarter INT,
+    year INT
+);
+
+-- 2. Центральная таблица фактов
+CREATE TABLE fact_sales (
+    sale_id BIGINT PRIMARY KEY,
+    date_key INT REFERENCES dim_date(date_key),
+    customer_key INT REFERENCES dim_customers(customer_key),
+    product_key INT REFERENCES dim_products(product_key),
+    -- Факты (Метрики)
+    quantity INT NOT NULL,
+    revenue NUMERIC(12, 2) NOT NULL,
+    cost_amount NUMERIC(12, 2) NOT NULL,
+    margin_amount NUMERIC(12, 2) GENERATED ALWAYS AS (revenue - cost_amount) STORED
+);</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование естественных составных бизнес-ключей вместо числовых суррогатных ключей.</b> Суррогатные ключи (целые числа INT/BIGINT) обеспечивают компактность таблиц фактов и быстродействие джойнов.</li>
+        <li><b>Нормализация таблиц измерений до схемы Снежинка в современных OLAP базах.</b> Избыточно усложняет витрины и снижает скорость аналитических панелей мониторинга.</li>
+        <li><b>Смешивание разного уровня гранулярности в одной таблице фактов.</b> Таблица фактов должна иметь строгий Grain (например, строго 'одна строка = одна позиция чека').</li>
+        <li><b>Агрегация неаддитивных фактов функцией SUM().</b> Суммирование процентных ставок или средних конверсий дает абсурдные математические результаты.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: сформулируйте вердикт четко: <i>«Схема 'Звезда' доминирует в аналитике, потому что простота джойнов и скорость агрегации на колоночных движках несравнимо важнее нормализации измерений»</i>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем главное отличие схемы 'Звезда' от 'Снежинки'?</b></p><p>В схеме 'Звезда' таблицы измерений денормализованы, а в 'Снежинке' они нормализованы на дополнительные подтаблицы.</p></li>
+        <li><p><b>Почему 'Звезда' предпочтительнее в колоночных хранилищах?</b></p><p>Она минимизирует количество JOIN операций, а колоночное сжатие нивелирует избыточность строк.</p></li>
+        <li><p><b>Что такое суррогатный ключ (Surrogate Key)?</b></p><p>Искусственный целочисленный первичный ключ таблицы измерения, независимый от естественного идентификатора источника.</p></li>
+        <li><p><b>Что такое полуаддитивный факт?</b></p><p>Метрика, которую можно суммировать по одним измерениям (клиенты, категории), но нельзя по времени (например, остаток на счете).</p></li>
+        <li><p><b>Что означает понятие 'Grain' (гранулярность) таблицы фактов?</b></p><p>Фундаментальное определение того, что именно физически представляет собой одна строка таблицы.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="etl_elt" data-interview="4">
+  <div class="name" id="etl_elt">
+    ETL vs ELT процессы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Data Engineer / Analytics Engineer):</b> Архитектурный вопрос: <i>«В чем фундаментальное технологическое различие между подходами ETL (Extract, Transform, Load) и ELT (Extract, Load, Transform)? Почему произошел массовый переход к ELT с использованием dbt, и в каких случаях классический ETL остается безальтернативным?»</i></p>
+<p>Если совсем простыми словами: <b>ETL трансформирует данные на отдельном промежуточном сервере перед записью, а ELT сначала загружает сырые данные в хранилище как есть, а затем трансформирует их мощностями самого хранилища</b>. ELT хранит историю навсегда и позволяет пересчитать витрины за 5 лет при смене правил бизнеса одной строчкой SQL.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ парадигм интеграции данных:</p>
+<ol>
+<li><b>Классический ETL (Extract $\to$ Transform $\to$ Load):</b>
+    - <i>Механика:</i> Данные извлекаются из источников, передаются на специальный ETL-сервер (Informatica, Talend, Python-воркеры), трансформируются в памяти и готовые витрины пишутся в DWH.
+    - <i>Плюсы:</i> Безопасность (персональные данные PII маскируются ДО попадания в аналитическое хранилище), экономия дискового пространства DWH.
+    - <i>Минусы:</i> Если в алгоритме трансформации была ошибка или изменилась бизнес-логика, <b>исходные данные утеряны</b>. Нужно заново выгружать терабайты из боевых баз-источников.
+</li>
+<li><b>Современный ELT (Extract $\to$ Load $\to$ Transform):</b>
+    - <i>Механика:</i> Легковесный коннектор (Airbyte, Fivetran, Kafka) сбрасывает сырые данные (Raw Data) напрямую в DWH/Lakehouse. Трансформации выполняются внутри хранилища средствами SQL и dbt (data build tool).
+    - <i>Плюсы:</i>
+        - Исходный первоисточник сохранен навечно (Auditability).
+        - Использование распределенной вычислительной мощности самого DWH (ClickHouse, BigQuery, Snowflake).
+        - Разделение ответственности: инженеры данных отвечают за доставку сырых данных, а аналитики данных — за моделирование на чистом SQL.
+</li>
+<li><b>Когда ETL строго обязателен сегодня:</b>
+    1. Жесткие требования регуляторов по конфиденциальности (GDPR, 152-ФЗ, PCI-DSS): номера карт и паспортов запрещено сохранять в сыром виде.
+    2. Ограниченные сетевые каналы (Edge Computing, IoT датчики, фильтрация телеметрии до отправки в облако).
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена:</b>
+Маркетинговая команда полгода считала ROI по формуле `Выручка - Расходы`.
+Руководство решило изменить методику и учитывать себестоимость возвратов товаров (COGS Returns).
+- <i>В архитектуре ETL:</i> Задача заняла бы 2 месяца: переписать код скриптов, запросить исторические логи из ERP за полгода и заново перезалить базу.
+- <i>В архитектуре ELT (dbt):</i> Аналитик изменил 1 строчку в `.sql` модели dbt и выполнил команду `dbt run --full-refresh`. Все витрины за 6 месяцев пересчитались из слоя Raw за $4$ минуты.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Пример декларативной ELT-трансформации в парадигме dbt (Data Build Tool)
+-- Модель: models/marts/fct_customer_orders.sql
+{{ config(
+    materialized='incremental',
+    unique_key='order_id',
+    incremental_strategy='merge'
+) }}
+
+WITH raw_orders AS (
+    -- Извлечение из уже загруженного сырого слоя DWH
+    SELECT * FROM {{ source('raw_backend', 'orders') }}
+    {% if is_incremental() %}
+        WHERE updated_at > (SELECT MAX(updated_at) FROM {{ this }})
+    {% endif %}
+),
+cleaned_orders AS (
+    SELECT
+        order_id,
+        user_id,
+        CAST(total_amount AS NUMERIC(10, 2)) AS total_amount,
+        LOWER(TRIM(status)) AS status,
+        DATE_TRUNC('day', created_at) AS order_date,
+        updated_at
+    FROM raw_orders
+    WHERE is_deleted = FALSE
+)
+SELECT * FROM cleaned_orders;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Удаление сырых данных после загрузки в архитектуре ELT.</b> Сырой слой Raw должен быть неизменяемым фундаментом для возможности полного исторического пересчета.</li>
+        <li><b>Перенос сложной тяжелой бизнес-логики в скрипты выгрузки (Extract phase).</b> Скрипты выгрузки должны быть максимально легковесными и надежными.</li>
+        <li><b>Забывание об обезличивании чувствительных данных (PII/Паспорта/CVV).</b> Передача незамаскированных персональных данных в аналитический слой является грубым нарушением законодательства.</li>
+        <li><b>Неидемпотентность пайплайнов трансформации.</b> Повторный запуск джоба трансформации не должен приводить к дублированию строк или изменению итоговых метрик.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: свяжите переход на ELT с появлением современных колоночных баз данных и инструмента <b>dbt</b>, который перевел дата-аналитиков в статус полноценных разработчиков (DataOps, тестирование, версионирование моделей).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем фундаментальное отличие ELT от ETL?</b></p><p>В месте выполнения трансформаций: ETL выполняет их до загрузки на промежуточном сервере; ELT загружает сырые данные и трансформирует их внутри DWH.</p></li>
+        <li><p><b>Почему ELT стал стандартом индустрии?</b></p><p>Благодаря падению стоимости хранения и развитию мощных распределенных СУБД, выполняющих SQL-трансформации быстрее любого отдельного сервера.</p></li>
+        <li><p><b>В каком сценарии классический ETL по-прежнему необходим?</b></p><p>При необходимости анонимизации и маскирования чувствительных персональных данных (PII) до их попадания в централизованное хранилище.</p></li>
+        <li><p><b>Что такое dbt (data build tool)?</b></p><p>Инструмент трансформации данных в ELT, позволяющий описывать модели на SQL с поддержкой Jinja, тестов, версионирования в Git и построения Data Lineage.</p></li>
+        <li><p><b>Что означает свойство идемпотентности конвейера данных?</b></p><p>Гарантия того, что многократный запуск одного и того же процесса с теми же входными данными дает в точности идентичный результат.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="clickhouse_intro" data-interview="5">
+  <div class="name" id="clickhouse_intro">
+    ClickHouse: архитектура и возможности
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Big Data / Senior Analyst):</b> Системный разбор технологий: <i>«За счет каких архитектурных и низкоуровневых решений ClickHouse обеспечивает скорость обработки данных в миллиарды строк в секунду? Как устроен разреженный первичный индекс (Sparse Primary Key) и почему он кардинально отличается от B-Tree индексов в PostgreSQL?»</i></p>
+<p>Если совсем простыми словами: <b>ClickHouse выжимает максимум из физики «железа»</b>. Он читает только нужные колонки с бешеной степенью сжатия, обрабатывает данные векторами прямо в регистрах процессора и не тратит драгоценное время на построчные блокировки и транзакционные накладные расходы.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурные столпы быстродействия ClickHouse:</p>
+<ol>
+<li><b>Колоночное размещение с физической изоляцией:</b>
+    Каждый столбец таблицы пишется в отдельную пару файлов: `.bin` (сжатые сгруппированные блоки данных) и `.mrk2` (засечки/метки смещений в файле).
+</li>
+<li><b>Разреженный первичный индекс (Sparse Primary Key):</b>
+    - В отличие от PostgreSQL, где B-Tree хранит указатель на <b>каждую строку</b> таблицы (плотный индекс), первичный индекс ClickHouse хранит одну засечку на каждые $N$ строк (по умолчанию `index_granularity = 8192`).
+    - <i>Следствие:</i> Весь первичный индекс таблицы на миллиард строк занимает всего несколько десятков мегабайт и <b>целиком помещается в оперативную память (RAM)</b>.
+    - Поиск `WHERE user_id = 123` не находит точную строку, а моментально отсекает миллионы ненужных гранул, сужая чтение до компактного блока строк.
+</li>
+<li><b>Векторное выполнение запросов (Vectorized Query Execution):</b>
+    Данные обрабатываются не по одной записи (строчный подход Volcano-model), а порциями по $1024-8192$ элементов за такт с задействованием процессорных инструкций SSE4.2, AVX-2 и AVX-512.
+</li>
+<li><b>Специализированные кодеки сжатия:</b>
+    Поддержка сжатия на уровне отдельных полей: `DoubleDelta` для монотонно растущих дат/ID, `Gorilla` для float, `T64` для целых чисел, поверх которых накладывается `ZSTD` или `LZ4`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Сравнение плотного и разреженного индексов:</b>
+Таблица на $1\,000\,000\,000$ строк (1 млрд):
+- <b>PostgreSQL B-Tree Index:</b> Содержит 1 млрд записей. Размер индекса: $\approx 25-40$ ГБ. Не помещается в RAM, требует постоянного чтения с диска.
+- <b>ClickHouse Sparse Index:</b> Содержит $1\,000\,000\,000 / 8192 \approx 122\,000$ засечек. Размер индекса: $\approx 10-20$ МБ. Полностью сидит в L3-кэше/RAM сервера!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Создание высокопроизводительной таблицы ClickHouse с кастомными кодеками
+CREATE TABLE default.user_events (
+    event_date Date CODEC(DoubleDelta, LZ4),
+    event_timestamp DateTime CODEC(DoubleDelta, LZ4),
+    user_id UInt64 CODEC(T64, ZSTD(1)),
+    event_type LowCardinality(String), -- Кодирование словарем для низкокардинальных строк
+    amount Decimal(10, 2) CODEC(Gorilla, ZSTD(1)),
+    user_agent String CODEC(ZSTD(3))
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (event_type, user_id, event_timestamp)
+SETTINGS index_granularity = 8192;
+
+-- Запрос с эффективным использованием разреженного индекса
+SELECT
+    event_type,
+    count() AS total_events,
+    uniqExact(user_id) AS unique_users,
+    sum(amount) AS total_revenue
+FROM default.user_events
+WHERE event_type = 'purchase' 
+  AND event_date >= '2026-10-01'
+GROUP BY event_type;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Попытка частой точечной вставки строк (Single-row INSERTs).</b> ClickHouse захлебнется от количества файлов. Вставлять необходимо пакетами (батчами) от 10 000 до 100 000 строк или использовать Buffer-таблицы.</li>
+        <li><b>Частое использование UPDATE и DELETE.</b> В ClickHouse это тяжелые фоновые асинхронные мутации (ALTER TABLE UPDATE), переписывающие целые куски данных на диске.</li>
+        <li><b>Неправильный порядок колонок в ORDER BY.</b> Разреженный индекс работает слева направо. Если первым полем поставить уникальный `event_id`, индекс перестанет фильтровать по остальным полям.</li>
+        <li><b>Попытка тяжелых распределенных JOIN между гигантскими таблицами без репликации справочников.</b> Для быстрого джойна ClickHouse требует либо использования словарей (Dictionaries), либо отправки запроса в виде Global Join.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: сразу скажите ключевую фразу — <i>«ClickHouse быстрый, потому что он совмещает физическую изоляцию колонок, разреженный индекс в RAM, специализированные кодеки и векторный движок с SIMD-инструкциями»</i>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое гранула (Granule) в ClickHouse?</b></p><p>Минимальный неделимый блок данных при считывании, состоящий по умолчанию из 8192 строк.</p></li>
+        <li><p><b>В чем различие между плотным (Dense) и разреженным (Sparse) индексами?</b></p><p>Плотный индекс индексирует каждую строку таблицы; разреженный хранит только одно значение индекса на каждую гранулу строк.</p></li>
+        <li><p><b>Зачем нужен тип LowCardinality(String)?</b></p><p>Для автоматического создания компактного словаря целых чисел для строковых колонок с числом уникальных значений менее 10 000.</p></li>
+        <li><p><b>Почему ClickHouse не поддерживает транзакции между таблицами?</b></p><p>Потому что архитектура ориентирована на максимальную пропускную способность аналитической записи и чтения, исключая блокировки.</p></li>
+        <li><p><b>Какой размер пакета (Batch size) рекомендуется при вставке в ClickHouse?</b></p><p>От 10 000 до 100 000 строк (или не чаще одного батча в 1-2 секунды).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="clickhouse_mergetree" data-interview="5">
+  <div class="name" id="clickhouse_mergetree">
+    Семейство движков MergeTree в ClickHouse
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (ClickHouse Expert / DBA):</b> Глубокий практический вопрос: <i>«Как устроено ядро ClickHouse — семейство движков MergeTree? Чем отличаются MergeTree, ReplacingMergeTree, SummingMergeTree и AggregatingMergeTree? Как фоновый процесс слияния (Background Merge) управляет жизненным циклом кусков данных (Data Parts)?»</i></p>
+<p>Если совсем простыми словами: <b>MergeTree — это фабрика, которая принимает небольшие порции данных и непрерывно склеивает их в фоне в огромные монолитные куски</b>. Каждая модификация движка делает полезную работу прямо во время этой склейки: убирает дубликаты, суммирует циферки или схлопывает состояния агрегатов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия семейства движков MergeTree:</p>
+<ol>
+<li><b>Базовый MergeTree:</b>
+    - При каждом `INSERT` на диск записывается новый физический кусок данных (Part), отсортированный по ключу `ORDER BY`.
+    - Фоновый демон (Background Merger) выбирает несколько небольших кусков и объединяет их в один большой методом сортировки слиянием (Merge Sort).
+    - `PARTITION BY`: физически изолирует директории (например, по месяцам `toYYYYMM(date)`). Слияния происходят строго <b>внутри одного партишена</b>.
+</li>
+<li><b>ReplacingMergeTree:</b>
+    - Удаляет дубликаты записей с одинаковым ключом сортировки `ORDER BY`.
+    - Сохраняет либо последнюю вставленную строку, либо строку с максимальным значением в колонке версий (`version`).
+    - <i>Критическая особенность:</i> Дедупликация происходит <b>только в момент фонового слияния</b>. До слияния дубликаты физически присутствуют. Для гарантированной дедупликации при выборке требуется суффикс `FINAL` (или `argMax`).
+</li>
+<li><b>SummingMergeTree:</b>
+    - Автоматически суммирует числовые колонки для строк с совпадающим ключом `ORDER BY` во время слияния кусков. Схлопывает миллиарды строк счетчиков в компактные записи.
+</li>
+<li><b>AggregatingMergeTree:</b>
+    - Хранит промежуточные бинарные состояния агрегатных функций (`AggregateFunction`), например, состояние расчета уникальных пользователей `uniqState(user_id)`.
+    - Используется совместно с Materialized Views для мгновенного построения аналитических витрин.
+</li>
+<li><b>CollapsingMergeTree / VersionedCollapsingMergeTree:</b>
+    - Эмуляция быстрых UPDATE и DELETE через специальную колонку знака (`Sign: 1` для вставки, `-1` для удаления старой версии).
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из продакшена: Архитектура витрины с AggregatingMergeTree:</b>
+Задача: отдавать дашборд с DAU/MAU за 3 года по 50 срезам за $10$ миллисекунд.
+1. Создается сырая таблица `hits_raw`.
+2. Создается витрина `hits_daily_mv` на движке `AggregatingMergeTree` с полем `user_id_state AggregateFunction(uniq, UInt64)`.
+3. Создается Materialized View, которая на лету сворачивает миллионы кликов в `uniqState(user_id)`.
+4. В отчете аналитик пишет `SELECT uniqMerge(user_id_state) FROM hits_daily_mv ...` и получает расчет за $5$ миллисекунд по миллиардам событий!</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Пример работы ReplacingMergeTree с версионированием и модификатором FINAL
+CREATE TABLE default.user_profiles (
+    user_id UInt64,
+    email String,
+    status LowCardinality(String),
+    version UInt64,
+    updated_at DateTime
+)
+ENGINE = ReplacingMergeTree(version)
+ORDER BY user_id;
+
+-- Вставка исходного профиля (v1)
+INSERT INTO default.user_profiles VALUES (42, 'test@ya.ru', 'pending', 1, now());
+
+-- Обновление профиля пользователя (v2)
+INSERT INTO default.user_profiles VALUES (42, 'test@ya.ru', 'active', 2, now());
+
+-- 1. Обычный SELECT вернет 2 строки, если фоновое слияние еще не успело пройти!
+-- SELECT * FROM default.user_profiles WHERE user_id = 42;
+
+-- 2. Гарантированный возврат актуальной версии v2 с модификатором FINAL:
+SELECT 
+    user_id, 
+    email, 
+    status, 
+    version 
+FROM default.user_profiles FINAL
+WHERE user_id = 42;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Ожидание мгновенной дедупликации от ReplacingMergeTree без FINAL.</b> Фоновое слияние асинхронно и недетерминировано; без FINAL или argMax() запрос вернет дубликаты.</li>
+        <li><b>Чрезмерно мелкое партиционирование (Over-partitioning).</b> Партиционирование по часам или дням (`PARTITION BY toDate(time)`) создает сотни тысяч директорий и кусков, приводя к ошибке 'Too many parts in all data parts in table'.</li>
+        <li><b>Злоупотребление ключевым словом FINAL на таблицах с терабайтами данных.</b> Модификатор FINAL заставляет ClickHouse выполнять тяжелое однопоточное слияние на лету при чтении, замедляя запрос.</li>
+        <li><b>Путаница между ORDER BY и PARTITION BY.</b> Партиционирование делит данные физически на папки (грубое деление), а ORDER BY сортирует данные внутри кусков для индексации и поиска.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: покажите глубокое понимание механики фонового слияния кусков (Data Parts) и подчеркните, что партиционировать таблицы нужно только по крупным сущностям (обычно по месяцам `toYYYYMM`).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что физически представляет собой Data Part (кусок) в ClickHouse?</b></p><p>Директория на диске, содержащая файлы сжатых столбцов, засечек и метаданных, отсортированная по ключу ORDER BY.</p></li>
+        <li><p><b>Когда ReplacingMergeTree удаляет дублирующиеся строки?</b></p><p>Только в момент асинхронного фонового процесса слияния кусков (Background Merge).</p></li>
+        <li><p><b>Зачем нужен модификатор FINAL в запросах к ReplacingMergeTree?</b></p><p>Для принудительного объединения кусков и дедупликации прямо в процессе выполнения запроса.</p></li>
+        <li><p><b>В чем назначение движка AggregatingMergeTree?</b></p><p>В сохранении промежуточных агрегированных состояний функций (например, гиперлоглогов или битовых карт) для быстрого последующего досчета.</p></li>
+        <li><p><b>К какой ошибке приводит чрезмерное количество партиций в таблице?</b></p><p>К ошибке 'Too many parts in table', деградации операционной системы и остановке приема вставок.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="clickhouse_analytics_sql" data-interview="5">
+  <div class="name" id="clickhouse_analytics_sql">
+    Аналитический SQL в ClickHouse
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Собеседование (Lead Product Analyst / ClickHouse Power User):</b> Продвинутый практический вопрос: <i>«Какие уникальные аналитические функции ClickHouse позволяют рассчитывать сложные продуктовые воронки, когортный Retention и операции над массивами в сотни раз быстрее классического ANSI SQL?»</i></p>
+<p>Если совсем простыми словами: <b>в ClickHouse встроены специализированные алгоритмические функции прямо на C++</b>. Вместо написания пятиэтажных CTE с десятком self-join для расчета воронки, в ClickHouse пишется одна функция `windowFunnel()`, которая пролетает по логам за один проход.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Супер-оружие продуктового аналитика в ClickHouse:</p>
+<ol>
+<li><b>Функция построения продуктовых воронок `windowFunnel()`:</b>
+    $$windowFunnel(\text{window\_seconds})(\text{timestamp}, \text{cond}_1, \text{cond}_2, \text{cond}_3, \dots)$$
+    Ищет цепочку событий строго в заданном хронологическом порядке внутри скользящего окна времени. Возвращает номер максимального пройденного шага ($1, 2, 3$).
+</li>
+<li><b>Функция когортного удержания `retention()`:</b>
+    $$retention(\text{cond}_0, \text{cond}_1, \text{cond}_2, \dots)$$
+    Принимает набор условий активности (например, условие дня 0, дня 1, дня 7). Возвращает массив нулей и единиц `[1, 1, 0]`, показывающий, вернулся ли клиент в каждый период.
+</li>
+<li><b>Работа со вложенными структурами и массивами (Higher-Order Array Functions):</b>
+    - `arrayJoin(arr)`: Разворачивает элементы массива в отдельные строки (аналог `UNNEST`).
+    - `arrayMap(x -> x * 2, arr)`: Лямбда-функция трансформации каждого элемента.
+    - `arrayFilter(x -> x > 0, arr)`: Фильтрация массива на лету.
+</li>
+<li><b>Вероятностные алгоритмические агрегаты (Approximate Computing):</b>
+    - `uniq(x)`: Приближенный подсчет уникальных на адаптивном алгоритме HyperLogLog (погрешность $\approx 1\%$, скорость в 5 раз выше `uniqExact`).
+    - `groupBitmapState(user_id)`: Битовые маски для сверхбыстрого пересечения аудиторий сегментов через логические операции `AND / OR / XOR`.
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс из практики: Расчет 4-шаговой воронки заказа такси за 30 минут:</b>
+Шаги: 1. Открытие приложения $\to$ 2. Расчет стоимости $\to$ 3. Клик «Заказать» $\to$ 4. Успешная поездка.
+На обычном PostgreSQL запрос требует 4-х тяжелых JOIN по терабайтной таблице логов и выполняется 40 минут.
+В ClickHouse функция `windowFunnel(1800)(event_time, step1, step2, step3, step4)` выполняет расчет по 500 млн событий <b>за 1.2 секунды</b>.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- 1. Сверхбыстрый расчет продуктовой воронки через windowFunnel (окно 30 минут)
+SELECT
+    level,
+    count() AS users_reached_step,
+    round(count() * 100.0 / (SELECT count() FROM default.app_events WHERE event_type = 'open_app'), 2) AS conversion_rate_pct
+FROM (
+    SELECT
+        user_id,
+        windowFunnel(1800)(
+            event_timestamp,
+            event_type = 'open_app',
+            event_type = 'calculate_price',
+            event_type = 'click_order',
+            event_type = 'ride_completed'
+        ) AS level
+    FROM default.app_events
+    WHERE event_date = '2026-10-08'
+    GROUP BY user_id
+)
+WHERE level > 0
+GROUP BY level
+ORDER BY level ASC;
+
+-- 2. Расчет когортного Retention за один проход через функцию retention()
+SELECT
+    cohort_date,
+    count() AS cohort_size,
+    sum(r[1]) AS day_0,
+    sum(r[2]) AS day_1,
+    sum(r[3]) AS day_7,
+    round(sum(r[2]) * 100.0 / sum(r[1]), 1) AS ret_day_1_pct,
+    round(sum(r[3]) * 100.0 / sum(r[1]), 1) AS ret_day_7_pct
+FROM (
+    SELECT
+        user_id,
+        min(event_date) AS cohort_date,
+        retention(
+            event_date = cohort_date,
+            event_date = cohort_date + INTERVAL 1 DAY,
+            event_date = cohort_date + INTERVAL 7 DAY
+        ) AS r
+    FROM default.app_events
+    GROUP BY user_id
+)
+GROUP BY cohort_date
+ORDER BY cohort_date DESC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование COUNT(DISTINCT) вместо uniq() или uniqExact().</b> Функция uniq() в ClickHouse использует приближенный HyperLogLog и работает на порядок быстрее при минимальной погрешности.</li>
+        <li><b>Попытка расчета воронок через самосоединения (Self-Joins) вместо windowFunnel.</b> Self-Join на миллиардах строк в ClickHouse неизбежно приводит к аварийному исчерпанию памяти (Memory Limit Exceeded).</li>
+        <li><b>Забывание про обязательный GROUP BY по пользователю при использовании windowFunnel.</b> Функция windowFunnel агрегирует хронологическую последовательность событий конкретного пользователя.</li>
+        <li><b>Неучет того, что arrayJoin дублирует значения остальных колонок строки.</b> Использование arrayJoin размножает строки таблицы, что может исказить последующие суммы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: знание функций `windowFunnel`, `retention` и лямбда-выражений `arrayMap` моментально идентифицирует топового аналитика, умеющего эффективно работать с Big Data в экосистеме Яндекса и Т-Банка.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что делает функция windowFunnel() в ClickHouse?</b></p><p>Вычисляет максимальный достигнутый шаг последовательной цепочки событий пользователя внутри заданного интервала времени.</p></li>
+        <li><p><b>В чем преимущество функции retention() перед классическим расчетом когорт?</b></p><p>Она вычисляет вектор возвращаемости пользователя по дням в один проход по данным без множественных объединений.</p></li>
+        <li><p><b>Чем uniq() отличается от uniqExact()?</b></p><p>uniq() использует вероятностный алгоритм HyperLogLog с погрешностью ~1% на колоссальной скорости; uniqExact() считает строго без погрешности, но требует больше RAM.</p></li>
+        <li><p><b>Что делает табличная функция arrayJoin?</b></p><p>Разворачивает массив в отдельные строки таблицы (аналог UNNEST в PostgreSQL).</p></li>
+        <li><p><b>Что такое структуры groupBitmapState в ClickHouse?</b></p><p>Агрегатные функции над 32/64-битными идентификаторами пользователей, позволяющие мгновенно вычислять пересечения аудиторий через битовые операции.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Лидерборд</title>
+
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="assets/css/styles.css" rel="stylesheet" />
+    <link href="assets/css/navigation.css" rel="stylesheet" />
+    <link href="assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<link href="assets/css/pages-modern.css" rel="stylesheet" />
+    <link
+      rel="stylesheet"
+      href="assets/css/leaderboard-modern.css?v=20260923-league-badges"
+    />
+
+    <script defer="" src="assets/js/core.js"></script>
+    <script defer="" src="assets/katex/katex.min.js"></script>
+    <script defer="" src="assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="assets/js/init-head.js"></script>
+    <script src="assets/js/components/navigation.js"></script>
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/notifications.js"></script>
+    <script src="assets/js/components/categories-config-loader.js"></script>
+    <script src="assets/js/components/achievement-catalog.js"></script>
+    <script src="assets/js/components/gamification.js"></script>
+    <script src="assets/js/components/skeleton-loader.js"></script>
+    <script src="assets/js/components/staff-api.js?v=20260906-format-access"></script>
+    <script src="assets/js/components/leaderboard.js?v=20260909-coin-icon"></script>
+    <script src="assets/js/components/achievement-api.js"></script>
+    <script src="assets/js/components/league.js?v=20260923-league-badges"></script>
+    <script src="assets/js/components/number-animation.js"></script>
+    <script src="assets/js/components/progress-tracker-questions.js"></script>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="assets/icons/leaderboard.svg" alt="" />
+          <div class="page-header-text">
+            <h1>Лидерборд</h1>
+            <p class="subtitle">Отслеживай прогресс обучения</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="profile.html" class="page-header-button"
+              >Настроить профиль</a
+            >
+            <a href="roadmap/index.html" class="page-header-button"
+              >Продолжить обучение</a
+            >
+          </div>
+        </div>
+      </header>
+
+      <!-- Admin notice (only visible to mentors) -->
+      <div id="adminNotice" class="admin-notice" style="display: none">
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+          "
+        >
+          <span style="font-size: 16px">🔧</span>
+          <strong style="color: var(--text-primary)"
+            >Управление статусом учеников</strong
+          >
+        </div>
+        <p style="margin: 0; line-height: 1.5">
+          Наведите курсор на запись ученика, чтобы увидеть кнопки управления
+          статусом. Завершившие обучение или покинувшие курс ученики будут
+          перемещены в конец списка и визуально выделены.
+        </p>
+        <div class="admin-notice-actions">
+          <button
+            type="button"
+            id="walletBackfillButton"
+            class="page-header-button"
+            hidden
+            onclick="leaderboard.backfillWallets()"
+            title="Начислить грады за всю прошлую активность каждому ученику. Повторный запуск ничего не доплатит."
+          >
+            Начислить грады за историю
+          </button>
+          <span id="walletBackfillStatus" class="admin-notice-status"></span>
+        </div>
+      </div>
+
+      <!-- Общий зачёт / еженедельная лига. Ученику league.js показывает его
+           группу (getMyLeague), персоналу — все группы по тирам
+           (getStaffLeagues), и вкладка у него называется «Лиги». -->
+      <div
+        id="leagueTabs"
+        class="leaderboard-tabs league-tabs"
+        role="tablist"
+        aria-label="Общий зачёт и лига"
+        hidden
+      >
+        <button
+          type="button"
+          class="leaderboard-tab active"
+          data-view="board"
+          role="tab"
+          aria-selected="true"
+        >
+          Общий зачёт
+        </button>
+        <button
+          type="button"
+          class="leaderboard-tab"
+          data-view="league"
+          role="tab"
+          aria-selected="false"
+        >
+          Моя лига
+        </button>
+      </div>
+      <section id="leaguePanel" class="league-panel" hidden></section>
+
+      <!-- Секции лидерборда: менторство и доступ только к материалам —
+           разные продукты, поэтому у каждой свой зачёт. Переключать может
+           любой участник: ментор, куратор и ученик. -->
+      <div class="leaderboard-sections">
+        <div
+          id="leaderboardTabs"
+          class="leaderboard-tabs"
+          role="tablist"
+          aria-label="Секции лидерборда"
+        >
+          <button
+            type="button"
+            class="leaderboard-tab active"
+            data-format="mentorship"
+            role="tab"
+            aria-selected="true"
+          >
+            <span class="leaderboard-tab-label">Менторство</span>
+            <span class="leaderboard-tab-count">0</span>
+          </button>
+          <button
+            type="button"
+            class="leaderboard-tab"
+            data-format="materials"
+            role="tab"
+            aria-selected="false"
+          >
+            <span class="leaderboard-tab-label">Только материалы</span>
+            <span class="leaderboard-tab-count">0</span>
+          </button>
+        </div>
+        <p id="leaderboardFormatHint" class="leaderboard-format-hint">
+          Ученики на менторстве. Места и статистика считаются внутри секции.
+        </p>
+      </div>
+
+      <div id="leaderboardStats" class="leaderboard-stats">
+        <div class="stat-card">
+          <div class="stat-number" id="totalUsers">0</div>
+          <div class="stat-label">Участников</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="totalQuestions">0</div>
+          <div class="stat-label">Вопросов изучено</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="totalHours">0</div>
+          <div class="stat-label">Часов на учёбу</div>
+        </div>
+      </div>
+
+      <div id="leaderboardControls" class="leaderboard-controls">
+        <div class="filter-controls">
+          <select id="timeFilter" class="filter-select">
+            <option value="all">Все время</option>
+            <option value="week">За неделю</option>
+            <option value="month">За месяц</option>
+            <option value="year">За год</option>
+          </select>
+
+          <select id="categoryFilter" class="filter-select">
+            <option value="all">Все категории</option>
+            <!-- Options will be populated dynamically from categories-config.json -->
+          </select>
+
+          <select id="subgroupFilter" class="filter-select">
+            <option value="all">Все подгруппы</option>
+            <option value="start">1. Start</option>
+            <option value="main">2. Main</option>
+            <option value="market">3. Market</option>
+            <option value="employed">4. Employed</option>
+            <option value="none">Без подгруппы</option>
+          </select>
+        </div>
+
+        <div class="view-controls">
+          <button id="refreshBtn" class="refresh-btn">
+            <!-- <span class="refresh-icon">🔄</span> -->
+            Обновить
+          </button>
+        </div>
+      </div>
+
+      <div id="leaderboardContainer" class="leaderboard-container">
+        <div
+          id="leaderboardHeaderRow"
+          class="leaderboard-header-row leaderboard-header-row-sortable"
+        >
+          <div class="rank-header">
+            <span class="header-label">Место</span>
+            <div class="column-tooltip-wrap">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Место в рейтинге по выбранной колонке. Топ-3 отображаются с
+                  медалями.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="user-header">
+            <span class="header-label">Участник</span>
+            <div class="column-tooltip-wrap">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Имя и подгруппа участника. Можно выбрать отображаемое
+                  достижение в профиле.
+                </p>
+                <a href="profile.html">Настроить профиль</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="questions-header sortable-header"
+            data-sort-key="questions"
+            title="Сортировать по числу вопросов"
+          >
+            <span class="header-label"
+              >Вопросов
+              <span class="sort-arrow" data-sort-key="questions"></span
+            ></span>
+            <div class="column-tooltip-wrap">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Прогресс по вопросам учитывается при отметке вопросов как
+                  изученных в материалах и роадмапе.
+                </p>
+                <a href="profile/progress.html">Прогресс по темам</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="hours-header sortable-header"
+            data-sort-key="hours"
+            title="Сортировать по часам"
+          >
+            <span class="header-label"
+              >Часы <span class="sort-arrow" data-sort-key="hours"></span
+            ></span>
+            <div class="column-tooltip-wrap">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Часы на учёбу можно проставлять в отчётах. Указывайте их
+                  регулярно — так формируется рейтинг.
+                </p>
+                <a href="my-reports.html">Мои отчёты</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="achievements-header sortable-header"
+            data-sort-key="achievementPercent"
+            title="Сортировать по проценту достижений"
+          >
+            <span class="header-label"
+              >Достижения
+              <span class="sort-arrow" data-sort-key="achievementPercent"></span
+            ></span>
+            <div class="column-tooltip-wrap">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Процент полученных достижений от общего числа в системе
+                  (отчёты, прогресс, тесты и др.).
+                </p>
+                <a href="achievements.html">Все достижения</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="quizzes-header sortable-header"
+            data-sort-key="quizzes"
+            title="Сортировать по числу решённых тестов"
+          >
+            <span class="header-label"
+              >Тесты <span class="sort-arrow" data-sort-key="quizzes"></span
+            ></span>
+            <div class="column-tooltip-wrap column-tooltip-wrap-right">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Количество уникальных тестов, в которых участник хотя бы раз
+                  прошёл проверку.
+                </p>
+                <a href="tests/index.html">Тесты</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="quiz-percent-header sortable-header"
+            data-sort-key="quizPercent"
+            title="Сортировать по среднему % тестов"
+          >
+            <span class="header-label"
+              >Ср. балл
+              <span class="sort-arrow" data-sort-key="quizPercent"></span
+            ></span>
+            <div class="column-tooltip-wrap column-tooltip-wrap-right">
+              <span
+                class="column-tooltip-trigger"
+                tabindex="0"
+                aria-label="Подсказка"
+                >i</span
+              >
+              <div class="column-tooltip-content">
+                <p>
+                  Средний процент правильных ответов по всем пройденным тестам
+                  (берётся лучший результат по каждому тесту).
+                </p>
+                <a href="tests/index.html">Тесты</a>
+              </div>
+            </div>
+          </div>
+          <div
+            class="wallet-header sortable-header"
+            data-sort-key="wallet"
+            title="Сортировать по градам на счёте"
+          >
+            <span class="header-label"
+              >Грады <span class="sort-arrow" data-sort-key="wallet"></span
+            ></span>
+          </div>
+        </div>
+
+        <div id="leaderboardList" class="leaderboard-list">
+          <!-- Leaderboard entries will be populated here -->
+          <div class="loading-placeholder">
+            <div class="loading-wave">
+              <div class="loading-wave-bar"></div>
+              <div class="loading-wave-bar"></div>
+              <div class="loading-wave-bar"></div>
+              <div class="loading-wave-bar"></div>
+              <div class="loading-wave-bar"></div>
+            </div>
+            <p>Загрузка лидерборда...</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="leaderboard-footer">
+        <div class="update-info">
+          <span id="lastUpdate">Последнее обновление: никогда</span>
+        </div>
+      </div>
+    </main>
+
+    <dialog id="subgroupHistoryModal" class="subgroup-history-modal">
+      <form id="subgroupHistoryForm" class="subgroup-history-form">
+        <div class="subgroup-history-title">
+          <h3>Даты переходов</h3>
+          <button
+            type="button"
+            class="subgroup-history-close"
+            id="subgroupHistoryClose"
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
+        </div>
+        <div class="subgroup-history-content">
+          <div class="subgroup-history-student" id="subgroupHistoryStudent">
+            —
+          </div>
+          <div class="subgroup-history-grid">
+            <label class="subgroup-history-field">
+              <span>1. Start</span>
+              <input id="subgroupHistoryStart" type="datetime-local" />
+            </label>
+            <label class="subgroup-history-field">
+              <span>2. Main</span>
+              <input id="subgroupHistoryMain" type="datetime-local" />
+            </label>
+            <label class="subgroup-history-field">
+              <span>3. Market</span>
+              <input id="subgroupHistoryMarket" type="datetime-local" />
+            </label>
+            <label class="subgroup-history-field">
+              <span>4. Employed</span>
+              <input id="subgroupHistoryEmployed" type="datetime-local" />
+            </label>
+          </div>
+        </div>
+        <div class="subgroup-history-actions">
+          <button
+            type="button"
+            class="mock-btn mock-btn-cancel"
+            id="subgroupHistoryCancel"
+          >
+            Отмена
+          </button>
+          <button type="submit" class="mock-btn mock-btn-submit">
+            Сохранить
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script>
+      // Initialize leaderboard when page loads
+      document.addEventListener("DOMContentLoaded", async function () {
+        try {
+          // Load Firebase configuration
+          const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+
+          // Initialize Firebase
+          firebase.initializeApp(firebaseConfig);
+
+          // Populate category filter from config
+          if (window.categoriesConfigLoader) {
+            const categoryOptions =
+              await window.categoriesConfigLoader.getCategoryOptions(true);
+            const categorySelect = document.getElementById("categoryFilter");
+            categoryOptions.forEach((option) => {
+              const optionElement = document.createElement("option");
+              optionElement.value = option.value;
+              optionElement.textContent = option.label;
+              categorySelect.appendChild(optionElement);
+            });
+          }
+
+          // Initialize leaderboard
+          window.leaderboard = new Leaderboard();
+          await window.leaderboard.initialize(firebaseConfig);
+
+          // Set up event listeners
+          document
+            .getElementById("timeFilter")
+            .addEventListener("change", async (e) => {
+              await window.leaderboard.setTimeFilter(e.target.value);
+            });
+
+          document
+            .getElementById("categoryFilter")
+            .addEventListener("change", async (e) => {
+              await window.leaderboard.setCategoryFilter(e.target.value);
+            });
+
+          document
+            .getElementById("subgroupFilter")
+            .addEventListener("change", async (e) => {
+              await window.leaderboard.setSubgroupFilter(e.target.value);
+            });
+
+          document
+            .getElementById("leaderboardTabs")
+            .addEventListener("click", async (e) => {
+              const tab = e.target.closest(".leaderboard-tab");
+              if (!tab) return;
+              await window.leaderboard.setFormatFilter(tab.dataset.format);
+            });
+
+          document
+            .getElementById("refreshBtn")
+            .addEventListener("click", () => {
+              window.leaderboard.refresh();
+            });
+
+          document.querySelectorAll(".sortable-header").forEach((el) => {
+            el.addEventListener("click", (e) => {
+              if (e.target.closest(".column-tooltip-wrap")) return;
+              const key = el.getAttribute("data-sort-key");
+              if (key) window.leaderboard.setSort(key);
+            });
+          });
+
+          // Тултипы колонок: задержка перед скрытием + только один тултип открыт
+          (function initColumnTooltips() {
+            const HIDE_DELAY_MS = 300;
+            const allWraps = document.querySelectorAll(".column-tooltip-wrap");
+            allWraps.forEach((wrap) => {
+              wrap.addEventListener("mouseenter", () => {
+                if (wrap._hideTimer) {
+                  clearTimeout(wrap._hideTimer);
+                  wrap._hideTimer = null;
+                }
+                allWraps.forEach((w) => w.classList.remove("tooltip-visible"));
+                wrap.classList.add("tooltip-visible");
+              });
+              wrap.addEventListener("mouseleave", () => {
+                if (wrap._hideTimer) clearTimeout(wrap._hideTimer);
+                wrap._hideTimer = setTimeout(() => {
+                  wrap.classList.remove("tooltip-visible");
+                  wrap._hideTimer = null;
+                }, HIDE_DELAY_MS);
+              });
+            });
+          })();
+
+          // Последним и через ?.: если league.js не доехал (частичный деплой,
+          // кэш), лидерборд и его фильтры должны работать как раньше.
+          window.leagueTab?.init();
+        } catch (error) {
+          console.error("Failed to initialize leaderboard:", error);
+          document.getElementById("leaderboardList").innerHTML =
+            `<div class="error-message">${t("Ошибка загрузки лидерборда. Попробуйте обновить страницу.")}</div>`;
+        }
+      });
+    </script>
+    <script src="assets/js/init-page.js"></script>
+    <script src="authGuard.js"></script>
+  </body>
+</html>

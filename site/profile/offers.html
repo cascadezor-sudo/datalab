@@ -1,0 +1,1922 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Офферы</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css" />
+    <link rel="stylesheet" href="../assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="../assets/css/navigation.css" />
+    <link rel="stylesheet" href="../assets/css/profile.css" />
+    <link rel="stylesheet" href="../assets/css/mentor-stats.css" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<style>
+      /* Achievement Status Selector Styles */
+      .achievement-status-selector {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .achievement-preview {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: rgba(106, 90, 205, 0.1);
+        border: 2px solid rgba(106, 90, 205, 0.2);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+
+      .achievement-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+      }
+
+      .achievement-text {
+        font-weight: 500;
+        color: var(--text-primary);
+        flex: 1;
+      }
+
+      .btn-select-achievement {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        align-self: flex-start;
+      }
+
+      .btn-select-achievement:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+
+      .btn-select-achievement:active {
+        transform: translateY(0);
+      }
+
+      /* Темная тема для кнопки выбора достижения */
+      [data-theme="dark"] .btn-select-achievement {
+        background: linear-gradient(135deg, #4c3a8a, #6b46c1);
+        box-shadow: 0 2px 4px rgba(106, 90, 205, 0.3);
+      }
+
+      [data-theme="dark"] .btn-select-achievement:hover {
+        background: linear-gradient(135deg, #3b2f6b, #4c3a8a);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.4);
+      }
+
+      /* Dark theme support */
+      [data-theme="dark"] .achievement-preview {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+
+      [data-theme="dark"] .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.2);
+        border-color: rgba(106, 90, 205, 0.4);
+      }
+
+      /* Offers section styles */
+      .offers-section {
+        margin-top: 8px;
+      }
+
+      .section-hint {
+        margin-top: 12px;
+        text-align: center;
+      }
+
+      .section-hint small {
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-style: italic;
+      }
+
+      .offers-list {
+        margin-bottom: 12px;
+      }
+
+      .offers-list .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px 20px;
+        transition: all 0.3s ease;
+      }
+
+      /* Profile actions styles */
+      .profile-actions {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      }
+
+      .btn-secondary {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        font-size: 14px;
+      }
+
+      .btn-secondary:hover {
+        background: var(--input-bg);
+        border-color: var(--text-secondary);
+        color: var(--text-primary);
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary.danger {
+        color: #ef4444;
+        border-color: #ef4444;
+      }
+
+      .btn-secondary.danger:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+      }
+
+      /* Achievement buttons styles */
+      .achievement-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .btn-clear-status {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-clear-status:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+        transform: translateY(-1px);
+      }
+
+      .offer-item {
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.3s ease;
+      }
+
+      .offer-item:hover {
+        transform: translateY(-2px);
+      }
+
+      .offer-info {
+        flex: 1;
+      }
+
+      .offer-company {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .offer-details {
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      .offer-date {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .offer-notes {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .offer-notes code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+      }
+
+      .offer-notes ul {
+        margin: 4px 0;
+        padding-left: 16px;
+      }
+
+      .offer-notes li {
+        margin: 2px 0;
+      }
+
+      .offer-notes strong {
+        font-weight: 600;
+      }
+
+      .offer-notes p {
+        margin: 4px 0;
+      }
+
+      .offer-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn-edit-offer,
+      .btn-delete-offer {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-edit-offer:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+        background: rgba(59, 130, 246, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-delete-offer:hover {
+        border-color: #ef4444;
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-add-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        width: 100%;
+        font-size: 14px;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-add-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-add-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Темная тема для кнопки добавления оффера */
+      [data-theme="dark"] .btn-add-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-add-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      /* Offer modal styles */
+      .offer-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(20, 24, 22, 0.55);
+        backdrop-filter: blur(4px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 16px;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+      }
+
+      .offer-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .offer-modal-content {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 28px;
+        width: 100%;
+        max-width: 580px;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+        transform: translateY(8px);
+        transition: transform 0.25s ease;
+      }
+
+      .offer-modal.show .offer-modal-content {
+        transform: translateY(0);
+      }
+
+      .offer-modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .offer-modal h3 {
+        margin: 0 0 4px 0;
+        font-size: 20px;
+        color: var(--text-primary);
+      }
+
+      .offer-modal-subtitle {
+        margin: 0;
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .offer-modal-close {
+        flex: 0 0 auto;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .offer-modal-close:hover {
+        color: var(--text-primary);
+        background: var(--input-bg);
+      }
+
+      .offer-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 16px;
+      }
+
+      .offer-modal .field {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .offer-modal .field--full {
+        grid-column: 1 / -1;
+      }
+
+      .offer-modal .field label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .offer-modal .field .req {
+        color: #dc2626;
+        margin-left: 2px;
+      }
+
+      .offer-modal .field input,
+      .offer-modal .field textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 14px;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .offer-modal .field input:focus,
+      .offer-modal .field textarea:focus {
+        outline: none;
+        border-color: #10b981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+      }
+
+      .offer-modal .field textarea {
+        resize: vertical;
+        min-height: 96px;
+        line-height: 1.5;
+      }
+
+      /* Поле даты рисует браузер: без color-scheme в тёмной теме оно остаётся
+         светлым с чёрным текстом. */
+      [data-theme="dark"] .offer-modal .field input[type="date"] {
+        color-scheme: dark;
+      }
+
+      .offer-modal .field-hint {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
+      .offer-modal .field-hint code {
+        font-size: 11px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: var(--input-bg);
+      }
+
+      .offer-modal .field-error {
+        display: none;
+        font-size: 12px;
+        color: #dc2626;
+      }
+
+      .offer-modal .field.is-invalid input,
+      .offer-modal .field.is-invalid textarea {
+        border-color: #dc2626;
+        box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+      }
+
+      .offer-modal .field.is-invalid .field-error {
+        display: block;
+      }
+
+      .offer-modal-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: flex-end;
+        margin-top: 22px;
+      }
+
+      .offer-modal-status {
+        margin-right: auto;
+        font-size: 13px;
+        color: #dc2626;
+      }
+
+      .btn-save-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-save-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-save-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-save-offer[disabled] {
+        opacity: 0.7;
+        cursor: progress;
+        transform: none;
+      }
+
+      /* Темная тема для кнопки сохранения оффера */
+      [data-theme="dark"] .btn-save-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-save-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+      }
+
+      .btn-cancel-offer {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 10px 18px;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .btn-cancel-offer:hover {
+        color: var(--text-primary);
+        background: var(--input-bg);
+      }
+
+      @media (max-width: 560px) {
+        .offer-modal-content {
+          padding: 20px;
+        }
+
+        .offer-form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .offer-modal .field--full {
+          grid-column: auto;
+        }
+      }
+
+      /* Preview styles for offers */
+      .preview-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 8px;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+
+      .markdown-preview {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 40px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Markdown editor styles */
+      .markdown-editor {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .markdown-tabs {
+        display: flex;
+        background: var(--input-bg);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .markdown-tab {
+        flex: 1;
+        background: none;
+        border: none;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 14px;
+        transition: all 0.2s ease;
+      }
+
+      .markdown-tab.active {
+        background: var(--card-bg);
+        color: var(--text-primary);
+        border-bottom: 2px solid #3b82f6;
+      }
+
+      .markdown-tab:hover:not(.active) {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--text-primary);
+      }
+
+      .markdown-preview {
+        padding: 12px;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 60px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Achievement Selection Modal */
+      .achievement-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .achievement-modal-content {
+        background: var(--card-bg);
+        border-radius: 20px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .achievement-modal-scrollable {
+        padding: 24px 24px 0 24px;
+        overflow-y: auto;
+        flex: 1;
+        /* Стили для скроллбара */
+        scrollbar-width: thin;
+        scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.5);
+        border-radius: 4px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(156, 163, 175, 0.7);
+      }
+
+      /* Темная тема для скроллбара */
+      [data-theme="dark"] .achievement-modal-scrollable {
+        scrollbar-color: rgba(75, 85, 99, 0.6) transparent;
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(75, 85, 99, 0.6);
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(75, 85, 99, 0.8);
+      }
+
+      .achievement-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .achievement-modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+      }
+
+      .achievement-modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-modal-close:hover {
+        background: var(--border-color);
+        color: var(--text-primary);
+      }
+
+      .achievement-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .achievement-option {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: var(--card-bg);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .achievement-option:hover {
+        border-color: #6a5acd;
+        background: rgba(106, 90, 205, 0.05);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.1);
+      }
+
+      .achievement-option.selected {
+        border-color: #6a5acd;
+        background: rgba(106, 90, 205, 0.1);
+        box-shadow: 0 0 0 2px rgba(106, 90, 205, 0.2);
+      }
+
+      .achievement-option.locked {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: var(--border-color);
+      }
+
+      .achievement-option.locked:hover {
+        transform: none;
+        box-shadow: none;
+        border-color: var(--border-color);
+        background: var(--border-color);
+      }
+
+      .achievement-option-icon {
+        font-size: 32px;
+        flex-shrink: 0;
+      }
+
+      .achievement-option-content {
+        flex: 1;
+      }
+
+      .achievement-option-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .achievement-option-description {
+        font-size: 14px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .achievement-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        padding: 16px 24px 24px 24px;
+        border-top: 1px solid var(--border-color);
+        background: var(--card-bg);
+        border-radius: 0 0 20px 20px;
+        flex-shrink: 0;
+      }
+
+      .btn-cancel {
+        background: var(--border-color);
+        color: var(--text-primary);
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-cancel:hover {
+        background: var(--text-secondary);
+        color: white;
+      }
+
+      .btn-confirm {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-confirm:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+
+      .btn-confirm:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      @media (max-width: 768px) {
+        .achievement-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .achievement-modal-content {
+          width: 95%;
+          padding: 16px;
+        }
+
+        .achievement-modal-actions {
+          flex-direction: column;
+        }
+      }
+    </style>
+
+    <script src="../assets/js/components/navigation.js"></script>
+
+    <style>
+      /* Стили для уведомлений с markdown */
+      .notification-text {
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      /* многосрочное усечение без порчи тегов */
+      .clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .clamp-4 {
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      /* Динамическая высота для буллет-списков */
+      .clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+
+      /* Для буллет-списков используем динамическую высоту */
+      .notification-text.clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+
+      /* Исправления разметки уведомлений */
+
+      /* Общая карточка уведомления — делаем компактнее */
+      .notification-item {
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        position: relative;
+      }
+
+      /* 1) Контент карточки — столбиком */
+      .notification-item .notification-content {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Заголовок и иконка ближе друг к другу */
+      .notification-item .notification-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 2px;
+        position: relative;
+      }
+
+      .notification-item .notification-deadline {
+        position: absolute;
+        top: 0;
+        right: 0;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: rgba(0, 0, 0, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+
+      [data-theme="dark"] .notification-item .notification-deadline {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      /* Текст описания компактнее */
+      .notification-item .notification-text {
+        margin-top: 2px;
+        line-height: 1.35;
+        font-size: 0.9rem;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Метаданные снизу (время, тип, действие) – меньший шрифт и плотность */
+      .notification-item .notification-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-top: 2px;
+        font-size: 0.8rem;
+        position: relative;
+        z-index: 2;
+      }
+
+      /* Тип события — делаем мини-бейдж */
+      .notification-type {
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        line-height: 1;
+      }
+
+      .notification-type.task {
+        background: #3b82f6;
+        color: white;
+      }
+
+      .notification-type.meeting {
+        background: #f59e0b;
+        color: white;
+      }
+
+      .notification-type.mock {
+        background: #10b981;
+        color: white;
+      }
+
+      .notification-type.event {
+        background: #6b7280;
+        color: white;
+      }
+
+      .notification-type.comment {
+        background: var(--brand);
+        color: white;
+      }
+
+      .notification-type.overdue {
+        background: #ef4444;
+        color: white;
+      }
+
+      /* Темная тема */
+      [data-theme="dark"] .notification-type.task {
+        background: #1d4ed8;
+      }
+
+      [data-theme="dark"] .notification-type.meeting {
+        background: #d97706;
+      }
+
+      [data-theme="dark"] .notification-type.mock {
+        background: #059669;
+      }
+
+      [data-theme="dark"] .notification-type.event {
+        background: #4b5563;
+      }
+
+      [data-theme="dark"] .notification-type.comment {
+        background: #7c3aed;
+      }
+
+      [data-theme="dark"] .notification-type.overdue {
+        background: #dc2626;
+      }
+
+      /* Иконка и заголовок */
+      .notification-title {
+        font-weight: 600;
+        margin-bottom: 1px;
+        font-size: 0.95rem;
+      }
+
+      /* Убираем лишний отступ у списков */
+      .notification-text .md-list {
+        margin: 2px 0 0;
+        padding-left: 1.1rem;
+      }
+      .notification-text .md-list li {
+        margin: 1px 0;
+      }
+
+      /* Центрирование кнопки "Отметить все как прочитанные" */
+      .notifications-actions {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+
+      /* Правый верхний угол для дедлайна и типа события */
+      .notification-header-right {
+        position: absolute;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-end;
+      }
+
+      .notification-header-right .notification-type {
+        margin-top: 0;
+      }
+
+      /* Центрирование прогресса по темам */
+      .progress-heatmap-container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    </style>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="profile" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Офферы</h1>
+            <p class="subtitle">Просмотр полученных офферов</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../profile.html" class="page-header-button"
+              >Назад к профилю</a
+            >
+          </div>
+        </div>
+      </header>
+
+      <!-- Блок моих офферов -->
+      <div class="profile-container">
+        <h2 class="section-title">💼 Мои офферы</h2>
+        <div class="offers-section">
+          <div id="offersList" class="offers-list">
+            <!-- Офферы будут загружены здесь -->
+          </div>
+          <button type="button" id="addOfferBtn" class="btn-add-offer">
+            Добавить
+          </button>
+        </div>
+        <div class="section-hint">
+          <small
+            >Добавь информацию о полученных офферах для отслеживания
+            прогресса</small
+          >
+        </div>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+
+    <!-- Config loader -->
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/gamification.js"></script>
+
+    <!-- Система уведомлений -->
+    <script src="../assets/js/notifications.js"></script>
+
+    <!-- Feather Icons -->
+    <script src="https://unpkg.com/feather-icons"></script>
+
+    <!-- Manual Firebase initialization -->
+    <script>
+      // Initialize Firebase manually for this page
+      console.log(
+        "Setting up manual Firebase initialization for profile page...",
+      );
+    </script>
+
+    <script>
+      // Ждем полной загрузки DOM
+      document.addEventListener("DOMContentLoaded", function () {
+        console.log("DOM loaded, initializing profile manager...");
+        console.log("Scripts loaded:", {
+          firebase: typeof firebase,
+          configLoader: typeof window.configLoader,
+        });
+
+        // Offers functionality
+        const addOfferBtn = document.getElementById("addOfferBtn");
+        const offersList = document.getElementById("offersList");
+
+        // Load and display offers
+        async function loadOffers() {
+          if (!currentUser) {
+            console.log("No current user, skipping loadOffers");
+            return;
+          }
+
+          try {
+            const userRef = firebase.database().ref(`users/${currentUser.uid}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+            const offers = userData.offers || [];
+
+            console.log(
+              "Loading offers for user:",
+              currentUser.uid,
+              "Found offers:",
+              offers.length,
+            );
+
+            offersList.innerHTML = "";
+
+            if (offers.length === 0) {
+              offersList.innerHTML =
+                `<div class="empty-state">${t("Пока нет добавленных офферов")}</div>`;
+              return;
+            }
+
+            offers.forEach((offer, index) => {
+              const offerElement = document.createElement("div");
+              offerElement.className = "offer-item";
+
+              // Parse notes with markdown if they exist
+              const notesHtml = offer.notes ? parseMarkdown(offer.notes) : "";
+
+              offerElement.innerHTML = `
+                <div class="offer-info">
+                  <div class="offer-company">${offer.company}</div>
+                  <div class="offer-details">${offer.position} • ${offer.salary}</div>
+                  <div class="offer-date">${new Date(offer.date * 1000).toLocaleDateString(window.i18n?.locale || "ru-RU")}</div>
+                  ${notesHtml ? `<div class="offer-notes">${notesHtml}</div>` : ""}
+                </div>
+                <div class="offer-actions">
+                  <button class="btn-edit-offer" data-index="${index}">${t("Изменить")}</button>
+                  <button class="btn-delete-offer" data-index="${index}">${t("Удалить")}</button>
+                </div>
+              `;
+              offersList.appendChild(offerElement);
+            });
+
+            // Add event listeners for edit/delete buttons
+            offersList.querySelectorAll(".btn-edit-offer").forEach((btn) => {
+              btn.addEventListener("click", (e) => {
+                const index = parseInt(e.target.dataset.index);
+                showOfferModal(offers[index], index);
+              });
+            });
+
+            offersList.querySelectorAll(".btn-delete-offer").forEach((btn) => {
+              btn.addEventListener("click", async (e) => {
+                const index = parseInt(e.target.dataset.index);
+                if (confirm(t("Вы уверены, что хотите удалить этот оффер?"))) {
+                  await deleteOffer(index);
+                }
+              });
+            });
+          } catch (error) {
+            console.error("Error loading offers:", error);
+          }
+        }
+
+        // Show offer modal
+        function escapeAttr(value) {
+          return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        }
+
+        function showOfferModal(offer = null, editIndex = null) {
+          const modal = document.createElement("div");
+          modal.className = "offer-modal";
+          modal.setAttribute("role", "dialog");
+          modal.setAttribute("aria-modal", "true");
+          modal.setAttribute("aria-labelledby", "offerModalTitle");
+          const today = new Date().toISOString().split("T")[0];
+          const dateValue = offer
+            ? new Date(offer.date * 1000).toISOString().split("T")[0]
+            : today;
+          modal.innerHTML = `
+            <div class="offer-modal-content">
+              <div class="offer-modal-head">
+                <div>
+                  <h3 id="offerModalTitle">${offer ? t("Редактировать оффер") : t("Добавить оффер")}</h3>
+                  <p class="offer-modal-subtitle">${t("Оффер появится в профиле и в истории твоего пути на платформе.")}</p>
+                </div>
+                <button type="button" class="offer-modal-close" aria-label="${t("Закрыть")}">&times;</button>
+              </div>
+              <div class="offer-form-grid">
+                <div class="field" data-field="company">
+                  <label for="offerCompany">${t("Компания")}<span class="req" aria-hidden="true">*</span></label>
+                  <input type="text" id="offerCompany" value="${escapeAttr(offer?.company)}" placeholder="Ozon" autocomplete="organization" required>
+                  <span class="field-error">${t("Укажи компанию")}</span>
+                </div>
+                <div class="field" data-field="position">
+                  <label for="offerPosition">${t("Должность")}<span class="req" aria-hidden="true">*</span></label>
+                  <input type="text" id="offerPosition" value="${escapeAttr(offer?.position)}" placeholder="Middle ML Engineer" autocomplete="organization-title" required>
+                  <span class="field-error">${t("Укажи должность")}</span>
+                </div>
+                <div class="field" data-field="salary">
+                  <label for="offerSalary">${t("Зарплата")}<span class="req" aria-hidden="true">*</span></label>
+                  <input type="text" id="offerSalary" value="${escapeAttr(offer?.salary)}" placeholder="250 000 ₽ gross" required>
+                  <span class="field-hint">${t("Как в оффере: сумма, валюта, gross или net")}</span>
+                  <span class="field-error">${t("Укажи зарплату")}</span>
+                </div>
+                <div class="field" data-field="date">
+                  <label for="offerDate">${t("Дата оффера")}<span class="req" aria-hidden="true">*</span></label>
+                  <input type="date" id="offerDate" value="${dateValue}" max="${today}" required>
+                  <span class="field-error">${t("Укажи дату")}</span>
+                </div>
+                <div class="field field--full" data-field="notes">
+                  <label for="offerNotes">${t("Заметки")}</label>
+                  <textarea id="offerNotes" placeholder="${t("Условия, стек, что понравилось на собесе, сроки ответа…")}">${escapeAttr(offer?.notes)}</textarea>
+                  <span class="field-hint">${t("Необязательно. Поддерживается Markdown: списки, {code}, {bold}", { code: `<code>\`${t("код")}\`</code>`, bold: `<code>**${t("жирный")}**</code>` })}</span>
+                  <div id="offerNotesPreviewContainer" style="display: none;">
+                    <div class="preview-label">${t("Предварительный просмотр:")}</div>
+                    <div id="offerNotesPreview" class="markdown-preview"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="offer-modal-actions">
+                <span class="offer-modal-status" role="alert"></span>
+                <button type="button" class="btn-cancel-offer">${t("Отмена")}</button>
+                <button type="button" class="btn-save-offer">${offer ? t("Сохранить") : t("Добавить оффер")}</button>
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(modal);
+          const previousFocus = document.activeElement;
+
+          // Show modal with animation
+          setTimeout(() => {
+            modal.classList.add("show");
+            modal.querySelector("#offerCompany")?.focus();
+          }, 10);
+
+          // Setup markdown editor
+          setupMarkdownEditor(modal);
+
+          function closeModal() {
+            document.removeEventListener("keydown", onKeydown);
+            modal.classList.remove("show");
+            setTimeout(() => modal.remove(), 300);
+            if (previousFocus && typeof previousFocus.focus === "function")
+              previousFocus.focus();
+          }
+
+          function onKeydown(event) {
+            if (event.key === "Escape") closeModal();
+          }
+          document.addEventListener("keydown", onKeydown);
+
+          modal.querySelector(".btn-cancel-offer").addEventListener("click", closeModal);
+          modal.querySelector(".offer-modal-close").addEventListener("click", closeModal);
+
+          // Ошибка снимается, как только поле заполнили.
+          modal.querySelectorAll(".field input, .field textarea").forEach((input) => {
+            input.addEventListener("input", () =>
+              input.closest(".field")?.classList.remove("is-invalid"),
+            );
+          });
+
+          const saveButton = modal.querySelector(".btn-save-offer");
+          const status = modal.querySelector(".offer-modal-status");
+          saveButton.addEventListener("click", async () => {
+            const read = (id) => modal.querySelector(id).value.trim();
+            const values = {
+              company: read("#offerCompany"),
+              position: read("#offerPosition"),
+              salary: read("#offerSalary"),
+              date: read("#offerDate"),
+              notes: read("#offerNotes"),
+            };
+            let firstInvalid = null;
+            for (const key of ["company", "position", "salary", "date"]) {
+              const field = modal.querySelector(`[data-field="${key}"]`);
+              const invalid = !values[key];
+              field.classList.toggle("is-invalid", invalid);
+              if (invalid && !firstInvalid) firstInvalid = field;
+            }
+            if (firstInvalid) {
+              firstInvalid.querySelector("input, textarea")?.focus();
+              return;
+            }
+
+            const label = saveButton.textContent;
+            saveButton.disabled = true;
+            saveButton.textContent = t("Сохраняем…");
+            status.textContent = "";
+            try {
+              await saveOffer(
+                {
+                  company: values.company,
+                  position: values.position,
+                  salary: values.salary,
+                  date: Math.floor(new Date(values.date).getTime() / 1000),
+                  notes: values.notes,
+                },
+                editIndex,
+              );
+              closeModal();
+              await loadOffers();
+            } catch (error) {
+              console.error("Error saving offer:", error);
+              status.textContent = t("Не удалось сохранить. Попробуй ещё раз.");
+              saveButton.disabled = false;
+              saveButton.textContent = label;
+            }
+          });
+
+          // Close modal on backdrop click
+          modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeModal();
+          });
+        }
+
+        // Save offer
+        async function saveOffer(offerData, editIndex = null) {
+          try {
+            const userRef = firebase.database().ref(`users/${currentUser.uid}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+            const offers = userData.offers || [];
+
+            if (editIndex !== null) {
+              // Edit existing offer
+              offers[editIndex] = offerData;
+            } else {
+              // Add new offer
+              offers.push(offerData);
+            }
+
+            await userRef.update({ offers });
+            console.log("Offer saved successfully");
+          } catch (error) {
+            console.error("Error saving offer:", error);
+            throw error;
+          }
+        }
+
+        // Delete offer
+        async function deleteOffer(index) {
+          try {
+            const userRef = firebase.database().ref(`users/${currentUser.uid}`);
+            const snapshot = await userRef.once("value");
+            const userData = snapshot.val() || {};
+            const offers = userData.offers || [];
+
+            offers.splice(index, 1);
+            await userRef.update({ offers });
+            console.log("Offer deleted successfully");
+            await loadOffers();
+          } catch (error) {
+            console.error("Error deleting offer:", error);
+            alert(t("Ошибка при удалении оффера"));
+          }
+        }
+
+        // Add event listener for add offer button
+        addOfferBtn.addEventListener("click", () => {
+          showOfferModal();
+        });
+
+        // Markdown editor functionality
+        function setupMarkdownEditor(modal) {
+          const textarea = modal.querySelector("#offerNotes");
+          const previewContainer = modal.querySelector(
+            "#offerNotesPreviewContainer",
+          );
+          const preview = modal.querySelector("#offerNotesPreview");
+
+          if (textarea && previewContainer && preview) {
+            // Auto-resize textarea
+            function autoResizeTextarea(textarea) {
+              textarea.style.height = "auto";
+              textarea.style.height =
+                Math.min(textarea.scrollHeight, 300) + "px";
+            }
+
+            // Initial resize
+            autoResizeTextarea(textarea);
+
+            textarea.addEventListener("input", () => {
+              autoResizeTextarea(textarea);
+              const text = textarea.value.trim();
+              if (text && text.length > 0) {
+                const parsedHtml = parseMarkdown(text);
+                // Only show preview if there's actual markdown content (links, code, lists, bold)
+                if (
+                  parsedHtml.includes("<a href=") ||
+                  parsedHtml.includes("<code>") ||
+                  parsedHtml.includes("<ul>") ||
+                  parsedHtml.includes("<li>") ||
+                  parsedHtml.includes("<strong>")
+                ) {
+                  preview.innerHTML = parsedHtml;
+                  previewContainer.style.display = "block";
+                } else {
+                  previewContainer.style.display = "none";
+                }
+              } else {
+                previewContainer.style.display = "none";
+              }
+            });
+          }
+        }
+
+        // Simple Markdown parser
+        function parseMarkdown(text) {
+          if (!text) return "";
+
+          return (
+            text
+              // Convert bullet lists (both - and •)
+              .replace(/^[\s]*[-•][\s]+(.+)$/gm, "<li>$1</li>")
+              .replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>")
+              // Convert inline code
+              .replace(/`([^`]+)`/g, "<code>$1</code>")
+              // Convert bold text
+              .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+              // Convert line breaks to paragraphs
+              .split("\n\n")
+              .map((paragraph) => {
+                if (paragraph.trim()) {
+                  return `<p>${paragraph.trim()}</p>`;
+                }
+                return "";
+              })
+              .join("")
+          );
+        }
+
+        // Инициализация Firebase и базы данных
+        async function initializeFirebase() {
+          try {
+            console.log("Initializing Firebase for profile...");
+
+            // Проверяем, что Firebase SDK загружен
+            if (typeof firebase === "undefined") {
+              console.error("Firebase SDK not loaded");
+              return;
+            }
+
+            // Проверяем, что configLoader доступен
+            if (typeof window.configLoader === "undefined") {
+              console.error("ConfigLoader not available");
+              return;
+            }
+
+            // Загружаем конфигурацию Firebase
+            console.log("Loading Firebase config...");
+            const firebaseConfig =
+              await window.configLoader.loadFirebaseConfig();
+            console.log("Firebase config loaded:", firebaseConfig);
+
+            // Инициализируем Firebase приложение
+            if (!firebase.apps.length) {
+              console.log("Initializing Firebase app...");
+              firebase.initializeApp(firebaseConfig);
+              console.log("Firebase initialized");
+            } else {
+              console.log("Firebase app already initialized");
+            }
+
+            // Создаем ссылку на базу данных
+            console.log("Creating database reference...");
+            db = firebase.database();
+            console.log("Database reference created");
+
+            // Получаем текущего пользователя
+            console.log("Getting current user...");
+            currentUser = firebase.auth().currentUser;
+            if (currentUser) {
+              console.log("User authenticated:", currentUser.email);
+
+              // Инициализируем систему геймификации
+              if (window.gamificationSystem) {
+                await window.gamificationSystem.initialize(firebaseConfig);
+                console.log("Gamification system initialized");
+              }
+
+              loadUserProfile();
+              setupProgressListener();
+              setupHeatmapRefreshButton();
+              initializeNotifications().catch((error) => {
+                console.error("❌ Ошибка инициализации уведомлений:", error);
+              });
+            } else {
+              console.log("No current user, waiting for auth state change...");
+              // Listen for auth state changes
+              firebase.auth().onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                  console.log("User authenticated:", user.email);
+
+                  // Инициализируем систему геймификации
+                  if (window.gamificationSystem) {
+                    await window.gamificationSystem.initialize(firebaseConfig);
+                    console.log("Gamification system initialized");
+                  }
+
+                  loadOffers();
+                } else {
+                  console.log("User not authenticated, redirecting...");
+                  window.location.href = "/index.html";
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Failed to initialize Firebase for profile:", error);
+            console.error("Error details:", error.message, error.stack);
+          }
+        }
+
+        // Ждем загрузки Firebase SDK и configLoader
+        let waitAttempts = 0;
+        const maxWaitAttempts = 50; // 5 секунд максимум
+
+        function waitForDependencies() {
+          waitAttempts++;
+          console.log(
+            `Checking dependencies... (attempt ${waitAttempts}/${maxWaitAttempts})`,
+            {
+              firebase: typeof firebase,
+              configLoader: typeof window.configLoader,
+            },
+          );
+
+          if (
+            typeof firebase !== "undefined" &&
+            typeof window.configLoader !== "undefined"
+          ) {
+            console.log("All dependencies ready, initializing Firebase...");
+            initializeFirebase();
+          } else if (waitAttempts >= maxWaitAttempts) {
+            console.error("Dependencies not available after maximum attempts");
+            alert(
+              t("Ошибка загрузки зависимостей. Попробуйте обновить страницу."),
+            );
+          } else {
+            console.log("Waiting for dependencies...");
+            setTimeout(waitForDependencies, 100);
+          }
+        }
+
+        // Начинаем ожидание загрузки зависимостей с небольшой задержкой
+        setTimeout(waitForDependencies, 100);
+      });
+    </script>
+  </body>
+</html>

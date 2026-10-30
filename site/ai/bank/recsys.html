@@ -1,0 +1,1052 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Вопросы по RecSys</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/code-styles.css" rel="stylesheet" />
+    <link href="../../assets/css/cards.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Интервью</span>
+            <span class="pill pill--soft">Recommender Systems</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Вопросы по RecSys</h1>
+          <p class="section-shell__desc">Вопросы по рекомендательным системам с собеседований.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Основы и постановка задачи</h3>
+<li class="question" data-md-source="true" data-md-id="rs-types-interview">
+  <div class="name" id="rs-types-interview">
+    Какие бывают рекомендательные системы и чем они отличаются?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три базовых семейства.</p>
+<p><b>Коллаборативная фильтрация</b> использует только матрицу взаимодействий «пользователь — объект»: «людям, похожим на тебя, понравилось это». Не требует знаний о содержании объектов, отлично работает при большом объёме взаимодействий, но беспомощна при холодном старте и склонна усиливать популярное.</p>
+<p><b>Контентные (content-based)</b> рекомендации опираются на признаки объектов (текст описания, категория, автор, эмбеддинг картинки) и профиль пользователя, собранный из его истории. Решают холодный старт объекта, объяснимы, но замыкают пользователя в узком пузыре похожего и не находят неожиданных связей.</p>
+<p><b>Гибридные</b> объединяют оба сигнала — это то, что реально работает в проде. Схемы объединения: смешивание скорингов, подача контентных признаков как фичей в ранкер, каскад (коллаборативные кандидаты плюс контентные для новых объектов), совместное обучение в two-tower модели, где башня объекта принимает и id, и контентные признаки.</p>
+<p>Отдельно стоят <b>knowledge-based</b> системы (правила, ограничения — типично для дорогих редких покупок вроде недвижимости) и <b>контекстные</b>, где рекомендация зависит от времени, устройства и ситуации.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как отвечать сильно">
+<p>Слабый ответ — перечислить три типа. Сильный — сразу привязать их к режимам работы системы: коллаборативная фильтрация даёт основную массу кандидатов для активных пользователей, контентная закрывает холодный старт и «длинный хвост», популярное и правила закрывают полностью анонимных. В проде это не выбор одного подхода, а набор источников кандидатов, которые сливаются в общий пул и переранжируются единой моделью.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про постановку задачи">
+<p>Ещё до выбора алгоритма стоит спросить, что именно оптимизируется: предсказание оценки (регрессия), вероятность взаимодействия (бинарная классификация), порядок в выдаче (ранжирование) или следующий элемент в сессии (sequential). Это разные лоссы, разные метрики и разные данные. Ответ «строим рекомендации» без уточнения постановки на собеседовании считается недоработанным.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-implicit-feedback-interview">
+  <div class="name" id="rs-implicit-feedback-interview">
+    Чем implicit feedback отличается от explicit и как с ним работать?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Explicit feedback</b> — пользователь явно оценил объект: звёзды, лайк/дизлайк, оценка 1–10. Сигнал точный, но редкий (оценивают доли процента), смещённый (оценивают то, что вызвало сильные эмоции) и есть отрицательные примеры.</p>
+<p><b>Implicit feedback</b> — наблюдаемое поведение: клик, просмотр, время просмотра, добавление в корзину, покупка. Его на порядки больше, он не требует усилий пользователя, но у него три принципиальные особенности:</p>
+<ol>
+<li><b>Нет явных негативов.</b> Отсутствие клика означает либо «не понравилось», либо «не увидел». Это ключевая проблема: матрица не разрежённая, а «неразмеченная».</li>
+<li><b>Сильный шум.</b> Клик мог быть случайным, просмотр — фоновым, покупка — подарком другому человеку.</li>
+<li><b>Смещение экспозиции.</b> Пользователь взаимодействует только с тем, что ему показали, а показала это предыдущая версия модели.</li>
+</ol>
+<p>Практический подход: считать наблюдённые взаимодействия положительными с <b>весом уверенности</b> (например, $c_{ui} = 1 + \alpha r_{ui}$ в iALS, где $r_{ui}$ — число просмотров или время), а неизвестные — слабыми негативами с малым весом, либо сэмплировать негативы и обучать на попарном лоссе (BPR).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нельзя просто ставить нули">
+<p>Если считать все ненаблюдённые пары строгими нулями и оптимизировать MSE, модель будет тратить основную ёмкость на предсказание нулей — их 99.9 % — и выучит в основном популярность. Если, наоборот, обучаться только на положительных, модель схлопнется: тривиальное решение «всё релевантно» даёт нулевой лосс. Поэтому в implicit-постановке всегда нужен либо взвешенный вариант всех пар (iALS), либо явное сэмплирование негативов (BPR, sampled softmax).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про «отрицательные» сигналы">
+<p>Скрытие рекомендации, дизлайк, быстрый выход после открытия (dwell time меньше нескольких секунд), отписка — это настоящие негативы, и их стоит собирать отдельно: они гораздо информативнее, чем отсутствие клика. В видеосервисах стандартом стало учитывать долю досмотра, а не факт клика, — иначе модель оптимизирует кликбейт.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-popularity-bias-interview">
+  <div class="name" id="rs-popularity-bias-interview">
+    Что такое popularity bias и как с ним бороться?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Popularity bias — систематический перекос рекомендаций в сторону уже популярных объектов. Причина простая: популярные объекты имеют больше взаимодействий, поэтому модель видит их чаще, точнее оценивает и охотнее показывает; показ приносит им ещё больше взаимодействий. Возникает положительная обратная связь, «богатые становятся богаче», а длинный хвост каталога не получает шансов.</p>
+<p>Последствия: падает разнообразие и новизна, пользователи перестают открывать для себя новое, поставщики контента из хвоста уходят с площадки, а офлайн-метрики при этом выглядят хорошо — популярное действительно часто кликают.</p>
+<p>Методы борьбы: <b>дебиасинг обучения</b> (взвешивание примеров обратно пропорционально популярности, IPS, negative sampling пропорционально популярности — как в word2vec), <b>регуляризация выдачи</b> (штраф за популярность в скоринге, квоты на новые объекты), <b>этап переранжирования</b> с явной оптимизацией разнообразия (MMR, DPP), <b>исследование</b> (epsilon-greedy, Thompson sampling, отдельный слот под «исследовательские» рекомендации).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это не только этическая проблема">
+<p>Бизнес-эффект вполне измеримый: без притока показов новые товары никогда не наберут статистику, каталог фактически сжимается до топ-1000 позиций, и площадка теряет конкурентное преимущество перед поиском. Плюс popularity bias маскирует качество модели — простой baseline «показывать топ популярного» на офлайн-метриках часто оказывается неожиданно сильным, и без сравнения с ним нельзя доказать, что персонализация вообще что-то даёт.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как измерять">
+<p>Стандартные метрики: <b>coverage</b> (доля каталога, попавшая хотя бы в одну выдачу), <b>Gini</b> или энтропия распределения показов по объектам, <b>средняя популярность рекомендованного</b> и доля рекомендаций из длинного хвоста. Их полезно смотреть рядом с NDCG: сильный рост точности при обвале coverage почти всегда означает, что модель просто выучила популярность.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-task-formulation-interview">
+  <div class="name" id="rs-task-formulation-interview">
+    Как формулируется задача рекомендаций: предсказание рейтинга, ранжирование или next-item?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Rating prediction.</b> Предсказать оценку, которую пользователь поставит объекту. Регрессия, лосс RMSE/MAE. Историческая постановка (Netflix Prize), сегодня почти не используется: бизнесу не нужна точная оценка, ему нужен правильный порядок в выдаче, а RMSE плохо с ним связан.</p>
+<p><b>Ranking / top-K.</b> Отсортировать каталог так, чтобы релевантное оказалось наверху. Метрики — Recall@K, NDCG@K, MAP. Лоссы попарные (BPR) или списочные (LambdaRank, softmax по кандидатам). Это доминирующая постановка.</p>
+<p><b>CTR/CVR prediction.</b> Предсказать вероятность клика или конверсии для пары «пользователь — объект» в конкретном контексте. Бинарная классификация с logloss, метрика — ROC-AUC и калибровка. Нужна там, где скоринг участвует в аукционе или в формуле с деньгами (реклама, маркетплейс), потому что вероятность должна быть калиброванной, а не только правильно упорядоченной.</p>
+<p><b>Sequential / next-item.</b> Предсказать следующий объект по истории сессии. Постановка близка к языковому моделированию, отсюда GRU4Rec, SASRec, BERT4Rec. Критична там, где важен порядок и сессионный контекст: музыка, видео, e-commerce внутри сессии.</p>
+<p><b>Slate / bandit.</b> Оптимизировать выдачу целиком с учётом взаимного влияния позиций и с явным балансом exploration/exploitation.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему постановка определяет всё остальное">
+<p>От неё зависит целевая переменная, лосс, схема разбиения данных, метрики и даже архитектура. Например, в ranking-постановке разбиение по времени обязательно, а случайный split даёт утечку будущего; в CTR-постановке важна калибровка, поэтому нельзя бездумно применять негативное сэмплирование без последующей коррекции; в sequential-постановке нужен строгий порядок событий и запрет на использование будущих действий пользователя как признаков.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частая ошибка на собеседовании">
+<p>Сказать «будем предсказывать рейтинг и сортировать по нему». Это ошибка сразу в двух местах: во-первых, оценки есть только у ничтожной доли пар, во-вторых, оптимизация RMSE не оптимизирует порядок — модель может идеально предсказывать средние оценки и при этом ставить наверх не то. Правильный ход — сразу сформулировать задачу как ранжирование по вероятности целевого действия и обсудить, какое действие считать целевым.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Коллаборативная фильтрация</h3>
+<li class="question" data-md-source="true" data-md-id="rs-user-item-cf-interview">
+  <div class="name" id="rs-user-item-cf-interview">
+    Как работает user-based и item-based коллаборативная фильтрация?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Обе схемы — «соседские» (memory-based) методы поверх матрицы взаимодействий $R$ размера $|U| \times |I|$.</p>
+<p><b>User-based.</b> Находим пользователей, похожих на целевого (косинусная близость или корреляция Пирсона по строкам $R$), и рекомендуем то, что понравилось им, но что целевой ещё не видел:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\hat{r}_{ui} = \bar{r}_u + \frac{\sum_{v \in N(u)} \text{sim}(u,v)\,(r_{vi} - \bar{r}_v)}{\sum_{v \in N(u)} |\text{sim}(u,v)|}.\]">\[\hat{r}_{ui} = \bar{r}_u + \frac{\sum_{v \in N(u)} \text{sim}(u,v)\,(r_{vi} - \bar{r}_v)}{\sum_{v \in N(u)} |\text{sim}(u,v)|}.\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p><b>Item-based.</b> Считаем похожесть между объектами по столбцам $R$ («эти два товара покупают одни и те же люди») и рекомендуем объекты, похожие на те, с которыми пользователь уже взаимодействовал.</p>
+<p>На практике почти всегда используют item-based, и вот почему: объектов обычно меньше, чем пользователей, матрица похожести объектов стабильнее во времени (вкусы пользователя меняются быстрее, чем связи между товарами), её можно посчитать офлайн и обновлять раз в сутки, а рекомендация мгновенно реагирует на новое действие пользователя без пересчёта его профиля. Плюс item-based рекомендации легко объяснять: «похоже на то, что вы смотрели».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нужно нормировать похожесть">
+<p>Сырой косинус по бинарной матрице сильно завышает похожесть популярных объектов: блокбастер похож на всё, потому что его смотрели все. Стандартные поправки — нормировка на популярность вида $\text{sim}(i,j) = \frac{|U_i \cap U_j|}{|U_i|^{\alpha} |U_j|^{1-\alpha}}$, взвешивание вкладов по IDF-подобной схеме, вычитание средних оценок пользователя (для explicit) и shrinkage при малом числе общих пользователей — иначе пара товаров с двумя общими покупателями получит похожесть 1.0.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ограничения соседских методов">
+<p>Сложность: наивный расчёт похожести — $O(|I|^2 |U|)$, для крупного каталога требуется приближение (LSH, ANN, ограничение top-N соседей). Разрежённость: при плотности матрицы ниже 0.1 % у большинства пар нет общих пользователей, и оценка похожести шумная. Холодный старт не решается вовсе. Именно поэтому соседские методы сегодня чаще используются как <b>один из источников кандидатов</b>, а не как единственная модель, — но baseline из item-item сходства до сих пор бывает удивительно сильным.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-matrix-factorization-interview">
+  <div class="name" id="rs-matrix-factorization-interview">
+    Как работает матричная факторизация и как её обучают?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Идея: приблизить матрицу взаимодействий произведением двух низкоранговых матриц,</p>
+<p><span class="latex-copy-wrap" data-latex="\[R \approx P Q^\top, \qquad \hat{r}_{ui} = p_u^\top q_i + b_u + b_i + \mu,\]">\[R \approx P Q^\top, \qquad \hat{r}_{ui} = p_u^\top q_i + b_u + b_i + \mu,\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $p_u \in \mathbb{R}^k$ — вектор пользователя, $q_i \in \mathbb{R}^k$ — вектор объекта, $k$ обычно 32–256, $b_u, b_i$ — смещения (насколько щедр пользователь и насколько хорош объект), $\mu$ — глобальное среднее. Смещения важны: они снимают с эмбеддингов работу по объяснению тривиальных эффектов.</p>
+<p>Целевая функция для explicit-данных — MSE по наблюдённым парам с $L_2$-регуляризацией:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\min_{P,Q} \sum_{(u,i) \in \mathcal{O}} (r_{ui} - \hat{r}_{ui})^2 + \lambda(\|p_u\|^2 + \|q_i\|^2).\]">\[\min_{P,Q} \sum_{(u,i) \in \mathcal{O}} (r_{ui} - \hat{r}_{ui})^2 + \lambda(\|p_u\|^2 + \|q_i\|^2).\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Два способа оптимизации. <b>SGD</b> — идти по градиенту по одному наблюдению; гибко, легко добавить любой лосс и признаки, но требует подбора learning rate. <b>ALS</b> — зафиксировать $Q$, решить задачу по $P$ аналитически (это обычная гребневая регрессия для каждого пользователя независимо), затем наоборот; каждый шаг решается точно, задача идеально распараллеливается по пользователям и объектам, но применим только к квадратичным лоссам.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что означают эмбеддинги">
+<p>Скалярное произведение $p_u^\top q_i$ — это проекция вкусов пользователя на характеристики объекта. Факторизация автоматически находит $k$ латентных осей, вдоль которых различаются и пользователи, и объекты: на практике они часто интерпретируемы (жанр, «серьёзность», ценовой сегмент), хотя никто их не задавал. Это ровно то, что делает SVD в линейной алгебре, только с пропусками: обычный SVD требует полной матрицы, а здесь оптимизация ведётся только по наблюдённым ячейкам, и именно поэтому «просто применить SVD» к матрице с 99.9 % пропусков нельзя.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="iALS для implicit-данных">
+<p>Для implicit-обратной связи используется вариант с весами уверенности: все пары входят в лосс, но с разным весом $c_{ui} = 1 + \alpha r_{ui}$ (наблюдённые — с большим, ненаблюдённые — с единичным), а цель $p_{ui}$ бинарна. Хитрость реализации в том, что сумму по всем объектам можно переписать через предвычисленную матрицу $Q^\top Q$, и сложность шага становится линейной по числу наблюдённых взаимодействий, а не по $|U| \cdot |I|$. Это и сделало iALS практичным на промышленных масштабах.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-svd-vs-als-interview">
+  <div class="name" id="rs-svd-vs-als-interview">
+    Почему нельзя просто применить SVD к матрице взаимодействий?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Классический SVD — точное разложение $A = U \Sigma V^\top$, определённое для <b>полностью заданной</b> матрицы. Матрица взаимодействий заполнена на 0.01–1 %, и остальные ячейки не равны нулю — они <b>неизвестны</b>. Разница принципиальна:</p>
+<ul>
+<li>Если заполнить пропуски нулями и сделать SVD, вы заявляете, что пользователь точно не любит все объекты, которых не видел. Разложение будет минимизировать ошибку на этих фиктивных нулях — а их 99 % — и выучит в основном популярность.</li>
+<li>Если заполнить средними, вы вносите ещё большее искажение и получаете плотную матрицу, к которой SVD применить вычислительно невозможно при миллионах строк и столбцов.</li>
+</ul>
+<p>Правильная постановка — не разложение, а <b>оптимизация только по наблюдённым ячейкам</b>: минимизируем ошибку на известных парах с регуляризацией и решаем задачу градиентно (SGD) или поочерёдно (ALS). В рекомендательной литературе такой метод исторически называют «SVD» (модель Funk SVD из Netflix Prize), но общего с точным SVD у него только форма произведения матриц: нет ортогональности факторов, нет сингулярных чисел и решение не единственно.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Чем отличается ALS от SVD по свойствам">
+<p>SVD даёт ортонормированные базисы и упорядоченные по важности компоненты — можно обрезать ранг и получить гарантированно наилучшее приближение по норме Фробениуса (теорема Эккарта — Янга). ALS ничего такого не гарантирует: факторы неортогональны, компоненты не упорядочены, задача невыпукла по паре $(P, Q)$ и решение зависит от инициализации. Зато ALS работает с пропусками, поддерживает веса уверенности, регуляризацию и линейно масштабируется по числу наблюдённых взаимодействий.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что стоит добавить в ответе">
+<p>Если интервьюер спрашивает про «SVD в рекомендациях», полезно сразу развести три вещи: (1) точный SVD из линейной алгебры, (2) truncated/randomized SVD, применимый к плотной или явно заполненной матрице, (3) «SVD» как название модели матричной факторизации с регуляризацией и смещениями (Funk SVD, SVD++). Смешение этих трёх понятий — самая частая путаница на собеседованиях по RecSys.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-bpr-interview">
+  <div class="name" id="rs-bpr-interview">
+    Что такое BPR-loss и чем он лучше MSE для implicit-данных?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>BPR (Bayesian Personalized Ranking) — попарный лосс. Он не пытается предсказать абсолютное значение, а требует, чтобы объект, с которым пользователь взаимодействовал, получил скоринг <b>выше</b>, чем случайный объект, с которым не взаимодействовал:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\mathcal{L}_{BPR} = -\sum_{(u, i, j)} \ln \sigma\big(\hat{x}_{ui} - \hat{x}_{uj}\big) + \lambda \|\Theta\|^2,\]">\[\mathcal{L}_{BPR} = -\sum_{(u, i, j)} \ln \sigma\big(\hat{x}_{ui} - \hat{x}_{uj}\big) + \lambda \|\Theta\|^2,\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $i$ — положительный объект, $j$ — сэмплированный негатив, $\sigma$ — сигмоида. Градиент зависит только от <b>разности</b> скорингов, поэтому модель не тратит ёмкость на подгонку абсолютных значений.</p>
+<p>Почему это лучше MSE для implicit: целевая метрика — порядок в топ-K, и BPR оптимизирует именно порядок (он является гладкой нижней оценкой AUC). MSE же заставляет модель точно воспроизводить придуманные нами нули и единицы, что к порядку отношения почти не имеет.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про выбор негативов — это половина успеха">
+<p>Равномерное сэмплирование негативов даёт очень слабый сигнал: случайный объект из миллионного каталога почти всегда очевидно нерелевантен, и разность скорингов быстро становится большой, а градиент — нулевым. Отсюда стратегии hard negative mining: сэмплировать пропорционально популярности, брать негативы из тех же категорий, брать «показанные, но не кликнутые» (это самые ценные негативы — они контролируют exposure bias), или добывать hard negatives текущей моделью (как в two-tower retrieval). Слишком «жёсткие» негативы, впрочем, опасны: часть из них — это false negatives, объекты, которые пользователю понравились бы, просто он их не видел.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Родственные лоссы">
+<p><b>WARP</b> сэмплирует негативы, пока не найдёт нарушающий порядок, и взвешивает шаг по числу попыток — сильнее оптимизирует верхушку выдачи. <b>Sampled softmax / InfoNCE</b> сравнивает позитив сразу со многими негативами и стал стандартом в нейросетевом retrieval. <b>LambdaRank</b> взвешивает пары по тому, насколько их перестановка изменит NDCG. Все они — про порядок, а не про значение.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-item2vec-interview">
+  <div class="name" id="rs-item2vec-interview">
+    Как получить эмбеддинги объектов без нейросети: item2vec и ко-встречаемость
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>item2vec</b> — прямой перенос word2vec (skip-gram с negative sampling) на рекомендации: последовательность действий пользователя считается «предложением», объекты — «словами». Модель учится по объекту предсказывать его соседей по сессии, и близкие в этом смысле объекты получают близкие векторы. Никакого текста и никаких признаков не нужно — только логи.</p>
+<p>Практически это даёт быстрый и дешёвый источник кандидатов: «похожие товары», «с этим часто смотрят», обогащение профиля пользователя усреднением векторов его истории. Обучение занимает минуты на миллионах сессий, инференс — это ANN-поиск по эмбеддингам.</p>
+<p>Родственные подходы: <b>ко-встречаемость с нормировкой</b> (PMI между объектами по сессиям — фактически то же, что неявно оптимизирует word2vec), <b>ALS-эмбеддинги</b> (векторы объектов из матричной факторизации), <b>prod2vec/meta-prod2vec</b> (с добавлением метаданных для холодного старта), <b>graph embeddings</b> (случайные блуждания по графу «пользователь — объект», как в PinSage).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему определение «контекста» здесь важнее алгоритма">
+<p>В word2vec контекст — соседние слова в окне. В рекомендациях вы сами решаете, что считать контекстом: вся история пользователя, одна сессия, одна корзина, товары, просмотренные за 30 минут. Это решение полностью меняет смысл эмбеддингов. Контекст «одна корзина» даёт комплементарные товары (к телефону — чехол), контекст «просмотры в сессии» — товары-заменители (телефон похожей модели). Для карточки товара нужны разные блоки, и это именно разные модели с разным определением контекста, а не «один эмбеддинг на всё».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ограничения">
+<p>item2vec не персонализирован сам по себе — он даёт похожесть объектов, а не предпочтения пользователя; персонализация добавляется поверх. Он игнорирует порядок внутри окна и время между действиями. И он наследует popularity bias через negative sampling: если сэмплировать негативы равномерно, популярные объекты становятся близки ко всему. Стандартная поправка — сэмплировать негативы пропорционально $f(i)^{3/4}$ и применять subsampling частых объектов, как в оригинальном word2vec.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Контентные и гибридные подходы</h3>
+<li class="question" data-md-source="true" data-md-id="rs-content-based-interview">
+  <div class="name" id="rs-content-based-interview">
+    Как работает контентная фильтрация и когда она лучше коллаборативной?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Контентная фильтрация описывает объект вектором признаков — TF-IDF или эмбеддинг текста описания, категория, бренд, цена, теги, эмбеддинг обложки — и строит профиль пользователя как агрегат векторов объектов, с которыми он взаимодействовал (среднее, взвешенное по свежести и силе сигнала). Рекомендация — ближайшие к профилю объекты по косинусной близости, либо классификатор «понравится / не понравится», обученный на истории конкретного пользователя.</p>
+<p>Она выигрывает там, где коллаборативная фильтрация бессильна:</p>
+<ul>
+<li><b>Быстро обновляемый каталог.</b> Новости, вакансии, объявления, стримы — объект живёт часы, набрать по нему статистику взаимодействий невозможно.</li>
+<li><b>Холодный старт объекта.</b> Новый товар получает вектор признаков сразу.</li>
+<li><b>Узкие домены и малый трафик.</b> Взаимодействий мало, матрица слишком разрежена.</li>
+<li><b>Требование объяснимости.</b> «Рекомендуем, потому что вы читали про Х» — понятная и проверяемая формулировка.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Главная слабость — пузырь">
+<p>Контентная модель по построению рекомендует похожее на уже потреблённое, поэтому она не находит неожиданных связей: она никогда не подскажет пользователю детективов, что ему зайдёт научпоп, потому что в признаках эти книги далеки. Коллаборативная фильтрация находит такие связи именно потому, что не смотрит на содержание, — она видит, что эти две группы книг любят одни и те же люди. Это фундаментальный компромисс: content-based даёт точность и объяснимость, collaborative — новизну и «серендипность».</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как это выглядит в проде">
+<p>Обычно контентные признаки не образуют отдельную систему, а входят в общую: (1) как отдельный источник кандидатов через ANN по эмбеддингам объекта, закрывающий новые позиции; (2) как признаки ранкера наравне с коллаборативными эмбеддингами; (3) как способ инициализировать эмбеддинг нового объекта — обучается отображение из контентных признаков в пространство коллаборативных векторов, и новый объект сразу получает разумное место в нём.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-hybrid-interview">
+  <div class="name" id="rs-hybrid-interview">
+    Что такое гибридные рекомендации и какие есть схемы смешивания?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Гибрид объединяет несколько источников сигнала, чтобы закрыть слабости каждого. Классификация схем (по Burke):</p>
+<ul>
+<li><b>Weighted</b> — линейная комбинация скорингов нескольких моделей с подобранными весами.</li>
+<li><b>Switching</b> — выбор модели по ситуации: у пользователя меньше 5 действий — контентная и популярное, больше — коллаборативная.</li>
+<li><b>Cascade</b> — одна модель отбирает кандидатов, другая переранжирует. Это и есть доминирующая продовая архитектура.</li>
+<li><b>Feature augmentation</b> — выход одной модели (например, ALS-эмбеддинг) подаётся как признак в другую (градиентный бустинг или нейросеть-ранкер).</li>
+<li><b>Meta-level</b> — модель, обученная на выходах нескольких базовых, то есть стекинг.</li>
+<li><b>Mixed</b> — выдача собирается из блоков разных источников: «продолжить просмотр», «новинки», «похожее на просмотренное».</li>
+</ul>
+<p>В реальной системе почти всегда встречаются сразу несколько: каскад как каркас, feature augmentation внутри ранкера, mixed на уровне интерфейса.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему смешивание скорингов «в лоб» — плохая идея">
+<p>Скоринги разных моделей живут в разных шкалах: ALS выдаёт неограниченное скалярное произведение, CTR-модель — вероятность, item2vec — косинус в $[-1, 1]$. Взвешенная сумма таких величин без нормализации бессмысленна, а веса, подобранные вручную, устаревают за недели. Правильный путь — не смешивать скоринги, а использовать их <b>как признаки</b> единой ранжирующей модели, обученной на реальных логах. Тогда веса подбираются данными, автоматически обновляются при переобучении и учитывают контекст: для новичка ранкер сам опирается на контентные признаки, для активного — на коллаборативные.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что стоит проговорить на собеседовании">
+<p>Гибрид — это не «взяли две модели и сложили», а архитектурное решение: какие источники кандидатов есть, сколько кандидатов даёт каждый, как они дедуплицируются, кто их ранжирует и какие бизнес-правила применяются в конце. Ответ, в котором перечислена эта цепочка с числами (например, «5 источников по 200 кандидатов, дедупликация, ранкер CatBoost на 150 признаках, переранжирование за разнообразие, фильтры наличия»), выглядит на порядок сильнее теоретической классификации.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Нейросетевые рекомендации</h3>
+<li class="question" data-md-source="true" data-md-id="rs-two-tower-interview">
+  <div class="name" id="rs-two-tower-interview">
+    Как устроена two-tower модель и почему она удобна для retrieval?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Two-tower (dual encoder) — две независимые нейросети. Одна кодирует пользователя и контекст (id, история, устройство, время) в вектор $u$, вторая кодирует объект (id, категория, текст, картинка) в вектор $v$. Скоринг — скалярное произведение или косинус $s(u, v) = u^\top v$. Обучение — sampled softmax или InfoNCE: позитив против негативов из батча (in-batch negatives) плюс дополнительно сэмплированные.</p>
+<p>Ключевое архитектурное свойство: башни <b>не взаимодействуют</b> до самого скалярного произведения. Отсюда и берётся вся практическая ценность — эмбеддинги всех объектов каталога можно посчитать заранее офлайн и сложить в ANN-индекс (HNSW, IVF-PQ, ScaNN). В рантайме считается только вектор пользователя (один forward), и поиск top-K по миллионам объектов занимает единицы миллисекунд.</p>
+<p>Именно поэтому two-tower — стандарт стадии retrieval, а модели с ранним взаимодействием признаков (cross-features, attention между пользователем и объектом) используются на стадии ранжирования, где кандидатов уже сотни, а не миллионы.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нельзя использовать «хорошую» модель на этапе retrieval">
+<p>Модель, которая смотрит на пару «пользователь — объект» совместно, точнее, но требует одного forward на каждого кандидата. Для миллиона объектов это миллион проходов на запрос — невозможно. Two-tower жертвует выразительностью (никаких взаимодействий признаков между пользователем и объектом) ради того, чтобы задача превратилась в поиск ближайших соседей в фиксированном пространстве. Это классический компромисс «точность против масштаба», и именно он порождает двухстадийную архитектуру.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Тонкости обучения">
+<p><b>In-batch negatives смещены к популярному:</b> популярные объекты чаще попадают в батч и чаще становятся негативами, из-за чего модель их занижает. Стандартная поправка — logQ correction: из логита вычитается $\log$ вероятности сэмплирования объекта. <b>Обучение и инференс расходятся:</b> при обучении негативы случайные, а в проде модель конкурирует с топом собственной выдачи; лечится добавлением hard negatives, добытых текущей моделью. <b>Индекс устаревает:</b> при переобучении башен эмбеддинги объектов и пользователей должны обновляться согласованно, иначе они окажутся в разных пространствах — это отдельная операционная задача.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-sequential-interview">
+  <div class="name" id="rs-sequential-interview">
+    Что такое sequential recommendations и как устроены GRU4Rec, SASRec, BERT4Rec?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Sequential-постановка учитывает <b>порядок</b> действий: предсказываем следующий объект по упорядоченной истории, а не по множеству взаимодействий. Это принципиально другой сигнал: пользователь, который только что посмотрел три эпизода сериала, хочет четвёртый, а не «в целом похожее на его вкусы за год».</p>
+<p><b>GRU4Rec</b> — рекуррентная сеть над последовательностью объектов сессии, первая работа, показавшая, что сессионный контекст важнее долгосрочного профиля для анонимных пользователей.</p>
+<p><b>SASRec</b> — трансформер с <b>каузальной</b> маской: каждая позиция видит только предыдущие. Обучается предсказывать следующий объект на каждом шаге. Это прямой аналог GPT для последовательностей объектов.</p>
+<p><b>BERT4Rec</b> — трансформер с <b>двунаправленным</b> вниманием и masked-item-обучением: часть объектов маскируется, модель восстанавливает их по контексту слева и справа. Даёт более богатые представления, но на инференсе требует приписывать маску в конец последовательности.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему трансформеры здесь выигрывают">
+<p>Self-attention позволяет напрямую связать текущий момент с любым элементом истории, а не протаскивать информацию через рекуррентное состояние: если пользователь месяц назад купил фотоаппарат, а сейчас смотрит карты памяти, attention соединит эти события напрямую. Плюс обучение параллелится по всей последовательности, тогда как RNN обязана идти по шагам. Ограничение — квадратичная сложность по длине истории, поэтому её обрезают до последних 50–200 действий, а долгосрочные интересы подмешивают отдельными признаками.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что важно на практике">
+<p><b>Утечка через порядок.</b> Разбиение обязано быть по времени или leave-last-out; случайный split даёт модели доступ к будущему и завышает метрики в разы. <b>Длина истории.</b> У большинства пользователей она короткая, и метрика на «длинном хвосте» активных пользователей маскирует плохую работу на типичных. <b>Повторы.</b> В e-commerce и музыке пользователь часто возвращается к уже потреблённому — надо явно решить, разрешены ли повторы в выдаче, иначе метрики становятся несравнимыми. <b>Время между событиями</b> несёт много информации, но базовые архитектуры его игнорируют; его добавляют как признак или через time-aware attention.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-ncf-dssm-interview">
+  <div class="name" id="rs-ncf-dssm-interview">
+    Что такое Neural CF и DSSM и в чём критика нейросетевых рекомендаций?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>DSSM</b> (Deep Structured Semantic Model) — исходная идея двух башен: два энкодера проецируют запрос и документ в общее пространство, обучение по косинусной близости с softmax по негативам. Из поиска этот шаблон перекочевал в рекомендации и стал two-tower моделью.</p>
+<p><b>NCF</b> (Neural Collaborative Filtering) предложил заменить скалярное произведение в матричной факторизации на обучаемую нейросеть: эмбеддинги пользователя и объекта конкатенируются и подаются в MLP, который выдаёт вероятность взаимодействия. Утверждение статьи — MLP выучит более общую функцию взаимодействия, чем скалярное произведение.</p>
+<p>Известная критика (Rendle et al., «Neural Collaborative Filtering vs. Matrix Factorization Revisited», 2020): при аккуратном подборе гиперпараметров и правильном обучении <b>матричная факторизация с скалярным произведением обгоняет NCF</b> на тех же данных. Более того, MLP плохо аппроксимирует скалярное произведение — простую функцию ему приходится выучивать с нуля, тратя данные. Практический вывод: скалярное произведение — не ограничение, а сильный индуктивный приор, и заменять его MLP без выигрыша не стоит.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что из этого следует для собеседования">
+<p>Вопрос «нейросети всегда лучше классики в рекомендациях?» — проверка на здравый смысл. Правильный ответ: нейросети выигрывают там, где нужно <b>вносить дополнительную информацию</b> — контентные признаки, последовательность, контекст, мультимодальность, многозадачность. Там, где сигнал — только матрица взаимодействий, хорошо настроенная iALS или EASE часто не хуже, а на порядок дешевле в обучении и эксплуатации. И почти во всех бенчмарках, где нейросеть «выигрывала», проблема оказывалась в недонастроенном baseline.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="EASE как отрезвляющий baseline">
+<p>EASE — линейная item-item модель с замкнутым решением: обучение сводится к обращению матрицы $X^\top X + \lambda I$. Ни эпох, ни learning rate, ни сэмплирования негативов. На многих публичных датасетах она конкурентоспособна с глубокими моделями. Упоминание EASE или well-tuned iALS как обязательного baseline — хороший сигнал зрелости на собеседовании.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-graph-interview">
+  <div class="name" id="rs-graph-interview">
+    Как работают графовые рекомендации и что делает LightGCN?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Взаимодействия естественно образуют <b>двудольный граф</b>: вершины — пользователи и объекты, рёбра — взаимодействия. Графовые модели распространяют информацию по этому графу: эмбеддинг пользователя обновляется как агрегат эмбеддингов объектов, с которыми он взаимодействовал, и наоборот. После $k$ слоёв эмбеддинг вбирает информацию с расстояния $k$ — то есть «объекты, которые нравятся людям, похожим на меня» получаются явно, а не выводятся из скалярного произведения.</p>
+<p><b>LightGCN</b> — упрощение NGCF: авторы показали, что в рекомендациях не нужны ни матрицы весов, ни нелинейности, ни feature transformation — они только мешают. Остаётся чистое взвешенное усреднение по соседям:</p>
+<p><span class="latex-copy-wrap" data-latex="\[e_u^{(k+1)} = \sum_{i \in N(u)} \frac{1}{\sqrt{|N(u)|}\sqrt{|N(i)|}} e_i^{(k)},\]">\[e_u^{(k+1)} = \sum_{i \in N(u)} \frac{1}{\sqrt{|N(u)|}\sqrt{|N(i)|}} e_i^{(k)},\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>а финальный эмбеддинг — взвешенная сумма по слоям. Обучаемые параметры — только эмбеддинги нулевого слоя, лосс — BPR. При этом LightGCN стабильно обгоняет NGCF.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему упрощение сработало">
+<p>В NLP и CV нелинейные преобразования нужны, потому что входные признаки содержательны и их надо преобразовывать. В коллаборативной фильтрации вход — это обучаемые id-эмбеддинги, то есть сеть и так свободна разместить их как угодно; дополнительные преобразования лишь добавляют параметров и усложняют оптимизацию. Полезная часть графовой свёртки — это именно <b>сглаживание по соседям</b>, которое явным образом реализует «похожие пользователи должны иметь похожие векторы», то есть встраивает коллаборативный сигнал в архитектуру.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические ограничения">
+<p>Число слоёв редко берут больше 3: дальше начинается <b>over-smoothing</b> — эмбеддинги всех вершин сходятся друг к другу и персонализация пропадает. Обучение на полном графе требует памяти, поэтому на промышленных масштабах применяют сэмплирование соседей (GraphSAGE, PinSage) и обучение на подграфах. И графовые модели наследуют popularity bias: вершины с высокой степенью доминируют в агрегации, что требует нормировки — она и стоит в знаменателе формулы LightGCN.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Retrieval и ранжирование</h3>
+<li class="question" data-md-source="true" data-md-id="rs-two-stage-interview">
+  <div class="name" id="rs-two-stage-interview">
+    Зачем нужна двухстадийная архитектура: кандидаты и ранжирование?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Прямая причина — арифметика. Каталог содержит от сотен тысяч до сотен миллионов объектов, а на ответ есть 50–100 мс. Прогнать тяжёлую модель для каждого объекта невозможно, поэтому задача разбивается:</p>
+<ol>
+<li><b>Retrieval (candidate generation).</b> Из миллионов объектов быстро отобрать несколько сотен или тысяч. Модель дешёвая (two-tower + ANN, item-item сходство, популярное, правила), метрика — <b>Recall@K</b>: важно не потерять релевантное, точность вторична.</li>
+<li><b>Ranking.</b> Для нескольких сотен кандидатов посчитать точный скоринг тяжёлой моделью с сотнями признаков (градиентный бустинг или DNN с cross-features). Метрика — NDCG, CTR, конверсия.</li>
+<li><b>Re-ranking.</b> Переупорядочить топ с учётом разнообразия, бизнес-правил, свежести, распределения по поставщикам, дедупликации.</li>
+</ol>
+<p>Итог: качество почти как у тяжёлой модели на всём каталоге, а стоимость — на три-четыре порядка меньше.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему у стадий разные метрики">
+<p>На стадии retrieval ошибка «пропустил релевантное» невосполнима — ранкер физически не сможет показать то, чего нет в кандидатах. Ошибка «принёс лишнее» дешёвая: ранкер отсеет. Отсюда Recall@K как метрика retrieval и практика брать несколько источников кандидатов сразу. На стадии ранжирования, наоборот, всё релевантное уже есть, и задача — правильно упорядочить, поэтому метрика ранговая. Смешивать метрики стадий — типичная ошибка: оптимизация precision на retrieval почти всегда ухудшает итоговую систему.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про множественность источников">
+<p>В зрелых системах retrieval — это не одна модель, а пул: two-tower по долгосрочным интересам, sequential-модель по текущей сессии, item-item «похожее на последний просмотр», популярное в категории, новинки, персональные повторные покупки, редакционные подборки. Каждый источник даёт свои 100–500 кандидатов, пул дедуплицируется, и ранкер видит объединение. Такая схема устойчива: отказ одного источника деградирует качество, но не ломает выдачу.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-ann-interview">
+  <div class="name" id="rs-ann-interview">
+    Как устроен ANN-поиск (HNSW, IVF-PQ) и какие там компромиссы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Точный поиск ближайших соседей по $N$ векторам стоит $O(Nd)$ на запрос — для 50 млн объектов и $d = 128$ это неприемлемо. ANN меняет точность на скорость.</p>
+<p><b>HNSW</b> — многослойный граф «маленького мира». Верхние слои разрежены и дают крупные прыжки по пространству, нижние — плотные и уточняют результат. Поиск идёт жадным спуском от точки входа. Даёт лучшее качество на latency, но требует много памяти (граф со связями поверх векторов) и плохо переносит частые удаления.</p>
+<p><b>IVF</b> — кластеризация пространства (k-means на $\sqrt{N}$ центроидов); при запросе просматриваются только <code>nprobe</code> ближайших ячеек. <b>PQ</b> (product quantization) дополнительно сжимает векторы: вектор режется на $m$ подвекторов, каждый заменяется на индекс ближайшего центроида из своего кодбука — 128-мерный float-вектор (512 байт) сжимается до 16–32 байт. <b>IVF-PQ</b> — их комбинация, стандарт для очень больших индексов, где всё не помещается в память.</p>
+<p>Главные ручки: <code>ef_search</code> в HNSW и <code>nprobe</code> в IVF — обе двигают точку на кривой recall/latency.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что такое recall у ANN и почему его надо мерить отдельно">
+<p>Recall@K индекса — доля истинных ближайших соседей, попавших в выдачу ANN. Это <b>не</b> качество рекомендаций, а качество приближения. Правильная процедура: посчитать точные top-K брутфорсом на выборке из тысячи запросов, замерить, какую долю их возвращает индекс при разных настройках, и построить кривую recall против p99-latency. Только после этого выбирается рабочая точка. Типичный продовый компромисс — recall 0.95–0.98 при p99 около 5–10 мс.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические грабли">
+<p><b>Метрика расстояния должна совпадать с обучением.</b> Если модель обучалась с косинусом, векторы нужно нормировать, а индекс строить по inner product — иначе индекс ищет не то. <b>Фильтры ломают ANN.</b> Пост-фильтрация после поиска может оставить ноль кандидатов (например, «только в наличии в моём городе»), а пред-фильтрация требует поддержки со стороны индекса; часто приходится держать отдельные индексы по крупным сегментам. <b>Обновления.</b> HNSW не поддерживает эффективное удаление — обычно применяют тумбстоуны и периодическую полную перестройку индекса. <b>Согласованность версий.</b> Эмбеддинги из новой версии модели несравнимы со старым индексом; переключение должно быть атомарным.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-ranker-features-interview">
+  <div class="name" id="rs-ranker-features-interview">
+    Какие признаки используют в ранкере и зачем нужен feature store?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Признаки ранкера делятся на четыре группы:</p>
+<p><b>Пользовательские:</b> агрегаты активности (число просмотров и покупок за 1/7/30 дней), любимые категории и бренды с долями, средний чек, давность последней сессии, эмбеддинг из коллаборативной модели.</p>
+<p><b>Объектные:</b> популярность за разные окна, CTR и конверсия объекта, возраст объекта в каталоге, цена и её отклонение от средней по категории, рейтинг и число отзывов, доля возвратов, контентный эмбеддинг.</p>
+<p><b>Парные (cross) — самые сильные:</b> скоринги источников кандидатов, косинус между эмбеддингом пользователя и объекта, совпадение категории объекта с топ-категориями пользователя, число прошлых взаимодействий пользователя с этим брендом, цена объекта относительно среднего чека пользователя, был ли объект уже показан и сколько раз.</p>
+<p><b>Контекстные:</b> время суток и день недели, устройство и платформа, тип страницы и позиция блока, источник трафика, гео.</p>
+<p>Feature store нужен, чтобы одни и те же признаки считались <b>одинаково</b> при обучении и в проде: офлайн-часть отдаёт исторически корректные значения через point-in-time join, онлайн-часть — свежие значения с низкой latency, а определение признака хранится в одном месте.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Point-in-time join — самое важное слово в этом ответе">
+<p>При сборе обучающей выборки признак должен иметь значение <b>на момент показа</b>, а не текущее. Если для события месячной давности подставить сегодняшнюю популярность объекта, в признак утечёт будущее: объект стал популярным в том числе потому, что его тогда кликнули. Модель обучится на признаке, недоступном в проде, покажет прекрасные офлайн-метрики и провалит A/B. Именно эту ошибку feature store устраняет системно, а не разовым код-ревью.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Признаки, которых не бывает на инференсе">
+<p>Классические утечки в рекомендациях: агрегаты, посчитанные по всему периоду, включая тест; счётчики CTR, включающие текущее событие; «число покупок объекта» без ограничения по дате; целевая переменная, просочившаяся через производный признак (например, «был ли добавлен в корзину» при предсказании покупки). Проверка простая: для каждого признака нужно уметь ответить, откуда его значение возьмётся в рантайме и с какой задержкой оно доступно.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-ltr-interview">
+  <div class="name" id="rs-ltr-interview">
+    Что такое learning to rank: pointwise, pairwise и listwise?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три подхода различаются тем, что подаётся в лосс.</p>
+<p><b>Pointwise.</b> Каждая пара «пользователь — объект» — независимый пример, задача сводится к классификации или регрессии (logloss, MSE). Просто, масштабируется, даёт калиброванную вероятность. Минус — модель не знает, что объекты конкурируют между собой в одной выдаче, и одинаково штрафуется за ошибку на первой и на сотой позиции.</p>
+<p><b>Pairwise.</b> Обучаемся на парах «объект A релевантнее объекта B» внутри одной выдачи (RankNet, BPR, LambdaRank). Оптимизируется относительный порядок — именно то, что нужно. Минус — все инверсии считаются равнозначными, хотя перестановка на позициях 1–2 важнее, чем на 99–100.</p>
+<p><b>Listwise.</b> Лосс определён на всей выдаче целиком: ListNet, softmax-cross-entropy по кандидатам, прямые суррогаты NDCG. LambdaRank и LambdaMART — практический компромисс: они остаются попарными, но взвешивают каждую пару на $|\Delta \text{NDCG}|$ от её перестановки, то есть неявно оптимизируют листовую метрику.</p>
+<p>В проде чаще всего встречается либо pointwise-бустинг (когда нужна калиброванная вероятность для формулы с деньгами), либо LambdaMART / listwise-softmax (когда важен чистый порядок).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нельзя просто оптимизировать NDCG">
+<p>NDCG зависит от <b>порядка</b>, то есть кусочно-постоянна по параметрам модели: малое изменение скоринга либо ничего не меняет, либо скачком меняет метрику. Градиента нет. Поэтому оптимизируют гладкие суррогаты. LambdaRank обходит проблему изящно: он не определяет лосс вовсе, а сразу задаёт градиенты («лямбды») как силу, с которой нужно двигать документы, умноженную на изменение NDCG от их перестановки. Это работает, хотя формально не является градиентом никакой функции.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как выбирать на практике">
+<p>Если скоринг участвует в аукционе или в формуле ожидаемой выручки — нужна калибровка, значит pointwise с logloss и последующей калибровкой (Platt, isotonic). Если задача — просто упорядочить фиксированный набор кандидатов, listwise или LambdaMART обычно дают +2–5 % NDCG относительно pointwise. Гибридный путь, распространённый в маркетплейсах: обучать multi-task модель, предсказывающую клик, добавление в корзину и покупку, а финальный скоринг собирать формулой с бизнес-весами.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-diversity-interview">
+  <div class="name" id="rs-diversity-interview">
+    Что такое re-ranking и зачем нужна диверсификация выдачи?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ранкер оценивает каждого кандидата <b>независимо</b>, поэтому топ-10 по скорингу часто состоит из почти одинаковых объектов: десять кроссовок одной модели в разных цветах, пять эпизодов одного сериала. Пользователю такая выдача бесполезна: если ему не подошёл первый объект, не подойдут и остальные девять.</p>
+<p>Re-ranking решает эту задачу, оптимизируя выдачу как <b>множество</b>, а не как список независимых оценок. Классический алгоритм — <b>MMR</b> (Maximal Marginal Relevance): объекты добавляются жадно, и на каждом шаге выбирается максимизирующий</p>
+<p><span class="latex-copy-wrap" data-latex="\[\lambda \cdot \text{rel}(i) - (1 - \lambda) \max_{j \in S} \text{sim}(i, j),\]">\[\lambda \cdot \text{rel}(i) - (1 - \lambda) \max_{j \in S} \text{sim}(i, j),\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>то есть релевантность минус штраф за похожесть на уже выбранное. <b>DPP</b> (determinantal point process) делает то же самое более принципиально: вероятность набора пропорциональна детерминанту подматрицы сходств, а детерминант велик как раз для непохожих элементов.</p>
+<p>Кроме разнообразия, на этапе re-ranking применяются бизнес-правила: дедупликация, ограничение на число объектов одного продавца, буст новинок и акций, фильтры наличия, возрастные ограничения, разнесение уже показанного.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему разнообразие повышает метрики, а не снижает">
+<p>Кажется, что замена самого релевантного объекта на менее релевантный обязана ухудшить CTR. На практике часто наоборот: вероятность, что пользователю подойдёт хотя бы один из 10 объектов, растёт с их разнообразием — это математика покрытия, а не компромисс. Плюс разнообразие улучшает долгосрочные метрики: пользователь чаще возвращается, каталог получает показы, система собирает данные о новых объектах. Поэтому диверсификацию оценивают не по CTR одной сессии, а по retention и long-term A/B.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про slate-подход">
+<p>Более общая постановка — предсказывать качество <b>всей выдачи</b> сразу, учитывая взаимное влияние позиций: объект на второй позиции влияет на вероятность клика по первой. Здесь используют модели с attention по списку кандидатов (PRM, SetRank), обучение с учётом позиционного смещения и в пределе — RL-постановку, где выдача есть действие, а награда — сессионная. Это уже уровень зрелых систем, но упоминание того, что позиции взаимозависимы, само по себе сильный сигнал на собеседовании.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Метрики и оценка</h3>
+<li class="question" data-md-source="true" data-md-id="rs-offline-metrics-interview">
+  <div class="name" id="rs-offline-metrics-interview">
+    Какие офлайн-метрики используют в рекомендациях?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Все основные метрики считаются на топ-$K$ выдачи и усредняются по пользователям.</p>
+<p><b>Precision@K</b> — доля релевантных среди $K$ показанных. <b>Recall@K</b> — доля релевантных объектов пользователя, попавших в топ-$K$. В рекомендациях Recall@K обычно важнее: пользователю нужно найти хоть что-то подходящее, а не чтобы все 10 позиций были идеальны.</p>
+<p><b>MAP@K</b> — среднее по пользователям значение average precision, учитывающее позиции всех релевантных объектов.</p>
+<p><b>MRR</b> — среднее обратного ранга первого релевантного объекта. Уместна там, где нужен один правильный ответ (поиск, «продолжить просмотр»).</p>
+<p><b>NDCG@K</b> — нормированный дисконтированный кумулятивный выигрыш:</p>
+<p><span class="latex-copy-wrap" data-latex="\[DCG@K = \sum_{i=1}^{K} \frac{2^{rel_i} - 1}{\log_2(i + 1)}, \qquad NDCG@K = \frac{DCG@K}{IDCG@K}.\]">\[DCG@K = \sum_{i=1}^{K} \frac{2^{rel_i} - 1}{\log_2(i + 1)}, \qquad NDCG@K = \frac{DCG@K}{IDCG@K}.\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Он учитывает и позицию (логарифмический дисконт), и градацию релевантности (просмотр слабее покупки), и нормируется на идеальный порядок, что делает значения сравнимыми между пользователями с разным числом релевантных объектов.</p>
+<p><b>Hit Rate@K</b> — доля пользователей, у которых в топ-$K$ попал хотя бы один релевантный объект; простая и понятная бизнесу метрика.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему NDCG обычно предпочитают Precision@K">
+<p>Precision@K одинаково оценивает выдачу, где релевантный объект стоит первым, и выдачу, где он десятый, — хотя разница в реальном CTR огромна из-за позиционного смещения. NDCG вводит дисконт $1/\log_2(i+1)$, который убывает с позицией, и потому коррелирует с поведением пользователя гораздо лучше. Второе преимущество — градуированная релевантность: покупку можно взвесить сильнее просмотра, тогда как Precision знает только «релевантно / нет».</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Метрики «за пределами точности»">
+<p>Полный отчёт по модели обязан включать не только точность: <b>coverage</b> (доля каталога в выдачах), <b>novelty</b> (средняя «непопулярность» рекомендованного, обычно $-\log$ популярности), <b>serendipity</b> (релевантно и при этом неожиданно), <b>diversity</b> (среднее попарное расстояние внутри выдачи), <b>personalization</b> (насколько выдачи разных пользователей различаются). Модель, выигравшая NDCG за счёт показа топ-100 популярных всем подряд, по этим метрикам сразу видна.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-split-interview">
+  <div class="name" id="rs-split-interview">
+    Как правильно делать train/test split в рекомендациях?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Случайное разбиение взаимодействий — самая частая и самая дорогая ошибка в RecSys. Оно создаёт утечку будущего: в обучающей выборке оказываются действия, которые произошли <b>после</b> тестовых, и модель фактически подсматривает ответ.</p>
+<p>Корректные схемы:</p>
+<p><b>Global temporal split.</b> Выбирается момент времени $T$: всё до него — обучение, после — тест. Наиболее честно воспроизводит продовую ситуацию: модель обучена на прошлом и оценивается на будущем. Именно эту схему стоит называть первой.</p>
+<p><b>Leave-last-out (leave-one-out по времени).</b> Для каждого пользователя последнее взаимодействие идёт в тест, предпоследнее — в валидацию. Удобно для sequential-моделей и даёт много тестовых примеров, но нарушает глобальную хронологию: тестовые события разных пользователей относятся к разным моментам.</p>
+<p><b>User-based split.</b> Часть пользователей целиком уходит в тест — так оценивают качество на «новых» пользователях и способность модели обобщаться, а не запоминать.</p>
+<p>В любом варианте важен <b>разрыв (gap)</b> между обучением и тестом, соответствующий реальному лагу переобучения: если модель в проде обновляется раз в сутки, тест должен начинаться не раньше чем через сутки после конца обучения.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что ещё утекает, кроме порядка событий">
+<p>Даже при временном разбиении утечка может прийти через <b>признаки</b>: агрегаты вроде «популярность объекта» или «CTR объекта», посчитанные по всему датасету, содержат информацию из тестового периода. Поэтому все признаки нужно считать точкой во времени (point-in-time), отдельно для каждого события. Отдельная тонкость — сама негативная выборка: если негативы сэмплировать из всего каталога, включая объекты, появившиеся после $T$, метрика окажется завышенной.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про сравнение с продом">
+<p>Офлайн-оценка всегда меряет качество на данных, собранных <b>предыдущей</b> моделью: пользователь взаимодействовал только с тем, что она показала. Поэтому новая модель, предлагающая что-то, чего старая не показывала, получает за это «штраф» — её верные рекомендации выглядят как ошибки, потому что подтверждения в логах нет. Это фундаментальное ограничение офлайн-оценки, из-за которого офлайн-прирост не переносится в онлайн один к одному, и почему финальное решение принимается по A/B.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-offline-online-gap-interview">
+  <div class="name" id="rs-offline-online-gap-interview">
+    Почему офлайн-метрики расходятся с онлайн-результатами?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Основные причины расхождения:</p>
+<p><b>Exposure bias.</b> Логи содержат только то, что показала предыдущая модель. Новая модель, предлагающая другое, не может быть проверена по этим логам — её рекомендации выглядят «неподтверждёнными».</p>
+<p><b>Position bias.</b> Клик зависит не только от релевантности, но и от позиции. Офлайн-метрика этого не знает и считает клик на первой позиции такой же меткой релевантности, как клик на десятой.</p>
+<p><b>Разное распределение.</b> Офлайн-оценка идёт на историческом периоде, онлайн — на текущем, с другими акциями, сезоном и составом каталога.</p>
+<p><b>Метрики измеряют разное.</b> NDCG на исторических кликах и выручка на сессию — разные вещи. Модель может лучше предсказывать клики и при этом снижать выручку, продвигая дешёвые товары.</p>
+<p><b>Эффекты системы, а не модели.</b> В онлайне работают кэши, фильтры наличия, бизнес-правила, дедупликация, ограничения по частоте показа — офлайн-оценка их обычно игнорирует.</p>
+<p><b>Влияние на поведение.</b> Рекомендации меняют пользователя: разнообразная выдача может снизить CTR сегодня и повысить retention через месяц. Офлайн такой эффект не виден в принципе.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как сокращать разрыв">
+<p>Три инструмента. <b>Counterfactual / off-policy оценка</b>: IPS и его варианты (SNIPS, doubly robust) перевзвешивают исторические события на обратную вероятность показа, давая несмещённую оценку новой политики — при условии, что старая политика была стохастической и её вероятности логировались. Отсюда практическое требование: <b>логировать propensity</b> (вероятность показа объекта на позиции) с самого начала, иначе off-policy оценка невозможна. <b>Рандомизированный трафик</b>: небольшая доля показов делается случайной, и на этих данных получается несмещённая выборка для оценки. <b>Shadow-режим</b>: новая модель считает рекомендации на живом трафике, но не показывает их — сравниваются распределения выдач и стоимость, до всякого A/B.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Правильная позиция на собеседовании">
+<p>Офлайн-метрики — это <b>фильтр</b>, а не решение: они нужны, чтобы не выкатывать в A/B заведомо худшие модели, поскольку A/B дорог по времени и трафику. Финальное решение всегда за онлайн-экспериментом. Утверждение «NDCG вырос на 3 %, значит выкатываем» — типичный красный флаг; правильная формулировка: «NDCG вырос, off-policy оценка не противоречит, идём в A/B на 5 % трафика с заранее зафиксированными метриками и guardrails».</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-position-bias-interview">
+  <div class="name" id="rs-position-bias-interview">
+    Как учитывать позиционное смещение и что такое IPS?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Position bias — систематическая зависимость вероятности клика от позиции объекта в выдаче: первую позицию кликают в разы чаще десятой, даже если объекты равноценны. Если обучать модель на сырых кликах, она выучит не релевантность, а «то, что стояло наверху», и закрепит решения предыдущей модели.</p>
+<p>Стандартная модель — <b>position-based model (examination hypothesis)</b>:</p>
+<p><span class="latex-copy-wrap" data-latex="\[P(\text{click} \mid u, i, k) = P(\text{examine} \mid k) \cdot P(\text{relevant} \mid u, i),\]">\[P(\text{click} \mid u, i, k) = P(\text{examine} \mid k) \cdot P(\text{relevant} \mid u, i),\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>то есть клик происходит, если пользователь <b>посмотрел</b> на позицию (зависит только от $k$) и объект <b>релевантен</b> (не зависит от позиции). Величина $P(\text{examine} \mid k)$ — propensity позиции.</p>
+<p>Зная propensity, можно обучать на несмещённых данных: <b>IPS</b> взвешивает каждый пример на $1 / P(\text{examine} \mid k)$, из-за чего клики на нижних позициях получают больший вес, компенсируя редкость их просмотра.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как оценивать propensity">
+<p>Три пути. <b>Рандомизация позиций</b> (result randomization) — самый честный: на малой доле трафика порядок выдачи перемешивается, и разница CTR по позициям даёт прямую оценку кривой просмотра. <b>Интервенции swap</b>: менять местами объекты на позициях $k$ и $k'$ и сравнивать CTR. <b>Оценка из логов без интервенций</b> (regression-EM, dual learning algorithm): совместно обучать модель релевантности и модель просмотра. Первый способ точнее, но требует жертвовать частью трафика; третий бесплатен, но опирается на предположения, которые могут не выполняться.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про дисперсию IPS">
+<p>Обратные веса становятся огромными для позиций с малой вероятностью просмотра, и оценка приобретает гигантскую дисперсию: несколько случайных кликов с нижних позиций могут полностью определить результат. Стандартные лекарства — <b>клиппинг</b> весов сверху, <b>self-normalized IPS</b> (нормировка на сумму весов) и <b>doubly robust</b> оценки, комбинирующие IPS с моделью-регрессором. Упоминание проблемы дисперсии и способа с ней бороться — сильный сигнал на собеседовании: это отличает знание термина от понимания метода.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Холодный старт и обратная связь</h3>
+<li class="question" data-md-source="true" data-md-id="rs-cold-start-interview">
+  <div class="name" id="rs-cold-start-interview">
+    Как решать холодный старт для нового пользователя и нового объекта?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Холодный старт бывает трёх видов, и решения у них разные.</p>
+<p><b>Новый объект.</b> Взаимодействий нет, но есть контент: описание, категория, бренд, картинка, цена. Решения: контентные эмбеддинги как источник кандидатов; обучение отображения из контентных признаков в пространство коллаборативных эмбеддингов, чтобы новый объект сразу получил вектор; явная квота на показы новинок (exploration-слот), чтобы объект набрал статистику; наследование сигнала от «родителя» (другая расцветка того же товара, другой эпизод того же сериала).</p>
+<p><b>Новый пользователь.</b> Решения по возрастанию усилий: популярное в его гео и категории; сигнал из контекста (источник перехода, поисковый запрос, устройство, реферер); онбординг с явным выбором интересов; быстрая адаптация внутри первой сессии — сессионная модель работает уже после 2–3 действий, поэтому sequential-подход здесь особенно ценен.</p>
+<p><b>Новая система (cold start системы).</b> Нет ни данных, ни модели. Стартуют с правил, популярного и контентной похожести, параллельно собирая логи; первую персонализацию включают, когда накопится статистика.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему exploration — это не опция, а требование">
+<p>Без принудительного показа новых объектов система никогда не узнает, что они хорошие: нет показов — нет кликов — нет данных — модель считает их плохими — нет показов. Это замкнутый круг, и разорвать его можно только явным решением тратить часть трафика на исследование. Формализуется как multi-armed bandit: epsilon-greedy (доля случайных показов), UCB (буст объектам с высокой неопределённостью оценки), Thompson sampling (сэмплирование из апостериорного распределения CTR). Практически чаще всего берут простую квоту: например, 5 % позиций отдаются объектам моложе недели.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Оценка холодного старта отдельной метрикой">
+<p>Общий NDCG почти не чувствителен к холодному старту: новые объекты и новые пользователи составляют малую долю выборки. Поэтому метрики нужно считать <b>по срезам</b>: качество на пользователях с менее чем 5 действиями, доля показов объектов моложе 7 дней, время от появления объекта до первого показа и до первой конверсии. Без этих срезов проблема холодного старта в отчётах невидима.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-feedback-loop-interview">
+  <div class="name" id="rs-feedback-loop-interview">
+    Что такое feedback loop и как он деградирует рекомендательную систему?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Рекомендательная система обучается на данных, которые сама и породила: модель показывает объекты → пользователи взаимодействуют только с показанным → эти взаимодействия становятся обучающей выборкой следующей версии модели. Возникает замкнутая петля, в которой ошибки не исправляются, а закрепляются.</p>
+<p>Проявления:</p>
+<ul>
+<li><b>Сужение каталога.</b> Объекты, случайно не попавшие в выдачу на старте, никогда не наберут статистику и постепенно исчезают из системы совсем.</li>
+<li><b>Схлопывание интересов.</b> Пользователь, случайно кликнувший на один жанр, получает больше такого же, кликает снова — и модель «убеждается» в узости его вкусов.</li>
+<li><b>Ложная уверенность в качестве.</b> Метрики растут, потому что модель хорошо предсказывает свои же прошлые решения, а не реальные предпочтения.</li>
+<li><b>Дрейф в сторону кликбейта.</b> Если целевая метрика — клик, петля усиливает контент, вызывающий клик без удовлетворения.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как разрывать петлю">
+<p>Единственный принципиальный способ — вносить в систему информацию <b>извне текущей политики</b>. Инструменты: постоянная доля рандомизированного трафика (даже 1 % даёт несмещённую выборку для оценки); exploration-слоты и бандиты; логирование propensity и обучение с IPS-коррекцией; оптимизация долгосрочных целей (retention, время до следующего визита) вместо мгновенного клика; регуляризация выдачи на разнообразие; мониторинг coverage и энтропии показов как guardrail-метрик, на падение которых настроен алерт.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Как это выглядит в проде">
+<p>Типичная история: команда выкатывает модель, CTR растёт на 8 %, через два месяца падает retention, а coverage каталога снизился втрое. Причина — петля: модель выучила узкий пул «безотказных» объектов и перестала показывать остальное. Поэтому в A/B-тестах рекомендаций всегда фиксируют guardrail-метрики (coverage, разнообразие, доля показов длинного хвоста, retention), и рост целевой метрики при их падении считается не победой, а поводом для разбора.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Production</h3>
+<li class="question" data-md-source="true" data-md-id="rs-online-architecture-interview">
+  <div class="name" id="rs-online-architecture-interview">
+    Как построить онлайн-архитектуру рекомендаций с ответом за 100 мс?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Разделение на офлайн, наносекундный кэш и онлайн-путь.</p>
+<p><b>Офлайн (раз в час/сутки).</b> Обучение моделей, пересчёт эмбеддингов объектов, построение ANN-индекса, пересчёт item-item таблиц, агрегатных признаков и предвычисленных списков популярного по сегментам. Всё, что можно посчитать заранее, считается заранее.</p>
+<p><b>Near-line (секунды-минуты).</b> Обновление счётчиков и признаков по потоку событий (Kafka + стриминговая обработка), обновление сессионного профиля пользователя, инвалидация кэшей, обновление доступности товаров.</p>
+<p><b>Online (десятки миллисекунд).</b> Путь запроса: собрать признаки пользователя и контекста из низколатентного хранилища (Redis/Aerospike, целевая p99 в пределах 5 мс) → посчитать вектор пользователя одной моделью → параллельно опросить источники кандидатов (ANN, item-item, популярное, правила) с общим таймаутом → дедуплицировать пул → загрузить признаки кандидатов батчем одним запросом → прогнать ранкер на 300–500 кандидатах → переранжировать и применить бизнес-фильтры → отдать выдачу и <b>залогировать</b> показ с propensity.</p>
+<p>Бюджет распределяется примерно так: признаки 10–15 мс, retrieval 10–20 мс, ранкер 20–30 мс, постобработка 5–10 мс, остальное — сеть и запас.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Где обычно теряется время">
+<p>Не в модели. Типичные виновники — последовательные (а не батчевые) обращения за признаками кандидатов, отсутствие таймаутов на источники кандидатов, синхронное логирование, JSON-сериализация больших ответов и холодный кэш после деплоя. Практическое правило: у каждого внешнего вызова должен быть таймаут и деградационный путь, а число сетевых round-trip на запрос должно быть константным, а не пропорциональным числу кандидатов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про деградацию и надёжность">
+<p>Рекомендательный сервис обязан отвечать всегда, поэтому в него закладывают каскад запасных вариантов: не ответил ранкер — отдаём кандидатов по скорингу retrieval; не ответил retrieval — отдаём предвычисленный персональный список из кэша; нет и его — популярное по категории и гео. Такой graceful degradation обсуждают на собеседовании почти всегда, и ответ «сервис вернёт 500» считается неверным: пустая полка на витрине дороже, чем неоптимальные рекомендации.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-ab-testing-interview">
+  <div class="name" id="rs-ab-testing-interview">
+    Как A/B-тестировать рекомендации и какие метрики брать целевыми?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Единица рандомизации — пользователь, а не запрос.</b> Рандомизация по сессиям или показам ломает эксперимент: один и тот же человек видит разные версии, эффекты смешиваются, а персонализация по определению накапливается по пользователю.</p>
+<p><b>Метрики делятся на три группы.</b> Целевая (OEC) — одна: например, выручка на пользователя, число заказов на пользователя или суммарное время просмотра. Прокси-метрики — CTR блока, конверсия из показа в клик, глубина просмотра; они помогают понять механизм. Guardrail-метрики — latency, доля ошибок, coverage каталога, разнообразие, доля длинного хвоста, retention; их падение блокирует раскатку даже при росте целевой.</p>
+<p><b>Длительность.</b> Считается заранее по MDE, дисперсии метрики и трафику; для рекомендаций типично 1–3 недели, чтобы захватить недельную сезонность полностью. Подглядывать в промежуточные результаты и останавливаться при первом достижении значимости нельзя — это раздувает ошибку первого рода; если нужно — использовать последовательное тестирование или групповые границы.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Специфика рекомендаций: сетевые эффекты и каннибализация">
+<p>В маркетплейсах и соцсетях группы не независимы: продвижение товара в тестовой группе истощает его остаток и меняет выдачу в контрольной; авторы контента получают разный охват в двух группах и меняют поведение. Это нарушает SUTVA — предположение о независимости наблюдений — и смещает оценку эффекта. Инструменты борьбы: кластерная рандомизация (по гео, по группам продавцов), switchback-тесты (переключение версии по времени для всей платформы), эксперименты на уровне маркетплейса с двусторонней рандомизацией. Упоминание сетевых эффектов сильно выделяет ответ.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Типичные ошибки">
+<p>Оценивать только CTR блока: он растёт от кликбейта и от диверсии трафика из других блоков, а суммарная выручка при этом не меняется. Не проверять <b>новизну эффекта</b> (novelty effect): любое изменение выдачи даёт кратковременный всплеск внимания, который затухает за неделю. Забывать про долю трафика, попавшего в холодный кэш после деплоя. И не фиксировать метрики заранее — иначе после эксперимента всегда найдётся срез, где «получилось».</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-retraining-interview">
+  <div class="name" id="rs-retraining-interview">
+    Как обновлять эмбеддинги и переобучать рекомендательную модель в проде?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Разные компоненты живут в разных ритмах, и это нормально:</p>
+<ul>
+<li><b>Счётчики и агрегаты</b> — минуты, стримингом по событиям.</li>
+<li><b>Сессионный профиль пользователя</b> — секунды, внутри запроса или near-line.</li>
+<li><b>Ранкер</b> (бустинг или DNN) — раз в сутки или чаще: у него меняется распределение признаков, а переобучение относительно дешёвое.</li>
+<li><b>Эмбеддинги и ANN-индекс</b> — раз в сутки или в несколько суток: полное переобучение two-tower и перестройка индекса дороги.</li>
+<li><b>Архитектурные изменения</b> — по мере необходимости, через полноценный A/B.</li>
+</ul>
+<p>Ключевое требование — <b>согласованность версий</b>. Башня пользователя и индекс объектов должны быть из одной версии модели, иначе векторы окажутся в разных пространствах и рекомендации станут случайными. На практике версия модели и версия индекса переключаются атомарно, а старая пара остаётся доступной для мгновенного отката.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Полное переобучение против инкрементального">
+<p>Инкрементальное дообучение (warm start от прошлых весов) дешевле и даёт свежесть, но накапливает дрейф: эмбеддинги старых объектов постепенно «расползаются», а модель всё сильнее подстраивается под собственную петлю обратной связи. Полное переобучение с нуля дороже, но сбрасывает накопленные искажения и позволяет пересобрать выборку с актуальными правилами фильтрации. Типичная схема — инкремент ежедневно и полное переобучение раз в неделю или месяц, с обязательным сравнением обеих версий на офлайн-выборке перед выкаткой.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что проверять перед выкаткой новой версии">
+<p>Обязательный чек-лист: (1) офлайн-метрики на временном holdout не хуже текущей версии; (2) распределение скорингов и предсказаний не сдвинулось аномально; (3) coverage каталога и доля длинного хвоста не упали; (4) latency ранкера и recall ANN-индекса в пределах SLA; (5) прогон на «золотом» наборе запросов даёт осмысленные выдачи глазами; (6) shadow-режим на живом трафике без показа; и только потом A/B на малой доле с автоматическим откатом по guardrail-метрикам.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="rs-business-rules-interview">
+  <div class="name" id="rs-business-rules-interview">
+    Как встроить бизнес-правила и фильтры в рекомендательную выдачу?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Правила бывают трёх типов, и обрабатывать их надо по-разному.</p>
+<p><b>Жёсткие фильтры (hard constraints).</b> Нельзя показывать: товара нет в наличии, он не доставляется в этот регион, контент 18+ несовершеннолетнему, товар снят с продажи, объект уже куплен (для неповторяемых категорий). Такие правила применяются <b>на всех стадиях</b>: часть — прямо в источнике кандидатов (отдельные индексы по региону), часть — как финальный фильтр. Важно добирать кандидатов с запасом, иначе после фильтрации выдача окажется полупустой.</p>
+<p><b>Мягкие правила (soft constraints).</b> Буст новинок и акций, ограничение доли одного продавца, не более двух товаров одной категории подряд, разнесение уже показанного. Реализуются на этапе re-ranking как штрафы и квоты, а не как удаление.</p>
+<p><b>Приоритеты бизнеса.</b> Маржинальность, складские остатки, контрактные обязательства перед поставщиками. Их корректно включать в целевую формулу скоринга — например, ранжировать по ожидаемой марже $p(\text{purchase}) \cdot \text{margin}$, — а не подкручивать вручную поверх модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему правила не стоит зашивать в модель">
+<p>Модель обучается медленно и переобучается редко, а правила меняются каждый день: акция началась, поставщик выпал, регион закрылся. Смешение слоёв делает систему неотлаживаемой — непонятно, почему товар не показался: модель занизила или правило отфильтровало. Правильная архитектура держит правила отдельным конфигурируемым слоем с логированием причины исключения каждого кандидата. Тогда на вопрос «почему этот товар не показан» есть однозначный ответ, а не расследование.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про конфликт правил и качества">
+<p>Каждое правило снижает свободу оптимизации, и их совокупный эффект часто недооценивают: десяток «безобидных» ограничений может съесть весь прирост от новой модели. Поэтому влияние правил стоит измерять так же, как модели, — A/B-тестом на включение/выключение правила, — и держать дашборд «сколько кандидатов отсеивает каждое правило». Правило, которое режет 40 % пула и не даёт измеримой пользы, — кандидат на удаление.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

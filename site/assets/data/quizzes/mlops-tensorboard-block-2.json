@@ -1,0 +1,88 @@
+{
+  "id": "mlops:tensorboard:block-2",
+  "title": "TensorBoard · Блок 2: медиа и Profiler",
+  "description": "Итоговая проверка по TensorBoard: images, histograms, embeddings, риск утечки данных через event-файлы и поиск bottleneck-ов в Profiler.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_hist",
+      "type": "single",
+      "q": "Для чего в TensorBoard используют Histograms?",
+      "options": [
+        "Для кривых loss по эпохам",
+        "Для распределений весов, bias, активаций и градиентов",
+        "Для примеров генерации текста",
+        "Для анализа загрузки GPU"
+      ],
+      "answer": [1],
+      "explain": "Кривые — это Scalars, тексты — Text, загрузка GPU — Profiler; распределения значений показывают Histograms."
+    },
+    {
+      "id": "b2_embeddings",
+      "type": "single",
+      "q": "Как в TensorBoard посмотреть, как модель расположила объекты в пространстве признаков?",
+      "options": [
+        "Через Scalars",
+        "Через Audio",
+        "Через Profiler",
+        "Через Embeddings и projector"
+      ],
+      "answer": [3],
+      "explain": "Embeddings визуализируют признаки через projector."
+    },
+    {
+      "id": "b2_leak",
+      "type": "single",
+      "q": "TensorBoard развёрнут на сервере для всей команды. Что важно помнить о логировании изображений?",
+      "options": [
+        "Event-файлы — тоже артефакты: персональные данные, медицинские снимки и лица в них нужно защищать или не логировать",
+        "Изображения в event-файлы не сохраняются, риска нет",
+        "TensorBoard сам размывает лица на изображениях",
+        "Изображения можно логировать только в формате PNG"
+      ],
+      "answer": [0],
+      "explain": "Всё, что залогировано, лежит в event-файлах и доступно тем, у кого есть доступ к TensorBoard."
+    },
+    {
+      "id": "b2_gpu_low",
+      "type": "single",
+      "q": "Profiler показывает низкую загрузку GPU. Что проверить в первую очередь?",
+      "options": [
+        "Архитектуру модели: добавить слоёв",
+        "Число эпох",
+        "DataLoader, чтение с диска и аугментации на CPU",
+        "Формат event-файлов"
+      ],
+      "answer": [2],
+      "explain": "GPU простаивает, когда батчи долго готовятся на CPU — Profiler помогает отличить проблемы модели от проблем data pipeline."
+    },
+    {
+      "id": "b2_memory",
+      "type": "multi",
+      "q": "Память GPU близка к лимиту. Что из перечисленного помогает по материалу? Выберите все верные.",
+      "options": [
+        "Уменьшить batch size",
+        "Увеличить `num_workers`",
+        "Activation checkpointing",
+        "Mixed precision"
+      ],
+      "answer": [0, 2, 3],
+      "explain": "`num_workers` ускоряет загрузку данных, но память GPU не экономит."
+    },
+    {
+      "id": "b2_h2d",
+      "type": "single",
+      "q": "Много времени уходит на host-to-device copy. Что проверить?",
+      "options": [
+        "Learning rate",
+        "`pin_memory`, `num_workers` и перенос данных на GPU",
+        "Число слоёв модели",
+        "Частоту записи scalars"
+      ],
+      "answer": [1],
+      "explain": "Копирование CPU → GPU ускоряют pinned memory и правильная организация загрузки."
+    }
+  ]
+}

@@ -1,0 +1,1944 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Redis</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../assets/code-styles.css" rel="stylesheet" />
+  <link href="../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../assets/js/components/questions-toc.js"></script>
+  <script src="../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../assets/js/core.js"></script>
+  <script defer="" src="../assets/js/questions.js"></script>
+  <script defer="" src="../assets/js/controls.js"></script>
+  <script defer="" src="../assets/katex/katex.min.js"></script>
+  <script defer="" src="../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../assets/js/components/lazy-questions.js"></script>
+  <script src="../assets/js/init-head.js"></script>
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/anchor-scroll.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/components/section-hero.js"></script>
+  <script src="../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../assets/js/components/difficulty-rating.js"></script>
+  <script src="../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../assets/js/components/info-cards.js"></script>
+  <script src="../assets/js/components/quiz.js"></script>
+  <script src="../assets/js/components/block-tests.js"></script>
+  <script src="../assets/js/components/question-presentation.js"></script>
+  <script src="../assets/js/components/question-badges.js"></script>
+  <script src="../assets/js/components/term-definitions.js"></script>
+  <script src="../assets/js/components/term-tooltip.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../db/index.html">Базы данных</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Redis</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Базы данных</span>
+          <span class="pill pill--soft">Redis</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Redis</h1>
+        <p class="section-shell__desc">In-memory хранилище: структуры данных, персистентность, репликация, кэширование и типичные паттерны.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 1</h3>
+<li class="question" data-md-source="true" data-md-id="redis_intro" data-interview="5">
+  <div class="name" id="redis_intro">
+    Что такое Redis и зачем он ML-инженеру?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Redis</b> (REmote DIctionary Server) — это <b>in-memory key-value хранилище</b>: сервер, который держит все данные в оперативной памяти и отдаёт их по ключу. Значением может быть не только строка, но и готовая структура данных — хэш, список, множество, отсортированное множество, поток.</p>
+<p>Если совсем простыми словами: Redis — это <b>огромный общий <code>dict</code> в Python, к которому по сети одновременно ходят все ваши сервисы</b>. Положил по ключу — любой другой процесс на любой машине тут же может достать. И делается это за доли миллисекунды, потому что никакого диска на пути запроса нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Расшифровка терминов">
+<ul>
+<li><b>In-memory</b> — данные живут в RAM, а не на диске. Отсюда скорость, но и ограничение: объём данных не может превышать память сервера.</li>
+<li><b>Key-value</b> — модель «ключ → значение», как у словаря. Нет таблиц, схем, JOIN и SQL: вы всегда обращаетесь к данным по ключу.</li>
+<li><b>Latency</b> (задержка) — время ответа на один запрос. У Redis типичная latency внутри дата-центра — <b>0.1–1 мс</b>, у запроса в PostgreSQL с диском — единицы и десятки миллисекунд.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Сколько это в цифрах">
+<p>Сервис рекомендаций отвечает пользователю за бюджет 50 мс. На каждый запрос нужно достать 40 признаков пользователя.</p>
+<ul>
+<li>Из PostgreSQL: JOIN трёх таблиц, ~15 мс. Остаётся 35 мс на модель и сеть.</li>
+<li>Из Redis: один <code>HGETALL features:user:42</code>, ~0.5 мс. Остаётся почти весь бюджет.</li>
+</ul>
+<p>Один экземпляр Redis на обычном сервере держит порядка <b>100 тысяч операций в секунду</b> на простых командах, а с пакетной отправкой (pipeline) — в разы больше.</p>
+
+</div>
+<h3>Почему Redis такой быстрый</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Однопоточное выполнение команд">
+<p>Redis выполняет команды <b>в одном потоке</b>, строго по очереди. Звучит как недостаток, но это главная причина скорости и простоты:</p>
+<ul>
+<li><b>нет блокировок</b> (locks) — двум потокам не нужно договариваться, кто сейчас меняет данные;</li>
+<li><b>каждая команда атомарна</b> сама по себе: пока выполняется <code>INCR counter</code>, никакая другая команда не вклинится посередине;</li>
+<li>нет накладных расходов на переключение контекста между потоками.</li>
+</ul>
+<p>Сетевой ввод-вывод обслуживается через <b>event loop</b> (цикл событий, механизм <code>epoll</code>/<code>kqueue</code> в ОС): один поток следит за тысячами соединений и обрабатывает то, где пришли данные.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="«Однопоточный» — это про выполнение команд">
+<p>С версии 6.0 Redis умеет читать и писать в сокеты несколькими I/O-потоками, а сохранение на диск и удаление больших ключей идут в фоне (отдельные потоки или дочерний процесс). Но <b>сами команды над данными</b> по-прежнему выполняются одним потоком. Именно это имеют в виду на собеседовании, когда говорят «Redis однопоточный».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Остальные причины скорости">
+<ul>
+<li><b>Всё в памяти</b> — доступ к RAM на порядки быстрее, чем к диску, даже к SSD.</li>
+<li><b>Эффективные структуры данных</b> — у каждого типа своя оптимизированная реализация: маленькие хэши и списки хранятся компактно в одном куске памяти (listpack), отсортированные множества — в skip list с логарифмическим поиском.</li>
+<li><b>Простой протокол</b> RESP — текстово-бинарный формат, который очень дёшево разбирать.</li>
+</ul>
+<p>Обычно узким местом становится не процессор Redis, а <b>сеть</b> (round-trip между клиентом и сервером) и <b>объём памяти</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Обратная сторона однопоточности">
+<p>Раз команды идут строго по очереди, <b>одна медленная команда блокирует всех</b>. <code>KEYS *</code> на 10 миллионах ключей или <code>HGETALL</code> на хэше из миллиона полей может «подвесить» сервер на секунды, и в это время не обслуживается ни один другой клиент. Поэтому в проде вместо <code>KEYS</code> используют итеративный <code>SCAN</code>, а большие коллекции читают порциями.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Однопоточная очередь команд Redis" src="../images/db/redis/single_thread.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Команды трёх клиентов встают в одну очередь и выполняются строго по одной — поэтому каждая атомарна и блокировки не нужны. Но когда в очередь попадает <code>KEYS *</code> на 10 млн ключей, остальные команды ждут, пока он не закончится. <code>SCAN</code> отдаёт ключи порциями по ~100, и между порциями успевают выполниться команды других клиентов.
+  </figcaption>
+</figure>
+<h3>Где Redis используется в ML</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Типичные ML-сценарии">
+<ul>
+<li><b>Кэш инференса</b> — сохраняем предсказание модели по хэшу входа: повторный запрос с теми же признаками не гоняет модель заново.</li>
+<li><b>Кэш эмбеддингов</b> — эмбеддинг текста или картинки считается один раз, дальше берётся из Redis.</li>
+<li><b>Online feature store</b> — свежие признаки пользователя или товара для real-time инференса. Например, Feast умеет использовать Redis как online-хранилище.</li>
+<li><b>Очередь задач</b> — брокер для Celery или RQ: API кладёт задачу «переобучить», «посчитать батч», воркер забирает.</li>
+<li><b>Rate limiting</b> — ограничение «не больше 100 запросов к LLM-API в минуту на пользователя».</li>
+<li><b>Сессии и история диалога</b> чат-бота с автоматическим удалением через заданное время.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Чем Redis не является">
+<p>Redis — <b>не основная база данных</b> для критичных данных (хотя умеет сохранять их на диск), не аналитическое хранилище и не замена PostgreSQL. Его роль — <b>быстрый слой перед</b> основным хранилищем или временное общее состояние между сервисами. Про общие классы NoSQL-хранилищ и место key-value среди них — в разделе <a href="../ai/mlops/infra/db.html#nosql" target="_blank" rel="noopener">Что такое NoSQL?</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Redis и Valkey">
+<p>В 2024 году Redis сменил лицензию на более ограничительную, и сообщество под эгидой Linux Foundation сделало форк <b>Valkey</b> — совместимый по протоколу и командам. Многие облака (например, AWS ElastiCache) предлагают оба варианта. Для разработчика разницы почти нет: те же команды, тот же клиент <code>redis-py</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки новичков">
+<ul>
+<li><b>«Redis однопоточный, значит медленный».</b> Наоборот: однопоточность убирает блокировки, а упирается Redis обычно в сеть, а не в CPU.</li>
+<li><b>Хранить в Redis единственную копию важных данных.</b> Даже с persistence при падении можно потерять последние секунды записей. Источник правды — основная БД.</li>
+<li><b>Класть всё подряд без TTL</b> (времени жизни ключа). Память конечна, и через месяц кэш займёт весь сервер.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Redis?</b></p>
+<p>In-memory key-value хранилище: данные лежат в оперативной памяти, доступ идёт по ключу, а значениями могут быть строки, хэши, списки, множества, отсортированные множества и потоки. Типичная задержка — доли миллисекунды.</p>
+</li>
+<li><p><b>Почему Redis быстрый, если он однопоточный?</b></p>
+<p>Данные в памяти, структуры данных оптимизированы, протокол простой, а однопоточное выполнение команд избавляет от блокировок и переключения контекста. Узкое место обычно сеть и объём памяти, а не процессор.</p>
+</li>
+<li><p><b>Что значит «однопоточный» в современном Redis?</b></p>
+<p>Команды над данными выполняются одним потоком строго по очереди, поэтому каждая команда атомарна. При этом сетевой I/O может обслуживаться несколькими потоками (с 6.0), а сохранение на диск и ленивое удаление идут в фоне.</p>
+</li>
+<li><p><b>Чем опасна однопоточность?</b></p>
+<p>Одна тяжёлая команда (<code>KEYS *</code>, чтение огромной коллекции целиком) блокирует обработку всех остальных клиентов. Поэтому используют <code>SCAN</code> и читают большие структуры порциями.</p>
+</li>
+<li><p><b>Где Redis применяется в ML-системах?</b></p>
+<p>Кэш предсказаний и эмбеддингов, online feature store для real-time инференса, брокер очередей задач для Celery/RQ, rate limiting запросов, хранение сессий и истории диалогов с TTL.</p>
+</li>
+<li><p><b>Почему Redis не стоит использовать как единственное хранилище критичных данных?</b></p>
+<p>Он ограничен объёмом RAM, а даже с включённым сохранением на диск при сбое можно потерять последние записи. Redis — быстрый слой поверх основной БД, которая остаётся источником правды.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_data_types" data-interview="5">
+  <div class="name" id="redis_data_types">
+    Какие структуры данных есть в Redis?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В Redis <b>значение ключа имеет тип</b>, и у каждого типа свой набор команд. Основные типы:</p>
+<ul>
+<li><b>String</b> — строка или байты (до 512 МБ), в том числе число;</li>
+<li><b>Hash</b> — словарь «поле → значение» внутри одного ключа;</li>
+<li><b>List</b> — упорядоченный список с быстрыми вставками по краям;</li>
+<li><b>Set</b> — неупорядоченное множество уникальных элементов;</li>
+<li><b>Sorted Set (ZSet)</b> — множество, где у каждого элемента есть числовой <b>score</b>, и элементы всегда отсортированы по нему.</li>
+</ul>
+<p>Плюс специальные: <b>Stream</b>, <b>Bitmap</b>, <b>HyperLogLog</b>, геоиндексы.</p>
+<p>Если совсем простыми словами: Redis — это не «словарь строк», а <b>словарь, в котором значениями лежат готовые структуры данных</b>. Выбрать правильную структуру — значит получить нужную операцию за $O(1)$ или $O(\log N)$ одной командой, а не тащить данные в Python и обрабатывать там.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Пять основных типов Redis" src="../images/db/redis/data_types.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Пять основных типов на конкретных ключах: <code>INCR</code> увеличивает число в String, <code>HINCRBY</code> меняет одно поле Hash, не трогая остальные, List работает как очередь (<code>LPUSH</code> слева, <code>RPOP</code> справа), Set не добавляет дубликат, а Sorted Set после <code>ZINCRBY</code> сам переставляет alice на первое место по score.
+  </figcaption>
+</figure>
+<h3>String</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Строки и счётчики">
+<p>Самый простой тип: по ключу лежит строка байтов. Туда кладут JSON, сериализованный numpy-массив, токен сессии. Если строка — целое число, работают атомарные счётчики <code>INCR</code>/<code>INCRBY</code>: сервер сам прочитает, увеличит и запишет число за одну операцию.</p>
+<p>Ключевые команды: <code>SET</code>, <code>GET</code>, <code>MSET</code>/<code>MGET</code> (много ключей за раз), <code>INCR</code>, <code>SET ... NX</code> (записать, только если ключа нет), <code>SET ... EX 60</code> (с временем жизни 60 секунд).</p>
+
+</div>
+<div class="code-block" data-lang="bash">SET pred:model_v3:ab12 '{"score": 0.87}' EX 3600
+GET pred:model_v3:ab12
+INCR requests:user:42          # -&gt; 1, 2, 3 ...
+SET lock:retrain worker-7 NX EX 30   # OK только если замка ещё нет</div><h3>Hash</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Хэш как объект">
+<p>Хэш — словарь внутри ключа: <code>features:user:42 → {age: 31, orders_30d: 5, avg_check: 1240}</code>. Можно прочитать или обновить <b>одно поле</b>, не перезаписывая весь объект. Это идеальная форма для <b>online-признаков</b>: один ключ на сущность, поля — признаки.</p>
+<p>Команды: <code>HSET</code>, <code>HGET</code>, <code>HMGET</code> (несколько полей), <code>HGETALL</code> (все поля), <code>HINCRBY</code> (атомарно увеличить поле), <code>HDEL</code>.</p>
+
+</div>
+<div class="code-block" data-lang="bash">HSET features:user:42 age 31 orders_30d 5 avg_check 1240
+HMGET features:user:42 age orders_30d
+HINCRBY features:user:42 orders_30d 1</div>
+<div class="info-card-auto" data-type="remark" data-title="String с JSON или Hash?">
+<p>JSON в строке проще, если объект всегда читается и пишется целиком. Hash выгоднее, когда поля обновляются по отдельности разными процессами: например, стриминговый пайплайн обновляет <code>orders_30d</code>, а батчевый — <code>avg_check</code>. С JSON-строкой пришлось бы читать, менять и перезаписывать весь объект, рискуя затереть чужое изменение.</p>
+
+</div>
+<h3>List</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Список как очередь">
+<p>Список — последовательность элементов с вставкой и удалением <b>с краёв за $O(1)$</b>. <code>LPUSH</code> + <code>RPOP</code> — это очередь FIFO (первым пришёл — первым ушёл). Блокирующий <code>BRPOP</code> ждёт, пока в пустом списке появится элемент, — так делают простую очередь задач без постоянного опроса.</p>
+<p>Команды: <code>LPUSH</code>/<code>RPUSH</code>, <code>LPOP</code>/<code>RPOP</code>, <code>BRPOP</code>, <code>LRANGE key 0 9</code> (первые 10), <code>LTRIM</code> (обрезать до N последних — например, хранить 50 последних сообщений диалога).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Доступ по индексу в середине — медленный">
+<p><code>LINDEX</code> и <code>LSET</code> для элемента в середине списка работают за $O(N)$. Список хорош для краёв, а не для произвольного доступа.</p>
+
+</div>
+<h3>Set</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Множество">
+<p>Неупорядоченный набор <b>уникальных</b> строк. Проверка принадлежности <code>SISMEMBER</code> — за $O(1)$. Есть операции над множествами: пересечение <code>SINTER</code>, объединение <code>SUNION</code>, разность <code>SDIFF</code>.</p>
+<p>Пример: <code>SADD seen:user:42 item_17 item_99</code> — товары, которые пользователь уже видел. При формировании рекомендаций отфильтровать увиденное — одна команда <code>SMISMEMBER</code> на весь список кандидатов.</p>
+
+</div>
+<h3>Sorted Set</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Отсортированное множество">
+<p>Каждый элемент — уникальная строка с числовым <b>score</b>. Redis держит элементы отсортированными по score, поэтому «топ-10», «место игрока» и «все элементы со score от A до B» достаются за $O(\log N + M)$, где $M$ — размер ответа.</p>
+<p>Внутри — <b>skip list</b> (многоуровневый связный список с логарифмическим поиском) плюс хэш-таблица для поиска score по элементу.</p>
+<p>Команды: <code>ZADD</code>, <code>ZINCRBY</code> (прибавить к score), <code>ZRANGE key 0 9 REV WITHSCORES</code> (топ-10 по убыванию), <code>ZRANK</code>/<code>ZREVRANK</code> (место), <code>ZRANGEBYSCORE</code>, <code>ZREMRANGEBYSCORE</code> (удалить по диапазону score).</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Skip list: несколько уровней связных списков" src="../images/db/redis/web/r1_skip_list.svg" width="470" height="110" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+  <figcaption>
+    Skip list — структура внутри Sorted Set. Нижний уровень — обычный отсортированный связный список всех элементов, верхние уровни — «экспресс-линии», которые перепрыгивают через часть элементов. Поиск идёт сверху вниз: по верхней линии, пока следующий элемент не больше искомого, затем спуск на уровень ниже. В среднем это $O(\log N)$ шагов вместо $O(N)$ у простого списка. Источник: Wikimedia Commons, автор Wojciech Muła, public domain.
+  </figcaption>
+</figure>
+<div class="code-block" data-lang="bash">ZINCRBY leaderboard 50 alice
+ZINCRBY leaderboard 80 bob
+ZRANGE leaderboard 0 9 REV WITHSCORES   # топ-10: bob 80, alice 50
+ZREVRANK leaderboard alice              # -&gt; 1 (второе место, счёт с нуля)</div>
+<div class="info-card-auto" data-type="example" data-title="Sorted set как скользящее окно">
+<p>Для rate limiting по «последним 60 секундам» кладут каждый запрос в sorted set с <b>score = время запроса</b>:</p>
+<ol>
+<li><code>ZREMRANGEBYSCORE rl:user:42 0 (now-60)</code> — выкинуть запросы старше минуты;</li>
+<li><code>ZCARD rl:user:42</code> — сколько осталось в окне;</li>
+<li>если меньше лимита — <code>ZADD rl:user:42 now &lt;id запроса&gt;</code>.</li>
+</ol>
+<p>Та же идея работает для «популярных товаров за последний час» или окна событий для признаков.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Скользящее окно rate limiter на Sorted Set" src="../images/db/redis/sliding_window.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Лимит — 3 запроса за 60 секунд, score каждого элемента — время запроса. При now = 100 <code>ZREMRANGEBYSCORE</code> выкидывает r1 и r2, в окне остаётся 2 запроса, и новый пропускается. Через 5 секунд в окне уже 3 запроса — отказ. При now = 131 из окна выпадает r3, и запрос снова проходит.
+  </figcaption>
+</figure>
+<h3>Специальные типы</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Stream, Bitmap, HyperLogLog">
+<ul>
+<li><b>Stream</b> — журнал событий только на добавление (append-only log) с группами потребителей и подтверждениями. Это «маленькая Kafka» внутри Redis; подробно — в вопросе про очереди.</li>
+<li><b>Bitmap</b> — строка, с которой работают как с массивом битов: <code>SETBIT active:2026-09-24 &lt;user_id&gt; 1</code>, затем <code>BITCOUNT</code> даёт число активных за день. 10 млн пользователей — всего ~1.2 МБ.</li>
+<li><b>HyperLogLog</b> — вероятностный счётчик уникальных элементов: <code>PFADD</code>, <code>PFCOUNT</code>. Занимает не больше <b>12 КБ</b> при любом числе элементов, ошибка около <b>0.81%</b>. Подходит для «сколько уникальных пользователей видели баннер», когда точность до единицы не нужна.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Модули и векторы">
+<p>Поверх базовых типов есть расширения: <b>RedisJSON</b> (JSON-документы с доступом по пути), <b>RediSearch</b> (полнотекстовый и <b>векторный поиск</b>, то есть поиск ближайших эмбеддингов). В Redis 8 они входят в стандартную поставку. Для небольших RAG-систем Redis иногда используют как векторную БД, но это уже отдельная тема.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Всё хранить как JSON-строки</b>, а потом в Python считать топ, пересечения и счётчики. Правильная структура делает это на сервере одной атомарной командой.</li>
+<li><b>Big keys</b> — один хэш или список на миллионы элементов. Его удаление и чтение целиком блокируют сервер, а в кластере он не распределится по узлам. Лучше разбивать на несколько ключей.</li>
+<li><b>Путать <code>ZRANGE</code> по возрастанию и убыванию.</b> По умолчанию <code>ZRANGE</code> идёт от меньшего score к большему; для лидерборда нужен <code>REV</code> (или <code>ZREVRANGE</code> в старых версиях).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие основные типы данных есть в Redis?</b></p>
+<p>String, Hash, List, Set и Sorted Set. Дополнительно — Stream (журнал событий), Bitmap (битовый массив), HyperLogLog (приближённый подсчёт уникальных), геоиндексы, а через модули — JSON и векторный поиск.</p>
+</li>
+<li><p><b>Когда использовать Hash, а когда JSON в String?</b></p>
+<p>Hash — когда поля объекта читаются и обновляются по отдельности (например, online-признаки из разных пайплайнов). JSON в строке — когда объект всегда читается и пишется целиком.</p>
+</li>
+<li><p><b>Как устроен Sorted Set и для чего он нужен?</b></p>
+<p>Это множество уникальных элементов с числовым score, всегда отсортированное по score; внутри skip list и хэш-таблица. Даёт топ-N, место элемента и выборку по диапазону score за логарифмическое время. Классика — лидерборд и скользящее окно по времени.</p>
+</li>
+<li><p><b>Как сделать простую очередь задач на базовых типах?</b></p>
+<p>На List: продюсер делает <code>LPUSH</code>, воркер — блокирующий <code>BRPOP</code>, который ждёт появления элемента без постоянного опроса.</p>
+</li>
+<li><p><b>Что такое HyperLogLog и когда он полезен?</b></p>
+<p>Вероятностная структура для подсчёта числа уникальных элементов: занимает до 12 КБ при ошибке около 0.81%. Подходит, когда нужно примерное число уникальных пользователей или событий на огромных объёмах.</p>
+</li>
+<li><p><b>Что такое big key и чем он опасен?</b></p>
+<p>Ключ с огромным значением или коллекцией на миллионы элементов. Операции над ним целиком долго выполняются и блокируют однопоточный сервер, а в кластере такой ключ нельзя разнести по разным узлам.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_atomicity" data-interview="4">
+  <div class="name" id="redis_atomicity">
+    Атомарность в Redis: INCR, pipeline, MULTI/EXEC и Lua
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Атомарная операция</b> — операция, которую другие клиенты видят либо целиком выполненной, либо не начатой; «половинного» состояния никто не наблюдает.</p>
+<p>В Redis есть четыре уровня группировки команд:</p>
+<ul>
+<li><b>одна команда</b> — всегда атомарна (<code>INCR</code>, <code>SET NX</code>, <code>ZADD</code>);</li>
+<li><b>pipeline</b> — пачка команд за один сетевой round-trip, <b>без</b> атомарности;</li>
+<li><b>транзакция <code>MULTI</code>/<code>EXEC</code></b> — пачка команд выполняется подряд, без вклинивания чужих;</li>
+<li><b>Lua-скрипт</b> (<code>EVAL</code>) — произвольная логика с условиями, выполняется целиком атомарно.</li>
+</ul>
+<p>Если совсем простыми словами: pipeline экономит <b>время на дорогу</b>, а транзакция и Lua защищают от того, что <b>кто-то влезет посередине</b>. Это разные задачи, и их постоянно путают.</p>
+
+</div>
+<h3>Почему нельзя просто GET + SET</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Гонка на счётчике">
+<p>Два воркера считают запросы пользователя и делают это «по-питоновски»:</p>
+<ol>
+<li>Воркер A: <code>GET counter</code> → 5</li>
+<li>Воркер B: <code>GET counter</code> → 5</li>
+<li>Воркер A: <code>SET counter 6</code></li>
+<li>Воркер B: <code>SET counter 6</code></li>
+</ol>
+<p>Было два запроса, а счётчик вырос на один. Это <b>race condition</b> (состояние гонки): результат зависит от того, как переплелись операции разных клиентов.</p>
+<p>Решение — одна команда <code>INCR counter</code>. Её сервер выполняет целиком: прочитать, прибавить, записать. Поскольку команды идут в одном потоке по очереди, вклиниться некуда.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Гонка GET + SET против INCR" src="../images/db/redis/race_incr.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Оба воркера прочитали 5 и оба записали 6: два запроса, а счётчик вырос на один — обновление A потеряно. С <code>INCR</code> чтение и запись происходят внутри сервера одной командой, поэтому получаем честные 6 и 7.
+  </figcaption>
+</figure>
+<h3>Pipeline</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Pipeline экономит round-trip">
+<p>Каждая команда — это путь по сети туда и обратно (<b>RTT</b>, round-trip time), скажем 0.5 мс. Сама команда на сервере занимает микросекунды. Если отправить 1000 команд по одной, уйдёт ~500 мс, почти всё — ожидание сети.</p>
+<p><b>Pipeline</b> отправляет все 1000 команд одним пакетом и читает все ответы разом: ~1 RTT плюс время выполнения. Ускорение — в десятки раз. Типичный ML-сценарий: выгрузить признаки 1000 кандидатов для ранжирования.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Pipeline: один round-trip вместо многих" src="../images/db/redis/pipeline_rtt.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева каждая команда ждёт свой ответ, и три запроса стоят $3\cdot\text{RTT}$. Справа pipeline отправляет все запросы пакетом и получает ответы разом — примерно $1\cdot\text{RTT}$. На 1000 кандидатах это ~500 мс против ~0.5 мс сети плюс время выполнения.
+  </figcaption>
+</figure>
+<div class="code-block" data-lang="python">import redis
+
+r = redis.Redis(decode_responses=True)
+pipe = r.pipeline(transaction=False)   # чистый pipeline, без MULTI/EXEC
+for item_id in candidate_ids:
+    pipe.hgetall(f"features:item:{item_id}")
+features = pipe.execute()              # один round-trip, список из 1000 словарей</div>
+<div class="info-card-auto" data-type="warning" data-title="Pipeline не атомарен">
+<p>Между командами вашего pipeline сервер может выполнить команды других клиентов. Pipeline — оптимизация сети, а не транзакция. Нюанс <code>redis-py</code>: у метода <code>r.pipeline()</code> по умолчанию <code>transaction=True</code>, то есть он <b>оборачивает</b> пачку в <code>MULTI</code>/<code>EXEC</code>. Если атомарность не нужна, явно передают <code>transaction=False</code>.</p>
+
+</div>
+<h3>MULTI / EXEC</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает транзакция">
+<p>После <code>MULTI</code> команды не выполняются, а <b>ставятся в очередь</b>. По <code>EXEC</code> сервер выполняет всю очередь подряд, и ни одна чужая команда не вклинивается. <code>DISCARD</code> отменяет очередь.</p>
+<p>Классический пример — счётчик с окном в фиксированную минуту:</p>
+
+</div>
+<div class="code-block" data-lang="bash">MULTI
+INCR rl:user:42:202609241530
+EXPIRE rl:user:42:202609241530 60
+EXEC</div>
+<div class="info-card-auto" data-type="warning" data-title="В Redis нет отката (rollback)">
+<p>Это главный отличительный вопрос на собеседовании. Если одна команда внутри <code>EXEC</code> упала во время выполнения (например, <code>INCR</code> по ключу со строкой <code>&quot;abc&quot;</code>), <b>остальные всё равно выполнятся</b>, и ничего не откатится. Транзакция в Redis гарантирует изоляцию (никто не влезет), но не «всё или ничего» в смысле ACID. Про ACID в классических СУБД — в вопросе <a href="../ai/mlops/infra/db.html#acid_transactions" target="_blank" rel="noopener">Что такое транзакции и ACID?</a>.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Pipeline против MULTI/EXEC" src="../images/db/redis/pipeline_vs_multi.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    В pipeline между командами клиента A успевает выполниться чужой <code>GET k</code>. В <code>MULTI</code>/<code>EXEC</code> команды сначала копятся в очереди (<code>QUEUED</code>), а по <code>EXEC</code> выполняются подряд, и <code>GET k</code> клиента B идёт уже после. Отката при этом нет: <code>INCR k</code> падает с ошибкой, а <code>SET</code> и <code>EXPIRE</code> вокруг него уже применились.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="WATCH: оптимистичная блокировка">
+<p>Внутри <code>MULTI</code> нельзя прочитать значение и принять решение — команды только копятся. Для логики «прочитал → решил → записал» есть <code>WATCH key</code>: Redis следит за ключом, и если до <code>EXEC</code> его изменил кто-то другой, <code>EXEC</code> вернёт <code>nil</code> и <b>не выполнит ничего</b>. Клиент повторяет попытку. Это оптимистичная блокировка (CAS, compare-and-set): не запрещаем другим писать, а просто проверяем, что никто не успел.</p>
+
+</div>
+<h3>Lua-скрипты</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Логика на стороне сервера">
+<p><code>EVAL</code> выполняет Lua-скрипт на сервере <b>атомарно</b>: пока скрипт работает, другие команды ждут. Внутри можно читать ключи, ветвиться по условиям и писать — то, что не умеет <code>MULTI</code>. Скрипт можно загрузить один раз (<code>SCRIPT LOAD</code>) и дальше вызывать по хэшу (<code>EVALSHA</code>), а с Redis 7 есть ещё и <b>Functions</b> — именованные библиотеки скриптов.</p>
+<p>Пример — безопасное освобождение распределённой блокировки: удалить ключ, <b>только если</b> значение в нём — наш токен.</p>
+
+</div>
+<div class="code-block" data-lang="python">RELEASE_LOCK = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+release = r.register_script(RELEASE_LOCK)
+release(keys=["lock:retrain"], args=[my_token])</div>
+<div class="info-card-auto" data-type="warning" data-title="Долгий Lua-скрипт блокирует всех">
+<p>Скрипт выполняется в том же единственном потоке. Цикл на миллион итераций внутри Lua подвесит весь Redis. Скрипты должны быть короткими — десятки операций, а не обработка данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Распределённая блокировка одной командой">
+<p><code>SET lock:retrain &lt;уникальный токен&gt; NX EX 30</code> — атомарно «взять замок, если свободен, на 30 секунд». <code>NX</code> гарантирует, что замок возьмёт только один процесс, <code>EX</code> — что замок сам исчезнет, если процесс-владелец упал. Освобождают замок Lua-скриптом выше, сверяя токен: иначе процесс, чей замок уже истёк, может удалить чужой. Этот приём используется для защиты от cache stampede и от двойного запуска переобучения.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b><code>INCR</code>, а затем отдельно <code>EXPIRE</code> без транзакции.</b> Если процесс упадёт между командами, ключ останется навсегда без TTL, и rate limiter заблокирует пользователя навечно.</li>
+<li><b>Считать pipeline транзакцией.</b> Он только экономит сеть.</li>
+<li><b>Ожидать rollback от <code>MULTI</code>/<code>EXEC</code>.</b> Упавшая команда не отменяет остальные.</li>
+<li><b>Освобождать блокировку простым <code>DEL</code></b> без проверки владельца.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему отдельные команды Redis атомарны?</b></p>
+<p>Команды выполняются в одном потоке строго по очереди, поэтому никакая другая команда не может выполниться посреди <code>INCR</code> или <code>SET NX</code>.</p>
+</li>
+<li><p><b>Чем pipeline отличается от транзакции?</b></p>
+<p>Pipeline отправляет много команд за один сетевой round-trip и ускоряет работу, но не даёт атомарности: между ними могут выполниться чужие команды. <code>MULTI</code>/<code>EXEC</code> гарантирует, что очередь команд выполнится подряд без вклинивания.</p>
+</li>
+<li><p><b>Есть ли в Redis rollback?</b></p>
+<p>Нет. Если команда внутри <code>EXEC</code> упала при выполнении, остальные всё равно применятся. Транзакция даёт изоляцию, но не «всё или ничего».</p>
+</li>
+<li><p><b>Зачем нужен WATCH?</b></p>
+<p>Для оптимистичной блокировки: если наблюдаемый ключ изменился между <code>WATCH</code> и <code>EXEC</code>, транзакция не выполняется, и клиент повторяет попытку. Так делают логику «прочитал → решил → записал».</p>
+</li>
+<li><p><b>Когда нужен Lua-скрипт?</b></p>
+<p>Когда атомарная операция требует условий и чтения значений внутри: например, освободить блокировку только если токен совпадает, или rate limiter со скользящим окном. Скрипт выполняется целиком без вклинивания, но должен быть коротким.</p>
+</li>
+<li><p><b>Как сделать распределённую блокировку в Redis?</b></p>
+<p><code>SET lock:&lt;name&gt; &lt;токен&gt; NX EX &lt;секунды&gt;</code>: захват только если ключа нет и с автоматическим истечением. Освобождение — Lua-скриптом, который удаляет ключ только при совпадении токена.</p>
+</li>
+<li><p><b>Почему <code>INCR</code> + <code>EXPIRE</code> отдельными вызовами опасны?</b></p>
+<p>Если процесс упадёт после <code>INCR</code>, ключ останется без TTL навсегда. Нужно выполнять их в <code>MULTI</code>/<code>EXEC</code>, Lua-скрипте или сначала создавать ключ через <code>SET ... NX EX</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="redis_ttl" data-interview="5">
+  <div class="name" id="redis_ttl">
+    Что такое TTL и как Redis удаляет просроченные ключи?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>TTL</b> (time to live, время жизни) — срок, после которого ключ автоматически перестаёт существовать. Ключ с TTL называют <b>volatile</b> (временным), ключ без TTL — <b>persistent</b> (постоянным).</p>
+<p>Если совсем простыми словами: TTL — это <b>таймер самоуничтожения</b> на ключе. Положили предсказание модели с TTL 1 час — через час Redis сам его забудет, и следующий запрос пойдёт считать свежее.</p>
+
+</div>
+<h3>Команды</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как поставить и проверить TTL">
+<ul>
+<li><code>SET key value EX 60</code> — записать и сразу задать TTL 60 секунд (<code>PX</code> — в миллисекундах). Самый частый и правильный способ: запись и TTL одной атомарной командой.</li>
+<li><code>EXPIRE key 60</code> / <code>PEXPIRE key 60000</code> — поставить TTL уже существующему ключу.</li>
+<li><code>EXPIREAT key 1790000000</code> — удалить в конкретный момент (Unix-время), например в полночь.</li>
+<li><code>TTL key</code> — сколько секунд осталось.</li>
+<li><code>PERSIST key</code> — снять TTL, сделать ключ постоянным.</li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="bash">SET session:abc '{"user": 42}' EX 1800
+TTL session:abc        # -&gt; 1800, потом 1799, ...
+PERSIST session:abc
+TTL session:abc        # -&gt; -1  (ключ есть, TTL нет)
+TTL no_such_key        # -&gt; -2  (ключа нет)</div>
+<div class="info-card-auto" data-type="remark" data-title="Специальные ответы TTL">
+<p><code>-1</code> — ключ существует, но TTL у него нет. <code>-2</code> — ключа нет вообще (или он уже истёк). Эти значения часто спрашивают, потому что по ним в мониторинге ищут «вечные» ключи, которые забыли снабдить сроком жизни.</p>
+
+</div>
+<h3>Какие команды сбрасывают TTL</h3>
+
+<div class="info-card-auto" data-type="warning" data-title="Обычный SET стирает TTL">
+<p>Если перезаписать ключ командой <code>SET key new_value</code> без <code>EX</code>, <b>TTL пропадает</b> — ключ становится вечным. Это самая частая причина «кэш почему-то не протухает». Правило: либо всегда передавать <code>EX</code> при записи, либо использовать <code>SET ... KEEPTTL</code>, чтобы сохранить текущий TTL.</p>
+<p>А вот команды, которые <b>меняют значение, но не заменяют ключ</b> (<code>INCR</code>, <code>HSET</code>, <code>LPUSH</code>, <code>ZADD</code>), TTL сохраняют. <code>DEL</code> и <code>EXPIRE</code> с новым временем его, соответственно, удаляют и перезаписывают.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Как меняется TTL ключа" src="../images/db/redis/ttl_countdown.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    <code>SET ... EX 60</code> запускает таймер. <code>INCR</code> меняет значение на месте, и отсчёт продолжается. Обычный <code>SET</code> без <code>EX</code> заменяет ключ: TTL становится $-1$, и ключ живёт вечно. <code>EXPIRE</code> снова ставит таймер, на нуле ключ исчезает, <code>TTL</code> возвращает $-2$, а <code>GET</code> — <code>(nil)</code>.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Скользящая сессия">
+<p>Сессия чат-бота живёт 30 минут <b>с последнего сообщения</b>. При каждом сообщении делаем <code>RPUSH chat:abc &lt;msg&gt;</code> и затем <code>EXPIRE chat:abc 1800</code>. <code>RPUSH</code> TTL не трогает, а <code>EXPIRE</code> отодвигает таймер. Пользователь молчит полчаса — история удаляется сама.</p>
+
+</div>
+<h3>Как Redis удаляет просроченные ключи</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Ленивое удаление (lazy expiration)">
+<p>Redis не заводит таймер на каждый ключ — при миллионах ключей это было бы слишком дорого. Первый механизм — <b>ленивый</b>: при каждом обращении к ключу Redis проверяет его срок. Если срок вышел — ключ удаляется прямо сейчас, а клиент получает «ключа нет».</p>
+<p>Гарантия для клиента: <b>просроченный ключ никогда не будет прочитан</b>. Но у ленивого подхода дыра: ключ, к которому больше никто не обратится, так и будет занимать память.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Активное удаление (active expiration)">
+<p>Поэтому есть второй, <b>фоновый</b> механизм. Классическое описание: примерно 10 раз в секунду Redis берёт <b>случайную выборку</b> из ключей с TTL (порядка 20 штук), удаляет среди них просроченные и, если просроченных оказалось больше ~25%, сразу повторяет цикл.</p>
+<p>Логика вероятностная: если в выборке много мёртвых ключей, их, скорее всего, много и во всей базе, и стоит почистить ещё. Если мало — нет смысла тратить процессор. В новых версиях алгоритм доработан, а агрессивность настраивается параметром <code>active-expire-effort</code>, но идея та же.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Ленивое и активное удаление просроченных ключей" src="../images/db/redis/expire_lazy_active.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Красные клетки — ключи с истёкшим сроком, которые ещё занимают память. Ленивое удаление убирает ключ только при обращении (<code>GET</code> вернул <code>(nil)</code>), остальные просроченные так и висят. Активный цикл берёт случайную выборку из 20 ключей с TTL, удаляет просроченные и сразу повторяет, пока их доля больше 25%. Оставшиеся мёртвые ключи дочистят следующие тики.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Почему память не освобождается мгновенно">
+<p>Вы положили 5 млн ключей с TTL 60 секунд одним батчем. Через минуту <code>INFO keyspace</code> всё ещё показывает миллионы ключей, а память не упала. Это нормально: активное удаление вычищает их постепенно, выборками, чтобы не заблокировать сервер. Читать эти ключи при этом уже нельзя — ленивая проверка их не отдаст.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="TTL на репликах">
+<p>Реплика не удаляет просроченные ключи сама: удаление делает мастер и пересылает репликам команду <code>DEL</code>. При этом при чтении реплика учитывает срок и не отдаст клиенту просроченное значение. Так данные на мастере и репликах не расходятся из-за разницы часов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="TTL на полях хэша">
+<p>Исторически TTL ставился только на ключ целиком: нельзя было «протушить» одно поле хэша. С Redis 7.4 появились команды <code>HEXPIRE</code>/<code>HTTL</code> для отдельных полей. Это удобно для feature store, где признаки обновляются с разной частотой, но на старых версиях и во многих облачных инсталляциях этого нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Писать в кэш без TTL.</b> Через месяц память заканчивается, а данные давно устарели.</li>
+<li><b>Перезаписывать ключ <code>SET</code> без <code>EX</code></b> и тем самым молча делать его вечным.</li>
+<li><b>Путать истечение и вытеснение.</b> TTL — плановое удаление по сроку. Вытеснение (eviction) — аварийное удаление при нехватке памяти, о нём следующий вопрос.</li>
+<li><b>Ставить всем ключам одинаковый TTL в один момент.</b> Они и протухнут одновременно — это cache avalanche, лечится случайной добавкой к TTL (jitter).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое TTL и как его задать?</b></p>
+<p>Время жизни ключа, после которого он удаляется автоматически. Лучше всего задавать атомарно при записи: <code>SET key value EX 60</code>; для существующего ключа — <code>EXPIRE</code>, для конкретного момента — <code>EXPIREAT</code>, снять — <code>PERSIST</code>.</p>
+</li>
+<li><p><b>Что возвращает команда TTL для ключа без срока и для отсутствующего ключа?</b></p>
+<p><code>-1</code>, если ключ есть, но TTL не задан, и <code>-2</code>, если ключа нет.</p>
+</li>
+<li><p><b>Какая команда незаметно сбрасывает TTL?</b></p>
+<p>Обычный <code>SET</code> без <code>EX</code> или <code>KEEPTTL</code>: он заменяет ключ, и тот становится вечным. <code>INCR</code>, <code>HSET</code>, <code>LPUSH</code> и другие команды, меняющие значение на месте, TTL сохраняют.</p>
+</li>
+<li><p><b>Как Redis удаляет просроченные ключи?</b></p>
+<p>Двумя механизмами. Ленивым: при обращении к ключу проверяется срок, и просроченный ключ удаляется на месте. Активным: фоновый цикл много раз в секунду берёт случайную выборку ключей с TTL, удаляет просроченные и повторяет, если их доля велика.</p>
+</li>
+<li><p><b>Почему нельзя обойтись только ленивым удалением?</b></p>
+<p>Ключи, к которым больше никто не обращается, никогда не удалились бы и занимали бы память бесконечно. Активное удаление вычищает такие ключи в фоне.</p>
+</li>
+<li><p><b>Почему после массового истечения ключей память освобождается не сразу?</b></p>
+<p>Активное удаление работает небольшими выборками, чтобы не блокировать однопоточный сервер. Просроченные ключи уже нельзя прочитать, но физически они удаляются постепенно.</p>
+</li>
+<li><p><b>Чем истечение по TTL отличается от вытеснения?</b></p>
+<p>Истечение — плановое удаление ключа по его сроку жизни. Вытеснение — удаление ключей по политике <code>maxmemory-policy</code>, когда кончается выделенная память, независимо от того, истёк ли срок.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_eviction" data-interview="4">
+  <div class="name" id="redis_eviction">
+    Что такое maxmemory и политики вытеснения?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b><code>maxmemory</code></b> — лимит оперативной памяти, который Redis может занять под данные. <b>Политика вытеснения</b> (<code>maxmemory-policy</code>, eviction policy) — правило, по которому Redis решает, <b>какие ключи удалить</b>, когда лимит достигнут и приходит новая запись.</p>
+<p>Если совсем простыми словами: холодильник заполнен, а принесли новые продукты. Политика вытеснения отвечает на вопрос «что выкинуть»: то, что дольше всего не трогали (LRU), то, чем реже всего пользовались (LFU), что-нибудь случайное — или вообще ничего не выкидывать и отказаться класть новое (noeviction).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как это срабатывает">
+<p>Проверка идёт <b>перед выполнением команды</b>: Redis смотрит, не превышен ли лимит, и если превышен — удаляет ключи по политике, пока память не опустится ниже порога, и только потом выполняет команду. Лимит на практике переходят именно записи (<code>SET</code>, <code>HSET</code>, <code>LPUSH</code>…), поэтому вытеснение почти всегда срабатывает на них. При <code>noeviction</code> ошибкой OOM отклоняются только команды, которые могут увеличить память, — чтения продолжают работать.</p>
+<p>По умолчанию на 64-битных системах <code>maxmemory 0</code>, то есть <b>лимита нет</b>: Redis растёт, пока не кончится память машины, и тогда ОС может убить процесс (OOM killer). Для кэша лимит нужно ставить явно.</p>
+
+</div>
+<h3>Политики</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Префиксы allkeys и volatile">
+<p>Политики делятся по тому, <b>среди каких ключей</b> выбирать жертву:</p>
+<ul>
+<li><code>allkeys-*</code> — среди <b>всех</b> ключей;</li>
+<li><code>volatile-*</code> — только среди ключей <b>с TTL</b>. Ключи без TTL никогда не вытесняются.</li>
+</ul>
+<p>И по тому, <b>как</b> выбирать: <code>lru</code>, <code>lfu</code>, <code>random</code>, <code>ttl</code>.</p>
+
+</div>
+<table class="task-table">
+<thead><tr><th>Политика</th><th>Кого удаляет</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td><code>noeviction</code></td><td>никого — запись завершается ошибкой OOM</td><td>Redis как хранилище, где терять данные нельзя (очередь, сессии). Политика по умолчанию.</td></tr>
+<tr><td><code>allkeys-lru</code></td><td>давно не использованные среди всех ключей</td><td>Чистый кэш: самый частый выбор.</td></tr>
+<tr><td><code>allkeys-lfu</code></td><td>редко используемые среди всех ключей</td><td>Кэш со стабильным набором «горячих» ключей.</td></tr>
+<tr><td><code>allkeys-random</code></td><td>случайные ключи</td><td>Все ключи одинаково ценны или доступ равномерный.</td></tr>
+<tr><td><code>volatile-lru</code></td><td>давно не использованные среди ключей с TTL</td><td>Смешанный Redis: кэш с TTL + постоянные данные без TTL.</td></tr>
+<tr><td><code>volatile-lfu</code></td><td>редко используемые среди ключей с TTL</td><td>То же, но с частотной логикой.</td></tr>
+<tr><td><code>volatile-random</code></td><td>случайные с TTL</td><td>Редко нужен на практике.</td></tr>
+<tr><td><code>volatile-ttl</code></td><td>ключи с ближайшим истечением</td><td>Когда TTL отражает ценность: «что скоро умрёт, того и не жалко».</td></tr>
+</tbody>
+</table><h3>LRU и LFU</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="LRU — давность">
+<p><b>LRU</b> (Least Recently Used) выкидывает ключ, к которому <b>дольше всего не обращались</b>. Предположение: что трогали недавно, скорее всего, понадобится снова.</p>
+<p>Слабое место — <b>разовый скан</b>. Если батчевая джоба один раз пройдёт по миллиону старых ключей, все они станут «недавними» и вытеснят реально горячие ключи онлайн-трафика.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="LFU — частота">
+<p><b>LFU</b> (Least Frequently Used) выкидывает ключ, к которому обращаются <b>реже всего</b>. Ключ, который читают 1000 раз в минуту, не вытеснится из-за того, что кто-то один раз прочитал много других.</p>
+<p>В Redis счётчик частоты хранится в 8 битах и растёт <b>логарифмически</b> (чем больше обращений, тем реже он увеличивается), а со временем <b>затухает</b> — иначе ключ, популярный месяц назад, жил бы вечно. Настраивается параметрами <code>lfu-log-factor</code> и <code>lfu-decay-time</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Кэш эмбеддингов товаров">
+<p>В каталоге 5 млн товаров, но 90% запросов приходится на 50 тысяч популярных. Кэш эмбеддингов ограничен 4 ГБ.</p>
+<ul>
+<li>С <code>allkeys-lru</code> ночной пересчёт рекомендаций, пройдя по всему каталогу, вытеснит популярные товары, и утром hit rate (доля запросов, найденных в кэше) просядет.</li>
+<li>С <code>allkeys-lfu</code> популярные товары накопили высокую частоту и переживут ночной скан; вытесняться будут товары, которые запрашивали один раз.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="LRU против LFU при разовом скане" src="../images/db/redis/lru_vs_lfu.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Кэш на 4 ключа, A, B и C — горячие. Ночной батч по одному разу читает s1, s2, s3. LRU вытесняет самые давние по времени обращения и выкидывает A и B. LFU вытесняет самые редкие, поэтому скан-ключи вытесняют друг друга, а горячие остаются. Утром hit rate по A, B, C — 1/3 у LRU и 3/3 у LFU. Упрощение: в Redis счётчик LFU у нового ключа стартует не с 1, а с 5, и растёт логарифмически.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="LRU в Redis приближённый">
+<p>Честный LRU требует хранить все ключи в связном списке по времени доступа — это лишняя память на каждый ключ. Redis делает <b>приближение</b>: берёт случайную выборку ключей (<code>maxmemory-samples</code>, по умолчанию 5) и вытесняет самый «старый» из неё, поддерживая небольшой пул кандидатов. С выборкой 10 результат почти неотличим от настоящего LRU. Так же приближённо работает и LFU.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Сравнение точного и приближённого LRU" src="../images/db/redis/web/r1_lru_comparison.png" width="854" height="449" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Эксперимент из документации Redis: в кэш добавили ключи, обратились к ним по порядку, затем добавили ещё половину. Светло-серые точки — вытесненные ключи, серые — старые оставшиеся, зелёные — новые. Точный LRU (слева вверху) вытесняет ровно самые старые. Приближённый LRU с выборкой 5 ключей ошибается чаще, а с выборкой 10 в Redis 3.0 почти совпадает с точным. Источник: документация Redis (redis-doc), CC BY-SA 4.0.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Ловушка volatile-* без TTL">
+<p>Если стоит <code>volatile-lru</code>, но ключам забыли выставить TTL, <b>вытеснять нечего</b> — Redis ведёт себя как <code>noeviction</code> и начинает отвечать ошибкой <code>OOM command not allowed when used memory &gt; &#39;maxmemory&#39;</code>. Сервис падает на записи в кэш, хотя «кэш же должен сам чиститься».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Не выставлять <code>maxmemory</code></b> для кэша: Redis съедает всю память машины, и его убивает OOM killer.</li>
+<li><b>Ставить <code>maxmemory</code> равным всей RAM.</b> Нужен запас под фрагментацию памяти, буферы клиентов и <code>fork</code> при сохранении на диск — обычно ставят 60–75% от памяти машины.</li>
+<li><b>Использовать <code>allkeys-*</code> в Redis, где кроме кэша живут очередь задач или сессии.</b> Политика вытеснит и их. Такие данные лучше держать в отдельном инстансе с <code>noeviction</code>.</li>
+<li><b>Путать eviction с expiration.</b> Вытеснение удаляет ключ, срок которого ещё не истёк.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое maxmemory и что происходит при его достижении?</b></p>
+<p>Лимит памяти Redis. При достижении лимита перед каждой записью Redis удаляет ключи по политике <code>maxmemory-policy</code>; при <code>noeviction</code> вместо этого запись завершается ошибкой OOM.</p>
+</li>
+<li><p><b>Чем отличаются политики allkeys-* и volatile-*?</b></p>
+<p><code>allkeys-*</code> выбирают ключ для удаления среди всех ключей, <code>volatile-*</code> — только среди ключей с TTL. Ключи без TTL при volatile-политиках не вытесняются никогда.</p>
+</li>
+<li><p><b>Чем LRU отличается от LFU?</b></p>
+<p>LRU удаляет то, к чему дольше всего не обращались; LFU — то, к чему обращаются реже всего. LFU устойчивее к разовым сканам, которые при LRU вымывают горячие ключи.</p>
+</li>
+<li><p><b>Какую политику выбрать для чистого кэша?</b></p>
+<p>Обычно <code>allkeys-lru</code>, а при стабильном наборе популярных ключей и регулярных батчевых проходах — <code>allkeys-lfu</code>.</p>
+</li>
+<li><p><b>Какая политика по умолчанию и когда её оставлять?</b></p>
+<p><code>noeviction</code>. Её оставляют, когда Redis хранит данные, которые нельзя молча терять: очереди задач, сессии, блокировки.</p>
+</li>
+<li><p><b>Почему volatile-lru может привести к ошибкам OOM?</b></p>
+<p>Если у ключей нет TTL, кандидатов на вытеснение нет, и Redis ведёт себя как <code>noeviction</code>: новые записи отклоняются.</p>
+</li>
+<li><p><b>Почему LRU в Redis приближённый?</b></p>
+<p>Точный LRU требует дополнительной памяти на каждый ключ. Redis берёт случайную выборку ключей и вытесняет самый давно использованный из неё; при размере выборки около 10 результат близок к точному.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="redis_caching_patterns" data-interview="5">
+  <div class="name" id="redis_caching_patterns">
+    Какие есть паттерны кэширования?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Кэш</b> — быстрое хранилище копий данных, которые дорого получать из первоисточника (БД, модель, внешний API). <b>Паттерн кэширования</b> определяет, <b>кто и когда</b> кладёт данные в кэш и как записи попадают в основную БД.</p>
+<p>Основные паттерны:</p>
+<ul>
+<li><b>Cache-aside</b> (lazy loading) — приложение само проверяет кэш и при промахе идёт в БД;</li>
+<li><b>Read-through</b> — приложение читает только из кэша, а кэш сам подгружает данные из БД;</li>
+<li><b>Write-through</b> — запись идёт в кэш и синхронно в БД;</li>
+<li><b>Write-behind</b> (write-back) — запись идёт в кэш, а в БД — позже, асинхронно.</li>
+</ul>
+<p>Если совсем простыми словами: это ответ на два вопроса — «что делать, если в кэше нет нужного» и «куда писать сначала, когда данные меняются».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Термины">
+<ul>
+<li><b>Cache hit</b> (попадание) — нужные данные нашлись в кэше. <b>Cache miss</b> (промах) — не нашлись.</li>
+<li><b>Hit rate</b> — доля попаданий: $\text{hit rate} = \frac{\text{hits}}{\text{hits} + \text{misses}}$. Главная метрика эффективности кэша.</li>
+<li><b>Source of truth</b> (источник правды) — хранилище, чьи данные считаются правильными при расхождении. Почти всегда это основная БД, а не кэш.</li>
+</ul>
+
+</div>
+<h3>Cache-aside</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Самый распространённый паттерн, по умолчанию для Redis.</p>
+<p><b>Чтение:</b> проверить кэш → если есть, вернуть → если нет, прочитать из БД (или посчитать моделью), положить в кэш с TTL и вернуть.</p>
+<p><b>Запись:</b> обновить БД → <b>удалить</b> ключ из кэша. Следующее чтение загрузит свежее значение.</p>
+<p>Кэш здесь «в стороне» (aside): он не знает о БД, всю логику ведёт приложение.</p>
+
+</div>
+<div class="code-block" data-lang="python">import json
+
+def get_user_profile(r, db, user_id: int, ttl: int = 600) -&gt; dict:
+    key = f"profile:{user_id}"
+    cached = r.get(key)
+    if cached is not None:                       # cache hit
+        return json.loads(cached)
+    profile = db.fetch_profile(user_id)          # cache miss -&gt; источник правды
+    r.set(key, json.dumps(profile), ex=ttl)      # положить с TTL
+    return profile
+
+def update_user_profile(r, db, user_id: int, data: dict) -&gt; None:
+    db.update_profile(user_id, data)             # сначала БД
+    r.delete(f"profile:{user_id}")               # затем инвалидация кэша</div><figure style="text-align: center">
+  <img alt="Cache-aside: промах, попадание и запись" src="../images/db/redis/cache_aside.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Первый запрос <code>GET profile:42</code> — промах: приложение идёт в PostgreSQL (12 мс) и кладёт ответ в Redis с TTL 600 с, итого $0.5+12=12.5$ мс. Второй запрос — попадание за 0.5 мс. При записи сначала <code>UPDATE</code> в БД, затем <code>DEL</code> ключа — следующее чтение возьмёт свежее значение. При hit rate 90% средняя задержка $0.9\cdot 0.5+0.1\cdot 12.5=1.7$ мс.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Цифры: зачем это всё">
+<p>Запрос профиля в PostgreSQL — 12 мс, в Redis — 0.5 мс. Hit rate 90%. Средняя задержка:</p>
+<p><span class="latex-copy-wrap" data-latex="$$0.9 \cdot 0.5 + 0.1 \cdot (0.5 + 12) = 0.45 + 1.25 = 1.7 \text{ мс}$$">$$0.9 \cdot 0.5 + 0.1 \cdot (0.5 + 12) = 0.45 + 1.25 = 1.7 \text{ мс}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>То есть в 7 раз быстрее, а нагрузка на БД упала в 10 раз: до неё доходит только каждый десятый запрос. Обратите внимание: промах стоит <b>дороже</b>, чем запрос без кэша (0.5 мс лишнего похода в Redis). Если hit rate низкий, кэш только замедляет.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Плюсы и минусы cache-aside">
+<p><b>Плюсы:</b> в кэше лежит только то, что реально читали; падение Redis не ломает сервис — запросы просто пойдут в БД (медленнее). <b>Минусы:</b> первый запрос всегда промах; есть окно, когда в кэше устаревшие данные; при одновременном промахе многих запросов возникает stampede (об этом отдельный вопрос).</p>
+
+</div>
+<h3>Read-through</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Приложение обращается <b>только к кэшу</b>. Если данных нет, кэш-слой сам загружает их из БД через заданный загрузчик, сохраняет и отдаёт. Логика та же, что в cache-aside, но <b>спрятана внутри библиотеки</b> или кэш-провайдера, а не размазана по коду.</p>
+<p>Сам Redis ходить в вашу БД не умеет, поэтому read-through с ним — это обёртка в приложении: декоратор, клиентская библиотека, или сторонний слой. Декоратор <code>@cached</code> над функцией предсказания — по сути read-through для остального кода.</p>
+
+</div>
+<h3>Write-through</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>При записи приложение <b>синхронно</b> пишет и в кэш, и в БД, и отвечает клиенту после обеих записей. Кэш всегда содержит актуальные данные для всего, что записывалось.</p>
+<p><b>Плюс:</b> чтения сразу после записи попадают в кэш со свежими данными. <b>Минусы:</b> каждая запись медленнее (две операции), и в кэш попадает много данных, которые, возможно, никто не прочитает. Обычно комбинируют с TTL, чтобы нечитаемое вымывалось.</p>
+
+</div>
+<h3>Write-behind</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Запись идёт <b>только в кэш</b>, клиент сразу получает ответ, а в БД изменения сбрасываются <b>позже</b>: пачками, по таймеру или через очередь. Очень быстрые записи и возможность склеивать много мелких обновлений в одно.</p>
+<p>Пример из ML: счётчики просмотров и кликов для признаков. Тысячи <code>INCR</code> в секунду идут в Redis, а раз в минуту воркер переносит агрегаты в PostgreSQL или хранилище признаков.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Главный риск write-behind">
+<p>Пока данные не сброшены в БД, <b>Redis — единственное место, где они есть</b>. Упал Redis без persistence или потерял последние секунды при сбое — данные пропали. Поэтому write-behind применяют там, где потеря небольшой части допустима (счётчики, метрики), и никогда — для платежей или заказов.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Write-through и write-behind" src="../images/db/redis/write_through_behind.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Сверху write-through: <code>SET price:7 120</code> проходит через Redis в PostgreSQL, и клиент получает ответ только после обеих записей (около 12.5 мс). Снизу write-behind: <code>INCR views:17</code> пишется только в Redis и отвечает за 0.5 мс, воркер раз в минуту сбрасывает счётчик в БД. Redis упал, когда в БД было 5, а в памяти уже 8, — три клика потеряны навсегда.
+  </figcaption>
+</figure>
+<table class="task-table">
+<thead><tr><th>Паттерн</th><th>Кто грузит в кэш</th><th>Скорость записи</th><th>Свежесть кэша</th><th>Риск потери данных</th></tr></thead>
+<tbody>
+<tr><td>Cache-aside</td><td>приложение при промахе</td><td>как у БД</td><td>окно устаревания до TTL/инвалидации</td><td>нет</td></tr>
+<tr><td>Read-through</td><td>кэш-слой при промахе</td><td>как у БД</td><td>как у cache-aside</td><td>нет</td></tr>
+<tr><td>Write-through</td><td>приложение при записи</td><td>медленнее (две записи)</td><td>высокая</td><td>нет</td></tr>
+<tr><td>Write-behind</td><td>приложение при записи</td><td>очень быстрая</td><td>высокая</td><td>есть</td></tr>
+</tbody>
+</table>
+<div class="info-card-auto" data-type="remark" data-title="Refresh-ahead">
+<p>Иногда добавляют пятый паттерн — <b>refresh-ahead</b>: популярные ключи обновляются в фоне <b>до</b> истечения TTL. Пользователь никогда не ждёт промаха на горячем ключе. Это одна из защит от cache stampede.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Обновлять кэш вместо удаления при записи в cache-aside.</b> Две параллельные записи могут положить в кэш значения в обратном порядке, и в кэше навсегда останется старое. Удаление безопаснее: следующее чтение само возьмёт актуальное из БД.</li>
+<li><b>Сначала удалить кэш, потом обновить БД.</b> Между этими шагами параллельное чтение успеет загрузить в кэш старое значение из БД.</li>
+<li><b>Кэшировать без метрики hit rate.</b> Без неё неизвестно, помогает кэш или только добавляет задержку.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как работает cache-aside?</b></p>
+<p>При чтении приложение проверяет кэш; при промахе читает из БД, кладёт результат в кэш с TTL и возвращает. При записи обновляет БД и удаляет ключ из кэша. Это основной паттерн для Redis.</p>
+</li>
+<li><p><b>Чем read-through отличается от cache-aside?</b></p>
+<p>Логика одна, но в read-through загрузку при промахе делает кэш-слой (библиотека, декоратор, провайдер), а приложение видит только кэш. В cache-aside эту логику явно пишет приложение.</p>
+</li>
+<li><p><b>Чем write-through отличается от write-behind?</b></p>
+<p>Write-through пишет в кэш и в БД синхронно — медленнее, но без риска потери. Write-behind пишет только в кэш и асинхронно сбрасывает в БД — быстро, но данные, не успевшие дойти до БД, могут пропасть.</p>
+</li>
+<li><p><b>Почему при записи ключ из кэша лучше удалять, а не обновлять?</b></p>
+<p>Параллельные обновления могут записать значения в кэш в неправильном порядке и оставить там устаревшее. Удаление заставляет следующее чтение загрузить актуальное значение из БД.</p>
+</li>
+<li><p><b>Что такое hit rate и почему он важен?</b></p>
+<p>Доля запросов, найденных в кэше. При низком hit rate кэш только добавляет лишний сетевой поход на каждый промах и не снижает нагрузку на БД.</p>
+</li>
+<li><p><b>Что будет с сервисом на cache-aside, если Redis упадёт?</b></p>
+<p>Сервис продолжит работать: все запросы пойдут в БД напрямую. Главный риск — резкий рост нагрузки на БД, поэтому нужны таймауты на Redis и защита БД от лавины запросов.</p>
+</li>
+<li><p><b>Когда уместен write-behind в ML-системе?</b></p>
+<p>Для частых некритичных обновлений, где допустима небольшая потеря: счётчики просмотров и кликов, онлайн-агрегаты признаков. Для денег и заказов — нет.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_cache_invalidation" data-interview="5">
+  <div class="name" id="redis_cache_invalidation">
+    Что такое инвалидация кэша и как её делать?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Инвалидация кэша</b> (cache invalidation) — удаление или пометка как устаревших тех записей кэша, которые <b>перестали соответствовать</b> источнику правды. Задача инвалидации — ограничить, насколько долго и насколько сильно кэш может врать.</p>
+<p>Если совсем простыми словами: кэш — это фотография данных. Данные в БД поменялись, а фотография осталась старой. Инвалидация — это правило, когда фотографию выбрасывать и делать новую.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Почему это «одна из двух сложных вещей»">
+<p>Известная шутка: «В программировании есть только две сложные вещи — инвалидация кэша и придумывание имён». Сложность в том, что кэш и БД — <b>две независимые системы</b>, и между ними нет общей транзакции. Любое изменение данных — это две операции (в БД и в кэше), между которыми может случиться сбой, гонка или задержка.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Термин: staleness">
+<p><b>Staleness</b> (устаревание) — насколько кэшированное значение отстаёт от БД. Почти никогда нельзя добиться нулевого устаревания, поэтому инженерный вопрос звучит так: <b>какое устаревание допустимо</b> для этих данных? Баланс пользователя — ноль секунд. Эмбеддинг товара — часы. Популярные товары на главной — минуты.</p>
+
+</div>
+<h3>Стратегии инвалидации</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="1. TTL — инвалидация по времени">
+<p>Каждому ключу ставится срок жизни, по истечении которого он удаляется сам. Самый простой и <b>самый надёжный</b> механизм: даже если все остальные способы сломаются, данные устареют не больше чем на TTL.</p>
+<p><b>Как выбирать TTL:</b> исходя из допустимого устаревания. Цены обновляются раз в час → TTL 5–10 минут. Предсказание модели зависит только от входа и версии модели → TTL может быть часами и сутками.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="2. Явное удаление при записи">
+<p>Код, который меняет данные в БД, сразу после этого удаляет соответствующий ключ: <code>DEL profile:42</code>. Устаревание — почти ноль, но только если <b>все</b> места, пишущие в БД, не забывают про кэш. Новый скрипт миграции, ручной <code>UPDATE</code> в консоли или другой сервис, который пишет в ту же таблицу, — и кэш тихо врёт до истечения TTL.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="3. Версионирование ключей">
+<p>Версия встраивается прямо в ключ: <code>pred:fraud:v7:&lt;hash входа&gt;</code>. При выкатке новой модели код начинает читать и писать ключи <code>v8</code>. Старые ключи никто не удаляет — к ним просто <b>перестают обращаться</b>, и они уходят по TTL или вытесняются.</p>
+<p>Это самый дешёвый способ инвалидировать <b>миллионы</b> ключей разом: вместо <code>DEL</code> по маске (которого в Redis нет, а <code>SCAN</code> + <code>DEL</code> по миллионам ключей медленный) — одна смена константы.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Версия как счётчик в Redis">
+<p>Когда поменялся весь каталог товаров, нужно сбросить все кэшированные карточки. Храним номер версии в отдельном ключе:</p>
+<ol>
+<li><code>GET catalog:version</code> → 12, читаем и пишем ключи <code>card:v12:&lt;item_id&gt;</code>.</li>
+<li>После переиндексации — <code>INCR catalog:version</code> → 13.</li>
+<li>Все сервисы при следующем запросе строят ключи <code>card:v13:...</code> и получают промах, загружая свежие данные. Ключи <code>v12</code> протухнут по TTL.</li>
+</ol>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Версионирование ключей" src="../images/db/redis/key_versioning.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Сервис читает ключи <code>card:v12:*</code> — попадания. После <code>INCR catalog:version</code> он строит ключи <code>card:v13:*</code>: первые чтения — промахи, свежие данные загружаются заново. Старые <code>v12</code> никто не удаляет — к ним перестают обращаться, и они уходят по TTL. Одна смена числа инвалидирует все ключи разом.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="4. Инвалидация по событиям">
+<p>Изменения в БД превращаются в <b>события</b>, на которые подписан обработчик, удаляющий кэш. Источник событий — outbox-таблица (таблица «исходящих сообщений», куда запись попадает в той же транзакции, что и изменение) или <b>CDC</b> (change data capture — чтение журнала изменений БД, например через Debezium). Так кэш инвалидируется, даже если данные поменял сервис, который про кэш ничего не знает.</p>
+<p>Для локальных in-process кэшей на многих инстансах сервиса событие рассылают через Redis Pub/Sub: «ключ X изменился, выбросьте у себя».</p>
+
+</div>
+<h3>Консистентность кэша и БД</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Гонка в cache-aside">
+<p>Даже правильный порядок «обновить БД → удалить ключ» не спасает полностью. Сценарий:</p>
+<ol>
+<li>Кэш пуст. Читатель A идёт в БД и читает <code>price = 100</code>.</li>
+<li>Писатель B обновляет БД: <code>price = 120</code>, и удаляет ключ (которого и так нет).</li>
+<li>Читатель A, который задержался (GC-пауза, медленная сеть), кладёт в кэш <b>старое</b> <code>price = 100</code>.</li>
+</ol>
+<p>Теперь кэш показывает 100 до истечения TTL. Вероятность мала (чтение должно длиться дольше записи), но при большом трафике это случается.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как уменьшить окно несогласованности">
+<ul>
+<li><b>TTL всегда</b> — страховка, ограничивающая время жизни любой ошибки.</li>
+<li><b>Отложенное двойное удаление</b> (delayed double delete): удалить ключ сразу после записи в БД и ещё раз через секунду-другую, чтобы стереть значение, которое мог положить «опоздавший» читатель.</li>
+<li><b>Версия в значении</b>: хранить рядом с данными версию или <code>updated_at</code> из БД и не перезаписывать кэш более старой версией (сравнение атомарно, через Lua).</li>
+<li><b>Короткий TTL</b> для данных, где устаревание дорого стоит.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Гонка в cache-aside и отложенное повторное удаление" src="../images/db/redis/cache_race.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Время идёт слева направо. $t_1$: читатель A прочитал из БД <code>price = 100</code> и завис (GC-пауза). $t_2$ и $t_3$: писатель B записал 120 и удалил ключ, которого ещё нет. $t_4$: A кладёт в кэш устаревшее 100 — кэш и БД расходятся. $t_5$: отложенное повторное <code>DEL</code> стирает его, и в $t_6$ следующее чтение берёт из БД 120. Без повторного удаления 100 прожило бы до конца TTL.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Строгой согласованности не будет">
+<p>Кэш поверх БД по своей природе даёт <b>eventual consistency</b> (согласованность в конечном счёте): рано или поздно кэш догонит БД. Если данным нужна строгая согласованность (баланс, остаток на складе при покупке), их <b>не кэшируют</b> или всегда читают из БД на критичном пути. Подробнее о компромиссе согласованности и доступности — в вопросе <a href="../ai/mlops/infra/db.html#cap_theorem" target="_blank" rel="noopener">Что такое CAP-теорема?</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Полагаться только на явное удаление без TTL.</b> Любой пропущенный путь записи оставляет устаревшее значение навсегда.</li>
+<li><b>Инвалидировать через <code>KEYS pattern*</code> + <code>DEL</code>.</b> <code>KEYS</code> блокирует сервер; при массовой инвалидации используйте версионирование ключей.</li>
+<li><b>Забыть про версию модели в ключе кэша предсказаний.</b> После выкатки новой модели пользователи получают ответы старой, пока не истечёт TTL.</li>
+<li><b>Кэшировать данные, где нужна строгая согласованность</b>, и удивляться «двойным списаниям».</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое инвалидация кэша?</b></p>
+<p>Удаление или пометка устаревшими записей кэша, которые больше не соответствуют источнику правды. Её цель — ограничить, насколько долго кэш может отдавать неверные данные.</p>
+</li>
+<li><p><b>Какие есть стратегии инвалидации?</b></p>
+<p>По времени (TTL), явное удаление ключа при записи в БД, версионирование ключей (смена версии в имени ключа) и по событиям — через outbox, CDC или Pub/Sub. На практике их комбинируют, а TTL ставят всегда как страховку.</p>
+</li>
+<li><p><b>Почему TTL нужен даже при явной инвалидации?</b></p>
+<p>Явное удаление легко пропустить: другой сервис, миграция или ручной <code>UPDATE</code> меняют БД без удаления ключа. TTL гарантирует, что любая такая ошибка проживёт не дольше срока жизни ключа.</p>
+</li>
+<li><p><b>Как инвалидировать миллионы ключей разом?</b></p>
+<p>Версионированием: номер версии входит в ключ, и при смене версии сервисы начинают читать новые ключи, а старые уходят по TTL или вытеснению. Удалять по маске через <code>KEYS</code> нельзя — это блокирует сервер.</p>
+</li>
+<li><p><b>Как в cache-aside может появиться устаревшее значение, если при записи ключ удаляется?</b></p>
+<p>Читатель прочитал старое значение из БД, затем писатель обновил БД и удалил ключ, и после этого запоздавший читатель положил старое значение в кэш. Оно проживёт до истечения TTL.</p>
+</li>
+<li><p><b>Как уменьшить окно несогласованности кэша и БД?</b></p>
+<p>Всегда ставить TTL, делать отложенное повторное удаление, хранить версию данных в значении и не перезаписывать кэш более старой версией, а для критичных данных — не кэшировать их вовсе.</p>
+</li>
+<li><p><b>Какую согласованность даёт кэш поверх БД?</b></p>
+<p>Eventual consistency: кэш рано или поздно догоняет БД, но в моменте может отставать. Для данных, требующих строгой согласованности, кэш не используют на критичном пути.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_cache_problems" data-difficulty="hard" data-interview="4">
+  <div class="name question-difficulty-hard question-hard-title" id="redis_cache_problems">
+    Что такое cache stampede, penetration и avalanche?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Три классические аварии кэша, при которых нагрузка <b>проходит мимо кэша прямо в БД</b> (или в модель):</p>
+<ul>
+<li><b>Cache stampede</b> (thundering herd, «топот стада») — истёк <b>один горячий</b> ключ, и сотни запросов одновременно получили промах и пошли пересчитывать одно и то же.</li>
+<li><b>Cache penetration</b> («пробивание») — запросы к данным, которых <b>нет вообще</b>, поэтому они никогда не кэшируются и всегда идут в БД.</li>
+<li><b>Cache avalanche</b> («лавина») — <b>много ключей</b> истекли одновременно, или кэш целиком упал, и вся нагрузка разом легла на БД.</li>
+</ul>
+<p>Если совсем простыми словами: кэш — это плотина перед БД. Stampede — одна большая дыра, penetration — постоянная течь там, где плотины нет, avalanche — плотину снесло целиком.</p>
+
+</div>
+<h3>Cache stampede</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Как это выглядит">
+<p>Главная страница показывает «топ-100 рекомендаций дня». Их расчёт — 2 секунды тяжёлой модели. Результат лежит в Redis с TTL 10 минут, запросов — 500 в секунду.</p>
+<p>В момент истечения TTL за 2 секунды пересчёта приходит ~1000 запросов. Каждый видит промах и <b>сам</b> запускает модель. Вместо одного расчёта — тысяча параллельных, GPU-сервис перегружается, время ответа растёт, запросы копятся ещё сильнее. Система может не выйти из этой спирали сама.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Защита 1: блокировка на пересчёт">
+<p>При промахе процесс пытается взять замок: <code>SET lock:top100 &lt;токен&gt; NX EX 10</code>.</p>
+<ul>
+<li>Взял замок — пересчитывает, кладёт результат в кэш, освобождает замок.</li>
+<li>Не взял — значит, кто-то уже считает. Процесс ждёт немного и перечитывает кэш, либо отдаёт <b>устаревшее значение</b> (если оно хранится отдельно), либо заглушку.</li>
+</ul>
+<p>Так на пересчёт уходит <b>один</b> запрос вместо тысячи. <code>EX</code> в замке обязателен: если владелец упадёт посреди расчёта, замок исчезнет сам.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Cache stampede и замок на пересчёт" src="../images/db/redis/cache_stampede.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Ключ <code>top100</code> истёк при нагрузке 500 запросов/с, а пересчёт занимает 2 с. Без защиты все ~1000 запросов видят промах и сами запускают модель — 1000 одинаковых расчётов. С замком <code>SET lock:top100 &lt;токен&gt; NX EX 10</code> его берёт один процесс: он считает и кладёт результат в кэш, остальные ждут или получают старое значение — один расчёт вместо тысячи.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Защита 2: вероятностное раннее обновление">
+<p>Идея алгоритма <b>XFetch</b>: каждый запрос с небольшой вероятностью обновляет ключ <b>до</b> истечения TTL, и эта вероятность растёт по мере приближения к концу срока. Запрос обновляет ключ, если</p>
+<p><span class="latex-copy-wrap" data-latex="$$t_{now} - \Delta \cdot \beta \cdot \ln(u) \ \ge\ t_{expiry},$$">$$t_{now} - \Delta \cdot \beta \cdot \ln(u) \ \ge\ t_{expiry},$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\Delta$ — сколько длится пересчёт, $\beta \ge 1$ — «агрессивность» (обычно 1), $u$ — случайное число из $(0, 1]$, $t_{expiry}$ — момент истечения.</p>
+<p>То есть: так как $\ln(u) \le 0$, слагаемое $-\Delta\beta\ln(u)$ — случайный «заброс вперёд во времени». Чем ближе истечение и чем дольше пересчёт, тем вероятнее, что один из запросов обновит ключ заранее, пока остальные ещё получают старое значение.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Защита 3: stale-while-revalidate и фоновое обновление">
+<ul>
+<li><b>Stale-while-revalidate:</b> хранить значение с «мягким» сроком внутри и «жёстким» TTL в Redis. После мягкого срока отдаём старое значение и запускаем <b>одно</b> фоновое обновление (под замком).</li>
+<li><b>Фоновый прогрев</b> (refresh-ahead): для заранее известных горячих ключей шедулер пересчитывает их по расписанию, и они вообще не истекают под нагрузкой.</li>
+<li><b>Request coalescing</b> (склейка запросов): внутри одного процесса параллельные запросы к одному ключу ждут одного общего вычисления, а не запускают своё.</li>
+</ul>
+
+</div>
+<h3>Cache penetration</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Запросы в пустоту">
+<p>Сервис отдаёт предсказание по <code>item_id</code>. Бот перебирает несуществующие <code>item_id = 10000001, 10000002, ...</code>. Каждый запрос: промах в кэше → запрос в БД → «не найдено» → в кэш <b>ничего не кладём</b> (нечего класть). Следующий запрос с тем же id опять идёт в БД. Кэш для этой нагрузки просто не существует.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как защищаться от penetration">
+<ul>
+<li><b>Кэшировать отрицательный результат</b>: положить маркер «не найдено» с <b>коротким</b> TTL (30–60 секунд), чтобы повторные запросы не доходили до БД, а появившийся позже объект быстро стал виден.</li>
+<li><b>Bloom-фильтр</b> перед кэшем: компактная вероятностная структура, которая точно говорит «такого id нет» и с небольшой вероятностью ошибается в сторону «может быть есть». Все id, которых точно нет, отсекаются без похода в БД. В Redis есть модуль RedisBloom (<code>BF.ADD</code>, <code>BF.EXISTS</code>).</li>
+<li><b>Валидация входа</b>: отрицательные и заведомо невозможные id отбрасываются ещё до кэша; плюс rate limiting по клиенту.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Bloom-фильтр" src="../images/db/redis/web/r2_bloom_filter.png" width="1300" height="460" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Bloom-фильтр — битовый массив и несколько хэш-функций. При добавлении элементы $x, y, z$ ставят в 1 биты, на которые указывают их хэши (цветные стрелки). Элемента $w$ в множестве нет: один из его битов равен 0, значит фильтр точно отвечает «нет», и в БД идти не нужно. Если бы все биты $w$ случайно оказались единицами, фильтр ответил бы «может быть» — это ложноположительная ошибка. Источник: Wikimedia Commons, David Eppstein, public domain.
+  </figcaption>
+</figure>
+<h3>Cache avalanche</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Все ключи истекли разом">
+<p>Ночной батч посчитал рекомендации для 2 млн пользователей и в 03:00 записал их в Redis с TTL ровно 24 часа. Ровно в 03:00 следующего дня все 2 млн ключей истекают почти одновременно, и утренний трафик в течение нескольких минут идёт мимо кэша прямо в онлайн-модель.</p>
+<p>Второй вариант лавины — Redis упал или перезапустился пустым: hit rate мгновенно падает до нуля.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как защищаться от avalanche">
+<ul>
+<li><b>Jitter</b> (случайный разброс) в TTL: вместо ровно 86400 секунд — $86400 + \text{random}(0, 3600)$. Истечения размазываются по часу.</li>
+<li><b>Отказоустойчивость Redis</b>: реплики и Sentinel или Cluster, чтобы падение одного узла не обнуляло кэш; persistence, чтобы после рестарта кэш не был пустым.</li>
+<li><b>Защита источника</b>: circuit breaker (предохранитель, который при перегрузке быстро отклоняет запросы, не нагружая упавший сервис), ограничение параллельных запросов к БД, деградация — отдать дефолтные рекомендации вместо персональных.</li>
+<li><b>Многоуровневый кэш</b>: небольшой локальный in-process кэш перед Redis переживёт кратковременный провал.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Cache avalanche и jitter в TTL" src="../images/db/redis/cache_avalanche.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Батч записал 2 млн ключей с TTL ровно 86400 с (одна точка — 80 тыс. ключей). Через сутки все они истекают в одну минуту, и волна промахов уходит в БД далеко за её предел. С jitter — TTL $=86400+\mathrm{random}(0, 3600)$ — истечения размазываются по часу, и нагрузка в каждую минуту остаётся ниже предела.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Hot key — родственная проблема">
+<p><b>Горячий ключ</b> — ключ, который читают так часто, что один узел Redis (а в кластере весь трафик к ключу идёт на один узел) упирается в CPU или сеть. Лечится локальным кэшем на несколько секунд в самих сервисах или копированием ключа в несколько (<code>top100:0</code> … <code>top100:9</code>) с чтением случайной копии.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Путать stampede и avalanche.</b> Stampede — один горячий ключ и много одновременных пересчётов его. Avalanche — массовое одновременное истечение многих ключей или падение кэша.</li>
+<li><b>Замок без TTL</b> при защите от stampede: владелец упал — замок вечный, ключ больше никто не пересчитает.</li>
+<li><b>Отрицательный кэш с длинным TTL.</b> Объект создали, а пользователи ещё час видят «не найдено».</li>
+<li><b>Одинаковый TTL для батчевой записи.</b> Всегда добавляйте jitter.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое cache stampede?</b></p>
+<p>Ситуация, когда истекает горячий ключ и множество одновременных запросов получают промах и запускают один и тот же дорогой пересчёт, перегружая БД или модель.</p>
+</li>
+<li><p><b>Как защититься от cache stampede?</b></p>
+<p>Блокировкой на пересчёт через <code>SET NX EX</code>, чтобы считал один процесс, а остальные ждали или получали устаревшее значение; вероятностным ранним обновлением (XFetch); stale-while-revalidate; фоновым прогревом горячих ключей.</p>
+</li>
+<li><p><b>Что такое cache penetration и как с ним бороться?</b></p>
+<p>Запросы к несуществующим данным, которые никогда не попадают в кэш и всегда бьют в БД. Решения: кэшировать отрицательный ответ с коротким TTL, отсекать заведомо несуществующие ключи Bloom-фильтром, валидировать вход и ограничивать частоту запросов.</p>
+</li>
+<li><p><b>Что такое cache avalanche и как её предотвратить?</b></p>
+<p>Одновременное истечение множества ключей или падение кэша целиком, из-за чего вся нагрузка разом уходит в БД. Предотвращают случайным разбросом TTL, отказоустойчивым Redis с репликами, circuit breaker и деградацией сервиса, многоуровневым кэшем.</p>
+</li>
+<li><p><b>Зачем замку от stampede TTL?</b></p>
+<p>Если процесс, взявший замок, упадёт посреди пересчёта, без TTL замок останется навсегда и ключ никто больше не пересчитает. TTL освобождает замок автоматически.</p>
+</li>
+<li><p><b>В чём идея вероятностного раннего обновления?</b></p>
+<p>Каждый запрос с вероятностью, растущей к моменту истечения и с длительностью пересчёта, обновляет ключ заранее. Обновление успевает произойти одним запросом, пока остальные ещё получают действующее значение.</p>
+</li>
+<li><p><b>Что такое hot key и как его разгрузить?</b></p>
+<p>Ключ с такой частотой чтения, что один узел Redis перестаёт справляться. Разгружают коротким локальным кэшем в сервисах или несколькими копиями ключа с чтением случайной.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_ml_cache" data-interview="4">
+  <div class="name" id="redis_ml_cache">
+    Как кэшировать предсказания, эмбеддинги и online-признаки?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Кэш инференса</b> — хранение результата модели по ключу, однозначно определяемому <b>входом и версией модели</b>:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{key} = \texttt{prefix} : \text{model} : \text{version} : \operatorname{hash}(\text{canonical}(x))$$">$$\text{key} = \texttt{prefix} : \text{model} : \text{version} : \operatorname{hash}(\text{canonical}(x))$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\text{canonical}(x)$ — вход, приведённый к единому виду (отсортированные поля, одинаковое форматирование), а $\operatorname{hash}$ — криптографический хэш вроде SHA-256.</p>
+<p>Если совсем простыми словами: если модель уже отвечала на <b>точно такой же</b> вопрос, и <b>модель та же</b>, — берём прошлый ответ. Вся сложность в том, чтобы правильно определить «точно такой же» и «та же».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему в ключе версия модели">
+<p>Предсказание — функция двух аргументов: входа <b>и весов</b>. Выкатили новую модель <code>v8</code> — старые ответы <code>v7</code> больше не верны, даже если вход тот же. Если версии в ключе нет, пользователи до истечения TTL получают ответы старой модели, а A/B-тест сравнивает не то, что вы думаете.</p>
+<p>С версией в ключе инвалидация при выкатке бесплатна: новая модель просто пишет и читает свои ключи. В версию стоит включать всё, что влияет на ответ: веса, <b>препроцессинг</b> (токенизатор, нормализацию), порог классификации, промпт для LLM.</p>
+
+</div>
+<h3>Каноническая форма входа</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Один и тот же вход — разные хэши">
+<p>Два запроса с одинаковыми признаками:</p>
+<ul>
+<li><code>{&quot;age&quot;: 31, &quot;city&quot;: &quot;Kazan&quot;}</code></li>
+<li><code>{&quot;city&quot;: &quot;Kazan&quot;, &quot;age&quot;: 31}</code></li>
+</ul>
+<p>Если хэшировать <code>str(dict)</code> или <code>json.dumps</code> без сортировки, получатся <b>две разные строки</b> и два разных ключа — hit rate падает на ровном месте. Каноническая форма: <code>json.dumps(x, sort_keys=True, separators=(&quot;,&quot;, &quot;:&quot;))</code> — одинаковый порядок ключей и никаких лишних пробелов.</p>
+
+</div>
+<div class="code-block" data-lang="python">import hashlib
+import json
+
+def prediction_key(model: str, version: str, features: dict) -&gt; str:
+    canonical = json.dumps(features, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"pred:{model}:{version}:{digest}"
+
+prediction_key("churn", "v7", {"age": 31, "city": "Kazan"})
+# 'pred:churn:v7:3f1c...'</div><figure style="text-align: center">
+  <img alt="Каноническая форма входа и ключ кэша" src="../images/db/redis/canonical_key.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Один и тот же вход (age 31, city Kazan) с полями в разном порядке: обычный <code>json.dumps</code> даёт две разные строки, SHA-256 — два разных хэша и два ключа, поэтому второй запрос промахивается. После канонизации (<code>sort_keys=True</code>, без пробелов) строки совпадают, хэш один, и второй запрос попадает в кэш.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Зачем хэшировать, а не класть вход в ключ как есть">
+<p>Вход бывает длинным (текст на 5000 символов, сотни признаков), а длинные ключи тратят память и замедляют сравнение. Хэш фиксированной длины решает это. Второй плюс — <b>персональные данные</b> (email, телефон, текст пользователя) не лежат в Redis в открытом виде в именах ключей, которые видны в <code>SCAN</code> и логах.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Числа с плавающей точкой">
+<p><code>0.1 + 0.2</code> и <code>0.3</code> дают разные строки, а признак <code>1.0</code> и <code>1</code> сериализуются по-разному. Если вход собирается из вычислений, округлите числа до разумной точности перед хэшированием или кэшируйте на уровне <b>сырых</b> идентификаторов (<code>user_id</code>, <code>item_id</code>, дата), а не вычисленных признаков.</p>
+
+</div>
+<h3>Кэш эмбеддингов</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Сколько памяти займут эмбеддинги">
+<p>1 млн товаров, эмбеддинг размерности 768 в <code>float32</code> (4 байта на число):</p>
+<p><span class="latex-copy-wrap" data-latex="$$10^6 \cdot 768 \cdot 4 \text{ Б} \approx 3.07 \text{ ГБ}$$">$$10^6 \cdot 768 \cdot 4 \text{ Б} \approx 3.07 \text{ ГБ}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>плюс накладные расходы Redis на ключи (~50–100 байт на ключ) — около 3.2 ГБ. В <code>float16</code> вдвое меньше, ~1.6 ГБ. Хранить эмбеддинги стоит <b>в бинарном виде</b> (<code>arr.tobytes()</code>), а не JSON-списком: JSON с числами вроде <code>0.0123456789</code> занимает в 3–4 раза больше и медленно парсится.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему эмбеддинги кэшируются особенно хорошо">
+<p>Эмбеддинг зависит только от текста (или картинки) и модели-энкодера — <b>детерминирован</b>. Ключ <code>emb:&lt;модель&gt;:&lt;sha256 нормализованного текста&gt;</code> можно держать с большим TTL: значение не устаревает, пока не сменится энкодер. В RAG-пайплайне это экономит повторное кодирование одинаковых чанков и частых запросов.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Кэш ответов LLM">
+<p>Ответ LLM при <code>temperature &gt; 0</code> <b>случаен</b>, и кэширование меняет поведение продукта: все получат один и тот же ответ. Кэшировать имеет смысл детерминированные вызовы (<code>temperature = 0</code>, классификация, извлечение сущностей) с промптом и версией модели в ключе. <b>Семантический кэш</b> (возвращать ответ на «похожий» запрос по близости эмбеддингов) экономит деньги, но может отдать ответ на чуть другой вопрос — порог похожести надо валидировать.</p>
+
+</div>
+<h3>Online feature store</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Redis как online-хранилище признаков">
+<p><b>Feature store</b> — система, которая хранит признаки для обучения (<b>offline store</b>: большие исторические таблицы в хранилище данных) и для инференса (<b>online store</b>: последние значения признаков с доступом за миллисекунды). Redis — одно из стандартных online-хранилищ, например в <b>Feast</b>.</p>
+<p>Типичная раскладка: один Hash на сущность, <code>features:user:42 → {orders_30d: 5, avg_check: 1240, ...}</code>. Батчевая джоба или стриминговый пайплайн <b>материализуют</b> (записывают) свежие значения, сервис инференса читает их одним <code>HGETALL</code> или <code>HMGET</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="TTL в feature store">
+<p>Здесь TTL — это <b>гарантия свежести признака</b>. Если стриминг упал, признак <code>orders_last_hour</code> должен исчезнуть, а не отдавать вчерашнее значение как текущее. Модель тогда получит пропуск и отработает его по заранее заданной логике (дефолт, флаг «нет данных»), вместо того чтобы молча предсказывать по устаревшему входу.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Нет версии модели в ключе</b> — после выкатки пользователи получают ответы старой модели.</li>
+<li><b>Хэш от неканонизированного входа</b> — порядок полей или форматирование чисел дробят один вход на много ключей.</li>
+<li><b>Кэшировать уникальные входы.</b> Если каждый запрос уникален (свободный текст, точное время в признаках), hit rate около нуля, и кэш только добавляет задержку. Считайте hit rate до и после.</li>
+<li><b>Эмбеддинги в JSON.</b> Втрое больше памяти и медленнее, чем бинарный формат.</li>
+<li><b>Train/serve skew</b> (расхождение признаков на обучении и в проде): online-признаки в Redis считаются другим кодом, чем offline для обучения, и незаметно расходятся.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Из чего строится ключ кэша предсказания?</b></p>
+<p>Из префикса, имени и версии модели и хэша канонической формы входа. Версия включает всё, что влияет на ответ: веса, препроцессинг, пороги, промпт.</p>
+</li>
+<li><p><b>Зачем в ключе версия модели?</b></p>
+<p>Предсказание зависит от входа и от весов. Без версии после выкатки новой модели кэш отдаёт ответы старой до истечения TTL. С версией инвалидация при релизе происходит автоматически.</p>
+</li>
+<li><p><b>Что такое каноническая форма входа и зачем она нужна?</b></p>
+<p>Единое представление одинаковых данных: отсортированные ключи, фиксированное форматирование, округлённые числа. Без неё один и тот же вход даёт разные хэши, и hit rate падает.</p>
+</li>
+<li><p><b>Почему вход хэшируют, а не кладут в ключ целиком?</b></p>
+<p>Хэш фиксированной длины экономит память и не раскрывает персональные данные в именах ключей.</p>
+</li>
+<li><p><b>Как хранить эмбеддинги в Redis?</b></p>
+<p>В бинарном виде (<code>tobytes</code>, при чтении — <code>np.frombuffer</code> с тем же dtype), с ключом из имени энкодера и хэша входа. JSON занимает в разы больше памяти и медленнее парсится.</p>
+</li>
+<li><p><b>Когда кэш ответов LLM опасен?</b></p>
+<p>При <code>temperature &gt; 0</code>, где ответ случаен и кэш меняет поведение продукта, и в семантическом кэше, который может отдать ответ на похожий, но другой вопрос.</p>
+</li>
+<li><p><b>Как Redis используется в feature store?</b></p>
+<p>Как online store: последние значения признаков по сущности в Hash, которые материализуют батчевые или стриминговые пайплайны, а сервис инференса читает за миллисекунды. TTL гарантирует, что устаревшие признаки не будут отданы как свежие.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 4</h3>
+<li class="question" data-md-source="true" data-md-id="redis_persistence" data-interview="3">
+  <div class="name" id="redis_persistence">
+    Как Redis сохраняет данные на диск: RDB и AOF?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Persistence</b> (персистентность) — способность Redis пережить перезапуск, сохранив данные на диск. Два механизма:</p>
+<ul>
+<li><b>RDB</b> (Redis Database) — периодический <b>снимок</b> всей базы в компактный бинарный файл;</li>
+<li><b>AOF</b> (Append Only File) — <b>журнал</b> всех команд записи, который дописывается по мере работы и при старте проигрывается заново.</li>
+</ul>
+<p>Если совсем простыми словами: RDB — это <b>фотография</b> комнаты раз в пять минут, AOF — <b>видеозапись</b> всего, что в комнате происходило. По фотографии восстановиться быстро, но теряется всё, что было после снимка. По видео можно восстановить почти всё, но запись длиннее и её дольше просматривать.</p>
+
+</div>
+<h3>RDB</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как делается снимок">
+<p>По команде <code>BGSAVE</code> или по правилу вроде <code>save 300 10</code> («сохранить, если за 300 секунд было хотя бы 10 изменений») Redis делает системный вызов <b><code>fork</code></b>: создаётся дочерний процесс с копией памяти, который пишет её на диск, а основной процесс продолжает обслуживать клиентов.</p>
+<p>Копия почти бесплатна благодаря <b>copy-on-write</b> (копирование при записи): ОС не копирует память сразу, а только те страницы, которые основной процесс успеет изменить за время снимка.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Плюсы и минусы RDB">
+<p><b>Плюсы:</b> один компактный файл — удобно для бэкапов и переноса; быстрый старт — загрузить снимок быстрее, чем проиграть журнал. <b>Минусы:</b> при падении теряется всё, что изменилось после последнего снимка, — минуты данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Память при fork">
+<p>Если во время снимка идёт много записей, copy-on-write копирует всё больше страниц, и в худшем случае потребление памяти <b>почти удваивается</b>. Redis, занимающий 20 ГБ на машине с 32 ГБ, может быть убит OOM killer ровно в момент сохранения. Поэтому <code>maxmemory</code> ставят с запасом.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="fork и copy-on-write" src="../images/db/redis/fork_cow.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    <code>BGSAVE</code> делает <code>fork</code>: дочерний процесс пишет снимок и видит те же 8 страниц памяти, что и родитель, — копий нет. Когда родитель меняет страницу, ОС копирует только её: розовая копия достаётся родителю, синий оригинал остаётся дочернему. Если за время снимка меняется почти всё, копируются все страницы, и физическая память растёт с 8 до 16 страниц — вдвое.
+  </figcaption>
+</figure>
+<h3>AOF</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает журнал">
+<p>Каждая команда записи дописывается в конец файла. Частоту сброса на диск (<code>fsync</code>) задаёт <code>appendfsync</code>:</p>
+<ul>
+<li><code>always</code> — после каждой команды: почти без потерь, но медленно;</li>
+<li><code>everysec</code> — раз в секунду: при падении теряется <b>до ~1 секунды</b> записей; <b>значение по умолчанию</b> и разумный компромисс;</li>
+<li><code>no</code> — когда решит ОС: быстрее всего, потерять можно десятки секунд.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Перезапись AOF">
+<p>Журнал растёт бесконечно: миллион <code>INCR counter</code> — миллион строк, хотя итог — одно число. Поэтому Redis периодически делает <b>rewrite</b> (<code>BGREWRITEAOF</code>): через тот же <code>fork</code> записывает минимальный набор команд, который воссоздаёт текущее состояние. В современных версиях используется <b>гибридный</b> формат: основа в виде RDB-снимка плюс хвост из команд после него — быстрая загрузка и минимальные потери.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Перезапись AOF" src="../images/db/redis/aof_rewrite.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева AOF из 10 команд, хотя итоговое состояние — <code>counter = 5</code> и <code>user:1 = Anna</code>. <code>BGREWRITEAOF</code> сворачивает жёлтые <code>INCR</code> в один <code>SET counter 5</code>, розовые записи — в последний <code>SET user:1 Anna</code>, а созданный и удалённый <code>tmp</code> в новый файл не попадает вовсе. В гибридном формате основа хранится RDB-снимком, а новые команды дописываются хвостом.
+  </figcaption>
+</figure>
+<table class="task-table">
+<thead><tr><th></th><th>RDB</th><th>AOF (<code>everysec</code>)</th></tr></thead>
+<tbody>
+<tr><td>Что хранит</td><td>снимок памяти</td><td>журнал команд записи</td></tr>
+<tr><td>Потери при сбое</td><td>с последнего снимка (минуты)</td><td>до ~1 секунды</td></tr>
+<tr><td>Размер файла</td><td>компактный</td><td>больше, нужен rewrite</td></tr>
+<tr><td>Скорость рестарта</td><td>быстрая</td><td>медленнее (проигрывание)</td></tr>
+<tr><td>Для чего</td><td>бэкапы, кэш, быстрый старт</td><td>данные, которые жалко терять</td></tr>
+</tbody>
+</table><figure style="text-align: center">
+  <img alt="RDB и AOF: что теряется при сбое" src="../images/db/redis/rdb_vs_aof.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Один поток записей за 10 минут. Синяя полоса — что есть в памяти, зелёная — что уже на диске. RDB сохраняет снимок на 5-й минуте, и дальше диск не обновляется; AOF с <code>everysec</code> отстаёт от памяти не больше чем на секунду. Сбой в 8:40: RDB теряет 3 минуты 40 секунд записей, AOF — не больше секунды.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Что выбрать под задачу">
+<ul>
+<li><b>Чистый кэш предсказаний</b>: потеря не страшна, всё пересчитается. Часто persistence отключают совсем или оставляют редкий RDB, чтобы после рестарта кэш был «тёплым», а не пустым (иначе — cache avalanche).</li>
+<li><b>Очередь задач Celery, сессии</b>: включают AOF <code>everysec</code> — потерять секунду допустимо, потерять все задачи — нет.</li>
+<li><b>Максимальная надёжность</b>: RDB + AOF одновременно; RDB для бэкапов, AOF для восстановления.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Считать, что с AOF данные не теряются никогда.</b> При <code>everysec</code> теряется до секунды, а при асинхронной репликации и переключении на реплику — ещё больше.</li>
+<li><b>Путать persistence с репликацией.</b> Persistence — переживание рестарта одной машины. Репликация — копия данных на другой машине на случай её отказа. Это разные механизмы, и на проде обычно нужны оба.</li>
+<li><b>Не оставлять памяти под fork.</b> Сохранение само по себе может вызвать OOM.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие механизмы persistence есть в Redis?</b></p>
+<p>RDB — периодический бинарный снимок всей памяти, и AOF — журнал команд записи, который проигрывается при старте. Их можно использовать вместе.</p>
+</li>
+<li><p><b>Как Redis делает снимок, не останавливая обслуживание?</b></p>
+<p>Через <code>fork</code>: дочерний процесс пишет копию памяти на диск, а основной продолжает работу. Благодаря copy-on-write копируются только изменяемые за это время страницы памяти.</p>
+</li>
+<li><p><b>Сколько данных можно потерять с RDB и с AOF?</b></p>
+<p>С RDB — всё, что изменилось после последнего снимка, обычно минуты. С AOF при <code>appendfsync everysec</code> — до примерно одной секунды записей.</p>
+</li>
+<li><p><b>Зачем нужна перезапись AOF?</b></p>
+<p>Журнал растёт с каждой командой, хотя итоговое состояние может описываться гораздо короче. Rewrite записывает минимальный набор команд (в современном формате — RDB-основу плюс хвост), уменьшая файл и ускоряя загрузку.</p>
+</li>
+<li><p><b>Чем опасен fork при сохранении?</b></p>
+<p>При интенсивной записи copy-on-write копирует много страниц, и потребление памяти может почти удвоиться, что приводит к OOM. Нужен запас памяти.</p>
+</li>
+<li><p><b>Какую persistence выбрать для кэша и для очереди задач?</b></p>
+<p>Для кэша persistence часто отключают или оставляют редкий RDB для тёплого старта. Для очереди задач и сессий включают AOF <code>everysec</code>, чтобы не терять данные при рестарте.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_replication_cluster" data-interview="3">
+  <div class="name" id="redis_replication_cluster">
+    Репликация, Sentinel и Redis Cluster: как масштабировать Redis?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Три уровня отказоустойчивости и масштабирования Redis:</p>
+<ul>
+<li><b>Репликация</b> (master–replica) — одна основная нода принимает записи, реплики хранят её копию и могут отдавать чтения;</li>
+<li><b>Sentinel</b> — отдельные процессы, которые следят за мастером и при его падении <b>автоматически</b> назначают новым мастером одну из реплик (failover);</li>
+<li><b>Redis Cluster</b> — данные <b>разбиты на части</b> (шардированы) между несколькими мастерами, у каждого свои реплики.</li>
+</ul>
+<p>Если совсем простыми словами: репликация — «у нас есть копия», Sentinel — «если главный упал, мы сами быстро назначим нового», Cluster — «данных столько, что они не помещаются на одну машину, поэтому делим их между несколькими». Общие идеи шардирования и репликации — в вопросе <a href="../ai/mlops/infra/db.html#sharding_replication" target="_blank" rel="noopener">Что такое sharding и replication?</a>.</p>
+
+</div>
+<h3>Репликация</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Реплика подключается к мастеру, получает полную копию данных (RDB-снимок), а затем — поток всех команд записи. Реплики по умолчанию <b>только для чтения</b>. Если связь ненадолго прерывается, реплика догоняет мастер по буферу изменений (частичная синхронизация, <code>PSYNC</code>), без повторной полной копии.</p>
+<p>Зачем: <b>чтения масштабируются</b> (читаем с реплик), а при падении мастера есть готовая копия.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Репликация асинхронная">
+<p>Мастер отвечает клиенту «OK» <b>до того</b>, как реплики получили запись. Если мастер упал сразу после ответа, а реплику повысили до мастера, эта запись <b>потеряна</b>, хотя клиент получил подтверждение. Команда <code>WAIT</code> позволяет дождаться подтверждения от N реплик, но строгой гарантии всё равно не даёт. Для кэша это приемлемо, для денег — нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чтение с реплики может быть устаревшим">
+<p>Записали на мастер и тут же прочитали с реплики — значения там может ещё не быть (replication lag, задержка репликации). Для кэша это обычно неважно, но логику «записал → сразу прочитал свою запись» нужно направлять на мастер.</p>
+
+</div>
+<h3>Sentinel</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Автоматический failover">
+<p>Несколько процессов Sentinel (обычно 3, на разных машинах) постоянно пингуют мастер. Если <b>кворум</b> (заданное большинство) Sentinel-ов согласен, что мастер недоступен, они выбирают лучшую реплику, повышают её до мастера, переключают остальные реплики на неё и сообщают клиентам новый адрес.</p>
+<p>Клиент при этом подключается не к мастеру напрямую, а <b>спрашивает у Sentinel</b>, кто сейчас мастер (в <code>redis-py</code> для этого есть класс <code>Sentinel</code>). Sentinel не шардирует данные: все данные по-прежнему на одном мастере.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Почему Sentinel-ов нечётное число">
+<p>Решение о падении мастера принимается большинством. При трёх Sentinel-ах один может ошибиться (например, у него самого пропала сеть), но двое других не дадут ему устроить ложный failover. Два Sentinel-а не могут отличить «упал мастер» от «упал второй Sentinel».</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Асинхронная репликация и failover через Sentinel" src="../images/db/redis/sentinel_failover.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Клиент пишет <code>SET x 1</code>, и мастер сразу отвечает OK — запись ещё в пути к репликам. Мастер падает; три Sentinel не получают ответа на <code>PING</code> и набирают кворум. Реплика 1 становится новым мастером, реплика 2 переключается на неё. Клиент читает <code>GET x</code> у нового мастера и получает <code>nil</code>: подтверждённая запись потеряна.
+  </figcaption>
+</figure>
+<h3>Redis Cluster</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Hash slots">
+<p>Пространство ключей разбито на <b>16384 слота</b>. Слот ключа вычисляется так:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{slot} = \operatorname{CRC16}(\text{key}) \bmod 16384$$">$$\text{slot} = \operatorname{CRC16}(\text{key}) \bmod 16384$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>то есть по хэшу имени ключа. Каждый мастер отвечает за свой диапазон слотов: при трёх мастерах, например, 0–5460, 5461–10922 и 10923–16383. Добавили мастер — часть слотов <b>переезжает</b> на него вместе с ключами, остальные данные не трогаются.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Как клиент находит нужную ноду">
+<p>Клиент кластера (<code>redis.cluster.RedisCluster</code> в <code>redis-py</code>) скачивает карту «слот → нода» и отправляет команду сразу на нужный мастер. Если карта устарела (слот переехал), нода отвечает редиректом <code>MOVED 3999 10.0.0.5:6379</code>, и клиент обновляет карту. Для приложения это прозрачно.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Ограничение: мультиключевые операции">
+<p>Команды над <b>несколькими ключами</b> (<code>MGET</code>, <code>SINTER</code>, транзакции, Lua-скрипты) работают в кластере, только если все ключи лежат в <b>одном слоте</b>. Для этого используют <b>hash tags</b>: хэшируется только часть ключа в фигурных скобках.</p>
+<p><code>features:{user:42}:profile</code> и <code>features:{user:42}:history</code> попадают в один слот, потому что оба хэшируются по <code>user:42</code>. Злоупотреблять не стоит: один популярный тег соберёт всю нагрузку на одной ноде.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Hash slots и hash tags в Redis Cluster" src="../images/db/redis/hash_slots.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    16384 слота поделены между тремя мастерами, слот ключа — $\operatorname{CRC16}(\text{key}) \bmod 16384$: <code>user:42</code> → 15880 (мастер C), <code>item:7</code> → 4925 (мастер A). Ключи <code>features:user:42:profile</code> и <code>features:user:42:history</code> получают слоты 8868 и 10123 — это разные слоты (хоть и на одном мастере), поэтому <code>MGET</code> по ним вернёт ошибку <code>CROSSSLOT</code>. С hash tag <code>{user:42}</code> хэшируется только часть в скобках, оба ключа попадают в слот 15880, и мультиключевые команды работают.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Прочие особенности кластера">
+<p>В кластере есть только база <code>0</code> (команда <code>SELECT</code> недоступна), а у каждого мастера свои реплики и встроенный failover — Sentinel не нужен. Управляемые сервисы облаков (AWS ElastiCache, Yandex Cloud и другие) обычно берут всю эту механику на себя.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Считать реплику бэкапом.</b> Случайный <code>FLUSHALL</code> на мастере мгновенно реплицируется на все реплики. Бэкап — это RDB-файл, лежащий отдельно.</li>
+<li><b>Ожидать, что <code>MGET</code> по произвольным ключам заработает в кластере.</b> Нужны hash tags или разбиение запроса по нодам.</li>
+<li><b>Путать Sentinel и Cluster.</b> Sentinel даёт автоматический failover без шардирования, Cluster — шардирование со встроенным failover.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как устроена репликация в Redis?</b></p>
+<p>Мастер принимает записи и асинхронно передаёт поток команд репликам; реплики по умолчанию только для чтения. После разрыва связи реплика догоняет мастер частичной синхронизацией.</p>
+</li>
+<li><p><b>Почему при failover можно потерять подтверждённые записи?</b></p>
+<p>Репликация асинхронная: мастер отвечает клиенту до того, как реплики получили данные. Если мастер упал в этот момент, повышенная реплика этих записей не содержит.</p>
+</li>
+<li><p><b>Что делает Redis Sentinel?</b></p>
+<p>Мониторит мастер и при его недоступности, по решению кворума, повышает реплику до мастера, перенастраивает остальные реплики и сообщает клиентам новый адрес. Шардирования Sentinel не даёт.</p>
+</li>
+<li><p><b>Как Redis Cluster распределяет ключи?</b></p>
+<p>Через 16384 hash-слота: слот ключа равен CRC16 от ключа по модулю 16384, каждый мастер обслуживает свой диапазон слотов. При добавлении ноды часть слотов переносится на неё.</p>
+</li>
+<li><p><b>Что такое hash tags и зачем они нужны?</b></p>
+<p>Часть ключа в фигурных скобках, по которой считается слот. Ключи с одинаковым тегом попадают в один слот, что позволяет выполнять над ними мультиключевые команды, транзакции и Lua-скрипты в кластере.</p>
+</li>
+<li><p><b>Чем Sentinel отличается от Cluster?</b></p>
+<p>Sentinel — это автоматический failover для одного мастера со всеми данными. Cluster делит данные между несколькими мастерами и имеет встроенный failover, поэтому масштабирует и память, и запись.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_queues" data-interview="3">
+  <div class="name" id="redis_queues">
+    Redis как очередь: Lists, Pub/Sub и Streams
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В Redis есть три способа передавать сообщения между сервисами:</p>
+<ul>
+<li><b>List</b> (<code>LPUSH</code> + <code>BRPOP</code>) — простая очередь задач: каждую задачу забирает <b>один</b> воркер;</li>
+<li><b>Pub/Sub</b> (<code>PUBLISH</code> / <code>SUBSCRIBE</code>) — рассылка: сообщение получают <b>все подписчики, которые сейчас онлайн</b>, и нигде не хранится;</li>
+<li><b>Stream</b> (<code>XADD</code> / <code>XREADGROUP</code>) — журнал сообщений с <b>группами потребителей</b> и подтверждениями: сообщения хранятся, их можно перечитать и переназначить.</li>
+</ul>
+<p>Если совсем простыми словами: List — это <b>стопка заявок</b> на столе, каждую берёт один сотрудник. Pub/Sub — <b>объявление по громкой связи</b>: кто не был в комнате, тот не услышал. Stream — <b>журнал входящих</b> с отметками «кто взял» и «кто выполнил».</p>
+
+</div>
+<h3>Очередь на List</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Продюсер кладёт задачу: <code>LPUSH tasks &#39;{&quot;job&quot;: &quot;embed&quot;, &quot;doc_id&quot;: 17}&#39;</code>. Воркеры в цикле делают <code>BRPOP tasks 5</code> — блокирующее ожидание до 5 секунд: как только в списке появляется элемент, его получает <b>ровно один</b> воркер. Так устроены брокеры <b>RQ</b> и по умолчанию <b>Celery</b> поверх Redis.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Задача теряется, если воркер упал">
+<p><code>BRPOP</code> удаляет задачу из списка <b>в момент выдачи</b>. Если воркер упал посреди обработки, задачи больше нет нигде. Надёжный вариант — <code>BLMOVE tasks processing RIGHT LEFT</code>: атомарно переложить задачу в список «в работе», а после успешной обработки удалить её оттуда (<code>LREM</code>). Отдельный процесс возвращает в очередь задачи, которые висят в <code>processing</code> слишком долго.</p>
+
+</div>
+<h3>Pub/Sub</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p>Подписчики выполняют <code>SUBSCRIBE model-updates</code>, издатель — <code>PUBLISH model-updates &quot;v8&quot;</code>. Redis тут же рассылает сообщение <b>всем</b> текущим подписчикам канала и забывает его. Никакого хранения, подтверждений и повторной доставки.</p>
+<p>Подходит для <b>уведомлений, которые не страшно пропустить</b>: «новая версия модели загружена, перечитайте конфиг», «сбросьте локальный кэш ключа X», live-обновления в UI.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Pub/Sub — не очередь задач">
+<p>Подписчик перезапускался 10 секунд — все сообщения за эти 10 секунд потеряны. Подписчиков ноль — сообщение ушло в никуда. Кроме того, сообщение получают <b>все</b> подписчики, а не один: если три воркера подписаны на канал задач, каждая задача выполнится трижды.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="List и Pub/Sub: разная семантика доставки" src="../images/db/redis/list_vs_pubsub.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева List: продюсер кладёт три задачи через <code>LPUSH</code>, воркеры забирают их через <code>BRPOP</code> — каждую ровно один, и из списка задача удаляется. Справа Pub/Sub: <code>PUBLISH</code> сообщения <code>v8</code> в канал <code>model-updates</code> рассылает копию всем онлайн-подписчикам; офлайн-подписчик s3 его не получит, а в канале ничего не остаётся.
+  </figcaption>
+</figure>
+<h3>Streams</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как работает">
+<p><b>Stream</b> — append-only журнал: <code>XADD events * user 42 action click</code> добавляет запись с автоматическим ID вида <code>1727170000000-0</code> (время в мс и порядковый номер). Записи хранятся, пока их явно не обрежут (<code>MAXLEN</code>).</p>
+<p><b>Группа потребителей</b> (consumer group) распределяет записи между воркерами: каждая запись уходит <b>одному</b> члену группы (<code>XREADGROUP</code>). Воркер после обработки подтверждает её <code>XACK</code>. Неподтверждённые записи лежат в <b>PEL</b> (pending entries list — список выданных, но не подтверждённых), и зависшие можно забрать другим воркером через <code>XAUTOCLAIM</code>.</p>
+
+</div>
+<div class="code-block" data-lang="bash">XADD inference:requests * doc_id 17 model v8
+XGROUP CREATE inference:requests embedders $ MKSTREAM
+XREADGROUP GROUP embedders worker-1 COUNT 10 BLOCK 5000 STREAMS inference:requests &gt;
+XACK inference:requests embedders 1727170000000-0</div><figure style="text-align: center">
+  <img alt="Stream и consumer group" src="../images/db/redis/stream_group.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    <code>XADD</code> дописывает записи в stream <code>inference:requests</code>. Группа <code>embedders</code> раздаёт их через <code>XREADGROUP</code>: каждая запись достаётся одному воркеру и попадает в PEL. worker-1 подтверждает 1001-0 через <code>XACK</code> — запись уходит из PEL. worker-2 падает, 1002-0 остаётся в PEL, и через таймаут <code>XAUTOCLAIM</code> передаёт её worker-1. Сами записи остаются в журнале — историю можно перечитать.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Streams и Kafka">
+<p>Идея та же, что у Kafka: журнал, группы потребителей, смещение, перечитывание. Но Stream живёт в памяти одного Redis (или одного шарда), поэтому подходит для <b>умеренных</b> объёмов: очередь запросов к модели, события для онлайн-признаков внутри сервиса. Для терабайтных потоков событий с долгим хранением — Kafka.</p>
+
+</div>
+<table class="task-table">
+<thead><tr><th></th><th>List</th><th>Pub/Sub</th><th>Stream</th></tr></thead>
+<tbody>
+<tr><td>Хранение сообщений</td><td>да, до выдачи</td><td>нет</td><td>да, до обрезки</td></tr>
+<tr><td>Кто получает</td><td>один воркер</td><td>все онлайн-подписчики</td><td>один в группе (групп много)</td></tr>
+<tr><td>Подтверждение обработки</td><td>нет (вручную через <code>BLMOVE</code>)</td><td>нет</td><td><code>XACK</code></td></tr>
+<tr><td>Перечитать историю</td><td>нет</td><td>нет</td><td>да</td></tr>
+<tr><td>Типичное применение</td><td>Celery / RQ</td><td>уведомления, сброс кэша</td><td>надёжная очередь, события</td></tr>
+</tbody>
+</table><h3>Celery и RQ</h3>
+
+<div class="info-card-auto" data-type="example" data-title="Redis как брокер Celery">
+<p>API принимает запрос «переобучить модель на новых данных» и не может ждать 20 минут. Он вызывает <code>retrain.delay(dataset_id=5)</code>: Celery сериализует задачу и кладёт её в Redis-список. Воркер Celery на GPU-машине забирает задачу и выполняет. Результат (или статус) Celery пишет в <b>result backend</b> — это может быть тот же Redis с TTL на результатах.</p>
+<p>В Redis-брокере Celery есть параметр <code>visibility_timeout</code>: если задача не подтверждена за это время, она будет выдана снова. Для долгих задач (обучение на час) его нужно увеличить, иначе задача запустится повторно.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Использовать Pub/Sub как очередь задач.</b> Сообщения теряются при перезапуске подписчика, а при нескольких подписчиках задача выполняется несколько раз.</li>
+<li><b><code>BRPOP</code> без механизма повторов</b> для важных задач: упавший воркер уносит задачу с собой.</li>
+<li><b>Не подтверждать сообщения в Streams.</b> PEL растёт бесконечно, а зависшие задачи никто не переназначает.</li>
+<li><b>Держать очередь в Redis с политикой <code>allkeys-lru</code>.</b> При нехватке памяти вытеснятся сами задачи. Для очередей — отдельный инстанс с <code>noeviction</code> и AOF.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как сделать простую очередь задач в Redis?</b></p>
+<p>На списке: продюсер делает <code>LPUSH</code>, воркеры — блокирующий <code>BRPOP</code>, и каждая задача достаётся ровно одному воркеру. Так работают RQ и Redis-брокер Celery.</p>
+</li>
+<li><p><b>Чем Pub/Sub отличается от очереди?</b></p>
+<p>Pub/Sub рассылает сообщение всем подписчикам, которые онлайн прямо сейчас, и нигде его не хранит. Очередь хранит задачу, пока её не заберёт один воркер.</p>
+</li>
+<li><p><b>Почему Pub/Sub нельзя использовать для задач?</b></p>
+<p>Сообщения теряются, если подписчик отключён, нет подтверждения и повторной доставки, а при нескольких подписчиках каждый получает копию, и задача выполняется несколько раз.</p>
+</li>
+<li><p><b>Что дают Redis Streams по сравнению со списками?</b></p>
+<p>Хранение истории с возможностью перечитать, группы потребителей с распределением записей между воркерами, подтверждение <code>XACK</code>, список неподтверждённых записей и переназначение зависших через <code>XAUTOCLAIM</code>.</p>
+</li>
+<li><p><b>Как не потерять задачу из List, если воркер упал?</b></p>
+<p>Забирать задачу через <code>BLMOVE</code> в отдельный список «в работе» и удалять оттуда после успешной обработки, а зависшие задачи возвращать в очередь по таймауту.</p>
+</li>
+<li><p><b>Для чего подходит Pub/Sub в ML-системах?</b></p>
+<p>Для уведомлений, которые не страшно пропустить: сигнал о выкатке новой модели, команда сбросить локальный кэш, live-обновления интерфейса.</p>
+</li>
+<li><p><b>Какую роль Redis играет в Celery?</b></p>
+<p>Брокера, через который задачи передаются от приложения воркерам, и часто result backend для хранения статусов и результатов. Для долгих задач важно настроить <code>visibility_timeout</code>, чтобы задача не выдавалась повторно.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="redis_python" data-interview="3">
+  <div class="name" id="redis_python">
+    Как работать с Redis из Python?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>redis-py</b> — официальный Python-клиент Redis (<code>pip install redis</code>). Он даёт синхронный клиент <code>redis.Redis</code>, асинхронный <code>redis.asyncio.Redis</code>, клиенты для кластера и Sentinel, pipeline и регистрацию Lua-скриптов. Каждый клиент работает через <b>пул соединений</b> (connection pool) — набор заранее открытых TCP-соединений, которые переиспользуются между запросами.</p>
+<p>Если совсем простыми словами: клиент — это <b>телефонная станция</b> на несколько линий. Звонить можно сколько угодно, но линии (соединения) открываются один раз и дальше переиспользуются, а не прокладываются заново на каждый звонок.</p>
+
+</div>
+<div class="code-block" data-lang="python">import redis
+
+r = redis.Redis(
+    host="redis.internal",
+    port=6379,
+    db=0,
+    decode_responses=True,       # отдавать str вместо bytes
+    socket_connect_timeout=1,    # таймаут на подключение, секунды
+    socket_timeout=0.5,          # таймаут на ответ
+    health_check_interval=30,    # проверять «мёртвые» соединения
+)
+r.set("greeting", "hi", ex=60)
+r.get("greeting")                # -&gt; 'hi'</div><h3>Пул соединений</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Создавайте клиент один раз">
+<p>Открытие TCP-соединения (а с TLS ещё и рукопожатие) стоит миллисекунды — больше, чем сама команда. Поэтому клиент создают <b>один раз на процесс</b> (на уровне модуля или при старте приложения) и переиспользуют во всех обработчиках. <code>redis.Redis(...)</code> сам создаёт пул внутри себя, и объект потокобезопасен.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Типичная ошибка в FastAPI">
+<p>Код создаёт клиент в каждом обработчике запроса. При 500 RPS это 500 новых соединений в секунду: Redis тратит процессор на их установку, у сервера кончаются файловые дескрипторы, появляются ошибки <code>Too many connections</code>. Правильно — создать клиент при старте приложения (в <code>lifespan</code>) и передавать один и тот же объект. Для async-фреймворков — <code>redis.asyncio.Redis</code>, иначе синхронные вызовы блокируют event loop.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Клиент на каждый запрос против пула соединений" src="../images/db/redis/connection_pool.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева клиент создаётся в каждом обработчике: каждый запрос открывает новое TCP-соединение (с TLS — 1–3 мс, дороже самой команды в 0.2 мс), и при 500 RPS это 500 новых соединений в секунду. Справа один <code>redis.Redis</code> на процесс: три соединения пула открыты один раз и переиспользуются всеми запросами.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="fork и соединения">
+<p>Сервер вроде gunicorn запускает воркеров через <code>fork</code>. Если клиент Redis создан <b>до</b> fork и уже открыл соединения, дочерние процессы унаследуют одни и те же сокеты, и ответы начнут перепутываться. Создавайте клиент в каждом воркере после старта. То же касается <code>multiprocessing</code> и DataLoader-воркеров в PyTorch.</p>
+
+</div>
+<h3>Сериализация</h3>
+
+<div class="info-card-auto" data-type="explanation" data-title="Redis хранит только байты">
+<p>Redis ничего не знает о Python-объектах: значение — это строка байтов. Словарь, список, numpy-массив нужно <b>сериализовать</b> (превратить в байты) при записи и десериализовать при чтении. Выбор формата влияет на размер, скорость и безопасность.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="JSON для структур">
+<p>Для словарей с признаками и ответов модели — <code>json.dumps</code> / <code>json.loads</code> (или быстрый <code>orjson</code>). Читается глазами при отладке, не зависит от версии Python и библиотек. Минус — numpy-типы (<code>np.float32</code>) не сериализуются напрямую, их нужно привести к <code>float</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Байты для numpy-массивов">
+<p>Для эмбеддингов и других массивов — сырые байты: <code>arr.astype(np.float32).tobytes()</code> при записи и <code>np.frombuffer(data, dtype=np.float32)</code> при чтении. Компактно и быстро. Но в байтах <b>нет</b> информации о типе и форме: dtype нужно знать заранее (зафиксировать в имени ключа или коде), а для многомерных массивов хранить форму отдельно и делать <code>reshape</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import numpy as np
+import redis
+
+rb = redis.Redis(host="redis.internal")          # без decode_responses: работаем с bytes
+
+emb = np.random.rand(768).astype(np.float32)
+rb.set("emb:e5-base:ab12", emb.tobytes(), ex=86400)
+
+raw = rb.get("emb:e5-base:ab12")
+restored = np.frombuffer(raw, dtype=np.float32)  # shape (768,), только для чтения</div>
+<div class="info-card-auto" data-type="warning" data-title="decode_responses и бинарные данные">
+<p>Клиент с <code>decode_responses=True</code> пытается декодировать каждый ответ как UTF-8 и <b>упадёт</b> на бинарных данных вроде эмбеддинга. Для бинарных ключей используют отдельный клиент без этого флага.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Не используйте pickle для общих данных">
+<p><code>pickle</code> сериализует что угодно, но <b>десериализация pickle может выполнить произвольный код</b>. Если в Redis может записать кто-то посторонний (соседний сервис, взломанный компонент), <code>pickle.loads</code> превращается в удалённое выполнение кода. Плюс pickle хрупок между версиями Python и библиотек. Для обмена данными — JSON, msgpack или сырые байты numpy.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Pipeline и скрипты из Python">
+<p>Пакетные операции — через <code>r.pipeline(transaction=False)</code> (по умолчанию redis-py оборачивает pipeline в <code>MULTI</code>/<code>EXEC</code>). Lua-скрипты — через <code>r.register_script(...)</code>: клиент сам вызывает <code>EVALSHA</code> и при необходимости подгружает скрипт. Распределённая блокировка есть готовая: <code>r.lock(&quot;name&quot;, timeout=30)</code> — внутри тот же <code>SET NX PX</code> и проверка токена.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Новый клиент на каждый запрос</b> вместо одного на процесс.</li>
+<li><b>Нет таймаутов.</b> По умолчанию <code>socket_timeout</code> не задан, и зависший Redis подвешивает весь сервис. Кэш должен быстро отказать и уступить дорогу БД, а не ждать.</li>
+<li><b>Синхронный клиент в async-коде</b> блокирует event loop.</li>
+<li><b>Забыть, что <code>get</code> возвращает <code>bytes</code></b> без <code>decode_responses=True</code>: <code>b&quot;5&quot; != &quot;5&quot;</code>, и сравнение молча ломается.</li>
+<li><b>Хранить numpy-массивы через <code>str(arr)</code> или JSON-список</b> — в разы больше памяти и потеря точности.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен пул соединений и как им правильно пользоваться?</b></p>
+<p>Открытие соединения стоит дороже самой команды, поэтому соединения переиспользуются из пула. Клиент <code>redis.Redis</code> создаётся один раз на процесс и используется во всех запросах; он потокобезопасен.</p>
+</li>
+<li><p><b>Почему клиент Redis нельзя создавать до fork?</b></p>
+<p>Дочерние процессы унаследуют те же открытые сокеты, и ответы разных процессов перемешаются. Клиент создают в каждом воркере после старта.</p>
+</li>
+<li><p><b>Как хранить numpy-эмбеддинги в Redis?</b></p>
+<p>Как сырые байты через <code>tobytes()</code> и восстанавливать через <code>np.frombuffer</code> с тем же dtype. Тип и форма массива в байтах не хранятся, их нужно фиксировать отдельно.</p>
+</li>
+<li><p><b>Почему не стоит использовать pickle для данных в Redis?</b></p>
+<p>Десериализация pickle может выполнить произвольный код, поэтому данные, которые мог записать кто-то посторонний, превращаются в уязвимость. К тому же pickle хрупок между версиями Python и библиотек.</p>
+</li>
+<li><p><b>Что делает decode_responses=True и когда он мешает?</b></p>
+<p>Автоматически декодирует ответы из bytes в строки UTF-8. Мешает при работе с бинарными значениями, например эмбеддингами, — там декодирование падает, и нужен отдельный клиент без флага.</p>
+</li>
+<li><p><b>Зачем задавать таймауты клиенту Redis?</b></p>
+<p>Без таймаутов зависший или перегруженный Redis подвешивает обработчики сервиса. Короткий таймаут позволяет быстро считать это промахом кэша и пойти в основную БД.</p>
+</li>
+<li><p><b>Какой клиент использовать в FastAPI и других async-фреймворках?</b></p>
+<p><code>redis.asyncio.Redis</code>, созданный один раз при старте приложения. Синхронный клиент блокирует event loop на время каждого запроса к Redis.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+    </ol>
+  </main>
+  <script src="../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../assets/js/init-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,1226 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Архитектуры DL</title>
+    <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../../../assets/code-styles.css">
+    <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../../assets/js/components/questions-toc.js"></script>
+    <script src="../../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../../assets/js/core.js"></script>
+    <script defer="" src="../../../assets/js/questions.js"></script>
+    <script defer="" src="../../../assets/js/controls.js"></script>
+    <script defer="" src="../../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../../assets/js/init-head.js"></script>
+    <script src="../../../assets/js/components/navigation.js"></script>
+    <script src="../../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../../assets/js/components/config-loader.js"></script>
+    <script src="../../../assets/js/components/section-hero.js"></script>
+    <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../../assets/js/components/info-cards.js"></script>
+    <script src="../../../assets/js/components/quiz.js"></script>
+    <script src="../../../assets/js/components/block-tests.js"></script>
+    <script src="../../../assets/js/components/question-presentation.js"></script>
+    <script src="../../../assets/js/components/question-badges.js"></script>
+    <script src="../../../assets/js/components/term-definitions.js"></script>
+    <script src="../../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/ml/index.html">Машинное обучение</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/ml/models/index.html">ML Models</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Архитектуры DL</span></li>
+        </ol>
+      </nav>
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">Models</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Архитектуры DL</h1>
+          <p class="section-shell__desc">Вопросы по архитектурам моделей глубокого обучения: от нестареющей классики до современных моделей.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+                 
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 1</h3>
+<li class="question" data-md-source="true" data-md-id="ae" data-badge-type="required research" data-interview="3">
+  <div class="name" id="ae">
+    Autoencoder (2006)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Автоэнкодер</b> (Autoencoder, AE) — нейронная сеть, которую обучают сжимать вход в низкоразмерное скрытое представление, а затем восстанавливать из него исходные данные. Систематически применять автоэнкодеры для инициализации глубоких сетей предложили Хинтон и Салахутдинов в 2006 году.</p>
+<p>Если совсем простыми словами: <b>это сеть, которую учат пересказывать саму себя своими словами</b>. Ей дают картинку, заставляют ужать её до короткого «конспекта» из нескольких десятков чисел, а потом по этому конспекту восстановить картинку обратно. Чтобы восстановление получалось, конспект обязан содержать самое важное — этому сеть и учится.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Две половины: энкодер и декодер">
+<ul>
+<li><b>Энкодер</b> $f_\phi$ — отображает вход $\mathbf{x}$ в скрытый вектор $\mathbf{z} = f_\phi(\mathbf{x})$ меньшей размерности. Место, где размерность минимальна, называют <b>бутылочным горлышком</b> (bottleneck).</li>
+<li><b>Декодер</b> $g_\theta$ — восстанавливает вход из скрытого вектора: $\hat{\mathbf{x}} = g_\theta(\mathbf{z})$.</li>
+</ul>
+<p>Обе половины — обычные нейросети, обучаются вместе, одним обратным распространением.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Архитектура автоэнкодера" src="../../../images/ml/models/dl/ae.png" width="2048" height="1092" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Вход сужается энкодером до узкого «горлышка» $\mathbf{z}$, затем декодер расширяет его обратно до исходной размерности. Ошибка считается между входом и выходом — разметка не нужна.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Что оптимизируем">
+<p>Модель минимизирует <b>ошибку восстановления</b> (reconstruction loss) — расхождение между входом и тем, что получилось на выходе:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2$$">$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>То есть: прогнали объект через сеть, сравнили результат с оригиналом, разницу возвели в квадрат и просуммировали. Для бинарных данных (чёрно-белые пиксели, признаки 0/1) вместо MSE берут бинарную кросс-энтропию.</p>
+<p>Обратите внимание: в формуле <b>нет $y$</b>. Целью выступает сам вход, поэтому автоэнкодер — метод <b>обучения без учителя</b>: размеченные данные ему не нужны.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Картинка 28$\times$28 в 32 числа">
+<p>Возьмём MNIST — рукописные цифры $28 \times 28$ пикселей, то есть $784$ числа на объект.</p>
+<ul>
+<li>Энкодер: $784 \to 256 \to 64 \to 32$. На выходе — вектор $\mathbf{z}$ из 32 чисел.</li>
+<li>Декодер: $32 \to 64 \to 256 \to 784$. На выходе — снова картинка.</li>
+</ul>
+<p>Сжатие в $784/32 \approx 24$ раза. Чтобы восстановить цифру по 32 числам, сеть вынуждена запомнить не пиксели, а <b>что</b> нарисовано: наклон, толщину линии, есть ли петля, замкнут ли контур. Эти 32 числа и есть выученные признаки.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему сжатие вообще заставляет чему-то научиться">
+<p>Ключевая идея: <b>бутылочное горлышко — это дефицит места</b>.</p>
+<p>Если бы $\mathbf{z}$ был такой же размерности, что и вход, сеть могла бы просто скопировать вход на выход — выучить тождественное отображение $g_\theta(f_\phi(\mathbf{x})) = \mathbf{x}$ — и ошибка была бы нулевой при нулевой пользе.</p>
+<p>Когда места мало, скопировать всё нельзя, приходится выбирать, что сохранить. Сеть сохраняет то, что чаще всего помогает восстановить объект, — то есть <b>регулярности данных</b>, а не случайный шум конкретного примера. Автоэнкодер с $d_z &lt; d_x$ называют <b>неполным</b> (undercomplete).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Скрытое пространство">
+<p><b>Скрытое (латентное) пространство</b> — пространство всех возможных значений вектора $\mathbf{z}$. Каждый объект превращается в точку в этом пространстве.</p>
+<p>Полезное свойство: близкие точки соответствуют семантически похожим входам. Две единицы с похожим наклоном окажутся рядом; единица и восьмёрка — далеко. Именно поэтому $\mathbf{z}$ можно использовать как эмбеддинг (числовое представление объекта) для поиска похожих, кластеризации или как вход в другую модель.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Скрытое пространство автоэнкодера" src="../../../images/ml/models/dl/ae-latent-space.png" width="1496" height="680" loading="lazy" decoding="async" style="max-width: 960px; width: 100%; height: auto" />
+  <figcaption>
+    Слева — кодировки 8000 цифр MNIST автоэнкодером с $d_z = 2$, цвет обозначает класс: точки одного класса собираются в связные области, а «единицы» (оранжевые) вытянуты хвостом далеко вниз, до $z_2 \approx -15$. Справа — что декодер выдаёт в узлах равномерной сетки $9 \times 9$ внутри красной рамки, отмеченной и на левой панели. В плотных зонах получаются нормальные цифры, а на стыках между кластерами — размытые гибриды вроде восьмёрки, переходящей в единицу: там декодер почти не обучался.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Чем отличается от PCA">
+<p>PCA тоже сжимает данные в меньшую размерность, но умеет только <b>линейные</b> преобразования — по сути поворот и проекцию.</p>
+<p>Автоэнкодер с нелинейными активациями может «загибать» пространство: развернуть спираль, разделить вложенные сферы, выпрямить кривую поверхность. Поэтому его называют нелинейным обобщением PCA. Более того, линейный автоэнкодер с MSE-потерей выучивает ровно то же подпространство, что и PCA, — это удобная проверка интуиции.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="PCA против автоэнкодера" src="../../../images/ml/models/dl/ae-vs-pca.png" width="1800" height="810" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Одни и те же 900 точек, лежащих вдоль изогнутой дуги (серые), сжаты до одного числа и восстановлены обратно. Слева PCA с одной компонентой: восстановленные точки (красные) обязаны лечь на прямую, ошибка 1.444. Справа автоэнкодер с $d_z = 1$ и нелинейными активациями: восстановление повторяет саму дугу, ошибка 0.007 — в двести раз меньше при том же одном числе в горлышке. Видно и ограничение: у верхнего края, где концы дуги сближаются, кривая AE слегка срезает угол.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Поиск аномалий на производстве">
+<p>Завод снимает 60 показателей с насоса раз в минуту. Поломок мало, размечать их дорого — но нормальных данных сколько угодно.</p>
+<ol>
+<li>Обучаем автоэнкодер <b>только на нормальных</b> периодах работы, $60 \to 8 \to 60$.</li>
+<li>В проде считаем ошибку восстановления для каждой новой минуты.</li>
+<li>Нормальный режим сеть восстанавливает с ошибкой ~0.02; когда подшипник начинает греться, комбинация показателей становится непохожей на всё виденное, и ошибка прыгает до 0.5.</li>
+</ol>
+<p>Порог по ошибке (например, 99-й перцентиль ошибки на обучении) и служит детектором. Разметка аномалий при этом не потребовалась ни разу.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Ошибка восстановления как детектор аномалий" src="../../../images/ml/models/dl/ae-anomaly-detection.png" width="1427" height="820" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Тот же приём, разыгранный на MNIST: автоэнкодер с $d_z = 8$ обучен только на цифре «1» — она играет роль нормального режима. Синяя гистограмма — ошибка восстановления на отложенных единицах, красная — на 4000 объектов всех остальных классов; шкала общая, и распределения почти не перекрываются. Чёрный пунктир — порог, взятый как 99-й перцентиль ошибки на отдельной валидационной выборке единиц: выше него оказываются 99.4% аномалий и лишь 0.9% нормальных объектов.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Где ещё применяют">
+<ul>
+<li><b>Снижение размерности</b> — нелинейная альтернатива PCA для визуализации и сжатия.</li>
+<li><b>Предобучение</b> — исторически главный сценарий 2006 года: обучить AE на большом объёме неразмеченных данных, взять энкодер и дообучить его на маленькой размеченной выборке под классификацию.</li>
+<li><b>Удаление шума и заполнение пропусков</b> — в специализированных вариантах (denoising autoencoder).</li>
+<li><b>Генерация</b> — обычному AE она даётся плохо, для этого придуман VAE.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>«Автоэнкодер — генеративная модель».</b> Нет. Если взять случайный $\mathbf{z}$ и подать в декодер обычного AE, скорее всего получится мусор: в скрытом пространстве полно «дыр» — областей, куда не попал ни один обучающий объект, и что декодер выдаст там, никто не контролировал.</li>
+<li><b>«Чем меньше ошибка восстановления, тем лучше признаки».</b> Не обязательно. Слишком мощный энкодер при слишком широком горлышке научится хитро копировать вход — ошибка будет крошечной, а признаки бесполезными.</li>
+<li><b>Забыть про масштаб признаков.</b> MSE суммирует ошибки по всем координатам, поэтому признак с диапазоном $[0, 100000]$ полностью заглушит признак с диапазоном $[0,1]$. Табличные данные перед AE обязательно нормируют.</li>
+<li><b>Оценивать детектор аномалий по обучающей ошибке.</b> На обучающих объектах ошибка восстановления систематически ниже, чем на новых нормальных, поэтому порог, взятый по обучающей выборке, окажется <b>заниженным</b> — и детектор станет срабатывать на обычном нормальном трафике. Порог подбирают на отложенной выборке нормальных данных.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое автоэнкодер и зачем он нужен?</b></p>
+<p>Нейросеть из энкодера и декодера, обучаемая восстанавливать собственный вход через узкое скрытое представление. Нужна для сжатия данных, снижения размерности, извлечения признаков без разметки, поиска аномалий и предобучения глубоких сетей.</p>
+</li>
+<li><p><b>Почему автоэнкодер относят к обучению без учителя?</b></p>
+<p>Потому что целевым значением служит сам вход: функция потерь сравнивает $\mathbf{x}$ и $g_\theta(f_\phi(\mathbf{x}))$, никаких меток $y$ не требуется. Достаточно неразмеченных данных, которых обычно много.</p>
+</li>
+<li><p><b>Зачем нужно «бутылочное горлышко»?</b></p>
+<p>Оно ограничивает объём информации, который можно пронести от входа к выходу. Без ограничения сеть выучит тождественное отображение и ничему не научится; при дефиците места она вынуждена сохранять только устойчивые закономерности данных.</p>
+</li>
+<li><p><b>Чем автоэнкодер отличается от PCA?</b></p>
+<p>PCA ищет линейное подпространство, автоэнкодер с нелинейными активациями может выучить произвольное нелинейное многообразие. Линейный AE с MSE сходится к тому же подпространству, что и PCA, — то есть PCA является его частным случаем.</p>
+</li>
+<li><p><b>Как автоэнкодер применяют для детекции аномалий?</b></p>
+<p>Обучают только на нормальных данных, затем в проде считают ошибку восстановления. Нормальные объекты восстанавливаются хорошо, аномальные — плохо, потому что сеть не видела таких структур. Порог по ошибке (обычно высокий перцентиль ошибки на валидации) и служит решающим правилом.</p>
+</li>
+<li><p><b>Почему обычный автоэнкодер плохо генерирует новые объекты?</b></p>
+<p>Потому что его скрытое пространство ничем не регуляризовано: обучающие кодировки образуют кластеры с пустотами между ними, и декодер никогда не учился что-либо осмысленное выдавать в этих пустотах. Проблему решает VAE, добавляя KL-штраф, прижимающий кодировки к стандартному нормальному распределению.</p>
+</li>
+<li><p><b>Что такое ёмкость автоэнкодера и как она связана с качеством признаков?</b></p>
+<p>Ёмкость — выразительная способность энкодера и декодера (число слоёв и нейронов). Её наращивают отдельно от размерности $d_z$: слишком большая ёмкость при широком горлышке позволяет сети «схитрить» и закодировать вход почти без потерь, не выучив полезной структуры.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="denoising_ae" data-badge-type="required research" data-interview="2">
+  <div class="name" id="denoising_ae">
+    Denoising Autoencoder (2008)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Шумоподавляющий автоэнкодер</b> (Denoising Autoencoder, DAE) — автоэнкодер, обученный восстанавливать <b>чистый</b> вход $\mathbf{x}$ из его намеренно <b>испорченной</b> версии $\tilde{\mathbf{x}}$. Предложен Венсаном и соавторами (Vincent et al.) в 2008 году.</p>
+<p>Если совсем простыми словами: <b>мы портим данные сами и требуем от сети починить их обратно</b>. Замазали половину фотографии — восстанови. Обычный автоэнкодер получает на вход то же, что должен выдать; шумоподавляющий получает испорченное, а сравнивают его выход с оригиналом.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Процесс обучения по шагам">
+<ol>
+<li>Взять чистый пример $\mathbf{x}$ из обучающей выборки.</li>
+<li>Испортить его случайным образом: $\tilde{\mathbf{x}} = \text{corrupt}(\mathbf{x})$.</li>
+<li>Прогнать испорченную версию через сеть и сравнить результат с <b>чистым</b> оригиналом:</li>
+</ol>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\tilde{\mathbf{x}}))\|^2$$">$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\tilde{\mathbf{x}}))\|^2$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Шум генерируется заново на каждой эпохе, поэтому сеть ни разу не видит одну и ту же испорченную версию дважды.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Denoising Autoencoder" src="../../../images/ml/models/dl/denoising_ae.png" width="1392" height="672" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    На вход энкодера подаётся зашумлённый объект $\tilde{\mathbf{x}}$, а функция потерь сравнивает выход декодера с исходным чистым $\mathbf{x}$ — именно этот «разрыв» между входом и целью и заставляет сеть выучивать структуру данных, а не копировать вход.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Три типовых вида шума">
+<ul>
+<li><b>Гауссовский шум:</b> $\tilde{\mathbf{x}} = \mathbf{x} + \epsilon$, где $\epsilon \sim \mathcal{N}(0, \sigma^2 I)$ — каждому пикселю или признаку добавляется небольшое случайное смещение.</li>
+<li><b>Маскирующий шум (masking noise):</b> случайные элементы обнуляются с вероятностью $p$ — по сути dropout, применённый ко входу.</li>
+<li><b>«Соль и перец»:</b> случайные элементы заменяются на минимальное или максимальное значение (чёрные и белые точки на изображении).</li>
+</ul>
+<p>Маскирующий шум — самый распространённый: при $p = 0.5$ половина признаков скрыта, и сеть учится угадывать их по оставшимся. Это ровно та же идея, что в masked language modeling у BERT.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Денойзинг на MNIST" src="../../../images/ml/models/dl/dae-denoising-mnist.png" width="1354" height="821" loading="lazy" decoding="async" style="max-width: 880px; width: 100%; height: auto" />
+  <figcaption>
+    Верхний ряд — чистые цифры, они же цель обучения. Второй ряд — вход с маскирующим шумом $p = 0.5$: половина пикселей обнулена, штрихи рассыпаются на точки. Третий ряд — выход сети, обученной на такой порче. Четвёртый и пятый ряды — то же самое для гауссовского шума $\sigma = 0.5$, где на вход подмешан фон из случайных пикселей; для него обучена отдельная сеть. В обоих случаях выход мягче и толще оригинала: сеть восстанавливает не конкретные пиксели, а правдоподобную цифру целиком.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Почему шум делает признаки лучше">
+<p>У обычного автоэнкодера есть постоянный соблазн: если места в горлышке хватает, выучить хитрое копирование входа и получить нулевую ошибку, ничего не поняв про данные.</p>
+<p>Шумоподавляющий автоэнкодер лишает его этой возможности. Скопировать вход теперь <b>нельзя</b> — вход испорчен, а сравнивают с оригиналом. Чтобы угадать, что было под маской, сеть обязана знать, как признаки связаны между собой: что на месте затёртого пикселя, скорее всего, продолжение штриха; что если возраст 19, то стаж работы не 30 лет.</p>
+<p>Иначе говоря, зашумление — это <b>регуляризация</b>, которая переводит задачу из «сожми и разожми» в «пойми, как устроены данные».</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Табличные данные: угадать зарплату">
+<p>Клиентские анкеты: возраст, город, стаж, доход, число кредитов — 5 признаков.</p>
+<p>При обучении с $p = 0.2$ у каждой анкеты случайно обнуляется примерно один признак. Взяли строку <code>(34, Москва, 9 лет, ???, 1)</code> — сеть должна восстановить доход.</p>
+<p>Чтобы попадать в цель, ей приходится выучить реальную зависимость: в Москве при стаже 9 лет доход обычно выше, чем в маленьком городе при том же стаже. Именно эта зависимость и есть полезное представление — как побочный эффект получается модель, которая <b>умеет заполнять пропуски</b> в реальных анкетах.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Уровень шума — гиперпараметр">
+<p>Сила порчи $\sigma$ или $p$ регулирует силу регуляризации:</p>
+<ul>
+<li>Шума <b>слишком мало</b> ($p = 0.02$) — задача почти не отличается от обычного AE, эффекта нет.</li>
+<li>Шума <b>слишком много</b> ($p = 0.9$) — восстановить нечего, сеть выучивает «среднюю картинку» по датасету и выдаёт размытое нечто на любой вход.</li>
+<li>Практический диапазон для маскирующего шума — $p \in [0.1, 0.5]$; подбирают по качеству на нижестоящей задаче, а не по ошибке восстановления.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Влияние силы шума" src="../../../images/ml/models/dl/dae-noise-level.png" width="1345" height="1381" loading="lazy" decoding="async" style="max-width: 880px; width: 100%; height: auto" />
+  <figcaption>
+    Четыре независимо обученные сети, каждая проверена при том же $p$, при котором обучалась: чёрным подписаны входы, красным — соответствующие выходы. При $p = 0.02$ задача почти не отличается от обычного автоэнкодера. При $p = 0.3$ и даже при $p = 0.9$ сеть ещё вытягивает исходную цифру, теряя чёткость штриха. А при $p = 0.98$ от входа остаётся два-три пикселя, и выходы схлопываются в две-три размытые усреднённые закорючки, повторяющиеся по всему ряду и почти не зависящие от того, что было подано, — это и есть режим «шума слишком много». Где именно проходит граница, зависит от данных: на MNIST перелом случается между $p = 0.9$ и $p = 0.98$.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Связь с диффузионными моделями">
+<p>Есть красивая теоретическая интерпретация: DAE неявно оценивает <b>score function</b> — градиент логарифма плотности данных $\nabla_{\mathbf{x}} \log p(\mathbf{x})$.</p>
+<p>Смысл: вектор поправки $g_\theta(f_\phi(\tilde{\mathbf{x}})) - \tilde{\mathbf{x}}$ показывает, <b>в какую сторону сдвинуть</b> зашумлённую точку, чтобы она стала более похожа на реальные данные. То есть сеть учит «стрелку, указывающую к многообразию данных».</p>
+<p>Ровно этот механизм лежит в основе <b><a href="../../../ai/ml/cv/dl.html#cv-diffusion" target="_blank" rel="noopener">диффузионных моделей</a></b> (2020, Stable Diffusion и родственники): там шум добавляют многократно и постепенно, а сеть многими маленькими шагами убирает его обратно, начиная с чистого шума. Denoising-автоэнкодер — одношаговый предок этого подхода.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Где применяют">
+<ul>
+<li><b>Очистка изображений</b> — удаление зернистости, артефактов сжатия, шума на медицинских снимках.</li>
+<li><b>Заполнение пропусков</b> — восстановление недостающих значений в табличных данных и пропущенных фрагментов изображений (inpainting).</li>
+<li><b>Предобучение</b> — исторически stacked DAE (несколько последовательно обученных DAE) дал один из первых рабочих рецептов обучения глубоких сетей.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Пример очистки изображения" src="../../../images/ml/models/dl/denoising_ae-example.png" width="1400" height="513" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Та же идея на фотографии, а не на цифрах: слева вход — снимок карточки с бликом от вспышки, справа выход. Между ними всё тот же энкодер, узкое горлышко (bottleneck) и декодер. Порча здесь не искусственная, а настоящая, но принцип не меняется: сеть выучила, как выглядит нормальная карточка, и достраивает то, что должно быть под бликом.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Сравнивать выход с зашумлённым входом.</b> Тогда сеть просто научится воспроизводить шум. Целью всегда должен быть чистый $\mathbf{x}$.</li>
+<li><b>Фиксировать шум один раз перед обучением.</b> Испорченные версии нужно генерировать заново каждую эпоху, иначе сеть запомнит конкретные повреждения и эффект регуляризации пропадёт.</li>
+<li><b>Оставлять шум на инференсе.</b> Шум — инструмент обучения. В проде на вход подаются реальные данные как есть (или уже реально зашумлённые, если задача — денойзинг).</li>
+<li><b>Считать, что DAE обязан быть узким.</b> В отличие от обычного AE, шумоподавляющему бутылочное горлышко не обязательно: роль ограничения выполняет сам шум, поэтому $d_z$ может быть даже больше $d_x$.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем denoising autoencoder отличается от обычного автоэнкодера?</b></p>
+<p>На вход подаётся намеренно испорченная версия объекта $\tilde{\mathbf{x}}$, а ошибка считается относительно чистого оригинала $\mathbf{x}$. У обычного AE вход и цель совпадают.</p>
+</li>
+<li><p><b>Почему зашумление входа улучшает выученные признаки?</b></p>
+<p>Оно делает невозможным тривиальное копирование входа на выход. Чтобы восстановить утраченное, сеть вынуждена выучить зависимости между признаками и структуру распределения данных, а не запоминать отдельные примеры.</p>
+</li>
+<li><p><b>Какие виды шума применяются и какой из них основной?</b></p>
+<p>Гауссовский (аддитивное случайное смещение), маскирующий (обнуление случайных элементов с вероятностью $p$) и «соль и перец» (замена на крайние значения). Чаще всего используют маскирующий — он же лежит в основе masked language modeling.</p>
+</li>
+<li><p><b>Как выбрать силу шума?</b></p>
+<p>Это гиперпараметр: слишком слабый шум не даёт эффекта регуляризации, слишком сильный уничтожает информацию, и сеть начинает выдавать усреднённый объект. Типичный диапазон для маскирующего шума — $p$ от 0.1 до 0.5, подбирается по качеству на целевой задаче.</p>
+</li>
+<li><p><b>Нужно ли в DAE узкое бутылочное горлышко?</b></p>
+<p>Не обязательно. Ограничением от тождественного отображения служит сам шум, поэтому скрытый слой может быть широким и даже избыточным ($d_z &gt; d_x$) — сеть всё равно не сможет просто скопировать вход.</p>
+</li>
+<li><p><b>Какая связь у DAE с диффузионными моделями?</b></p>
+<p>DAE неявно оценивает score function $\nabla_{\mathbf{x}} \log p(\mathbf{x})$: разность между выходом и зашумлённым входом указывает направление к многообразию реальных данных. Диффузионные модели используют тот же принцип, но итеративно — множеством мелких шагов расшумления из чистого шума.</p>
+</li>
+<li><p><b>Какие практические задачи решает DAE?</b></p>
+<p>Очистка изображений и сигналов от шума, заполнение пропусков в табличных данных, inpainting изображений, а исторически — послойное предобучение глубоких сетей (stacked DAE).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="undercomplete_ae" data-badge-type="required research" data-interview="2">
+  <div class="name" id="undercomplete_ae">
+    Сужающий автоэнкодер
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Сужающий (неполный) автоэнкодер</b> (Undercomplete Autoencoder) — автоэнкодер, у которого размерность скрытого пространства <b>меньше</b> размерности входа: $d_z &lt; d_x$. Такое «бутылочное горлышко» вынуждает энкодер выучить сжатое представление и отбросить избыточность.</p>
+<p>Если совсем простыми словами: <b>это автоэнкодер, которому специально не дали места</b>. Вход из 784 чисел нужно пересказать 32 числами — всё не влезет, поэтому сети приходится выбрать самое важное. Это классический, «канонический» автоэнкодер: когда говорят просто «автоэнкодер», обычно имеют в виду именно его.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Форма архитектуры">
+<p>Сеть сужается от входа к скрытому слою и симметрично расширяется обратно:</p>
+<p><span class="latex-copy-wrap" data-latex="$$d_x \;\longrightarrow\; d_1 \;\longrightarrow\; \cdots \;\longrightarrow\; d_z \;\longrightarrow\; \cdots \;\longrightarrow\; d_x$$">$$d_x \;\longrightarrow\; d_1 \;\longrightarrow\; \cdots \;\longrightarrow\; d_z \;\longrightarrow\; \cdots \;\longrightarrow\; d_x$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $d_x &gt; d_1 &gt; \cdots &gt; d_z$. Отсюда и название «сужающий»: слои идут на сужение, самая узкая точка — $d_z$.</p>
+<p>Симметрия декодера энкодеру — соглашение, а не требование: декодер может быть устроен иначе, важен только размер горлышка.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Сужающий и расширяющий автоэнкодер" src="../../../images/ml/models/dl/ae-undercomplete-vs-overcomplete.png" width="1468" height="1295" loading="lazy" decoding="async" style="max-width: 860px; width: 100%; height: auto" />
+  <figcaption>
+    Сверху — сужающая схема: слои идут $784 \to 256 \to 32 \to 256 \to 784$, самая узкая точка и есть бутылочное горлышко, а ограничением служит сама размерность. Снизу для контраста расширяющая схема из следующего вопроса: скрытый слой шире входа ($2000 &gt; 784$), места хватает на копирование, поэтому ограничивать представление приходится регуляризатором. Высота столбиков пропорциональна корню из числа нейронов и отложена в одном масштабе на обеих схемах — поэтому синие входные блоки одинаковой высоты.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Почему ограничение размерности — это регуляризация">
+<p>Автоэнкодер без ограничений имеет тривиальное решение: скопировать вход на выход. Ошибка ноль, пользы ноль.</p>
+<p>Горлышко $d_z &lt; d_x$ делает такое решение <b>физически невозможным</b>: через $d_z$ чисел нельзя пронести $d_x$ чисел без потерь. Возникает вопрос «чем пожертвовать», и сеть жертвует тем, что реже помогает восстановить объект, — случайными деталями конкретного примера. Остаются устойчивые закономерности, общие для всей выборки.</p>
+<p>Это тот же принцип, что у сжатия с потерями в JPEG: ограничение объёма заставляет хранить структуру, а не шум.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Связь с PCA">
+<p>Если у автоэнкодера <b>линейные</b> активации и MSE-потеря, оптимальное скрытое представление задаёт то же подпространство, что и первые $d_z$ <b>главных компонент PCA</b>.</p>
+<p>То есть сужающий AE — прямое нелинейное обобщение метода главных компонент: PCA умеет только поворачивать и проецировать, а AE с нелинейностями может разогнуть спираль, разделить вложенные кольца, выпрямить изогнутую поверхность. Отсюда практическое правило: если данные близки к линейным, PCA даст почти то же самое дешевле и стабильнее.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Степень сжатия">
+<p><b>Степень сжатия</b> — отношение $d_z / d_x$. Чем оно меньше, тем жёстче ограничение и тем более выразительными должны быть энкодер и декодер, чтобы не потерять важное.</p>
+<p>При слишком сильном сжатии ошибка восстановления растёт, а скрытое представление перестаёт различать детали: например, все семёрки схлопываются в одну «усреднённую семёрку». $d_z$ — гиперпараметр, который подбирают под задачу.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Реконструкции при разной ширине горлышка" src="../../../images/ml/models/dl/undercomplete-dz-reconstructions.png" width="1176" height="1326" loading="lazy" decoding="async" style="max-width: 760px; width: 100%; height: auto" />
+  <figcaption>
+    Одна и та же архитектура $784 \to 512 \to 256 \to d_z \to 256 \to 512 \to 784$, обученная на MNIST при восьми значениях $d_z$; верхний ряд — оригиналы. При $d_z = 2$ четвёрка превращается в девятку, семёрка — тоже в девятку, а пятёрка в неразличимое пятно: двух чисел не хватает, чтобы развести классы. Уже при $d_z = 4$ все восемь цифр узнаваемы, хотя и размыты, а начиная примерно с $d_z = 32$ отличия от оригинала сводятся к мелким деталям штриха.
+  </figcaption>
+</figure>
+<table class="task-table">
+<thead><tr><th>Задача</th><th>Типичное $d_z / d_x$</th></tr></thead>
+<tbody>
+<tr><td>Грубая детекция аномалий</td><td>&lt; 0.01</td></tr>
+<tr><td>Визуализация</td><td>2–3 (абсолютных размерности)</td></tr>
+<tr><td>Предобучение признаков</td><td>0.1–0.5</td></tr>
+</tbody>
+</table>
+<div class="info-card-auto" data-type="example" data-title="Как подбирают $d_z$ на практике">
+<p>Датасет: 200 технических показателей станка, $d_x = 200$.</p>
+<p>Обучаем несколько автоэнкодеров с $d_z \in \{2, 8, 32, 100\}$ и смотрим ошибку восстановления на валидации:</p>
+<ul>
+<li>$d_z = 2$: ошибка 0.31 — слишком грубо, разные режимы работы неразличимы.</li>
+<li>$d_z = 8$: ошибка 0.09 — резкое улучшение.</li>
+<li>$d_z = 32$: ошибка 0.07 — прирост уже маленький.</li>
+<li>$d_z = 100$: ошибка 0.065 — почти не изменилась.</li>
+</ul>
+<p>Берём $d_z = 8$: это «локоть» кривой — точка, после которой добавление размерностей почти не улучшает восстановление, а значит, дальше сеть просто начинает хранить шум.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Кривая ошибки от размерности горлышка" src="../../../images/ml/models/dl/undercomplete-dz-elbow.png" width="1337" height="818" loading="lazy" decoding="async" style="max-width: 820px; width: 100%; height: auto" />
+  <figcaption>
+    Та же серия моделей на MNIST, что и выше: по вертикали — MSE на пиксель на отложенной выборке, по горизонтали — $d_z$ в логарифмическом масштабе. Ошибка убывает монотонно и никогда не растёт, поэтому «лучшего» $d_z$ по ней не существует — ищут точку изгиба. Переход от $d_z = 2$ к $4$ убирает почти треть ошибки (0.0365 $\to$ 0.0258), а после $d_z = 16$ каждое удвоение даёт всё меньше: 0.0088 $\to$ 0.0053 $\to$ 0.0030. Это и есть локоть, только у реальных данных он размазан на пару значений, а не приходится ровно на одну точку. Само число $d_z$ в локте — свойство конкретного датасета: в примере выше, на 200 показателях станка, локоть пришёлся на $d_z = 8$, здесь на MNIST — на 16–32.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Ёмкость и размерность — разные вещи">
+<p><b>Ёмкость</b> (capacity) автоэнкодера — способность энкодера и декодера выполнять сложные преобразования. Её наращивают числом слоёв и нейронов, а <b>не</b> размером $d_z$.</p>
+<p>Разделять эти две ручки важно: $d_z$ отвечает за то, <b>сколько информации</b> пройдёт через горлышко, а ёмкость — за то, <b>насколько хитро</b> эту информацию можно упаковать и распаковать. Хороший результат даёт мощный энкодер при узком горлышке; слабый энкодер при широком горлышке даёт плохие признаки при маленькой ошибке.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Где применяют">
+<ul>
+<li><b>Сжатие данных</b> — компактное хранение и передача сигналов, изображений, звука.</li>
+<li><b>Снижение размерности для визуализации</b> — например, проекция геномных профилей клеток в 2–3 измерения перед отрисовкой.</li>
+<li><b>Детекция аномалий</b> — AE, обученный только на нормальных данных, плохо восстанавливает аномальные; ошибка восстановления служит сигналом отклонения.</li>
+<li><b>Предобучение признаков</b> — энкодер, обученный без разметки, используется как feature extractor для последующей классификации.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Считать, что достаточно узкого горлышка.</b> При очень мощном энкодере и декодере сеть может закодировать вход почти без потерь даже в один-два нейрона, используя высокочастотные трюки — ошибка окажется маленькой, а признаки бессмысленными.</li>
+<li><b>Выбирать $d_z$ по ошибке восстановления.</b> Она монотонно убывает с ростом $d_z$, поэтому «лучшее» значение по этой метрике — всегда самое большое. Смотреть надо на локоть кривой или на качество нижестоящей задачи.</li>
+<li><b>Путать сужающий и расширяющий AE.</b> Сужающий ограничивает <b>размерность</b>, расширяющий даёт места с запасом и ограничивает представление <b>регуляризатором</b> (разреженностью, штрафом на якобиан).</li>
+<li><b>Использовать AE там, где хватает PCA.</b> На линейных или почти линейных данных PCA даёт сопоставимое качество, работает детерминированно, за секунды и без подбора гиперпараметров.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое сужающий автоэнкодер?</b></p>
+<p>Автоэнкодер, у которого размерность скрытого представления меньше размерности входа ($d_z &lt; d_x$). Ограничение размерности не позволяет сети скопировать вход и вынуждает её выучить сжатое представление данных.</p>
+</li>
+<li><p><b>Почему $d_z &lt; d_x$ является формой регуляризации?</b></p>
+<p>Через узкое горлышко физически нельзя пронести всю информацию входа. Сеть вынуждена отбросить часть, и отбрасывает наименее полезную для восстановления — случайные детали, оставляя устойчивые закономерности выборки.</p>
+</li>
+<li><p><b>Как сужающий AE связан с PCA?</b></p>
+<p>При линейных активациях и MSE-потере он выучивает то же подпространство, что и первые $d_z$ главных компонент. С нелинейными активациями он становится нелинейным обобщением PCA и способен выучить искривлённое многообразие.</p>
+</li>
+<li><p><b>Как выбирают размерность скрытого слоя?</b></p>
+<p>По кривой «ошибка восстановления против $d_z$»: берут точку локтя, после которой дальнейшее увеличение почти не снижает ошибку. Более надёжный способ — оценивать качество на целевой задаче (классификация, детекция аномалий), а не саму ошибку восстановления.</p>
+</li>
+<li><p><b>Чем ёмкость автоэнкодера отличается от размерности скрытого слоя?</b></p>
+<p>Ёмкость — выразительность энкодера и декодера (глубина и ширина слоёв), она определяет, насколько сложное преобразование сеть способна выполнить. $d_z$ определяет только пропускную способность горлышка. Настраивают их независимо: мощный энкодер при узком $d_z$ даёт лучшие признаки.</p>
+</li>
+<li><p><b>Как сужающий AE используется для детекции аномалий?</b></p>
+<p>Его обучают только на нормальных объектах. На аномалиях, которых сеть не видела, ошибка восстановления заметно выше, и по её порогу принимают решение. Метод особенно полезен, когда аномалий мало и размечать их дорого.</p>
+</li>
+<li><p><b>Когда лучше взять PCA вместо сужающего автоэнкодера?</b></p>
+<p>Когда данных мало, зависимости близки к линейным или нужна воспроизводимость и скорость: PCA считается детерминированно, не требует подбора архитектуры и обучения, а на линейных данных даёт практически тот же результат.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="overcomplete_ae" data-badge-type="required research" data-interview="1">
+  <div class="name" id="overcomplete_ae">
+    Расширяющий автоэнкодер
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Расширяющий (избыточный) автоэнкодер</b> (Overcomplete Autoencoder) — автоэнкодер, у которого размерность скрытого пространства <b>больше</b> размерности входа: $d_z &gt; d_x$. Дополнительное место позволяет выучить <b>переопределённый базис</b> признаков — более крупный и гибкий, чем исходное представление.</p>
+<p>Если совсем простыми словами: <b>вместо того чтобы ужимать вход, ему дают места с запасом</b>. Было 784 числа — стало 2000. Смысл не в сжатии, а в том, чтобы описать объект не координатами пикселей, а набором понятных «деталей»: вот край под углом 30°, вот пятно, вот текстура. Деталей в словаре много, но у каждого конкретного объекта их задействовано мало.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Проблема вырожденного решения">
+<p>Само по себе расширение бесполезно и даже вредно: раз места больше, чем нужно, у сети есть очевидная лазейка — выучить <b>тождественное отображение</b> $g_\theta(f_\phi(\mathbf{x})) = \mathbf{x}$.</p>
+<p>Ошибка восстановления будет ровно нулевой, а признаки — никакими: сеть просто протащила вход насквозь. Поэтому расширяющий автоэнкодер <b>никогда</b> не используют без дополнительного ограничения на вид скрытого представления.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Чем ограничивают представление">
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Ограничение на $\mathbf{z}$</th></tr></thead>
+<tbody>
+<tr><td><b>Разреженный AE</b></td><td>$\|\mathbf{z}\|_1$ мал — одновременно активны лишь несколько нейронов</td></tr>
+<tr><td><b>Ограниченная машина Больцмана (RBM)</b></td><td>скрытые единицы бинарны</td></tr>
+<tr><td><b>Контрактивный AE</b></td><td>штраф на норму якобиана энкодера</td></tr>
+</tbody>
+</table><p>Общая логика во всех трёх случаях одинакова: раз мы не ограничиваем <b>размер</b> представления, надо ограничить его <b>форму</b>.</p>
+
+</div>
+<h3>Разреженный автоэнкодер</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Разреженный AE">
+<p><b>Разреженный автоэнкодер</b> (Sparse AE) — самый распространённый вид расширяющего AE. К ошибке восстановления добавляется $\ell_1$-штраф на активации скрытого слоя:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2 + \lambda \sum_j |z_j|$$">$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2 + \lambda \sum_j |z_j|$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Здесь $z_j$ — активация $j$-го скрытого нейрона, а $\lambda$ регулирует силу требования разреженности. Штраф «наказывает» за любые ненулевые активации, поэтому сети выгодно держать большинство нейронов в нуле и включать лишь те, без которых восстановление сломается.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему разреженность даёт детекторы признаков">
+<p>Когда одновременно разрешено активироваться лишь нескольким нейронам из тысяч, каждому из них приходится «специализироваться»: отвечать за конкретную повторяющуюся деталь входа.</p>
+<p>Нейрон, который включается на самых разных объектах понемногу, штрафуется постоянно и почти ничего не объясняет. Нейрон, который включается редко, но сильно и всегда на одном и том же типе структуры, — окупает свой штраф.</p>
+<p>В итоге скрытый слой превращается в <b>словарь детекторов</b>: этот нейрон реагирует на вертикальный край, тот — на диагональ под 45°, тот — на цветовое пятно. Такое кодирование называют разреженным (sparse coding), и оно биологически правдоподобно: в зрительной коре на конкретный стимул тоже реагирует малая доля нейронов.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Веса разреженного автоэнкодера" src="../../../images/ml/models/dl/sparse-ae-filters.png" width="1457" height="769" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Каждая клетка — веса декодера для одного скрытого нейрона, то есть та «деталь», которую он добавляет в картинку, когда включается: красное — положительные веса, синее — отрицательные. Слева расширяющий AE $784 \to 1024 \to 784$ без штрафа: веса выглядят как случайная рябь, отдельного смысла у нейрона нет. Справа тот же AE с $\ell_1$-штрафом ($\lambda = 0.3$): проступают штрихи, дуги и петли — нейроны специализировались на повторяющихся фрагментах цифр. В обеих панелях показаны 64 самых часто срабатывающих нейрона из 1024, цветовая шкала своя в каждой панели.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Три письма и словарь из 1000 признаков">
+<p>Спам-фильтр кодирует письмо в скрытый вектор длины 1000 при входе из 300 признаков.</p>
+<ul>
+<li>Письмо про доставку заказа: активны нейроны №14 («трек-номер»), №221 («адрес»), №703 («сроки») — три из тысячи.</li>
+<li>Рекламная рассылка: активны №58 («скидка»), №59 («ограниченное время»), №410 («ссылка-редирект»).</li>
+<li>Фишинг: активны №410 («ссылка-редирект»), №802 («срочная просьба»), №921 («упоминание пароля»).</li>
+</ul>
+<p>Обратите внимание: словарь общий, но у каждого письма включено 3 нейрона из 1000. Пересечение по нейрону №410 сразу говорит, что у рекламы и фишинга есть общая структурная деталь — и это интерпретируемо, чего не даёт плотный вектор из 32 чисел, где каждое число означает «всё сразу понемногу».</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Альтернатива $\ell_1$: KL-штраф">
+<p>Разреженность можно требовать не поэлементно, а «в среднем». Пусть $\hat{\rho}_j$ — средняя активация $j$-го нейрона по батчу, а $\rho$ — желаемое малое значение (например, $0.05$: нейрон должен быть активен на 5% объектов). Тогда штрафуют расхождение между ними по KL-дивергенции:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L}_{\text{sparse}} = \sum_j \mathrm{KL}(\rho \,\|\, \hat{\rho}_j) = \sum_j \left[\rho \log\frac{\rho}{\hat{\rho}_j} + (1-\rho)\log\frac{1-\rho}{1-\hat{\rho}_j}\right]$$">$$\mathcal{L}_{\text{sparse}} = \sum_j \mathrm{KL}(\rho \,\|\, \hat{\rho}_j) = \sum_j \left[\rho \log\frac{\rho}{\hat{\rho}_j} + (1-\rho)\log\frac{1-\rho}{1-\hat{\rho}_j}\right]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Разница в смысле: $\ell_1$ говорит «на каждом объекте активных нейронов должно быть мало», KL-штраф говорит «каждый нейрон должен срабатывать редко». Второе дополнительно борется с ситуацией, когда часть нейронов вообще никогда не используется.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Разреженность и её цена" src="../../../images/ml/models/dl/sparse-ae-activity.png" width="1800" height="728" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Тот же расширяющий AE $784 \to 1024 \to 784$ при трёх значениях $\lambda$. Слева — сколько нейронов включается одновременно на одном объекте: без штрафа почти все (серый столбик, 94%), при $\lambda = 0.3$ — около 10% (синий), при $\lambda = 1.0$ — 5% (красный). Справа — плата за это: ошибка восстановления растёт с 0.0009 до 0.0033 и 0.0062, то есть по этой метрике разреженный AE всегда «хуже», и сравнивать модели по ней бессмысленно. Есть и побочный эффект, на графике не видный: при $\lambda = 1.0$ 87% нейронов не сработали ни разу на всей проверочной выборке — это те самые мёртвые нейроны, против которых и придуман KL-вариант штрафа.
+  </figcaption>
+</figure>
+<h3>Контрактивный автоэнкодер</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Контрактивный AE">
+<p><b>Контрактивный автоэнкодер</b> (Contractive AE, CAE, 2011) добавляет к ошибке восстановления штраф на <b>норму Фробениуса якобиана</b> энкодера по входу:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2 + \lambda \|J_{f_\phi}(\mathbf{x})\|_F^2$$">$$\mathcal{L} = \|\mathbf{x} - g_\theta(f_\phi(\mathbf{x}))\|^2 + \lambda \|J_{f_\phi}(\mathbf{x})\|_F^2$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Якобиан $J_{f_\phi}$ — матрица частных производных скрытого вектора по входу: она показывает, насколько сильно дёрнется $\mathbf{z}$, если чуть-чуть пошевелить $\mathbf{x}$. Норма Фробениуса — сумма квадратов всех её элементов, то есть суммарная чувствительность.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что даёт этот штраф">
+<p>Штраф требует, чтобы скрытое представление было <b>нечувствительно к малым изменениям входа</b>: сдвинули картинку на пиксель, добавили каплю шума — $\mathbf{z}$ практически не изменился. Энкодер как бы «сжимает» (contracts) окрестность каждой обучающей точки в почти одну точку.</p>
+<p>Но полностью нечувствительным он стать не может: ошибка восстановления требует различать разные объекты. Возникает компромисс — представление игнорирует изменения <b>поперёк</b> многообразия данных (шум, мелкие искажения) и остаётся чувствительным <b>вдоль</b> него (смена цифры, смена ракурса).</p>
+<p>Именно поэтому CAE хорошо извлекает структуру многообразия: он явно учит, в каких направлениях данные «настоящим образом» меняются, а в каких — нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Сравнение с denoising AE">
+<p>Оба метода добиваются устойчивости представления к малым возмущениям входа, но разными путями:</p>
+<ul>
+<li><b>DAE</b> делает это <b>эмпирически</b>: реально портит входы и смотрит, получится ли восстановить. Устойчивость возникает как побочный эффект.</li>
+<li><b>CAE</b> делает это <b>аналитически</b>: прямо штрафует производные, не порождая никакого шума.</li>
+</ul>
+<p>DAE проще и дешевле (не нужно считать якобиан), поэтому на практике встречается чаще; CAE даёт более прямой контроль и красивее теоретически.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Где применяют расширяющие автоэнкодеры">
+<ul>
+<li><b>Словари признаков.</b> Разреженный AE, обученный на патчах изображений, самостоятельно открывает фильтры, похожие на рецептивные поля первичной зрительной коры: ориентированные края и решётки.</li>
+<li><b>Интерпретируемость LLM.</b> Разреженные автоэнкодеры сегодня — основной инструмент «распаковки» суперпозиции признаков в активациях языковых моделей: тысячи понятий, наложенных на несколько тысяч нейронов, раскладываются в десятки тысяч разреженных интерпретируемых направлений. Направление называется <b>mechanistic interpretability</b>.</li>
+<li><b>Аудио.</b> Разреженное кодирование звуковых сигналов для разделения источников (выделить голос из смеси).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Обучить расширяющий AE без регуляризации</b> и удивиться нулевой ошибке восстановления. Это не успех, а тождественное отображение: признаки бесполезны.</li>
+<li><b>Считать маленькую ошибку восстановления критерием качества.</b> У разреженного AE она заведомо хуже, чем у нерегуляризованного, — и это нормально, качество меряют интерпретируемостью и пользой признаков.</li>
+<li><b>Взять слишком большой $\lambda$.</b> Разреженность станет тотальной: почти все нейроны в нуле, восстановление разваливается. Слишком маленький $\lambda$ — регуляризация не работает вовсе. $\lambda$ подбирают по компромиссу «доля активных нейронов против ошибки восстановления».</li>
+<li><b>Путать разреженность с dropout.</b> Dropout выключает нейроны случайно и только при обучении; разреженность — выученное свойство, оно сохраняется на инференсе и определяется данными.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое расширяющий автоэнкодер?</b></p>
+<p>Автоэнкодер, у которого размерность скрытого слоя больше размерности входа ($d_z &gt; d_x$). Цель — не сжатие, а построение переопределённого словаря признаков, где каждый объект описывается небольшим числом активных элементов.</p>
+</li>
+<li><p><b>Почему расширяющий AE нельзя обучать без регуляризации?</b></p>
+<p>Потому что при избыточной размерности существует тривиальное решение — тождественное отображение. Сеть протащит вход на выход с нулевой ошибкой и не выучит никаких полезных признаков.</p>
+</li>
+<li><p><b>Как устроен разреженный автоэнкодер?</b></p>
+<p>К ошибке восстановления добавляется штраф на активации скрытого слоя — $\ell_1$-норма $\lambda\sum_j |z_j|$ либо KL-дивергенция средней активации нейрона от малого целевого значения $\rho$. В результате на каждом объекте активна лишь малая доля нейронов.</p>
+</li>
+<li><p><b>Чем $\ell_1$-штраф отличается от KL-штрафа на разреженность?</b></p>
+<p>$\ell_1$ действует на каждый объект отдельно: «на этом входе активных нейронов должно быть мало». KL-штраф действует на нейрон в среднем по выборке: «этот нейрон должен срабатывать примерно на доле $\rho$ объектов», что дополнительно предотвращает появление вечно неактивных нейронов.</p>
+</li>
+<li><p><b>Почему разреженность делает признаки интерпретируемыми?</b></p>
+<p>Когда одновременно активны единицы нейронов из тысяч, каждому выгодно специализироваться на конкретной повторяющейся структуре входа. Нейрон становится детектором одного признака (края, текстуры, понятия), а не смесью всего сразу.</p>
+</li>
+<li><p><b>Что штрафует контрактивный автоэнкодер и зачем?</b></p>
+<p>Норму Фробениуса якобиана энкодера по входу, то есть суммарную чувствительность скрытого представления к малым изменениям $\mathbf{x}$. Это делает $\mathbf{z}$ устойчивым к шуму и мелким искажениям, но чувствительным к движению вдоль многообразия данных.</p>
+</li>
+<li><p><b>Чем контрактивный автоэнкодер отличается от шумоподавляющего?</b></p>
+<p>Оба добиваются устойчивости представления, но DAE — эмпирически, реально зашумляя входы, а CAE — аналитически, штрафуя производные. DAE дешевле в вычислении и потому чаще применяется на практике.</p>
+</li>
+<li><p><b>Где расширяющие автоэнкодеры используются сегодня?</b></p>
+<p>Главное современное применение — mechanistic interpretability: разреженные автоэнкодеры раскладывают активации языковых моделей на большое число интерпретируемых признаков. Также — построение словарей признаков в компьютерном зрении и разделение источников в аудио.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="vae" data-badge-type="required research" data-interview="3">
+  <div class="name" id="vae">
+    VAE (2013)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Вариационный автоэнкодер</b> (Variational Autoencoder, VAE) — вероятностная генеративная модель, предложенная Кингмой и Веллингом (Kingma &amp; Welling) в 2013 году. В отличие от обычного автоэнкодера, энкодер выдаёт не точку, а <b>распределение</b> над скрытым пространством — и это превращает автоэнкодер в генератор новых объектов.</p>
+<p>Если совсем простыми словами: <b>обычный AE говорит «эта картинка — вот эта точка», а VAE говорит «эта картинка — вот это облачко»</b>. Соседние облачка перекрываются, пустот между ними не остаётся, и потому любая точка скрытого пространства расшифровывается во что-то осмысленное — в том числе точка, которую мы придумали сами.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Прогулка по латентному пространству" src="../../../images/ml/models/dl/vae-digits-latent.png" width="600" height="599" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Движение по скрытому пространству VAE даёт плавный переход от одной цифры к другой: промежуточные точки — не мусор, а осмысленные промежуточные формы. Это и есть свойство регулярности, которого нет у обычного AE.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Из чего состоит VAE">
+<ul>
+<li><b>Энкодер</b> $q_\phi(\mathbf{z} \mid \mathbf{x})$ — приближает апостериорное распределение скрытого вектора при данном объекте. На практике берут факторизованное гауссово: энкодер выдаёт <b>вектор средних</b> $\boldsymbol{\mu}$ и <b>вектор логарифмов дисперсий</b> $\log \boldsymbol{\sigma}^2$.</li>
+<li><b>Декодер</b> $p_\theta(\mathbf{x} \mid \mathbf{z})$ — восстанавливает объект по точке $\mathbf{z}$, вытянутой из этого распределения.</li>
+</ul>
+<p>То есть на каждый вход энкодер возвращает $2 d_z$ чисел: центр «облачка» и его разброс по каждой оси.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Архитектура VAE" src="../../../images/ml/models/dl/vae.png" width="870" height="537" loading="lazy" decoding="async" style="max-width: 75%; width: 100%; height: auto" />
+  <figcaption>
+    Красной рамкой выделен скрытый слой: энкодер $q_\phi(z \mid x)$ выдаёт на каждую координату не одно число, а пару $\boldsymbol{\mu}$ и $\boldsymbol{\sigma}$ — параметры распределения, нарисованного колоколом внизу. Декодер $p_\theta(x \mid z)$ восстанавливает картинку уже из точки, вытянутой из этого распределения. Подписи inference и generative подчёркивают разделение ролей: левая половина выводит скрытую переменную по объекту, правая порождает объект по скрытой переменной.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Зачем логарифм дисперсии">
+<p>Мелкая, но важная деталь реализации: сеть предсказывает $\log \sigma^2$, а не $\sigma^2$ напрямую.</p>
+<p>Причина в том, что дисперсия обязана быть положительной, а выход линейного слоя может быть любым. Предсказывая логарифм, мы получаем $\sigma = \exp(\tfrac{1}{2}\log\sigma^2)$ — величину, положительную автоматически, при любом выходе сети. Заодно это стабилизирует обучение: очень маленькие дисперсии соответствуют умеренным по модулю логарифмам, а не числам порядка $10^{-8}$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Трюк репараметризации">
+<p>Прямое сэмплирование $\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\sigma}^2)$ недифференцируемо: через генератор случайных чисел градиент не проходит. Решение — <b>трюк репараметризации</b> (reparameterization trick):</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathbf{z} = \boldsymbol{\mu} + \boldsymbol{\sigma} \odot \boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0, I)$$">$$\mathbf{z} = \boldsymbol{\mu} + \boldsymbol{\sigma} \odot \boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0, I)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Случайность вынесена во внешний шум $\boldsymbol{\epsilon}$, который не зависит от параметров сети. Теперь $\mathbf{z}$ — обычная дифференцируемая функция от $\boldsymbol{\mu}$ и $\boldsymbol{\sigma}$, и обратное распространение работает.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Трюк репараметризации" src="../../../images/ml/models/dl/vae-reparameterization.png" width="1800" height="599" loading="lazy" decoding="async" style="max-width: 960px; width: 100%; height: auto" />
+  <figcaption>
+    Обе схемы читаются слева направо, пунктирные стрелки — обратный проход. Слева: если $\mathbf{z}$ тянут прямо из $\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\sigma}^2)$ (красный блок), градиент от декодера доходит до этого блока и упирается — через генератор случайных чисел производную не пронести, энкодер не получает никакого сигнала. Справа: шум $\boldsymbol{\epsilon}$ приходит сбоку, как обычный вход, $\mathbf{z}$ становится формулой $\boldsymbol{\mu} + \boldsymbol{\sigma} \odot \boldsymbol{\epsilon}$, и зелёный пунктир беспрепятственно проходит через $\boldsymbol{\mu}$ и $\boldsymbol{\sigma}$ в энкодер.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Как это выглядит для интуиции">
+<p>Представьте, что нужно взять случайное число из распределения со средним 5 и разбросом 2.</p>
+<p>Можно попросить генератор «дай мне число из $\mathcal{N}(5, 4)$» — но тогда непонятно, как ответ зависит от пятёрки и двойки: генератор внутри чёрный ящик.</p>
+<p>А можно взять стандартный случайный шум $\epsilon$ (скажем, выпало $0.3$) и посчитать $5 + 2 \cdot 0.3 = 5.6$. Результат тот же по распределению, но теперь видно: если увеличить среднее на единицу, ответ увеличится на единицу; производная по $\boldsymbol{\mu}$ равна 1, по $\boldsymbol{\sigma}$ равна $\epsilon$. Ровно это и делает репараметризация.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Функция потерь: ELBO">
+<p>VAE максимизирует <b>нижнюю оценку логарифма правдоподобия</b> (Evidence Lower Bound, ELBO):</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathcal{L}_{\text{ELBO}} = \underbrace{\mathbb{E}_{q_\phi(\mathbf{z}|\mathbf{x})}[\log p_\theta(\mathbf{x} \mid \mathbf{z})]}_{\text{ошибка восстановления}} - \underbrace{\mathrm{KL}(q_\phi(\mathbf{z}|\mathbf{x}) \,\|\, p(\mathbf{z}))}_{\text{регуляризация}}$$">$$\mathcal{L}_{\text{ELBO}} = \underbrace{\mathbb{E}_{q_\phi(\mathbf{z}|\mathbf{x})}[\log p_\theta(\mathbf{x} \mid \mathbf{z})]}_{\text{ошибка восстановления}} - \underbrace{\mathrm{KL}(q_\phi(\mathbf{z}|\mathbf{x}) \,\|\, p(\mathbf{z}))}_{\text{регуляризация}}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Два слагаемых тянут в разные стороны:</p>
+<ul>
+<li><b>Ошибка восстановления</b> — насколько точно декодер воссоздал вход. Это тот же член, что у обычного AE.</li>
+<li><b>KL-дивергенция</b> — штраф за отклонение выданного энкодером распределения от априорного $p(\mathbf{z}) = \mathcal{N}(0, I)$.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему KL-штраф закрывает «дыры»">
+<p>Без второго слагаемого энкодеру выгодно сделать $\sigma \to 0$ и разбросать средние далеко друг от друга: тогда облачка превращаются в точки, объекты не путаются, восстановление идеально — и мы получаем обычный AE со всеми его пустотами.</p>
+<p>KL-штраф этого не позволяет. Он требует, чтобы каждое $q_\phi(\mathbf{z}\mid\mathbf{x})$ было похоже на $\mathcal{N}(0, I)$, то есть:</p>
+<ul>
+<li><b>центры не разбегались</b> — все $\boldsymbol{\mu}$ прижаты к нулю;</li>
+<li><b>разброс не схлопывался</b> — $\sigma$ не может стать нулевым.</li>
+</ul>
+<p>В результате облачка вынуждены перекрываться, и всё пространство вокруг нуля оказывается покрытым. Именно поэтому случайная точка из $\mathcal{N}(0, I)$ декодируется во что-то осмысленное: декодер обучался в этой области.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Аналитическая форма KL">
+<p>Для гауссовых распределений KL считается в закрытом виде, без сэмплирования:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\mathrm{KL}(q_\phi \,\|\, p) = -\frac{1}{2} \sum_{j=1}^{d_z} \left(1 + \log \sigma_j^2 - \mu_j^2 - \sigma_j^2\right)$$">$$\mathrm{KL}(q_\phi \,\|\, p) = -\frac{1}{2} \sum_{j=1}^{d_z} \left(1 + \log \sigma_j^2 - \mu_j^2 - \sigma_j^2\right)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Здесь хорошо видна структура штрафа: член $\mu_j^2$ штрафует уход центра от нуля, а комбинация $\log\sigma_j^2 - \sigma_j^2$ достигает максимума при $\sigma_j = 1$ — то есть наказывает и за схлопывание разброса, и за его раздувание. Выражение обращается в ноль ровно тогда, когда $\mu_j = 0$ и $\sigma_j = 1$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Регулярность скрытого пространства">
+<p><b>Скрытое пространство VAE регулярно</b>: оно непрерывно и без пустот. Отсюда два практически важных следствия:</p>
+<ul>
+<li><b>Сэмплирование работает.</b> Берём $\mathbf{z} \sim \mathcal{N}(0, I)$, подаём в декодер — получаем новый правдоподобный объект, которого не было в обучающей выборке.</li>
+<li><b>Интерполяция осмысленна.</b> Точки на отрезке между кодировками двух объектов декодируются в плавный переход между ними.</li>
+</ul>
+<p>У обычного AE ни того ни другого нет: между кластерами кодировок находятся области, где декодер никогда не обучался, и там он выдаёт бессмыслицу.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Генерация из случайного вектора" src="../../../images/ml/models/dl/ae-vs-vae-sampling.png" width="1800" height="682" loading="lazy" decoding="async" style="max-width: 920px; width: 100%; height: auto" />
+  <figcaption>
+    Обе модели обучены на MNIST при $d_z = 32$; в каждом ряду по 12 выходов декодера, и верхний с нижним рядом построены на одном и том же наборе случайных векторов. Верхний ряд: обычный AE, $\mathbf{z} \sim \mathcal{N}(0, I)$ — сплошные кляксы. Средний ряд: тому же AE дали фору и взяли гауссиану со средним и дисперсией его собственных кодировок — обрывки штрихов появились, но цифр по-прежнему нет. Нижний ряд: VAE, сэмплирование из того же $\mathcal{N}(0, I)$ — узнаваемые цифры. Разницу создаёт не устройство декодера, а KL-штраф: он заранее подогнал распределение кодировок под то, из которого мы сэмплируем.
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="Скрытое пространство VAE на MNIST" src="../../../images/ml/models/dl/vae-digits.png" width="800" height="511" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Каждая точка — кодировка одного объекта, цвет соответствует классу цифры по шкале справа (от 0 внизу шкалы до 9 наверху). Кластеры соприкасаются и перекрываются, заполняя одно связное облако без пустот между ними; обособленно держатся только нули (тёмно-синие, слева) и единицы (синие, справа внизу). Именно эта плотная упаковка и делает возможной генерацию.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Генерация лиц: что происходит на практике">
+<p>Обучили VAE с $d_z = 128$ на датасете фотографий лиц.</p>
+<ol>
+<li>Тянем $\mathbf{z} \sim \mathcal{N}(0, I)$ — 128 случайных чисел.</li>
+<li>Подаём в декодер — получаем лицо, которого не существует.</li>
+<li>Берём два реальных лица, кодируем их в $\mathbf{z}_1$ и $\mathbf{z}_2$, декодируем точки $\alpha\mathbf{z}_1 + (1-\alpha)\mathbf{z}_2$ при $\alpha$ от 0 до 1 — получаем плавную морфинг-последовательность.</li>
+<li>Находим направление «улыбка»: усредняем $\mathbf{z}$ улыбающихся лиц, вычитаем среднее по неулыбающимся. Прибавив этот вектор к любому $\mathbf{z}$, добавляем улыбку.</li>
+</ol>
+<p>Пункт 4 — характерная демонстрация того, что скрытое пространство не только непрерывно, но и структурировано: семантические атрибуты в нём соответствуют направлениям.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки и практические проблемы">
+<ul>
+<li><b>Posterior collapse.</b> Если декодер слишком мощный (например, авторегрессионный), ему выгодно игнорировать $\mathbf{z}$ и генерировать всё «из себя». KL-член уходит в ноль, $q_\phi$ схлопывается в априорное, скрытое представление перестаёт нести информацию. Лечится KL-annealing (постепенным включением KL-члена) или ограничением мощности декодера.</li>
+<li><b>Размытые изображения.</b> Классическая слабость VAE: при MSE-восстановлении оптимально предсказывать среднее по всем правдоподобным вариантам, а среднее нескольких чётких картинок — размытая картинка. GAN этой проблемы лишён, потому что его лосс не усредняет.</li>
+<li><b>Сэмплировать там, где нужно детерминированное восстановление.</b> Если задача — восстановить или закодировать конкретный объект, на инференсе берут $\mathbf{z} = \boldsymbol{\mu}$ (без шума), иначе один и тот же вход будет каждый раз давать разный выход. Сэмплирование $\boldsymbol{\epsilon}$ нужно при обучении и при генерации новых объектов.</li>
+<li><b>Считать ELBO сопоставимой между моделями.</b> Значение ELBO зависит от способа моделирования $p_\theta(\mathbf{x}\mid\mathbf{z})$ и масштаба данных, поэтому напрямую сравнивать его у моделей с разными декодерами некорректно.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Применения">
+<ul>
+<li><b>Генерация изображений</b> — лица, цифры, молекулы; сэмплированием из $\mathcal{N}(0, I)$.</li>
+<li><b>Условная генерация (CVAE)</b> — метка класса подаётся на вход и энкодеру, и декодеру, что позволяет запросить объект заданного типа.</li>
+<li><b>Молекулярный дизайн</b> — молекулы кодируются в непрерывное пространство, где можно вести градиентную оптимизацию по нужному свойству и декодировать результат обратно в молекулу.</li>
+<li><b>Сжатие и латентные пространства для других моделей</b> — современные <a href="../../../ai/ml/cv/dl.html#cv-diffusion" target="_blank" rel="noopener">диффузионные генераторы изображений</a> работают не в пикселях, а в латентном пространстве предобученного автоэнкодера.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем VAE отличается от обычного автоэнкодера?</b></p>
+<p>Энкодер VAE выдаёт не точку, а параметры распределения ($\boldsymbol{\mu}$ и $\log\boldsymbol{\sigma}^2$), из которого сэмплируется $\mathbf{z}$, а к функции потерь добавлен KL-штраф, прижимающий это распределение к $\mathcal{N}(0, I)$. Благодаря этому VAE — полноценная генеративная модель, а обычный AE — нет.</p>
+</li>
+<li><p><b>Что такое трюк репараметризации и зачем он нужен?</b></p>
+<p>Запись $\mathbf{z} = \boldsymbol{\mu} + \boldsymbol{\sigma} \odot \boldsymbol{\epsilon}$, где $\boldsymbol{\epsilon} \sim \mathcal{N}(0, I)$. Она выносит случайность в независимый от параметров шум, делая $\mathbf{z}$ дифференцируемой функцией выходов энкодера. Без этого градиент не прошёл бы через операцию сэмплирования.</p>
+</li>
+<li><p><b>Из каких слагаемых состоит ELBO и что делает каждое?</b></p>
+<p>Из ошибки восстановления $\mathbb{E}_{q}[\log p_\theta(\mathbf{x}\mid\mathbf{z})]$, отвечающей за точность воспроизведения входа, и KL-дивергенции $\mathrm{KL}(q_\phi \| p)$, штрафующей отклонение апостериорного распределения от априорного $\mathcal{N}(0, I)$. Первое тянет к точности, второе — к регулярности пространства.</p>
+</li>
+<li><p><b>Почему скрытое пространство VAE регулярно, а у обычного AE — нет?</b></p>
+<p>KL-штраф не даёт центрам кодировок разбегаться, а разбросам — схлопываться в точку, поэтому «облачка» разных объектов перекрываются и покрывают всю область вокруг нуля. У обычного AE кодировки могут разлетаться сколь угодно далеко, между ними образуются пустоты, где декодер ничему не обучался.</p>
+</li>
+<li><p><b>Почему энкодер предсказывает $\log \sigma^2$, а не $\sigma^2$?</b></p>
+<p>Потому что дисперсия обязана быть положительной, а выход линейного слоя — произвольное число. Экспонирование логарифма гарантирует положительность автоматически и делает обучение численно устойчивее при очень малых дисперсиях.</p>
+</li>
+<li><p><b>Что такое posterior collapse?</b></p>
+<p>Ситуация, когда KL-член обнуляется: энкодер выдаёт ровно априорное распределение, а достаточно мощный декодер генерирует объекты, игнорируя $\mathbf{z}$. Скрытое представление перестаёт нести информацию о входе. Борются KL-annealing, ограничением мощности декодера, свободным битом (free bits).</p>
+</li>
+<li><p><b>Почему изображения от VAE обычно размытые?</b></p>
+<p>Потому что при гауссовом декодере (MSE-восстановлении) оптимальный по функции потерь ответ — среднее по всем правдоподобным восстановлениям, а усреднение нескольких чётких вариантов даёт размытие. GAN избегает этого, поскольку его лосс требует не среднего, а неотличимости от реальных данных.</p>
+</li>
+<li><p><b>Как VAE соотносится с GAN?</b></p>
+<p>VAE обучается по явной вероятностной оценке (ELBO), даёт стабильное обучение, осмысленный энкодер и регулярное латентное пространство, но размытые сэмплы. GAN обучается состязательно, даёт более чёткие изображения, но нестабилен, склонен к схлопыванию мод и не имеет встроенного энкодера.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="gan" data-badge-type="required research" data-interview="3">
+  <div class="name" id="gan">
+    GAN (2014)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Генеративно-состязательная сеть</b> (Generative Adversarial Network, GAN) — способ обучать генеративную модель, предложенный Гудфеллоу и соавторами (Goodfellow et al.) в 2014 году. Две нейросети — <b>генератор</b> и <b>дискриминатор</b> — обучаются одновременно, соревнуясь друг с другом.</p>
+<p>Если совсем простыми словами: <b>это фальшивомонетчик и эксперт</b>. Фальшивомонетчик печатает купюры и несёт эксперту; эксперт учится отличать подделки от настоящих. Каждый раз, когда эксперт ловит подделку, фальшивомонетчик узнаёт, на чём прокололся, и печатает лучше. Каждый раз, когда подделка проходит, эксперт учится смотреть внимательнее. Если процесс не разваливается, в пределе подделки становятся неотличимы от настоящих денег.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Две сети">
+<ul>
+<li><b>Генератор</b> $G_\theta$ — принимает случайный шум $\mathbf{z} \sim p(\mathbf{z})$ (обычно $\mathcal{N}(0, I)$) и превращает его в «фейковый» объект $\hat{\mathbf{x}} = G_\theta(\mathbf{z})$. Настоящих данных он <b>никогда не видит</b>: единственный сигнал о них приходит через градиент от дискриминатора.</li>
+<li><b>Дискриминатор</b> $D_\phi$ — обычный бинарный классификатор: получает объект и выдаёт вероятность того, что он настоящий.</li>
+</ul>
+<p>Обучают их поочерёдно: шаг обновления $D$, шаг обновления $G$, и так по кругу.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Архитектура GAN" src="../../../images/ml/models/dl/gan.png" width="1024" height="390" loading="lazy" decoding="async" style="max-width: 75%; width: 100%; height: auto" />
+  <figcaption>
+    Генератор превращает шум $\mathbf{z}$ в изображение, дискриминатор получает вперемешку настоящие и сгенерированные объекты и выносит вердикт. Градиент от ошибки дискриминатора проходит насквозь в генератор — так генератор узнаёт, что именно выдало подделку.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Минимаксная целевая функция">
+<p>Формально GAN решает задачу:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\min_\theta \max_\phi \; \mathbb{E}_{\mathbf{x} \sim p_{\text{data}}}[\log D_\phi(\mathbf{x})] + \mathbb{E}_{\mathbf{z} \sim p(\mathbf{z})}[\log(1 - D_\phi(G_\theta(\mathbf{z})))]$$">$$\min_\theta \max_\phi \; \mathbb{E}_{\mathbf{x} \sim p_{\text{data}}}[\log D_\phi(\mathbf{x})] + \mathbb{E}_{\mathbf{z} \sim p(\mathbf{z})}[\log(1 - D_\phi(G_\theta(\mathbf{z})))]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Дискриминатор <b>максимизирует</b> это выражение: хочет $D(\mathbf{x}) \to 1$ на настоящих и $D(G(\mathbf{z})) \to 0$ на фейках.</li>
+<li>Генератор <b>минимизирует</b> его: хочет, чтобы $D(G(\mathbf{z})) \to 1$, то есть чтобы дискриминатор принял подделку за настоящее.</li>
+</ul>
+<p>Это <b>игра с нулевой суммой</b>: выигрыш одного — проигрыш другого. Обратите внимание, что генератор влияет только на второе слагаемое: первое от него не зависит.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что происходит в равновесии">
+<p>При фиксированном генераторе оптимальный дискриминатор равен</p>
+<p><span class="latex-copy-wrap" data-latex="$$D^*(\mathbf{x}) = \frac{p_{\text{data}}(\mathbf{x})}{p_{\text{data}}(\mathbf{x}) + p_G(\mathbf{x})}$$">$$D^*(\mathbf{x}) = \frac{p_{\text{data}}(\mathbf{x})}{p_{\text{data}}(\mathbf{x}) + p_G(\mathbf{x})}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>то есть просто отвечает «какова доля настоящих объектов среди всех объектов, похожих на этот». Если подставить $D^*$ обратно в целевую функцию, задача генератора сводится к минимизации <b>дивергенции Йенсена–Шеннона</b> между $p_G$ и $p_{\text{data}}$.</p>
+<p>Отсюда точка равновесия по Нэшу: $p_G = p_{\text{data}}$, и тогда $D^*(\mathbf{x}) = 1/2$ всюду — дискриминатор не может отличить настоящее от подделки и вынужден угадывать монеткой. Это важный ориентир: <b>на здоровом обучении $D$ должен колебаться около 0.5</b>, а не побеждать.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Как читать графики обучения">
+<p>Обучаем GAN на лицах. Смотрим на выход дискриминатора на фейках:</p>
+<ul>
+<li>$D(G(\mathbf{z})) \approx 0.01$ и не растёт — дискриминатор победил, генератор ничего не может; градиент у генератора почти нулевой, картинки не улучшаются.</li>
+<li>$D(G(\mathbf{z})) \approx 0.99$ — генератор нашёл дыру в дискриминаторе и эксплуатирует одну удачную картинку; почти наверняка это схлопывание мод.</li>
+<li>$D(G(\mathbf{z}))$ колеблется около $0.4$–$0.6$ — здоровая динамика, обе сети растут вместе.</li>
+</ul>
+<p>Именно поэтому у GAN лоссы не «сходятся к нулю», как у обычных сетей: их значения — счёт в игре, а не мера качества. Качество приходится оценивать отдельно, <a href="../../../ai/ml/cv/dl.html#cv-generative-metrics" target="_blank" rel="noopener">метриками вроде FID</a>.</p>
+
+</div>
+<h3>Проблемы обучения</h3>
+
+<div class="info-card-auto" data-type="warning" data-title="Схлопывание мод (mode collapse)">
+<p>Генератор находит несколько объектов, которые надёжно обманывают дискриминатор, и начинает выдавать только их, игнорируя всё разнообразие данных. Формально $p_G$ покрывает лишь часть $p_{\text{data}}$.</p>
+<p>Пример: GAN, обученный на MNIST, выдаёт только тройки и восьмёрки — при этом дискриминатор доволен, ведь каждая отдельная картинка выглядит как настоящая цифра. Функция потерь <b>не наказывает за отсутствие разнообразия</b>: она смотрит на объекты по одному.</p>
+<p>Средства борьбы: minibatch discrimination (дискриминатор смотрит на батч целиком и замечает однообразие), unrolled GAN, WGAN-GP.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Исчезающий градиент">
+<p>Если дискриминатор становится слишком хорош, он уверенно ставит фейкам оценку около нуля. Но функция $\log(1 - D(G(\mathbf{z})))$ при $D \to 0$ <b>насыщается</b>: её производная стремится к нулю, и генератор перестаёт получать полезный сигнал именно тогда, когда он ему нужнее всего.</p>
+<p>Стандартное лечение — <b>non-saturating loss</b>: вместо минимизации $\log(1 - D(G(\mathbf{z})))$ генератор максимизирует $\log D(G(\mathbf{z}))$. Точка оптимума та же, но градиент при плохом генераторе, наоборот, большой. Это то, что реально используется во всех практических реализациях.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Насыщение лосса генератора" src="../../../images/ml/models/dl/gan-saturating-loss.png" width="1800" height="727" loading="lazy" decoding="async" style="max-width: 920px; width: 100%; height: auto" />
+  <figcaption>
+    По горизонтали на обеих панелях — оценка $D(G(\mathbf{z}))$, которую дискриминатор ставит подделке: чем она ближе к нулю (левый край, серая зона), тем увереннее он ловит фейки и тем хуже дела у генератора. Слева сами целевые функции: красная $\log(1 - D)$ и зелёная $-\log D$. Справа — модуль градиента по логиту $a$ дискриминатора ($D = \sigma(a)$): у исходного варианта он равен $D$ и обращается в ноль ровно в серой зоне, где помощь нужнее всего, а у non-saturating равен $1 - D$ и там же достигает максимума. Обратите внимание, что минимум обе функции ищут в одной стороне — вправо, к $D \to 1$; отличается только сила сигнала по пути.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Нестабильность и дисбаланс">
+<p>Обучение GAN — не спуск в минимум, а поиск седловой точки: обе сети двигают ландшафт друг для друга. Отсюда типичные болезни:</p>
+<ul>
+<li>одна сеть обгоняет другую, и обучение расходится или замирает;</li>
+<li>решение осциллирует, не сходясь ни к чему;</li>
+<li>качество внезапно рушится посреди обучения после сотен нормальных эпох.</li>
+</ul>
+<p>Практические приёмы: разные learning rate для $G$ и $D$ (правило two time-scale, TTUR), спектральная нормализация в дискриминаторе, аккуратная инициализация, сохранение промежуточных чекпойнтов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Wasserstein GAN как ответ на всё это">
+<p><b>WGAN</b> (2017) меняет саму меру расхождения: вместо JS-дивергенции используется <b>расстояние Вассерштейна</b> («стоимость перевозки» одной кучи вероятностной массы в другую).</p>
+<p>Практические отличия:</p>
+<ul>
+<li>Дискриминатор превращается в <b>критика</b>: он выдаёт не вероятность из $[0,1]$, а произвольное вещественное число — оценку «насколько объект похож на настоящий».</li>
+<li>На критика накладывается <b>ограничение Липшица</b> (сначала клиппингом весов, затем градиентным штрафом — WGAN-GP).</li>
+<li>Расстояние Вассерштейна осмысленно даже когда распределения не пересекаются, поэтому градиент не исчезает, и значение лосса <b>коррелирует с качеством</b> — по нему наконец можно следить за обучением.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="JS-дивергенция против расстояния Вассерштейна" src="../../../images/ml/models/dl/gan-js-vs-wasserstein.png" width="1800" height="700" loading="lazy" decoding="async" style="max-width: 920px; width: 100%; height: auto" />
+  <figcaption>
+    Модельный пример из статьи про WGAN: настоящие данные сосредоточены в нуле (синий), генератор — в точке $\theta$ (красный), перекрытия почти нет. Правая панель показывает, как расхождение зависит от $\theta$. Красная JS-дивергенция при любом ненулевом сдвиге равна $\log 2 \approx 0.69$: это плато, производная по $\theta$ равна нулю, и генератор не получает подсказки, в какую сторону двигаться; лишь ровно в нуле значение скачком падает до нуля (красная точка). Зелёное расстояние Вассерштейна равно $|\theta|$ — у него всюду есть наклон, поэтому по нему можно спускаться даже при полностью непересекающихся распределениях.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Условный GAN">
+<p><b>Conditional GAN (cGAN)</b> добавляет метку $\mathbf{y}$ на вход обеим сетям:</p>
+<p><span class="latex-copy-wrap" data-latex="$$G_\theta(\mathbf{z}, \mathbf{y}), \quad D_\phi(\mathbf{x}, \mathbf{y})$$">$$G_\theta(\mathbf{z}, \mathbf{y}), \quad D_\phi(\mathbf{x}, \mathbf{y})$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Дискриминатор теперь отвечает не на вопрос «настоящее ли это?», а на вопрос «настоящая ли это пара (объект, метка)?». Поэтому генератору мало сделать правдоподобный объект — он должен соответствовать заданному условию. Так получают управляемую генерацию: «нарисуй именно цифру 7», «лицо с бородой», «фото по этому эскизу».</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Применения">
+<p>Чем генеративные задачи принципиально отличаются от остальных и какое место GAN занимает среди других семейств — в <a href="../../../ai/ml/cv/dl.html#cv-generation-basics" target="_blank" rel="noopener">обзоре генеративных задач CV</a>.</p>
+<ul>
+<li><b>Синтез изображений.</b> StyleGAN и родственники генерируют фотореалистичные лица; синтетические медицинские снимки используют для аугментации данных там, где реальных мало.</li>
+<li><b>Image-to-Image translation (Pix2Pix, CycleGAN).</b> Перевод между доменами: эскиз $\to$ фото, спутниковый снимок $\to$ карта, лето $\to$ зима. CycleGAN умеет это даже без парных данных.</li>
+<li><b>Суперразрешение (SRGAN).</b> Восстановление правдоподобных деталей при увеличении изображения в 4 и более раз — там, где обычная MSE-модель дала бы размытие.</li>
+<li><b>Синтез аудио и видео</b>, генерация табличных данных для приватности.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="StyleGAN: синтез лиц" src="../../../images/ml/models/dl/stylegan.png" width="664" height="776" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Лица, сгенерированные StyleGAN: ни одного из этих людей не существует. Чёткость деталей — характерное преимущество GAN перед VAE, чей MSE-лосс усредняет варианты и даёт размытие.
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="Image-to-image translation" src="../../../images/ml/models/dl/gan-image-generation.png" width="500" height="436" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    Перевод между доменами условным GAN: вход задаёт условие (эскиз, сегментационная маска), а генератор дорисовывает правдоподобную реализацию. Дискриминатор проверяет именно пару «условие + результат».
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="Суперразрешение SRGAN" src="../../../images/ml/models/dl/srgan.png" width="2000" height="979" loading="lazy" decoding="async" style="max-width: 70%; width: 100%; height: auto" />
+  <figcaption>
+    SRGAN восстанавливает текстуры, которых в низком разрешении физически нет. Важная оговорка: детали правдоподобны, но не обязательно достоверны — для медицины и криминалистики это принципиальное ограничение.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<ul>
+<li><b>Считать значение лосса мерой качества.</b> У GAN лоссы — счёт в игре двух сетей; они могут выглядеть прекрасно при полном схлопывании мод. Качество оценивают <a href="../../../ai/ml/cv/dl.html#cv-generative-metrics" target="_blank" rel="noopener">FID, Inception Score</a> и глазами.</li>
+<li><b>«Дискриминатор достиг 99% точности — отлично!»</b> Наоборот: это провал, генератор остался без градиента. Здоровое состояние — примерный паритет.</li>
+<li><b>Ждать от GAN оценки правдоподобия.</b> GAN не даёт $p(\mathbf{x})$ и по умолчанию не имеет энкодера: по готовой картинке нельзя получить её $\mathbf{z}$ без отдельной процедуры инверсии.</li>
+<li><b>Верить сгенерированным деталям.</b> Суперразрешение и inpainting дорисовывают правдоподобное, а не истинное — в задачах, где важна достоверность, это источник опасных артефактов.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как устроен GAN и как он обучается?</b></p>
+<p>Из генератора, превращающего шум $\mathbf{z}$ в объект, и дискриминатора, отличающего настоящие объекты от сгенерированных. Их обучают поочерёдно в состязательной игре с нулевой суммой: дискриминатор учится ловить подделки, генератор — обманывать дискриминатор.</p>
+</li>
+<li><p><b>Что является равновесием в этой игре?</b></p>
+<p>Равновесие по Нэшу достигается при $p_G = p_{\text{data}}$, когда оптимальный дискриминатор выдаёт $1/2$ на любом объекте, то есть не может отличить настоящее от подделки. При оптимальном дискриминаторе задача генератора эквивалентна минимизации JS-дивергенции между распределениями.</p>
+</li>
+<li><p><b>Что такое mode collapse и почему он возникает?</b></p>
+<p>Схлопывание мод — генератор выдаёт лишь узкое подмножество объектов, игнорируя разнообразие данных. Возникает потому, что функция потерь оценивает объекты поодиночке и никак не наказывает за отсутствие разнообразия: несколько удачных подделок обманывают дискриминатор не хуже, чем всё многообразие.</p>
+</li>
+<li><p><b>Почему у генератора исчезает градиент и как это чинят?</b></p>
+<p>При сильном дискриминаторе $D(G(\mathbf{z})) \to 0$, и функция $\log(1 - D(G(\mathbf{z})))$ насыщается — её производная стремится к нулю. Лечение: non-saturating loss, где генератор максимизирует $\log D(G(\mathbf{z}))$ — та же точка оптимума, но большой градиент при плохом генераторе.</p>
+</li>
+<li><p><b>Чем WGAN отличается от обычного GAN?</b></p>
+<p>Он использует расстояние Вассерштейна вместо JS-дивергенции, дискриминатор заменён критиком с вещественным выходом, и на критика накладывается ограничение Липшица (клиппинг весов или градиентный штраф в WGAN-GP). Это даёт осмысленный градиент даже при непересекающихся распределениях и лосс, коррелирующий с качеством.</p>
+</li>
+<li><p><b>Чем GAN отличается от VAE?</b></p>
+<p>VAE обучается максимизацией ELBO, имеет энкодер и регулярное латентное пространство, стабилен, но даёт размытые сэмплы. GAN обучается состязательно, даёт заметно более чёткие изображения, но нестабилен, склонен к mode collapse, не даёт оценки правдоподобия и по умолчанию не имеет энкодера.</p>
+</li>
+<li><p><b>Что такое условный GAN и зачем он нужен?</b></p>
+<p>cGAN подаёт метку или условие на вход и генератору, и дискриминатору. Дискриминатор проверяет соответствие пары «объект — условие», поэтому генератор вынужден порождать объект именно заданного класса. Так получают управляемую генерацию и перевод изображений между доменами.</p>
+</li>
+<li><p><b>Как оценивают качество GAN, если по лоссу этого сделать нельзя?</b></p>
+<p>Внешними метриками: FID (расстояние между распределениями признаков реальных и сгенерированных изображений в пространстве Inception), Inception Score, precision/recall для генеративных моделей, а также визуальной инспекцией и проверкой разнообразия сэмплов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      
+        <!-- Карточка входа в тест -->
+        <div class="quiz-entry" 
+             data-quiz-id="ml:models-dl"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+    <script src="../../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../../assets/js/init-page.js"></script>
+  </body>
+</html>

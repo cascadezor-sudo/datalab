@@ -1,0 +1,1191 @@
+/* Interview Videos Page - filters, grid, modal */
+
+/* Filter bar: сегменты как мини-карты, мягкие границы, без «прыжков» */
+.interview-videos-filters {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: flex-start;
+  margin-bottom: 22px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.interview-videos-filters.is-hidden-on-scroll {
+  transform: translateY(calc(-100% - 16px));
+  pointer-events: none;
+}
+
+.interview-videos-filters::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  mask:
+    linear-gradient(#000, #000) content-box,
+    linear-gradient(#000, #000);
+  -webkit-mask:
+    linear-gradient(#000, #000) content-box,
+    linear-gradient(#000, #000);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  padding: 1px;
+}
+
+/* каждый блок фильтра — как мини-карта */
+.interview-videos-filter-block {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 10px 12px;
+  gap: 10px;
+  order: 0;
+}
+
+/* «Тема» занимает ширину, но тоже выглядит как сегмент */
+.interview-videos-filter-block-topic {
+  flex-basis: 100%;
+  min-width: 0;
+  order: 2;
+}
+
+/* лейбл как маленький caption */
+.interview-videos-filters-label {
+  flex-shrink: 0;
+  padding-top: 0;
+  margin-top: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  line-height: 1;
+}
+
+/* чипы — плотнее, без тяжёлых рамок */
+.interview-videos-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.interview-videos-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  transform: none;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.interview-videos-filter-chip:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+.interview-videos-filter-chip:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 35%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+}
+
+.interview-videos-filter-chip.active {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--brand-secondary) 22%, transparent);
+  color: #fff;
+  box-shadow: 0 6px 18px
+    color-mix(in srgb, var(--brand-secondary) 18%, transparent);
+}
+
+.interview-videos-filter-chip.active:hover {
+  opacity: 0.95;
+  color: #fff;
+}
+
+/* правая часть (Найдено/Сбросить) — сверху справа, как отдельный сегмент */
+.interview-videos-filters-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+  order: 1;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 10px 12px;
+}
+
+.interview-videos-filters-count {
+  font-size: 0.86rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+}
+
+.interview-videos-filters-reset {
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.interview-videos-filters-reset:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-primary);
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+.interview-videos-filters-reset:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+
+/* Light mode: более «воздушно» */
+[data-theme="light"] body.interviews .interview-videos-filters {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(20, 20, 30, 0.08);
+  box-shadow: 0 14px 40px rgba(20, 20, 30, 0.1);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filter-block,
+[data-theme="light"] body.interviews .interview-videos-filters-actions {
+  background: rgba(10, 10, 20, 0.03);
+  border-color: rgba(20, 20, 30, 0.08);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filters-label {
+  color: rgba(20, 20, 30, 0.55);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filter-chip {
+  border-color: rgba(20, 20, 30, 0.1);
+  background: rgba(20, 20, 30, 0.03);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filter-chip:hover {
+  background: rgba(20, 20, 30, 0.06);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filter-chip.active {
+  background: color-mix(in srgb, var(--brand-secondary) 18%, transparent);
+  box-shadow: 0 8px 18px
+    color-mix(in srgb, var(--brand-secondary) 14%, transparent);
+  color: #fff;
+}
+
+[data-theme="light"] body.interviews .interview-videos-filters-count {
+  color: rgba(20, 20, 30, 0.75);
+}
+
+/* Video grid: саморегулирующийся, чуть больше воздуха на широких экранах */
+.interview-videos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 22px;
+  margin-bottom: 40px;
+}
+
+/* Video card */
+.interview-video-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  cursor: pointer;
+  will-change: transform;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  min-height: 0;
+}
+
+.interview-video-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.interview-video-card-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background:
+    radial-gradient(
+      1200px 400px at 20% 10%,
+      color-mix(in srgb, var(--brand) 35%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(135deg, #2d2a3e 0%, #14132a 100%);
+  overflow: hidden;
+}
+
+.interview-video-card-thumb::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+.interview-video-card-thumb-caption {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.interview-video-card-thumb-caption span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.interview-video-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.interview-video-card-thumb-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 3rem;
+}
+
+.interview-video-card-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    circle at 50% 55%,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.55)
+  );
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.interview-video-card:hover .interview-video-card-play {
+  opacity: 1;
+}
+
+.interview-video-card-play-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-color);
+  font-size: 1.75rem;
+  padding-left: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.interview-video-card-body {
+  padding: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.interview-video-card-title {
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.45;
+  letter-spacing: 0.1px;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.interview-video-card-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.interview-video-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
+.interview-video-card-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--primary-color);
+}
+
+.interview-video-card-badge.real {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.18);
+  color: var(--success-color);
+}
+
+.interview-video-card-badge.mock {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.18);
+  color: var(--warning-color);
+}
+
+.interview-video-card-badge.interview-video-card-badge-english {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.18);
+  color: #2563eb;
+}
+
+.interview-video-card-badge.interview-video-card-badge-offer {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.18);
+  color: #b91c1c;
+}
+
+.interview-video-card-badge.interview-video-card-badge-mode-algo,
+.interview-video-card-badge.interview-video-card-badge-mode-tech,
+.interview-video-card-badge.interview-video-card-badge-mode-hr {
+  background: color-mix(in srgb, var(--brand-secondary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--brand-secondary) 18%, transparent);
+  color: var(--brand);
+}
+
+/* Темы принудительно со второй строки */
+.interview-video-card-meta-topics {
+  width: 100%;
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] body.interviews .interview-video-card-meta-topics {
+  border-top-color: rgba(20, 20, 30, 0.18);
+}
+
+.interview-video-card-topic {
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--border-color);
+  color: var(--text-secondary);
+}
+
+/* Modal */
+.interview-video-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease,
+    visibility 0.3s ease;
+  backdrop-filter: blur(6px);
+}
+
+.interview-video-modal-backdrop.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Панель модалки — сосед бэкдропа, всегда pointer-events: auto, чтобы клики и hover работали */
+.interview-video-modal-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.92);
+  z-index: 1001;
+  pointer-events: auto;
+  width: min(2020px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--card-bg);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    visibility 0.3s;
+}
+
+.interview-video-modal-backdrop.open ~ .interview-video-modal-panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Состояние «курсор над модалкой» сохраняется при наведении на видео/iframe */
+.interview-video-modal-panel:hover,
+.interview-video-modal-panel.interview-video-modal-panel-pointer-inside {
+  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px color-mix(in srgb, var(--brand) 15%, transparent);
+}
+
+.interview-video-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 24px 0;
+}
+
+.interview-video-modal-header-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.interview-video-modal-badge-english {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.interview-video-modal-badge-offer {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.15);
+  color: #b91c1c;
+  flex-shrink: 0;
+}
+
+.interview-video-modal-badge-mode {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.interview-video-modal-badge-mode-algo,
+.interview-video-modal-badge-mode-tech,
+.interview-video-modal-badge-mode-hr {
+  background: color-mix(in srgb, var(--brand-secondary) 20%, transparent);
+  color: var(--brand);
+}
+
+.interview-video-modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.interview-video-modal-close {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.interview-video-modal-close:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* Две колонки: видео слева, превью PDF справа */
+.interview-video-modal-body {
+  display: flex;
+  gap: 20px;
+  padding: 20px 24px 0;
+  align-items: stretch;
+}
+
+.interview-video-modal-video-wrap {
+  flex: 1 1 58%;
+  min-width: 0;
+  position: relative;
+  background: #0f0f12;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+}
+
+.interview-video-modal-pdf-preview {
+  flex: 1 1 42%;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+.interview-video-modal-pdf-preview-title {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.interview-video-modal-pdf-preview-inner {
+  flex: 1;
+  min-height: 280px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Фидбек: фиксированная высота и прокрутка внутри, без раздувания модалки */
+.interview-video-modal-pdf-preview-inner:has(.feedback-page),
+.interview-video-modal-pdf-preview-inner.interview-video-modal-pdf-preview-inner-has-feedback {
+  max-height: min(65vh, 520px);
+  min-height: 200px;
+}
+.interview-video-modal-pdf-preview-inner .feedback-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+}
+.interview-video-modal-pdf-preview-inner:has(.feedback-page)
+  .interview-video-modal-pdf-link,
+.interview-video-modal-pdf-preview-inner.interview-video-modal-pdf-preview-inner-has-feedback
+  .interview-video-modal-pdf-link {
+  flex-shrink: 0;
+  margin-top: 10px;
+}
+
+.interview-video-modal-pdf-preview-inner iframe {
+  flex: 1;
+  min-height: 280px;
+  border: none;
+  display: block;
+}
+
+.interview-video-modal-pdf-preview-inner .interview-video-modal-no-pdf,
+.interview-video-modal-pdf-preview-inner .interview-video-pdf-drive-fallback {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.interview-video-modal-pdf-preview-inner .interview-video-modal-pdf-link {
+  margin-top: 12px;
+}
+
+.interview-video-modal-pdf-preview-inner
+  .interview-video-modal-pdf-open-external {
+  flex-shrink: 0;
+  margin: 0 12px 12px;
+  align-self: flex-start;
+}
+
+/* Фидбек в модалке: оформление из profile/feedbacks.css (.feedback-page .fb-modal-body) */
+.interview-video-feedback-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* В карточке: блок выбора ученика/фидбека — только для ментора */
+.interview-video-card-feedback-assign {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  z-index: 10;
+}
+body.user-is-mentor .interview-video-card-feedback-assign {
+  display: block;
+}
+/* Чтобы выпадающий список select не обрезался карточкой */
+body.user-is-mentor .interview-video-card {
+  overflow: visible;
+}
+.interview-video-card-assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.interview-video-card-assign-student,
+.interview-video-card-assign-feedback {
+  min-width: 0;
+  flex: 1 1 140px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--card-bg, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary, #fff);
+  font-size: 0.8rem;
+  appearance: auto;
+}
+.interview-video-card-assign-student option,
+.interview-video-card-assign-feedback option {
+  background: var(--card-bg, #2d2a3e);
+  color: var(--text-primary, #fff);
+}
+.interview-video-card-assign-save {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #6a5acd 0%, #5a4ab8 100%);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.interview-video-card-assign-save:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.interview-video-card-assign-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+/* Светлая тема: дропдауны в карточке */
+[data-theme="light"] body.interviews .interview-video-card-assign-student,
+[data-theme="light"] body.interviews .interview-video-card-assign-feedback {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #1a1a1a;
+}
+[data-theme="light"]
+  body.interviews
+  .interview-video-card-assign-student
+  option,
+[data-theme="light"]
+  body.interviews
+  .interview-video-card-assign-feedback
+  option {
+  background: #fff;
+  color: #1a1a1a;
+}
+[data-theme="light"] body.interviews .interview-video-card-feedback-assign {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 900px) {
+  .interview-videos-filters {
+    transition:
+      transform 0.22s ease,
+      opacity 0.18s ease;
+    will-change: transform;
+  }
+
+  .interview-video-modal-body {
+    flex-direction: column;
+  }
+
+  .interview-video-modal-pdf-preview {
+    min-height: 320px;
+  }
+
+  .interview-video-modal-pdf-preview-inner {
+    min-height: 320px;
+  }
+
+  .interview-video-modal-pdf-preview-inner iframe {
+    min-height: 320px;
+  }
+}
+
+.interview-video-modal-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.interview-video-modal-audio-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.interview-video-modal-audio-wrap audio {
+  width: 100%;
+  max-width: 480px;
+}
+
+.interview-video-modal-video-wrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Google Drive: iframe с других сайтов не работает — показываем кнопку «Открыть в Google Drive» */
+.interview-video-drive-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  min-height: 280px;
+  padding: 32px;
+  text-align: center;
+}
+
+.interview-video-drive-fallback-text {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.interview-video-drive-fallback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-radius: 12px;
+  background: var(--gradient-primary);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    transform 0.15s,
+    box-shadow 0.2s;
+  border: none;
+}
+
+.interview-video-drive-fallback-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--brand) 40%, transparent);
+  color: #fff;
+}
+
+.interview-video-modal-attachments {
+  padding: 20px 24px 24px;
+}
+
+.interview-video-modal-attachments-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+}
+
+.interview-video-modal-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--primary-color);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition:
+    background 0.2s,
+    transform 0.15s;
+  border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+}
+
+.interview-video-modal-pdf-link:hover {
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  transform: translateY(-1px);
+}
+
+.interview-video-modal-pdf-link::before {
+  content: "📄";
+  font-size: 1.1rem;
+}
+
+.interview-video-modal-no-pdf {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Суммаризация записи (Темы и вопросы) — HTML из data.summary */
+.interview-video-modal-summary-wrap {
+  padding: 20px 24px 0;
+}
+
+.interview-video-modal-summary-title {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.interview-video-modal-summary {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.55;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+}
+
+.interview-video-modal-summary ul,
+.interview-video-modal-summary ol {
+  margin: 0 0 0 1.2em;
+  padding: 0 0 0 4px;
+}
+
+.interview-video-modal-summary li {
+  margin-bottom: 6px;
+}
+
+.interview-video-modal-summary li:last-child {
+  margin-bottom: 0;
+}
+
+.interview-video-modal-summary strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.interview-video-modal-summary p {
+  margin: 0 0 8px 0;
+}
+
+.interview-video-modal-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.interview-video-modal-description {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 12px 0 0 0;
+  padding: 0 24px 24px;
+}
+
+/* Empty state — карточка в стиле панели фильтров */
+.interview-videos-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.interview-videos-empty strong {
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+}
+
+/* Light theme: поверхность, мягкие тени, тёплый фон */
+[data-theme="light"] body.interviews .container {
+  background: #fbfafc;
+}
+
+[data-theme="light"] body.interviews .interview-video-card {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] body.interviews .interview-video-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] body.interviews .interview-videos-filters {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] body.interviews .interview-videos-empty {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+/* Skeleton при первом рендере */
+.interview-video-card-skeleton {
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.interview-video-card-skeleton-thumb {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(
+    90deg,
+    var(--border-color) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    var(--border-color) 100%
+  );
+  background-size: 200% 100%;
+  animation: interview-video-skeleton-shine 1.2s ease-in-out infinite;
+}
+
+.interview-video-card-skeleton-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.interview-video-card-skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--border-color);
+  opacity: 0.6;
+}
+
+.interview-video-card-skeleton-line.short {
+  width: 60%;
+}
+
+.interview-video-card-skeleton-line.medium {
+  width: 85%;
+}
+
+@keyframes interview-video-skeleton-shine {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Dark theme tweaks */
+[data-theme="dark"] .interview-video-card-thumb {
+  background:
+    radial-gradient(
+      1200px 400px at 20% 10%,
+      color-mix(in srgb, var(--brand) 25%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(135deg, #1e1b4b 0%, #0f0f1a 100%);
+}
+
+[data-theme="dark"] .interview-video-modal-video-wrap {
+  background: #0a0a0c;
+}
+
+/* Аудиозапись: слушается прямо в карточке, «волна» анимируется во время звука */
+.interview-video-card-badge.interview-video-card-badge-audio {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 22%, transparent);
+  color: var(--brand);
+}
+
+.interview-audio-wave {
+  position: absolute;
+  inset: 22% 10% 22%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  z-index: 1;
+}
+
+.interview-audio-wave span {
+  flex: 1;
+  max-width: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  transform-origin: center;
+  transform: scaleY(0.35);
+  transition: transform 0.3s ease;
+}
+
+.interview-video-card.is-playing .interview-audio-wave span {
+  animation: interview-audio-wave 0.9s ease-in-out infinite alternate;
+}
+
+/* Столбики ведёт спектр звука (startWave в interview-videos.js) */
+.interview-video-card.is-playing.is-live .interview-audio-wave span {
+  animation: none;
+  transition: transform 0.08s linear;
+}
+
+.interview-audio-wave span:nth-child(3n + 1) {
+  animation-delay: -0.3s;
+}
+
+.interview-audio-wave span:nth-child(3n + 2) {
+  animation-delay: -0.6s;
+}
+
+@keyframes interview-audio-wave {
+  from {
+    transform: scaleY(0.25);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interview-video-card.is-playing .interview-audio-wave span {
+    animation: none;
+    transform: scaleY(1);
+  }
+}
+
+.interview-audio-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.interview-audio-inline audio {
+  width: 100%;
+  height: 40px;
+}
+
+.interview-audio-open {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.interview-audio-open:hover,
+.interview-audio-open:focus-visible {
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  color: var(--brand);
+}

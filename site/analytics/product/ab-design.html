@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A/B-тестирование II (Дизайн экспериментов, CUPED, MDE)</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">A/B-тестирование II</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Experiment Design</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">15 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">A/B-тестирование II (Дизайн экспериментов, CUPED, MDE)</h1>
+        <p class="section-shell__desc">Дизайн и планирование экспериментов: расчет выборки, MDE, выбор OEC, Sample Ratio Mismatch, продвинутые техники снижения дисперсии (CUPED) и последовательное тестирование.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="ab_metric_types" data-interview="4">
+  <div class="name" id="ab_metric_types">
+    Классификация метрик в эксперименте
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Система метрик эксперимента</b> — это структурированная многоуровневая иерархия показателей продукта, разделяющая метрики по их функциональной роли в A/B-тестировании: <b>целевые (Primary / OEC)</b>, <b>второстепенные (Secondary)</b>, <b>защитные (Guardrail)</b> и <b>технические / манипуляционные (Manipulation Checks)</b>.</p>
+<p>Если совсем простыми словами: <b>нельзя оценивать тест по одной-единственной цифре, но и смотреть на 100 цифр без четких ролей — путь к катастрофе</b>. Целевая метрика показывает, ради чего затевался тест; защитные следят, чтобы ничего не сломалось по дороге; технические подтверждают, что фича вообще включилась у пользователей.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурные роли метрик в дизайне эксперимента (Kohavi et al., Trustworthy Online Controlled Experiments):</p>
+<ol>
+<li><b>Primary Metric (Целевая / OEC):</b> Главный критерий успеха, напрямую отражающий ценность продуктовой гипотезы (например, Conversion Rate в заявку, 30-day Retention, GMV на пользователя). Строго одна (максимум две ортогональные) метрика, под которую рассчитывается размер выборки (Power Analysis).</li>
+<li><b>Secondary / Diagnostic Metrics (Промежуточные / Диагностические):</b> Декомпозируют воронку целевой метрики и объясняют механизм изменений (CTR кнопки, глубина просмотра, время на шаге).</li>
+<li><b>Guardrail Metrics (Защитные / Ограничительные):</b> Бизнес- и инфраструктурные показатели, ухудшение которых недопустимо даже при рекордном росте целевой метрики:
+    <ul>
+    <li><i>Организационные/Бизнес-метрики:</i> отток (Churn), количество обращений в техподдержку, отписки от рассылок, маржинальность.</li>
+    <li><i>Технические метрики:</i> задержка загрузки (Latency p95/p99), процент серверных ошибок HTTP 5xx, краши приложения (Crash-free users), потребление батареи/CPU.</li>
+    </ul>
+</li>
+<li><b>Manipulation Checks (Проверка доставки воздействия):</b> Подтверждают факт того, что пользователи тестовой группы физически взаимодействовали с тестируемым интерфейсом (например, доля показов нового виджета $> 0$).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-экосистемы:</b> Команда инвестиций тестирует новый сторис-формат обучающих курсов.
+<ul>
+<li><i>Primary:</i> Доля пользователей, открывших брокерский счет в течение 14 дней (Target Conversion).</li>
+<li><i>Secondary:</i> Процент дочитывания сторис (Story Completion Rate), клики по CTA.</li>
+<li><i>Guardrail:</i> Время холодного старта приложения (не должно вырасти более чем на 50 мс), нагрузка на базу данных профилей (RPS), отток активных клиентов ДБО.</li>
+<li><i>Manipulation Check:</i> Доля пользователей тестовой группы, у которых отрендерился блок сторис в ленте.</li>
+</ul>
+Благодаря такой системе команда вовремя заметила, что сторис замедлили запуск приложения на старых смартфонах Android на 450 мс, и оптимизировала бандл до релиза.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Спецификация системы метрик A/B эксперимента (Production Config)
+experiment_metric_suite = {
+    "experiment_id": "exp_trade_instant_order_v2",
+    "primary_metric": {
+        "name": "conversion_to_first_deal_7d",
+        "type": "binary",
+        "mde_relative": 0.05, # +5% относительно baseline
+        "alpha": 0.05,
+        "power": 0.80
+    },
+    "secondary_metrics": [
+        {"name": "avg_trades_per_active_user", "type": "continuous"},
+        {"name": "order_form_completion_rate", "type": "ratio"}
+    ],
+    "guardrails": [
+        {"name": "app_p95_latency_ms", "max_allowed_degradation": 50},
+        {"name": "support_tickets_per_1k_users", "max_allowed_degradation_pct": 0.05},
+        {"name": "churn_rate_14d", "max_allowed_degradation_pct": 0.00}
+    ],
+    "manipulation_check": {
+        "event_name": "instant_order_widget_rendered",
+        "min_expected_coverage": 0.98
+    }
+}
+print("Спецификация метрик зарегистрирована в Feature Management Platform.")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Отсутствие заранее зафиксированной Primary метрики.</b> Приводит к подгонке результатов (HARKing / P-hacking): выбирается та метрика, которая случайно «позеленела».</li>
+        <li><b>Выбор метрики, на которую фича не может повлиять физически.</b> Например, запуск изменения цвета иконки профиля с ожиданием изменения квартальной выручки компании (слишком низкая чувствительность/шум).</li>
+        <li><b>Игнорирование Guardrail метрик.</b> Оптимизация локальной конверсии часто каннибализирует долгосрочную лояльность или ломает производительность бэкенда.</li>
+        <li><b>Метрика-прокси вместо конечной ценности.</b> Оптимизация кликов (CTR) часто приводит к кликбейту и резкому падению качества оформленных заказов.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании обязательно зададут вопрос: <i>«Спроектируйте систему метрик для редизайна карточки товара на Ozon/Wildberries»</i>. Структурируйте ответ строго по 4 корзинам: 1) Primary (конверсия из просмотра карточки в добавление в корзину / покупку); 2) Secondary (скролл описания, клики по фото/отзывам, использование калькулятора доставки); 3) Guardrails (время загрузки карточки p95, возвраты товара, отмены заказов, нагрузка на сервис рекомендаций); 4) Manipulation check (факт отрисовки новой карточки без фолбэка на старую).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>На какие четыре базовые категории делятся метрики в A/B эксперименте?</b></p><p>Целевые (Primary/OEC), вторичные/диагностические (Secondary), защитные (Guardrails) и метрики манипуляции (Manipulation checks).</p></li>
+        <li><p><b>Сколько целевых метрик (Primary) рекомендуется выбирать для одного теста?</b></p><p>Строго одну (в исключительных случаях две сбалансированные метрики с контролем множественного тестирования).</p></li>
+        <li><p><b>Что такое Manipulation Check?</b></p><p>Проверка того, что тестовое воздействие действительно было корректно доставлено и воспринято пользователями.</p></li>
+        <li><p><b>Почему опасно ориентироваться только на локальные Secondary метрики?</b></p><p>Они подвержены эффекту локального оптимума и манипуляциям (кликбейт), не гарантируя прироста реальной ценности продукта.</p></li>
+        <li><p><b>Какую роль играют технические Guardrails?</b></p><p>Предотвращают деградацию стабильности (latency, 5xx, краши) под нагрузкой нового функционала.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="metric_sensitivity" data-interview="5">
+  <div class="name" id="metric_sensitivity">
+    Чувствительность метрик
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Чувствительность метрики (Metric Sensitivity)</b> — это способность метрики статистически достоверно и устойчиво реагировать на реальные изменения в продукте. Характеризуется высоким отношением сигнал/шум (Signal-to-Noise Ratio, SNR) и минимальным коэффициентом вариации (Coefficient of Variation, $CV = \sigma / \mu$).</p>
+<p>Если совсем простыми словами: <b>высокочувствительная метрика быстро и чётко «зеленеет» при улучшении продукта, а зашумленная метрика будет стоять на месте неделями, требуя миллионы пользователей, чтобы заметить даже гигантский сдвиг</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика чувствительности и размера выборки:</p>
+<p>Минимальный детектируемый относительный эффект ($\mathrm{MDE}_{\text{rel}} = \Delta / \mu$) при заданных $\alpha$ и $\beta$ обратно пропорционален квадрату коэффициента вариации метрики:</p>
+<p>$$n \propto \frac{(Z_{1-\alpha/2} + Z_{1-\beta})^2}{\mathrm{MDE}_{\text{rel}}^2} \cdot \left(\frac{\sigma}{\mu}\right)^2$$</p>
+<p><b>Факторы, убивающие чувствительность:</b></p>
+<ul>
+<li><b>Тяжелые хвосты распределения (Heavy Tails):</b> Экстремальные выбросы раздувают дисперсию $\sigma^2$ в десятки раз, хороня мощность t-теста.</li>
+<li><b>Разреженность (Sparsity):</b> Если метрика принимает нулевые значения для 98% пользователей (например, покупка премиум-подписки), дисперсия бернуллиевского процесса максимальна относительно среднего.</li>
+<li><b>Длина каузальной цепочки (Causal Distance):</b> Чем дальше метрика от места воздействия, тем больше случайного шума на нее накладывается. Метрика «Клик по фильтру» на 3 порядка чувствительнее к редизайну фильтра, чем «Квартальная чистая прибыль холдинга».</li>
+</ul>
+<p><b>Методы повышения чувствительности:</b> Снижение дисперсии через <b>CUPED</b>, стратификацию, бинаризацию, винзоризацию/кэппинг выбросов, а также переход к непрерывным прокси-метрикам.</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс стриминга (Кинопоиск):</b> Эксперимент с новым плеером. Аналитики выбирали между двумя целевыми метриками:
+1) <i>Retention 30-го дня:</i> $CV = 1.45$, требует выборку в 800 000 пользователей и 6 недель ожидания.
+2) <i>Минуты просмотра за первые 3 дня:</i> $CV = 0.62$, требует выборку в 80 000 пользователей и 7 дней теста.
+Корреляция между ранними минутами просмотра и 30-day Retention составила $r = 0.81$. Использование чувствительной прокси-метрики позволило сократить время проведения теста в 6 раз при сохранении валидности вывода.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+# Сравнение коэффициента вариации (CV) и требуемого объема выборки
+np.random.seed(42)
+
+# Метрика 1: Выручка на пользователя (сильно скошена, киты)
+revenue = np.random.lognormal(mean=2.0, sigma=2.2, size=100000)
+cv_revenue = revenue.std() / revenue.mean()
+
+# Метрика 2: Винзорированная выручка (кэппинг на 99-м перцентиле)
+cap_99 = np.percentile(revenue, 99)
+revenue_capped = np.clip(revenue, 0, cap_99)
+cv_capped = revenue_capped.std() / revenue_capped.mean()
+
+# Отношение требуемых выборок n1 / n2 ~ (CV1 / CV2)^2
+sample_ratio = (cv_revenue / cv_capped) ** 2
+
+print(f"CV сырой выручки:         {cv_revenue:.2f}")
+print(f"CV винзорированной выручки: {cv_capped:.2f}")
+print(f"Выигрыш в размере выборки после кэппинга выбросов: в {sample_ratio:.1f} раза!")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Выбор слишком глобальной метрики для локального изменения.</b> Тестировать заголовок кнопки в корзине по метрике LTV компании — классический пример аналитической близорукости.</li>
+        <li><b>Оценка чувствительности без учета дисперсии.</b> Считать, что редкая метрика «лучше, потому что важнее для бизнеса».</li>
+        <li><b>Винзоризация без бизнес-согласования.</b> Срезание выбросов делает метрику чувствительнее, но если 50% прибыли приносят именно 0.1% китов, винзоризация может скрыть критический отток крупных плательщиков.</li>
+        <li><b>Игнорирование сдвига распределения.</b> Метрика чувствительна к среднему, но фича могла изменить форму хвоста (квантили).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как измерить чувствительность метрики на исторических данных?»</i> Ответ: <i>«Провести серию из сотен синтетических A/A тестов с искусственным внедрением синтетического эффекта заданного размера (например, $+1\%$, $+2\%$). Доля тестов, зафиксировавших статистическую значимость ($p < 0.05$), даст эмпирическую мощность (чувствительность) метрики. Чем выше мощность при меньшем эффекте, тем чувствительнее метрика».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое чувствительность метрики в A/B тестировании?</b></p><p>Способность метрики достоверно детектировать минимальные реальные изменения в продукте при разумном объеме выборки.</p></li>
+        <li><p><b>Как коэффициент вариации (CV) влияет на размер требуемой выборки?</b></p><p>Квадратично: $n \propto CV^2 = (\sigma / \mu)^2$. Снижение CV в 2 раза сокращает выборку в 4 раза.</p></li>
+        <li><p><b>Почему LTV является крайне нечувствительной метрикой для двухнедельных A/B тестов?</b></p><p>Она требует длительного времени созревания и обладает огромной дисперсией, накапливающей случайный шум.</p></li>
+        <li><p><b>Какие техники позволяют повысить чувствительность метрики без увеличения трафика?</b></p><p>CUPED, стратификация, фильтрация нецелевого трафика, винзоризация выбросов и переход к прокси-метрикам.</p></li>
+        <li><p><b>В чем опасность чрезмерного кэппинга (винзоризации) метрик выручки?</b></p><p>Можно упустить негативное влияние на наиболее маржинальный сегмент супер-плательщиков (китов).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="oec" data-interview="4">
+  <div class="name" id="oec">
+    Overall Evaluation Criterion (OEC)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Overall Evaluation Criterion (OEC, Единый критерий оценки)</b> — это агрегированная математическая функция от нескольких ключевых продуктовых метрик, формулирующая единый скалярный показатель долгосрочной ценности продукта, по которому принимается однозначное решение об успехе эксперимента.</p>
+<p>Если совсем простыми словами: <b>это формула, которая сводит баланс «плюсов» и «минусов» к одной итоговой цифре</b>. Если новая реклама приносит $+10$ млн руб. выручки, но увеличивает отток пользователей на $-2\%$, OEC рассчитывает чистый долгосрочный баланс в деньгах и дает четкий ответ: выгодно это или нет.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математическое конструирование OEC (Kohavi, Tang, Xu):</p>
+<p>В реальном бизнесе цели противоречивы: рост монетизации часто снижает удовлетворенность (CSAT) или скорость работы (Latency). Линейный OEC сводит метрики к денежному эквиваленту:</p>
+<p>$$\mathrm{OEC} = \Delta \mathrm{Revenue}_{30d} - \lambda_1 \cdot \Delta \mathrm{Uninstalls} - \lambda_2 \cdot \Delta \mathrm{SupportTickets} - \lambda_3 \cdot \Delta \mathrm{Latency}_{\text{ms}}$$</p>
+<p>Коэффициенты $\lambda_i$ представляют собой предельную стоимость деградации каждого компонента (например, потеря одного пользователя стоит $1\,200$ руб. LTV, а лишнее обращение в саппорт обходится в $250$ руб.).</p>
+<p><b>Преимущества OEC:</b></p>
+<ul>
+<li>Устраняет паралич принятия решений (Decision Paralysis), когда три метрики выросли, а две упали.</li>
+<li>Защищает от оптимизации локальных метрик в ущерб компании.</li>
+<li>Полностью решает проблему множественного тестирования: проверяется ровно <b>одна</b> гипотеза $H_0: \mathbb{E}[\Delta \mathrm{OEC}] = 0$.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс поисковой системы (Яндекс / Google):</b> Поисковый сервис тестирует увеличение рекламного блока над органической выдачей.
+Метрика кликов по рекламе (Ad Revenue) резко растет ($+4\%$). Но число повторных поисков падает, а время до успешного ответа увеличивается.
+OEC поиска включает: $\mathrm{OEC} = \text{Ad Clicks} - w \cdot \text{Search Abandonment Rate}$. Команда оптимизирует именно OEC, предотвращая деградацию доверия к поисковой выдаче.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Моделирование OEC в e-commerce эксперименте
+# OEC = Revenue - (Churned_Users * LTV_value) - (Tickets * Ticket_cost)
+np.random.seed(42)
+n_users = 20000
+
+ltv_per_user = 2500.0  # руб.
+cost_per_ticket = 300.0 # руб.
+
+def calculate_oec(revenue, churn_flag, tickets):
+    return revenue - (churn_flag * ltv_per_user) - (tickets * cost_per_ticket)
+
+# Контроль A
+rev_a = np.random.exponential(scale=500, size=n_users)
+churn_a = np.random.binomial(1, p=0.04, size=n_users)
+tickets_a = np.random.poisson(lam=0.08, size=n_users)
+oec_a = calculate_oec(rev_a, churn_a, tickets_a)
+
+# Тест B: выручка выше, но отток и тикеты выросли!
+rev_b = np.random.exponential(scale=530, size=n_users)
+churn_b = np.random.binomial(1, p=0.048, size=n_users)
+tickets_b = np.random.poisson(lam=0.11, size=n_users)
+oec_b = calculate_oec(rev_b, churn_b, tickets_b)
+
+t_stat, p_val = stats.ttest_ind(oec_b, oec_a, equal_var=False)
+
+print(f"Средний OEC контроль (A): {oec_a.mean():.1f} руб.")
+print(f"Средний OEC тест (B):     {oec_b.mean():.1f} руб.")
+print(f"Разница OEC: {oec_b.mean() - oec_a.mean():+.1f} руб., p-value: {p_val:.4f}")
+# Вывод: видимый рост выручки полностью сожран оттоком и саппортом!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Субъективный подбор весовых коэффициентов $\lambda_i$.</b> Если веса взяты «с потолка», OEC превращается в политический инструмент манипуляции решениями.</li>
+        <li><b>Неустойчивость дисперсии агрегата.</b> Суммирование разнородных метрик может увеличить дисперсию OEC, снизив общую чувствительность теста.</li>
+        <li><b>Сложность интерпретации для стейкхолдеров.</b> Продакт-менеджерам тяжело объяснить бизнесу абстрактный «индекс OEC = +14.2», в отличие от понятных рублей выручки.</li>
+        <li><b>Попытка включить слишком много метрик.</b> Формула OEC с 20 параметрами становится неуправляемой и непрозрачной.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как объединить разнонаправленные метрики в одном тесте?»</i> Расскажите про OEC: <i>«Мы создаем единую функцию целевой ценности, взвешивая выигрыш в монетизации и потери в LTV оттока или саппорта. Это устраняет дебаты на комитетах по раскатке и защищает долгосрочный интерес бизнеса».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Overall Evaluation Criterion (OEC)?</b></p><p>Единая скалярная метрика, объединяющая ключевые цели и компромиссы продукта для однозначного принятия решений по эксперименту.</p></li>
+        <li><p><b>Как OEC помогает бороться с проблемой множественного тестирования?</b></p><p>Он сводит проверку множества показателей к тестированию одной комплексной статистической гипотезы.</p></li>
+        <li><p><b>Каким образом калибруются веса компонентов в формуле OEC?</b></p><p>Через экономический эквивалент: предельную ценность единицы метрики (LTV, стоимость обработки тикета, стоимость миллисекунды задержки).</p></li>
+        <li><p><b>В чем главный риск использования OEC?</b></p><p>Некорректно подобранные веса могут маскировать критические проблемы в отдельных компонентах формулы.</p></li>
+        <li><p><b>В каких компаниях OEC является стандартом?</b></p><p>В технологических гигантах с высокой зрелостью экспериментов (Microsoft, Amazon, Google, Booking).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mde" data-interview="5">
+  <div class="name" id="mde">
+    Minimum Detectable Effect (MDE)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Минимально детектируемый эффект (Minimum Detectable Effect, MDE)</b> — это минимальная величина истинного изменения целевой метрики ($\Delta = |\mu_B - \mu_A|$), которую спроектированный A/B-тест способен гарантированно обнаружить с заданной мощностью $1 - \beta$ (обычно 80%) при установленном уровне значимости $\alpha$ (обычно 0.05).</p>
+<p>Если совсем простыми словами: <b>это предел зоркости нашего статистического микроскопа</b>. Если MDE теста равен $+2\%$, а фича в реальности дает прирост $+0.8\%$, тест с вероятностью более 80% покажет «нет статзначимости», и мы зря потратим время.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математическая зависимость MDE от параметров теста:</p>
+<p>Для непрерывной метрики с дисперсией $\sigma^2$ и равными выборками размера $n$ на группу формула MDE выражается как:</p>
+<p>$$\mathrm{MDE} = (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot \sqrt{\frac{2\sigma^2}{n}}$$</p>
+<p>Для относительного MDE ($\mathrm{MDE}_{\text{rel}} = \mathrm{MDE} / \mu$):</p>
+<p>$$\mathrm{MDE}_{\text{rel}} = (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{n}} = (Z_{1-\alpha/2} + Z_{1-\beta}) \cdot CV \cdot \sqrt{\frac{2}{n}}$$</p>
+<p><b>Ключевые законы MDE:</b></p>
+<ul>
+<li><b>Закон обратного квадратного корня ($\sqrt{n}$):</b> Чтобы уменьшить MDE в 2 раза (сделать тест вдвое «зорче»), размер выборки $n$ необходимо увеличить <b>в 4 раза</b>.</li>
+<li><b>Экономический MDE vs Статистический MDE:</b> Экономический MDE — это минимальный эффект, окупающий разработку фичи. Статистический MDE — это предел разрешения при доступном трафике за разумное время (например, 2 недели). Тест валиден, только если <b>Статистический MDE $\le$ Экономического MDE</b>.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-кредитования:</b> Разработка нового скоринга стоила банку 15 млн рублей. Чтобы окупить проект за год, конверсия в выдачу кредита должна вырасти минимум на $+0.3$ процентных пункта (Экономический MDE). При текущем трафике за 2 недели доступно $40\,000$ заявок, что дает Статистический MDE $= +0.7$ п.п. Тест на 2 недели запускать бессмысленно — он слеп к целевому эффекту. Аналитик расширил окно до 4 недель и применил CUPED, сбив статистический MDE до $+0.25$ п.п., что сделало эксперимент валидным.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Расчет абсолютного и относительного MDE
+def calculate_mde(mean, std, n_per_group, alpha=0.05, power=0.80):
+    z_alpha = stats.norm.ppf(1 - alpha / 2)
+    z_beta = stats.norm.ppf(power)
+    
+    se_diff = np.sqrt(2 * (std ** 2) / n_per_group)
+    mde_abs = (z_alpha + z_beta) * se_diff
+    mde_rel = mde_abs / mean
+    return mde_abs, mde_rel
+
+baseline_arpu = 1200.0
+std_arpu = 850.0
+traffic_options = [10000, 25000, 50000, 100000]
+
+print("Трафик на группу | MDE (руб.) | MDE (%)")
+print("-" * 45)
+for n in traffic_options:
+    mde_a, mde_r = calculate_mde(baseline_arpu, std_arpu, n)
+    print(f"n = {n:6d}       | {mde_a:6.2f} руб. | {mde_r:6.2%}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Путаница между реальным эффектом и MDE.</b> MDE — это проектный параметр дизайна эксперимента, а не измеренный по итогам теста аплифт.</li>
+        <li><b>Задание микроскопического MDE на маленьком трафике.</b> Приводит к расчетному сроку теста в 3 года.</li>
+        <li><b>Запуск теста с MDE выше ожидаемого бизнес-эффекта.</b> Гарантированный False Negative: реальный эффект $+0.5\%$ не будет обнаружен тестом с MDE $= 2.0\%$.</li>
+        <li><b>Игнорирование дисперсии при расчете MDE непрерывных величин.</b> Ошибочное использование формулы для долей при расчете MDE среднего чека.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы выбираете MDE перед запуском теста?»</i> Ответ: <i>«Из пересечения двух ограничений: снизу — бизнес-порог окупаемости (эффект, при котором прибыль превышает стоимость разработки и инфраструктуры); сверху — объем трафика, доступный за 2-3 недели эксперимента при $\alpha=0.05, \text{power}=0.8$. Если расчетный статистический MDE оказывается выше бизнес-порога, мы обязаны снижать дисперсию (CUPED) либо пересматривать гипотезу».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое MDE в A/B тестировании?</b></p><p>Минимальный размер эффекта, который тест способен обнаружить со статистической значимостью при заданных уровнях alpha и мощности.</p></li>
+        <li><p><b>Как связан MDE с размером выборки?</b></p><p>Обратно пропорционально квадратному корню из объема выборки: $\mathrm{MDE} \propto 1 / \sqrt{n}$.</p></li>
+        <li><p><b>Во сколько раз нужно увеличить выборку, чтобы снизить MDE в 3 раза?</b></p><p>В $3^2 = 9$ раз.</p></li>
+        <li><p><b>В чем различие между экономическим и статистическим MDE?</b></p><p>Экономический задается бизнес-моделью окупаемости; статистический определяется доступным объемом наблюдений и шумом метрики.</p></li>
+        <li><p><b>Что делать, если статистический MDE превышает разумный бизнес-эффект?</b></p><p>Применять методы снижения дисперсии (CUPED, стратификация), объединять сегменты или увеличивать длительность теста.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sample_size" data-interview="5">
+  <div class="name" id="sample_size">
+    Расчет размера выборки (Sample Size)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Расчет размера выборки (Sample Size Determination, Power Analysis)</b> — это предварительная математическая процедура определения минимального необходимого количества наблюдений $n$ на каждую группу для гарантированного обнаружения эффекта величины MDE с заданной мощностью $1 - \beta$ при допустимом уровне ошибки I рода $\alpha$.</p>
+<p>Если совсем простыми словами: <b>это расчет того, скольким пользователям нужно показать тест, чтобы не гадать на кофейной гуще</b>. Без этого расчета тест либо завершится слишком рано (и мы упустим классную фичу), либо будет крутиться месяцами, сжигая ресурсы команды.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математические формулы расчета выборки:</p>
+<ol>
+<li><b>Для непрерывных метрик (t-тест Уэлча):</b>
+<p>$$n = \frac{2(Z_{1-\alpha/2} + Z_{1-\beta})^2 \cdot \sigma^2}{\Delta^2} = \frac{2(Z_{1-\alpha/2} + Z_{1-\beta})^2 \cdot CV^2}{\mathrm{MDE}_{\text{rel}}^2}$$</p>
+где для стандартных $\alpha = 0.05$ ($Z_{0.975} = 1.96$) и $1 - \beta = 0.80$ ($Z_{0.80} = 0.842$) коэффициент $(Z_{1-\alpha/2} + Z_{1-\beta})^2 \approx (1.96 + 0.842)^2 \approx 7.85$. С удвоением на 2 группы числитель дает множитель $\approx 15.7$.</li>
+<li><b>Для бинарных долей (Z-тест для конверсий):</b>
+<p>$$n = \frac{\left(Z_{1-\alpha/2}\sqrt{2\bar{p}(1-\bar{p})} + Z_{1-\beta}\sqrt{p_1(1-p_1) + p_2(1-p_2)}\right)^2}{(p_2 - p_1)^2}$$</p>
+где $\bar{p} = (p_1 + p_2) / 2$.</li>
+</ol>
+<p><b>Учет неравного сплитования ($k = n_B / n_A \neq 1$):</b> При соотношении $90/10$ или $80/20$ гармонический размер выборки падает, и общее необходимое число пользователей резко возрастает: $N_{\text{total}} = n_{\text{equal}} \cdot \frac{(k + 1)^2}{4k}$.</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс расчета размера выборки:</b> Базовая конверсия интернет-магазина $p = 3.0\%$. Бизнес хочет задетектировать относительный прирост $+10\%$ (абсолютный MDE $= 0.3\%$, $p_B = 3.3\%$).
+$\alpha = 0.05$, Power $= 80\%$.
+По формуле для долей требуется $n \approx 51\,800$ пользователей на каждую группу, то есть суммарно более $103\,600$ пользователей. При суточном трафике $15\,000$ уникальных посетителей тест обязан продолжаться ровно 7 дней (полный недельный цикл).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+from statsmodels.stats.power import NormalIndPower, TTestIndPower
+
+# 1. Расчет для бинарной конверсии через statsmodels
+baseline_cr = 0.03
+target_cr = 0.033
+mde_abs = target_cr - baseline_cr
+
+# Стандартизованный размер эффекта Коэна (Cohen's h)
+h = 2 * (np.arcsin(np.sqrt(target_cr)) - np.arcsin(np.sqrt(baseline_cr)))
+power_analysis = NormalIndPower()
+sample_size_cr = power_analysis.solve_power(effect_size=h, alpha=0.05, power=0.80, alternative='two-sided')
+
+# 2. Расчет для непрерывной метрики (ARPU)
+baseline_arpu = 1500.0
+std_arpu = 1200.0
+mde_arpu = 60.0 # +4% к выручке
+cohen_d = mde_arpu / std_arpu
+ttest_power = TTestIndPower()
+sample_size_arpu = ttest_power.solve_power(effect_size=cohen_d, alpha=0.05, power=0.80, alternative='two-sided')
+
+print(f"Требуемая выборка на группу для конверсии: {int(np.ceil(sample_size_cr)):,}")
+print(f"Требуемая выборка на группу для ARPU:      {int(np.ceil(sample_size_arpu)):,}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Расчет выборки без фиксации длительности.</b> Набрать 50 000 пользователей за 2 дня распродажи не равнозначно недельному тесту: выборка смещена в сторону шопоголиков.</li>
+        <li><b>Использование онлайн-калькуляторов без понимания формул.</b> Многие веб-калькуляторы предполагают односторонний тест, занижая необходимую выборку на 20-25%.</li>
+        <li><b>Игнорирование неравных долей сплита.</b> При сплите 95/5 трафика на контрольную группу не хватит, и тест потеряет мощность.</li>
+        <li><b>Забывание о фильтрации трафика.</b> Если в тест попадают боты или неавторизованные пользователи, эффективный размер выборки падает.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании классическая задача: <i>«Если мы меняем сплит с 50/50 на 90/10, во сколько раз больше пользователей нам потребуется суммарно?»</i> Формула фактора инфляции: $\frac{(k+1)^2}{4k}$. Для $k = 9$: $\frac{(9+1)^2}{4 \times 9} = \frac{100}{36} \approx 2.78$. Ответ: <i>«Суммарная выборка должна вырасти почти в 2.8 раза, чтобы сохранить ту же статистическую мощность».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какие 4 параметра необходимы для расчета размера выборки?</b></p><p>Базовый уровень метрики (и ее дисперсия), MDE, уровень значимости alpha и статистическая мощность 1 - beta.</p></li>
+        <li><p><b>Как дисперсия метрики влияет на требуемый объем выборки?</b></p><p>Прямо пропорционально: увеличение дисперсии в 2 раза требует двукратного увеличения выборки.</p></li>
+        <li><p><b>Почему сплит 50/50 является оптимальным с точки зрения мощности?</b></p><p>Он максимизирует гармоническое среднее объемов групп, минимизируя суммарный необходимый трафик при фиксированной мощности.</p></li>
+        <li><p><b>Что такое Cohen's h и для чего он используется?</b></p><p>Стандартизованная мера размера эффекта для разности двух долей через арксинус-преобразование.</p></li>
+        <li><p><b>Можно ли останавливать тест сразу после набора расчетного размера выборки в середине недели?</b></p><p>Нет, тест обязан доработать до конца полного недельного цикла для исключения внутринедельной сезонности.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="test_duration" data-interview="4">
+  <div class="name" id="test_duration">
+    Длительность теста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Длительность эксперимента (Experiment Duration)</b> — календарный период непрерывного проведения A/B-теста, определяемый не только математическим набором расчетной выборки, но и бизнес-циклами продукта, суточной и недельной сезонностью, эффектами привыкания и созреванием конверсионных окон.</p>
+<p>Если совсем простыми словами: <b>нельзя останавливать тест через два дня, даже если вы моментально собрали миллион кликов</b>. Поведение людей в выходные радикально отличается от понедельника, а сложная покупка может обдумываться пользователем две недели.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Факторы определения длительности A/B теста:</p>
+<ol>
+<li><b>Недельная сезонность (Day-of-Week Effect):</b> Длительность теста всегда должна быть <b>кратна полным неделям (7, 14, 21 или 28 дней)</b>. Тест, начатый во вторник и законченный в пятницу, систематически смещен в пользу будничного паттерна.</li>
+<li><b>Окно созревания конверсии (Conversion Window / Maturation):</b> Время от первого воздействия до целевого действия. Если в B2B-сервисе заявка согласуется клиентом в среднем 10 дней, тест длительностью 7 дней недосчитается более 50% конверсий (Right-Censoring bias).</li>
+<li><b>Минимальный и максимальный пороги длительности:</b>
+    <ul>
+    <li><i>Минимум:</i> 1 полная неделя (7 дней), золотой стандарт — 2 полные недели (14 дней).</li>
+    <li><i>Максимум:</i> 4-6 недель. Тесты дольше месяца страдают от очистки cookie-файлов (Cookie Churn), размывания когорт и внешних макро-сдвигов рынка.</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс автострахования (ОСАГО/КАСКО):</b> Компания запустила тест новой формы расчета полиса. Калькулятор выборки показал, что $100\,000$ визитов набираются всего за 3 дня. Если бы тест остановили через 3 дня, увидели бы «успех» по быстрым продлениям. Но 70% клиентов рассчитывают стоимость за 10–14 дней до окончания текущего полиса и оплачивают позже. Аналитик зафиксировал длительность в 3 недели: это позволило учесть созревание когорт и выявить реальный LTV сделок.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Расчет календарной длительности A/B теста
+def estimate_duration_days(required_sample_per_group, daily_active_users, split_ratio=0.5):
+    total_required = required_sample_per_group / split_ratio
+    raw_days = total_required / daily_active_users
+    
+    # Округление вверх до полных недель (кратно 7 дням)
+    weeks = int(np.ceil(raw_days / 7))
+    recommended_days = max(weeks * 7, 7) # минимум 1 неделя
+    
+    return {
+        "raw_days": raw_days,
+        "recommended_days": recommended_days,
+        "full_weeks": weeks
+    }
+
+plan = estimate_duration_days(required_sample_per_group=45000, daily_active_users=12000)
+print(f"Математически дней: {plan['raw_days']:.1f}")
+print(f"Рекомендованная длительность: {plan['recommended_days']} дней ({plan['full_weeks']} полных недель)")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Остановка теста посреди недели.</b> Сбор данных со вторника по пятницу дает смещенные результаты из-за потери паттернов выходных дней.</li>
+        <li><b>Игнорирование праздников и аномалий.</b> Проведение теста во время майских праздников или Черной Пятницы дает нерепрезентативные результаты для обычных рабочих периодов.</li>
+        <li><b>Затягивание теста на 3+ месяца.</b> Приводит к росту доли пользователей, сменивших устройства или очистивших куки, что разрушает изоляцию групп A и B.</li>
+        <li><b>Анализ незрелых когорт.</b> Подведение итогов по пользователям, зарегистрировавшимся вчера, когда конверсионное окно длится 14 дней.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Калькулятор показал, что нужный объем выборки собирается за 36 часов. Сколько времени должен длиться тест?»</i> Ответ: <i>«Минимум 7 полных дней (а лучше 14 дней). За 36 часов невозможно учесть внутринедельную цикличность и созревание отложенных конверсий».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему длительность эксперимента всегда должна быть кратна 7 дням?</b></p><p>Для полного сбалансированного учета недельной сезонности поведения пользователей.</p></li>
+        <li><p><b>Что такое окно созревания конверсии (Conversion Maturation)?</b></p><p>Временной лаг между моментом попадания пользователя в эксперимент и совершением им целевого действия.</p></li>
+        <li><p><b>Какова рекомендуемая максимальная длительность A/B теста?</b></p><p>Не более 4–6 недель во избежание деградации cookie и накопления внешних шоков.</p></li>
+        <li><p><b>В чем опасность проведения тестов в предновогодний период?</b></p><p>Внешняя невалидность: покупательские паттерны в декабре аномальны и не воспроизводятся в течение остального года.</p></li>
+        <li><p><b>Что происходит с куками пользователей при длительных тестах?</b></p><p>Пользователи чистят кэш/куки или меняют браузеры, повторно попадая в тест под новыми ID и разрушая сплит.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="aa_test" data-interview="5">
+  <div class="name" id="aa_test">
+    A/A тестирование
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>A/A-тестирование</b> — это процедура контроля качества экспериментальной платформы, при которой две группы пользователей ($A_1$ и $A_2$) получают <b>абсолютно одинаковую (текущую) версию продукта</b> без каких-либо изменений. Основная цель — эмпирическая валидация корректности механизма рандомизации и отсутствия систематических смещений.</p>
+<p>Если совсем простыми словами: <b>это контрольная холостая стрельба</b>. Мы проверяем, что наша рулетка не подкручена, сплит-система делит людей поровну, а статистические критерии не находят различий там, где их заведомо быть не может.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Статистические критерии валидации A/A тестов:</p>
+<ol>
+<li><b>Контроль ошибки I рода (FPR Control):</b> Если запустить 1 000 синтетических A/A тестов на исторических данных, доля тестов с $p\text{-value} < 0.05$ должна составлять строго $5\% \pm \varepsilon$.</li>
+<li><b>Равномерность распределения p-value:</b> При верной нулевой гипотезе случайная величина $p$-value обязана иметь непрерывное равномерное распределение $U(0, 1)$. Это проверяется критерием Колмогорова-Смирнова (KS-test).</li>
+<li><b>Проверка баланса ковариат:</b> Характеристики пользователей (возраст, исторические траты, ОС, гео) в группах $A_1$ и $A_2$ должны иметь статистически неразличимые средние.</li>
+<li><b>Постоянный параллельный A/A тест (Ongoing A/A):</b> Зрелые платформы (Booking, Avito) непрерывно держат 5-10% трафика в параллельном A/A тесте для мониторинга здоровья сплитования в реальном времени.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс обнаружения бага хэширования:</b> В новом мобильном релизе аналитики запустили A/A тест. Внезапно t-тест показал $p = 0.0002$ по выручке. Разбор показал, что хэш-функция сплитования брала остаток от деления <code>user_id % 2</code>, а четные ID выдавались только новым клиентам при регистрации, тогда как нечетные были у старых премиум-пользователей. A/A тест предотвратил искажение сотен будущих экспериментов.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Симуляция 2000 A/A тестов для проверки калибровки alpha
+np.random.seed(42)
+n_simulations = 2000
+sample_size = 1000
+
+p_values = []
+for _ in range(n_simulations):
+    # Генерируем одинаковые выборки
+    a1 = np.random.normal(loc=100, scale=15, size=sample_size)
+    a2 = np.random.normal(loc=100, scale=15, size=sample_size)
+    _, p = stats.ttest_ind(a1, a2, equal_var=False)
+    p_values.append(p)
+
+p_values = np.array(p_values)
+fpr = (p_values < 0.05).mean()
+
+# Проверка равномерности тестом Колмогорова-Смирнова
+ks_stat, ks_pval = stats.kstest(p_values, 'uniform')
+
+print(f"Фактический False Positive Rate при пороге 0.05: {fpr:.2%}")
+print(f"KS-тест на равномерность: stat={ks_stat:.4f}, p-value={ks_pval:.4f}")
+# Если ks_pval > 0.05, распределение равномерно -> сплит-система здорова!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск единственного A/A теста перед каждым A/B.</b> Один A/A тест малоинформативен: в 5% случаев он случайно даст $p < 0.05$. Нужно запускать тысячи тестов на исторических данных (Rerandomization / Offline A/A).</li>
+        <li><b>Отказ от A/B теста, если в A/A тесте p-value оказалось 0.04.</b> Один ложноположительный исход из 20 — это нормальное проявление теории вероятностей, а не признак бага.</li>
+        <li><b>Проведение A/A теста на маленькой выборке.</b> Маленькая выборка не обладает мощностью, чтобы заметить тонкие перекосы сплитования.</li>
+        <li><b>Игнорирование SRM в A/A тесте.</b> Если размеры групп $A_1$ и $A_2$ значимо расходятся, тест бракуется независимо от p-value целевых метрик.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы проверите, что ваша A/B платформа работает корректно?»</i> Ответ: <i>«Через масштабное симуляционное A/A тестирование на исторических логах. Мы берем исторический срез пользователей, генерируем 5 000 случайных сплитов без изменений, считаем p-values для ключевых метрик и строим QQ-plot против $U(0,1)$. Если график ложится на диагональ, а KS-тест не отвергает равномерность — критерии и сплитование откалиброваны верно».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем главная цель проведения A/A тестирования?</b></p><p>Валидация корректности системы рандомизации и подтверждение сохранения заявленного уровня ошибки первого рода alpha.</p></li>
+        <li><p><b>Как должно быть распределено p-value в серии A/A экспериментов?</b></p><p>Строго равномерно на отрезке [0, 1].</p></li>
+        <li><p><b>Какой статистический критерий проверяет равномерность p-value?</b></p><p>Критерий согласия Колмогорова-Смирнова (KS-test).</p></li>
+        <li><p><b>Что означает, если в серии A/A тестов доля p < 0.05 составляет 18%?</b></p><p>Критерий не откалиброван (либерален), дисперсия занижена (например, из-за зависимых наблюдений или сетевых эффектов).</p></li>
+        <li><p><b>Что такое офлайн (синтетическое) A/A тестирование?</b></p><p>Многократное случайное разбиение исторических данных для калибровки критериев без траты живого трафика пользователей.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="srm" data-interview="5">
+  <div class="name" id="srm">
+    Sample Ratio Mismatch (SRM)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Sample Ratio Mismatch (SRM, Несоответствие пропорций выборки)</b> — это критическая аномалия A/B-теста, при которой фактическое соотношение числа пользователей в группах статистически значимо отклоняется от запланированного дизайна (например, ожидали 50/50, а получили 49.1 / 50.9 при миллионной выборке).</p>
+<p>Если совсем простыми словами: <b>SRM — это пожарная сигнализация A/B теста</b>. Если SRM сработал, анализировать результаты теста по метрикам категорически запрещено: данные отравлены багом, и любой «рост» метрик — фикция.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика и диагностика SRM:</p>
+<p>Проверка SRM осуществляется с помощью <b>критерия согласия Хи-квадрат Пирсона ($\chi^2$-goodness-of-fit)</b> на одну степень свободы:</p>
+<p>$$\chi^2 = \sum_{i \in \{A, B\}} \frac{(O_i - E_i)^2}{E_i} = \frac{(n_A - N \cdot r_A)^2}{N \cdot r_A} + \frac{(n_B - N \cdot r_B)^2}{N \cdot r_B} \xrightarrow{d} \chi^2_1$$</p>
+<p><b>Порог отсечения:</b> Поскольку объем выборки огромен, для SRM используется консервативный порог: <b>$p\text{-value} < 0.001$</b> (Fabijan et al., Microsoft). При таком значении гипотеза о случайном расхождении отклоняется безоговорочно.</p>
+<p><b>Корневые причины SRM в продакшене:</b></p>
+<ul>
+<li><i>Крэши и падения приложения:</i> Вариант B вызывает крэш при старте у старых Android-устройств. Пользователи «выпадают» из логов, тестовая группа становится искусственно меньше.</li>
+<li><i>Задержка рендеринга (Latency):</i> Вариант B грузится на 800 мс дольше. Пользователи закрывают вкладку до отправки события инициализации эксперимента.</li>
+<li><i>Ошибки кэширования (CDN / Cache poisoning):</i> CDN закэшировал вариант A для части регионов.</li>
+<li><i>Боты и веб-краулеры:</i> Боты по-разному триггерят логику сплитования.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс обнаружения скрытого краша:</b> Эксперимент с новым тяжелым 3D-просмотрщиком товара. Ожидали сплит 50/50.
+Факт: группа A = $500\,000$, группа B = $482\,000$ пользователей.
+Хи-квадрат: $\chi^2 = 329.9$, $p = 10^{-73}$!
+При этом конверсия в группе B показала «рост» на $+8\%$ ($p < 0.0001$).
+Диагностика показала: на бюджетных смартфонах приложение крашилось до лога входа в эксперимент. В тесте B остались только владельцы мощных флагманских смартфонов с высокой покупательской способностью (селективное выбывание). Мнимый «рост конверсии» оказался следствием отсечения бедной аудитории!</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import scipy.stats as stats
+
+# Функция автоматической проверки SRM в аналитическом пайплайне
+def check_srm(n_control, n_treatment, target_ratio=(0.5, 0.5)):
+    total = n_control + n_treatment
+    expected_control = total * target_ratio[0]
+    expected_treatment = total * target_ratio[1]
+    
+    observed = [n_control, n_treatment]
+    expected = [expected_control, expected_treatment]
+    
+    chi2_stat, p_val = stats.chisquare(f_obs=observed, f_exp=expected)
+    is_srm = p_val < 0.001
+    
+    return {
+        "chi2": chi2_stat,
+        "p_value": p_val,
+        "srm_detected": is_srm,
+        "verdict": "CRITICAL SRM DETECTED! DO NOT ANALYZE METRICS!" if is_srm else "PASSED: Split is valid."
+    }
+
+# Реальный кейс: 502 000 vs 498 000 при дизайне 50/50
+result = check_srm(502000, 498000)
+print(f"Chi2: {result['chi2']:.4f}, p-value: {result['p_value']:.6e}")
+print(result['verdict'])</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Попытка анализировать метрики при доказанном SRM.</b> Если в тесте есть SRM, любые сравнения средних или конверсий внутренне смещены (Survivor Bias) и ведут к ложным выводам.</li>
+        <li><b>Проверка SRM на уровне событий вместо пользователей.</b> Один активный пользователь может сгенерировать 1 000 событий. SRM проверяется строго по уникальным единицам рандомизации (user_id).</li>
+        <li><b>Игнорирование фильтрации трафика.</b> Если аналитик отфильтровал пользователей постфактум (например, оставил только тех, кто сделал клик), это искусственно создает SRM.</li>
+        <li><b>Попытка «исправить» SRM взвешиванием данных.</b> Веса не могут вернуть пользователей, которые крашнулись или ушли из-за долгой загрузки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Вам принесли результаты A/B теста: конверсия выросла на 10%, p-value = 0.00001, в группе А 100 000 человек, в группе Б 98 000 человек. Каковы ваши действия?»</i> Ответ: <i>«Первым делом я проверю SRM тестом Хи-квадрат. Для 100k и 98k статистика $\chi^2 \approx 20.2$, $p < 10^{-5}$. Тест скомпрометирован критическим SRM. Я наложу вето на раскатку и пойду искать техническую причину потери 2 000 пользователей в группе B (крэши, сетевые таймауты, ошибки логирования)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Sample Ratio Mismatch (SRM)?</b></p><p>Статистически значимое расхождение между фактическими и запланированными объемами групп в A/B тесте.</p></li>
+        <li><p><b>Какой статистический критерий используется для проверки SRM?</b></p><p>Критерий согласия Хи-квадрат Пирсона (Chi-square Goodness-of-Fit) с одной степенью свободы.</p></li>
+        <li><p><b>Какой порог p-value принято считать критическим для SRM?</b></p><p>Консервативный порог $p < 0.001$.</p></li>
+        <li><p><b>Почему нельзя раскатывать фичу с положительным эффектом при наличии SRM?</b></p><p>Потому что группы потеряли репрезентативность; эффект вызван селективным выбыванием (Survivor bias), а не качеством фичи.</p></li>
+        <li><p><b>Назовите две главные инженерные причины возникновения SRM.</b></p><p>1) Крэши приложения при инициализации фичи; 2) Задержка загрузки страницы (Latency), приводящая к уходу пользователей до логирования.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="peeking_sequential" data-interview="5">
+  <div class="name" id="peeking_sequential">
+    Проблема подглядывания (Peeking Problem) и Sequential Testing
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Проблема подглядывания (Peeking Problem)</b> — это резкая инфляция вероятности ошибки I рода, возникающая, когда аналитик или продакт-менеджер многократно проверяет промежуточные результаты A/B теста в процессе сбора данных и принимает решение об остановке теста в первый же момент, когда $p\text{-value} < \alpha$.</p>
+<p>Если совсем простыми словами: <b>нельзя непрерывно следить за тестом и кричать «Победа!», как только график случайно нырнул ниже 0.05</b>. Случайное блуждание данных обязательно пересечет порог 0.05 хотя бы раз просто из-за естественных флуктуаций шума.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика случайного блуждания и методы Sequential Testing:</p>
+<p>В процессе набора выборки статистика $Z(t)$ совершает <b>броуновское движение</b>. Согласно закону повторного логарифма (Law of the Iterated Logarithm), при непрерывном мониторинге вероятность хотя бы одного ложного пересечения классического порога стремится к $100\%$: при 5 проверках реальный $\alpha$ подскакивает с $5\%$ до $14\%$, а при ежедневных проверках в течение месяца достигает <b>$30-40\%$</b>!</p>
+<p><b>Методы честной ранней остановки (Sequential Testing):</b></p>
+<ul>
+<li><b>Групповой последовательный анализ (Group Sequential Design / Pocock & O'Brien-Fleming):</b> Число проверок $K$ фиксируется заранее. На каждом промежуточном шаге порог $\alpha_k$ динамически ужесточается:
+<p>По правилу О'Брайена-Флеминга на ранних шагах требуется экстремальная значимость ($p < 0.0005$), а к финалу порог приближается к $0.048$, сохраняя общий семейный $\alpha = 0.05$.</p>
+</li>
+<li><b>Alpha Spending Functions (Lan-DeMets):</b> Позволяет распределять бюджет ошибки $\alpha(t)$ непрерывно по мере поступления информации.</li>
+<li><b>Последовательный критерий отношения правдоподобия Вальда (mSPRT / Always Valid p-values):</b> Использует смеси распределений (mixture sequential probability ratio test). Позволяет мониторить p-value <b>в реальном времени в любую секунду</b> с гарантией $\mathrm{FPR} \le \alpha$. Лежит в основе современных движков (Optimizely, Amplitude, Statsig).</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс фичи с деградацией:</b> Команда корзины включила новый дизайн. На 3-й день теста продакт увидел $p = 0.02$ и нажал кнопку «Раскатать на всех». Через месяц выяснилось, что недельная выручка упала на $4\%$. На 3-й день произошел случайный выброс от двух оптовых покупателей, который привел к ложному срабатыванию классического t-теста. Если бы использовался mSPRT, порог остановки не был бы пробит, и тест продолжился бы до выявления истинной просадки.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+# Демонстрация проблемы подглядывания (инфляция ошибки I рода в A/A тесте)
+np.random.seed(42)
+n_experiments = 1000
+n_days = 30
+daily_users = 500
+
+false_positives_peeking = 0
+false_positives_fixed = 0
+
+for _ in range(n_experiments):
+    # Генерируем данные A/A теста по дням
+    a = np.random.normal(0, 1, size=(n_days, daily_users))
+    b = np.random.normal(0, 1, size=(n_days, daily_users))
+    
+    peeking_rejected = False
+    for day in range(1, n_days + 1):
+        cum_a = a[:day].flatten()
+        cum_b = b[:day].flatten()
+        
+        # Z-тест
+        z = (cum_b.mean() - cum_a.mean()) / np.sqrt(cum_a.var()/len(cum_a) + cum_b.var()/len(cum_b))
+        p = 2 * (1 - 0.5 * (1 + np.math.erf(abs(z)/np.sqrt(2))))
+        
+        if p < 0.05:
+            peeking_rejected = True
+            break
+            
+    if peeking_rejected:
+        false_positives_peeking += 1
+        
+    # Честный фиксированный тест в последний день
+    if p < 0.05:
+        false_positives_fixed += 1
+
+print(f"Ложные тревоги при честной фиксации выборки: {false_positives_fixed / n_experiments:.2%}")
+print(f"Ложные тревоги при ежедневном подглядывании:    {false_positives_peeking / n_experiments:.2%}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Ежедневный просмотр стандартных отчетов без поправок.</b> Классический интерфейс дашбордов подталкивает менеджеров к немедленной остановке при первом позеленении метрики.</li>
+        <li><b>Остановка теста при p < 0.05 и продолжение теста при p > 0.05.</b> Асимметричное правило решения окончательно разрушает математическую строгость.</li>
+        <li><b>Непонимание цены mSPRT.</b> Sequential-тесты требуют в среднем на 20-30% больше выборки при отсутствии эффекта, чем классический тест фиксированного объема.</li>
+        <li><b>Забывание о сезонности при ранней остановке.</b> Даже если mSPRT позволил остановиться на 4-й день, ранняя остановка посреди недели искажает недельный цикл.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Продакт говорит: «Мы крутим тест всего 3 дня, но p-value уже 0.01, давайте выкатывать!» Ваши действия?»</i> Ответ: <i>«Останавливать тест категорически нельзя. Это классическая проблема Peeking Problem. При непрерывном мониторинге вероятность ложного срабатывания достигает 30%+. Мы обязаны либо дождаться запланированного объема выборки и окончания 14-дневного цикла, либо пересчитать p-value по методологии mSPRT (Always Valid p-value)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем суть проблемы подглядывания (Peeking Problem)?</b></p><p>В резком увеличении вероятности ошибки первого рода из-за преждевременной остановки теста при случайных флуктуациях p-value.</p></li>
+        <li><p><b>До каких значений может вырасти реальный уровень альфа при ежедневном подглядывании в течение месяца?</b></p><p>До 30–40% вместо проектных 5%.</p></li>
+        <li><p><b>Что такое граница О'Брайена-Флеминга в групповом последовательном анализе?</b></p><p>Динамический порог отсечения, требующий очень низкого p-value на ранних этапах и приближающийся к 0.05 к концу теста.</p></li>
+        <li><p><b>В чем ключевое свойство mSPRT (Always Valid p-values)?</b></p><p>Позволяет проверять результаты теста в любой момент времени с сохранением гарантии непревышения ошибки I рода.</p></li>
+        <li><p><b>Чем приходится платить за возможность непрерывного мониторинга в Sequential Testing?</b></p><p>Необходимостью собирать выборку большего размера при слабом или нулевом эффекте.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="novelty_effect" data-interview="4">
+  <div class="name" id="novelty_effect">
+    Эффект новизны и эффект привыкания
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Эффект новизны (Novelty Effect)</b> — это временное краткосрочное повышение пользовательской активности, вызванное исключительно любопытством к новому визуальному или функциональному элементу интерфейса, которое неизбежно затухает со временем.</p>
+<p><b>Эффект привыкания / первичности (Primacy Effect)</b> — противоположный феномен, при котором постоянные опытные пользователи испытывают временное раздражение и замедление при смене привычных паттернов взаимодействия, что вызывает кратковременную просадку метрик.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Диагностика и математическое выявление эффекта новизны:</p>
+<ol>
+<li><b>Анализ когорт по времени воздействия:</b> Если построить график Treatment Effect $\Delta(t)$ по дням с момента первого взаимодействия пользователя с фичей, при эффекте новизны наблюдается монотонное затухание эффекта:
+<p>$$\Delta(t) \to 0 \quad \text{при } t \to \infty$$</p>
+</li>
+<li><b>Сегментация: Новые пользователи vs Старые пользователи:</b>
+    <ul>
+    <li><i>Новые пользователи (New Users):</i> Не имеют опыта работы со старым интерфейсом. Для них эффект новизны и эффект привыкания отсутствуют в принципе. Их реакция отражает чистую истинную ценность дизайна.</li>
+    <li><i>Старые пользователи (Existing / Power Users):</i> Подвержены как эффекту новизны (тыкают на всё новое), так и эффекту первичности (жалуются на смену привычных кнопок).</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс редизайна навигации стримингового сервиса:</b>
+В первую неделю теста нового бокового меню CTR разделов взлетел на $+25\%$ ($p < 0.0001$). Продакт был в восторге. Аналитик продлил эксперимент до 4 недель и разделил когорты:
+К 4-й неделе у старых пользователей аплифт затух до $+1.2\%$ (просто кликали из любопытства). Однако у новых пользователей, зарегистрировавшихся во время теста, аплифт стабильно держался на уровне $+6.5\%$. Это доказало, что редизайн объективно лучше, но начальный всплеск на $+25\%$ был чистой иллюзией новизны.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# Анализ затухания эффекта новизны по дням жизни когорты
+np.random.seed(42)
+days = np.arange(1, 29)
+
+# Истинный эффект +2%, начальный эффект новизны +8% с экспоненциальным затуханием
+true_effect = 0.02
+novelty_decay = 0.08 * np.exp(-days / 5.0)
+observed_effect = true_effect + novelty_decay + np.random.normal(0, 0.005, size=len(days))
+
+df = pd.DataFrame({"day": days, "measured_lift": observed_effect})
+print("Динамика измеряемого эффекта по дням:")
+print(df.iloc[[0, 6, 13, 20, 27]].to_string(index=False))
+# Вывод: в первую неделю эффект казался 9.5%, к концу месяца стабилизировался около 2%</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Раскатка фичи на волне первой недели восторга.</b> Классическая ловушка: празднование победы, когда реальный эффект равен нулю.</li>
+        <li><b>Преждевременный откат полезной фичи из-за эффекта привыкания.</b> Опытные пользователи всегда недовольны изменениями (редизайн Кинопоиска, смена ленты ВК). Нужно дать им 2-3 недели на адаптацию.</li>
+        <li><b>Игнорирование сегмента новых пользователей.</b> Новые пользователи — лучший фильтр для отделения эффекта новизны от реального эргономического улучшения.</li>
+        <li><b>Слишком короткий тест для фичей с редким циклом использования.</b> Если пользователь заходит раз в 2 недели, он успеет столкнуться с фичей всего один раз.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как доказать, что рост метрики в первые дни — это эффект новизны, а не реальное улучшение?»</i> Ответ: <i>«Двумя способами: 1) Построить динамику эффекта во времени для пользователей, которые увидели фичу в день 1 — при эффекте новизны кривая монотонно падает; 2) Сравнить эффект на старых пользователях и новых пользователях. У новых пользователей эффекта новизны нет; если у них аплифт отсутствует, значит, весь эффект на старых был временным любопытством».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое эффект новизны (Novelty Effect)?</b></p><p>Кратковременный всплеск активности пользователей, вызванный любопытством к новому элементу интерфейса.</p></li>
+        <li><p><b>Что такое Primacy Effect (эффект привыкания)?</b></p><p>Временное ухудшение метрик из-за сопротивления опытных пользователей смене привычного интерфейса.</p></li>
+        <li><p><b>На какой группе пользователей эффект новизны отсутствует?</b></p><p>На новых пользователях, пришедших в продукт после запуска эксперимента.</p></li>
+        <li><p><b>Как ведет себя график Treatment Effect во времени при эффекте новизны?</b></p><p>Монотонно затухает, асимптотически приближаясь к истинному уровню эффекта.</p></li>
+        <li><p><b>Сколько времени рекомендуется выдерживать тест для стабилизации эффекта привыкания?</b></p><p>Не менее 3–4 недель.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="network_effects" data-interview="5">
+  <div class="name" id="network_effects">
+    Сетевые эффекты
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Сетевые эффекты и интерференция (Network Effects & Spillover / Interference)</b> — это явление в двусторонних маркетплейсах, социальных сетях и сервисах совместного потребления, при котором воздействие на пользователя из тестовой группы косвенно изменяет поведение и исходы пользователей из контрольной группы, грубо нарушая базовую предпосылку SUTVA.</p>
+<p>Если совсем простыми словами: <b>когда все делят один общий ресурс, изоляция ломается</b>. В такси (Uber, Яндекс Go) если дать скидку группе B, они разберут всех водителей. Пользователи группы A останутся без машин и будут ждать дольше. Контроль искусственно просядет, а тест покажет фейковую победу.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Формы интерференции и методы их преодоления:</p>
+<ol>
+<li><b>Каннибализация предложения (Supply Cannibalization):</b> Воздействие на спрос в группе B истощает пул предложения (водители, курьеры, арендные квартиры), ухудшая опыт группы A.</li>
+<li><b>Социальная интерференция (Social Spillover):</b> В соцсетях и мессенджерах фича, включенная пользователю B, вовлекает его друзей из группы A.</li>
+</ol>
+<p><b>Продвинутые дизайны экспериментов при сетевых эффектах:</b></p>
+<ul>
+<li><b>Кластерная рандомизация (Cluster-based Randomization):</b> Разбиение графа пользователей на слабо связанные кластеры (алгоритмы Louvain, Leiden). Вся группа друзей или весь город целиком отправляется либо в A, либо в B.</li>
+<li><b>Пространственно-временные свитчбеки (Switchback Experiments / Time-split):</b> Единицей рандомизации является гео-зона и временной интервал (например, Москва, интервалы по 30 минут). Четные интервалы — контроль A, нечетные — тест B. Устраняет конкуренцию за ресурсы.</li>
+<li><b>Синтетический контроль (Synthetic Control):</b> Подбор взвешенной комбинации контрольных городов для моделирования поведения тестового мегаполиса.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс сервиса доставки еды (Delivery Club / Яндекс Еда):</b>
+Тестировалась бесплатная доставка для повышения конверсии.
+Если сплитовать по пользователям 50/50: пользователи группы B моментально создали пиковую нагрузку, рестораны ушли в стоп-лист, курьеров не хватило. Пользователи группы A увидели увеличенное время доставки и отменили заказы. Оценка ATE оказалась завышена в 3.5 раза.
+Команда перешла на <b>Switchback-дизайн</b> с окнами по 2 часа во всех городах-миллионниках, устранив интерференцию и получив чистый экономический расчет.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# Симуляция Switchback эксперимента в агрегаторе такси
+# Рандомизация окон по 60 минут внутри каждого кластера
+np.random.seed(42)
+n_slots = 336 # 14 дней x 24 часа
+
+time_slots = pd.DataFrame({
+    "slot_id": np.arange(n_slots),
+    "day": np.arange(n_slots) // 24,
+    "hour": np.arange(n_slots) % 24
+})
+
+# Рандомизация временных слотов с блокировкой по часам суток
+time_slots["treatment"] = np.random.choice([0, 1], size=n_slots)
+
+# Моделирование базового спроса с суточной синусоидой
+base_orders = 500 + 300 * np.sin(2 * np.pi * time_slots["hour"] / 24)
+effect = 45 * time_slots["treatment"] # истинный прирост +45 заказов/час
+noise = np.random.normal(0, 30, size=n_slots)
+
+time_slots["orders"] = (base_orders + effect + noise).astype(int)
+
+# Оценка эффекта регрессией с фиксацией часа суток (Fixed Effects)
+import statsmodels.formula.api as smf
+model = smf.ols("orders ~ treatment + C(hour)", data=time_slots).fit()
+
+print(f"Истинный эффект: +45.0 заказов/час")
+print(f"Оценка Switchback: {model.params['treatment']:+.2f} заказов/час (p={model.pvalues['treatment']:.4e})")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск обычного пользовательского A/B теста в маркетплейсе с ограниченным предложением.</b> Гарантирует нарушение SUTVA и получение фиктивных оценок аплифта.</li>
+        <li><b>Слишком короткие окна в Switchback тестах (Carryover Effect).</b> Если окно 5 минут, курьеры, взявшие заказ в тесте B, продолжают выполнять его в окне А (эффект перетекания). Окно должно превышать среднее время заказа.</li>
+        <li><b>Игнорирование пространственной автокорреляции в гео-тестах.</b> Границы районов прозрачны: курьеры переезжают через улицу из района А в район В.</li>
+        <li><b>Утечка ценности между продавцами и покупателями.</b> Попытка рандомизировать покупателей в тестах комиссий для мерчантов.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как протестировать новую механику ценообразования в Яндекс Такси?»</i> Ответ: <i>«Пользовательский сплит невозможен из-за конкуренции за общий пул водителей (нарушение SUTVA). Решение — использовать <b>Switchback-эксперимент</b>: разбиваем города на гео-зоны и временные слоты (например, по 60 минут) и рандомизируем алгоритм ценообразования по временным слотам с контролем часа суток и carryover-эффектов».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое сетевой эффект (интерференция) в контексте A/B тестирования?</b></p><p>Влияние воздействия на одну экспериментальную единицу на исходы других единиц через общие ресурсы или социальные связи.</p></li>
+        <li><p><b>Какая базовая статистическая предпосылка нарушается при наличии интерференции?</b></p><p>Предпосылка SUTVA (Stable Unit Treatment Value Assumption).</p></li>
+        <li><p><b>Что такое Switchback эксперимент?</b></p><p>Дизайн, при котором единицей рандомизации является временной интервал в конкретной географической локации.</p></li>
+        <li><p><b>Что такое Carryover Effect в Switchback тестах?</b></p><p>Остаточное влияние воздействия предыдущего временного слота на метрики следующего временного слота.</p></li>
+        <li><p><b>В каких продуктах сетевые эффекты наиболее выражены?</b></p><p>В двухсторонних маркетплейсах (Uber, Airbnb, Avito), сервисах доставки и социальных сетях.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cuped" data-interview="5">
+  <div class="name" id="cuped">
+    CUPED: Уменьшение дисперсии
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>CUPED (Controlled-experiment Using Pre-Experiment Data, Deng et al., Microsoft, 2013)</b> — это мощный статистический метод снижения дисперсии целевой метрики в A/B-тестах с использованием предэкспериментальных данных (ковариат) тех же пользователей, позволяющий радикально повысить чувствительность тестов и сократить время их проведения.</p>
+<p>Если совсем простыми словами: <b>мы очищаем текущие траты пользователя от его естественного исторического уровня</b>. Если пользователь Вася всегда тратил по 100 000 рублей в месяц, его покупка сейчас — не заслуга новой кнопки. CUPED вычитает предсказуемую часть, оставляя чистый инкрементальный отклик на фичу.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический аппарат CUPED:</p>
+<p>Пусть $Y$ — целевая метрика в эксперименте, а $X$ — ковариата, измеренная <b>ДО начала эксперимента</b> (например, историческая выручка пользователя за 2 недели до теста). Поскольку $X$ зафиксирована до теста, воздействие не влияет на $X$, и $\mathbb{E}[X_B] = \mathbb{E}[X_A]$.</p>
+<p>Сконструируем трансформированную метрику $Y_{\text{cuped}}$:</p>
+<p>$$Y_{\text{cuped}} = Y - \theta (X - \mathbb{E}[X])$$</p>
+<p>Математическое ожидание разности сохраняется несмещенным: $\mathbb{E}[\Delta Y_{\text{cuped}}] = \mathbb{E}[\Delta Y]$.</p>
+<p>Дисперсия скорректированной метрики равна:</p>
+<p>$$\mathrm{Var}(Y_{\text{cuped}}) = \mathrm{Var}(Y) + \theta^2 \mathrm{Var}(X) - 2\theta \mathrm{Cov}(Y, X)$$</p>
+<p>Минимум дисперсии достигается при оптимальном значении коэффициента $\theta$ (коэффициент OLS-регрессии):</p>
+<p>$$\theta^* = \frac{\mathrm{Cov}(Y, X)}{\mathrm{Var}(X)}$$</p>
+<p>При этом минимальная дисперсия составляет:</p>
+<p>$$\mathrm{Var}(Y_{\text{cuped}}) = \mathrm{Var}(Y) \cdot (1 - \rho^2)$$</p>
+<p>где $\rho = \mathrm{Corr}(Y, X)$ — коэффициент корреляции Пирсона между исторической и экспериментальной метриками.</p>
+<p><b>Экономический выигрыш:</b> Необходимый объем выборки и длительность теста сокращаются ровно <b>в $\frac{1}{1 - \rho^2}$ раз</b>. При корреляции $\rho = 0.7$ дисперсия падает на $49\%$, что эквивалентно <b>двукратному ускорению теста при тех же пользователях</b>!</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-экосистемы (Tinkoff / Yandex):</b>
+Эксперимент с рекомендациями в мобильном банке. Целевая метрика — объем трат по картам ($Y$). Метрика имеет огромную дисперсию из-за богатых клиентов.
+В качестве ковариаты $X$ взяли траты тех же клиентов за 14 дней до теста ($\rho = 0.78$).
+После применения CUPED дисперсия метрики упала на $1 - 0.78^2 = 39.2\%$ от исходной (снижение на $60.8\%$). Тест, который должен был длиться 4 недели, успешно задетектировал статзначимый аплифт $+1.5\%$ всего за 10 дней!</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Полная реализация алгоритма CUPED на Python
+np.random.seed(42)
+n_users = 20000
+
+# Исторические траты X (до теста)
+x = np.random.lognormal(mean=3.0, sigma=1.0, size=n_users)
+
+# Экспериментальные траты Y с сильной корреляцией с прошлым
+treatment = np.random.choice([0, 1], size=n_users)
+lift = 2.5 * treatment # истинный эффект фичи +2.5 руб.
+y = 0.8 * x + lift + np.random.normal(loc=0, scale=10, size=n_users)
+
+# Расчет коэффициента тета на объединенных данных
+theta = np.cov(y, x)[0, 1] / np.var(x)
+y_cuped = y - theta * (x - x.mean())
+
+# Сравнение дисперсий и p-values
+var_raw = y.var()
+var_cuped = y_cuped.var()
+var_reduction = 1 - (var_cuped / var_raw)
+
+# Стандартный t-тест на сырых данных
+t_raw, p_raw = stats.ttest_ind(y[treatment == 1], y[treatment == 0], equal_var=False)
+# t-тест на данных после CUPED
+t_cuped, p_cuped = stats.ttest_ind(y_cuped[treatment == 1], y_cuped[treatment == 0], equal_var=False)
+
+print(f"Корреляция corr(Y, X): {np.corrcoef(y, x)[0, 1]:.3f}")
+print(f"Снижение дисперсии:     {var_reduction:.1%}")
+print(f"Сырой t-test:   t = {t_raw:.3f}, p-value = {p_raw:.5f}")
+print(f"CUPED t-test:   t = {t_cuped:.3f}, p-value = {p_cuped:.5f}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование пост-экспериментальных данных в качестве ковариаты.</b> Фатальная ошибка! Ковариата $X$ должна быть строго измерена ДО момента включения теста. Если фича повлияла на $X$, CUPED «сожрет» реальный эффект воздействия.</li>
+        <li><b>Применение CUPED к новым пользователям без истории.</b> У новых клиентов нет исторического среза $X$. Для них ковариата равна нулю или среднему, что не дает снижения дисперсии.</li>
+        <li><b>Расчет $\theta$ раздельно по группам А и Б.</b> Коэффициент $\theta$ рассчитывается строго по объединенной выборке во избежание смещения оценки.</li>
+        <li><b>Переобучение при использовании сотен ковариат.</b> Многомерный CUPED (через регрессию по 50 признакам) без регуляризации может привести к переобучению.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как работает CUPED и почему он не смещает оценку эффекта?»</i> Ответ: <i>«CUPED вычитает из целевой метрики линейный прогноз на основе предэкспериментальной ковариаты: $Y_{\text{cuped}} = Y - \theta(X - \mathbb{E}[X])$. Оценка разности средних остается строго несмещенной, так как ковариата $X$ измерена до эксперимента и ее математические ожидания в группах A и B идентичны: $\mathbb{E}[X_B - X_A] = 0$. Дисперсия при этом падает на фактор $1 - \rho^2$».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что означает аббревиатура CUPED?</b></p><p>Controlled-experiment Using Pre-Experiment Data.</p></li>
+        <li><p><b>Как дисперсия метрики после CUPED зависит от корреляции с ковариатой?</b></p><p>$\mathrm{Var}(Y_{	ext{cuped}}) = \mathrm{Var}(Y) \cdot (1 - ho^2)$.</p></li>
+        <li><p><b>Какое главное требование предъявляется к ковариате в CUPED?</b></p><p>Она должна быть измерена строго ДО старта эксперимента, чтобы тритмент не мог на нее повлиять.</p></li>
+        <li><p><b>Что делать с пользователями, у которых нет истории (New Users)?</b></p><p>Им присваивают $X_i = ar{X}$ (или 0 при центрировании), для них CUPED вырождается в стандартную метрику.</p></li>
+        <li><p><b>Во сколько раз сокращается требуемый размер выборки при корреляции rho = 0.8?</b></p><p>В $1 / (1 - 0.8^2) = 1 / 0.36 pprox 2.78$ раза.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="heterogeneous_effects" data-interview="4">
+  <div class="name" id="heterogeneous_effects">
+    Гетерогенные эффекты (HET) и стратификация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Гетерогенные эффекты воздействия (Heterogeneous Treatment Effects, HTE)</b> — это неоднородность реакции различных подгрупп пользователей на одно и то же продуктовое изменение (например, фича приносит пользу пользователям iOS, но вызывает отток на Android; полезна новичкам, но раздражает ядро аудитории).</p>
+<p><b>Стратификация (Stratified Sampling)</b> — это метод предэкспериментального дизайна, обеспечивающий идеальный баланс ключевых сегментов (страт) между группами $A$ и $B$.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика стратификации и оценка CATE:</p>
+<ol>
+<li><b>Conditional Average Treatment Effect (CATE):</b>
+<p>$$\mathrm{CATE}(x) = \mathbb{E}[Y(1) - Y(0) \mid X = x]$$</p>
+Агрегированный $\mathrm{ATE}$ представляет собой просто взвешенное среднее $\mathrm{CATE}$ по стратам: $\mathrm{ATE} = \sum_k w_k \mathrm{CATE}_k$. Если в сегменте 1 эффект $+10\%$, а в сегменте 2 эффект $-10\%$, общий ATE будет равен $0$, маскируя критические инсайты.</li>
+<li><b>Пост-стратификация (Post-stratification):</b> Если тест уже проведен, взвешивание средних по известным долям генеральной совокупности устраняет остаточный дисбаланс сэмплирования и снижает дисперсию оценки.</li>
+<li><b>Causal Trees & Causal Forests (Athey & Imbens):</b> Современный метод машинного обучения для автоматического поиска сегментов с наибольшей гетерогенностью отклика без опасности data dredging.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-супераппа:</b> Редизайн экрана переводов показал нулевой средний эффект ($\mathrm{ATE} = +0.1\%$, $p = 0.72$). Аналитик исследовал гетерогенность эффекта по платформам и возрасту клиентов:
+<ul>
+<li><i>Пользователи iOS до 30 лет:</i> $\mathrm{CATE} = +8.4\%$ ($p < 0.001$, интерфейс интуитивен).</li>
+<li><i>Пользователи Android старше 55 лет:</i> $\mathrm{CATE} = -7.9\%$ ($p < 0.001$, мелкий шрифт, потеряли кнопку СБП).</li>
+</ul>
+Команда сохранила новый дизайн для молодежи и доработала контрастность и размер элементов для старшего сегмента.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import statsmodels.formula.api as smf
+
+# Оценка гетерогенного эффекта через регрессию с интеракцией (Interaction Term)
+np.random.seed(42)
+n = 30000
+
+platform = np.random.choice(["iOS", "Android"], size=n, p=[0.4, 0.6])
+treatment = np.random.choice([0, 1], size=n)
+
+# Базовая конверсия и дифференцированный отклик
+base_cr = 0.05
+# На iOS фича дает +2%, на Android дает -1.5%
+effect = np.where(platform == "iOS", 0.02, -0.015) * treatment
+y = np.random.binomial(1, base_cr + effect)
+
+df = pd.DataFrame({"y": y, "treatment": treatment, "platform": platform})
+
+# Регрессия с эффектом взаимодействия: y ~ treatment * platform
+model = smf.ols("y ~ treatment * C(platform)", data=df).fit()
+print(model.summary().tables[1])
+# Интеракционный член покажет статистическую значимость различия эффектов!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Бессистемный поиск сегментов постфактум (P-hacking).</b> Если нарезать данные на 100 подгрупп, 5 из них гарантированно покажут статзначимость чисто случайно. Гипотезы о гетерогенности должны формулироваться ДО теста.</li>
+        <li><b>Игнорирование парадокса Симпсона.</b> Агрегированный результат может показывать рост, в то время как внутри каждой отдельной страты наблюдается падение из-за перекоса долей.</li>
+        <li><b>Дробление выборки на микро-когорты с потерей мощности.</b> В маленьком сегменте доверительный интервал настолько широк, что подтвердить эффект невозможно.</li>
+        <li><b>Адаптация продукта под один сегмент ценой деградации остальных.</b> Локальная оптимизация, разрушающая целостность глобального позиционирования.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Эксперимент показал нейтральный ATE = 0. Имеем ли мы право искать подгруппы, где фича сработала в плюс?»</i> Ответ: <i>«Да, но строго с поправками на множественное тестирование (FDR / Benjamini-Hochberg) или через формальные causal ML методы (Causal Forest). Любой найденный сегмент считается не окончательным доказательством, а гипотезой для валидации в следующем таргетированном A/B тесте».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое гетерогенность эффекта воздействия (HTE)?</b></p><p>Различие в величине и направлении эффекта воздействия у различных категорий и сегментов пользователей.</p></li>
+        <li><p><b>Что такое CATE (Conditional Average Treatment Effect)?</b></p><p>Математическое ожидание эффекта воздействия при условии принадлежности пользователя к определенному сегменту с характеристиками X.</p></li>
+        <li><p><b>Зачем нужна предэкспериментальная стратификация?</b></p><p>Чтобы гарантировать идеальный баланс ключевых признаков (например, платформы, регионы) между контролем и тестом.</p></li>
+        <li><p><b>Как статистически строго проверить гипотезу о различии эффекта между сегментами?</b></p><p>С помощью регрессионной модели с интеракционным членом (Interaction Term) между тритментом и признаком сегмента.</p></li>
+        <li><p><b>Что такое парадокс Симпсона в A/B тестировании?</b></p><p>Ситуация, когда тренд в агрегированных данных противоположен трендам во всех отдельных подгруппах из-за дисбаланса весов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="experiment_report" data-interview="4">
+  <div class="name" id="experiment_report">
+    Аналитический отчет по A/B тесту
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Аналитический отчет по A/B тесту (Experiment Scorecard / Decision Memo)</b> — это стандартизированный структурированный документ, агрегирующий контекст гипотезы, параметры дизайна, статистические оценки всех метрик, проверку валидности и итоговую бизнес-рекомендацию для принятия управленческого решения.</p>
+<p>Если совсем простыми словами: <b>это паспорт эксперимента, понятный как дата-саентисту, так и генеральному директору</b>. Он защищает компанию от искажения фактов и сохраняет знания для будущих поколений продуктовых команд.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Обязательная структура индустриального отчета (Booking.com / Uber format):</p>
+<ol>
+<li><b>Резюме и решение (Executive Summary):</b> Четкий вердикт: Rollout / Discard / Iterate с оценкой годового финансового импакта (Incremental Revenue).</li>
+<li><b>Параметры эксперимента (Metadata):</b> Сроки проведения, единицы рандомизации, доли сплита, целевая аудитория.</li>
+<li><b>Проверка валидности (Sanity Checks):</b> Результаты теста на SRM ($\chi^2$, p-value), отсутствие аномалий в технических логах.</li>
+<li><b>Результаты по Primary / OEC метрике:</b> Точечная оценка аплифта, 95% доверительный интервал, p-value, размер выборки, факт достижения MDE.</li>
+<li><b>Guardrail & Secondary метрики:</b> Таблица со статусами защитных метрик (Latency, Churn, Support).</li>
+<li><b>Сегментный срез:</b> Анализ гетерогенности по ключевым предустановленным срезам (New vs Existing, iOS vs Android).</li>
+<li><b>План раскатки:</b> Поэтапный канареечный rollout (10% -> 25% -> 50% -> 100%) с мониторингом стабильности бэкенда.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Пример Executive Summary в отчете:</b>
+«Эксперимент EXP-482: Упрощенный чекаут в 1 шаг.
+Период: 12.09 - 26.09 (14 дней). Выборка: 184 200 пользователей.
+SRM: Отсутствует (p = 0.81).
+Primary: Конверсия в заказ выросла с 4.12% до 4.45% (+0.33 п.п., относительный аплифт +8.0%, 95% CI: [+4.2%, +11.8%], p = 0.0003).
+Guardrails: Crash-rate стабилен (0.02%), время загрузки экрана снизилось на 120 мс.
+Решение: Раскатка на 100% аудитории. Прогнозируемый инкремент годовой выручки: +42 млн руб.»</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Генератор структурированного резюме отчета по эксперименту
+def generate_ab_scorecard(exp_name, n_a, n_b, primary_a, primary_b, ci_rel, p_val, srm_p):
+    srm_status = "PASSED" if srm_p >= 0.001 else "FAILED (SRM)"
+    sig_status = "SIGNIFICANT" if p_val < 0.05 else "NOT SIGNIFICANT"
+    
+    report = (
+        f"\\n=====================================================\\n"
+        f"            A/B EXPERIMENT SCORECARD: {exp_name}\\n"
+        f"=====================================================\\n"
+        f"1. VALIDITY:\\n"
+        f"   - Sample Size: A = {n_a:,} | B = {n_b:,}\\n"
+        f"   - SRM Check: {srm_status} (p = {srm_p:.4f})\\n\\n"
+        f"2. PRIMARY METRIC PERFORMANCE:\\n"
+        f"   - Baseline (Control A): {primary_a:.4%}\\n"
+        f"   - Variant  (Test B):    {primary_b:.4%}\\n"
+        f"   - Relative Lift:       {((primary_b - primary_a) / primary_a):+.2%}\\n"
+        f"   - 95% Confidence Interval: [{ci_rel[0]:+.2%}, {ci_rel[1]:+.2%}]\\n"
+        f"   - Significance: {sig_status} (p = {p_val:.5f})\\n\\n"
+        f"3. RECOMMENDATION:\\n"
+        f"   - {'ROLLOUT TO 100%' if (p_val < 0.05 and srm_p >= 0.001) else 'DO NOT ROLLOUT'}\\n"
+        f"=====================================================\\n"
+    )
+    return report
+
+print(generate_ab_scorecard("Cart_V3", 50000, 50200, 0.042, 0.046, (0.038, 0.152), 0.0012, 0.52))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Указание только относительного процента без абсолютных цифр.</b> Заявление «конверсия выросла на 50%» скрывает факт того, что она выросла с 0.002% до 0.003% на выборке из 100 человек.</li>
+        <li><b>Отсутствие доверительных интервалов в отчете.</b> Точечная оценка создает иллюзию точности там, где границы интервала лежат от 0.1% до 15%.</li>
+        <li><b>Сокрытие негативных Guardrail метрик.</b> Попытка умолчать о росте оттока или багов ради продвижения собственной фичи.</li>
+        <li><b>Отсутствие фиксации проваленных тестов.</b> Культура сокрытия неудачных экспериментов приводит к тому, что через полгода соседняя команда повторяет ту же фатальную ошибку.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы презентуете результаты неудачного A/B теста топ-менеджменту?»</i> Ответ: <i>«В сильной культуре неудачный тест — это не провал, а победа: A/B эксперимент спас компанию от внедрения неработающей фичи, сохранив деньги и чистоту продукта. В отчете я показываю статистическую строгость результата, анализ причин провала гипотезы и конструктивные рекомендации для следующей итерации».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какие ключевые разделы обязан содержать аналитический отчет по A/B тесту?</b></p><p>Executive Summary с бизнес-решением, параметры дизайна, проверка SRM, доверительные интервалы целевых метрик, Guardrails и сегментный анализ.</p></li>
+        <li><p><b>Почему важно указывать как относительный, так и абсолютный аплифт?</b></p><p>Относительный аплифт показывает масштабируемость эффекта, а абсолютный — прямой денежный объем изменений.</p></li>
+        <li><p><b>Зачем в отчете обязательно приводить доверительный интервал для эффекта?</b></p><p>Чтобы стейкхолдеры видели границы риска и потенциальную вариативность финансового результата.</p></li>
+        <li><p><b>Почему фиксация нейтральных и отрицательных тестов критична для компании?</b></p><p>Это предотвращает повторное наступание на грабли другими командами и формирует корпоративную базу знаний.</p></li>
+        <li><p><b>Что такое канареечный rollout после успешного теста?</b></p><p>Поэтапное включение фичи на 10% -> 25% -> 50% -> 100% для контроля стабильности бэкенда под полной нагрузкой.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="next_hypotheses" data-interview="4">
+  <div class="name" id="next_hypotheses">
+    Формирование следующих гипотез по итогам теста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Итерационный цикл продуктовых экспериментов (Experimentation Flywheel)</b> — это непрерывный процесс трансформации эмпирических инсайтов, полученных в ходе текущего A/B теста (независимо от того, был ли он успешен или провален), в новые, более точные и высокоэффективные продуктовые гипотезы.</p>
+<p>Если совсем простыми словами: <b>A/B тест — это не финишная черта, а ступенька к следующей идее</b>. Успешный тест показывает, какую механику нужно развивать и масштабировать, а провальный тест вскрывает слабые места и экономит месяцы бессмысленной разработки.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Фреймворк декомпозиции результатов на следующие шаги:</p>
+<table class="task-table">
+<thead><tr><th>Исход текущего теста</th><th>Аналитический вывод</th><th>Направление следующей гипотезы</th></tr></thead>
+<tbody>
+<tr><td><b>Победа ($p < \alpha$, Lift $> 0$)</b></td><td>Механика доказала свою ценность.</td><td><b>Масштабирование (Double Down):</b> распространение паттерна на другие платформы, смежные разделы, усиление персонализации.</td></tr>
+<tr><td><b>Нейтрально ($p > \alpha$)</b></td><td>Изменение незаметно или компенсировано.</td><td><b>Радикализация или Pivot:</b> проверка более сильного контраста интерфейса, глубокий CustDev, проверка барьеров восприятия.</td></tr>
+<tr><td><b>Падение ($p < \alpha$, Lift $< 0$)</b></td><td>Концепция ухудшает опыт или сломана логика.</td><td><b>Анализ трения (Friction Analysis):</b> исследование воронки отказов, качественные опросы тех, кто закрыл приложение, устранение багов.</td></tr>
+<tr><td><b>Гетерогенный успех</b></td><td>Фича работает строго на определенном сегменте.</td><td><b>Сегментная адаптация:</b> включение функционала только для целевого кластера, разработка альтернативы для остальных.</td></tr>
+</tbody>
+</table>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс эволюции гипотез в финтехе:</b>
+<i>Итерация 1:</i> Попытка продавать инвестиционные продукты через пуш-уведомления показала провал (CTR высокий, но отписки от пушей выросли на $+4\%$).
+<i>Вывод:</i> Канал навязчив, пользователи раздражены контекстом.
+<i>Итерация 2:</i> Гипотеза: предложить инвестиции в момент зачисления зарплаты прямо в истории операций по дебетовой карте.
+<i>Результат:</i> Конверсия в открытие брокерского счета выросла в 3 раза при нулевом негативе. Провал первой итерации напрямую привел к триумфу второй.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Матрица приоритизации следующих гипотез по фреймворку ICE / RICE
+hypotheses_backlog = [
+    {"id": "HYP-101", "name": "Персонализация витрины под сегмент iOS (по итогам HET)", "reach": 500000, "impact": 3, "confidence": 0.8, "effort": 2},
+    {"id": "HYP-102", "name": "Радикальное упрощение шага 2 чекаута (после провала v1)", "reach": 1200000, "impact": 4, "confidence": 0.5, "effort": 3},
+    {"id": "HYP-103", "name": "Масштабирование сторис на веб-версию (победа mobile)", "reach": 800000, "impact": 2, "confidence": 0.9, "effort": 1}
+]
+
+for h in hypotheses_backlog:
+    # RICE = (Reach * Impact * Confidence) / Effort
+    h["rice_score"] = (h["reach"] * h["impact"] * h["confidence"]) / h["effort"]
+
+sorted_backlog = sorted(hypotheses_backlog, key=lambda x: x["rice_score"], reverse=True)
+print("ПРИОРИТЕТ БЭКЛОГА ГИПОТЕЗ (RICE):")
+for rank, item in enumerate(sorted_backlog, 1):
+    print(f"{rank}. {item['id']}: {item['name']} | RICE = {item['rice_score']:,.0f}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Зацикливание на микро-итерациях неудачной концепции.</b> Делать 15 тестов оттенков кнопки, когда сама функция никому не нужна.</li>
+        <li><b>Игнорирование качественных инсайтов после теста.</b> Опираться только на сухие цифры, не поговорив с реальными пользователями через CustDev.</li>
+        <li><b>Отказ от документирования гипотез.</b> Потеря контекста приводит к тому, что через год новая команда начинает тестировать то же самое.</li>
+        <li><b>Отсутствие приоритизации по RICE/ICE.</b> Брать в разработку гипотезы по принципу «мне кажется, это взлетит» вместо ранжирования по потенциальному эффекту.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как вы выстраиваете процесс генерации гипотез в продуктовой команде?»</i> Ответ: <i>«Эксперименты — это замкнутый цикл: количественные данные A/B тестов показывают, ГДЕ и ЧТО изменилось, а качественные исследования (CustDev, юзабилити-тесты) объясняют, ПОЧЕМУ пользователи так себя повели. Результаты каждого завершенного теста ложатся в единый бэклог, приоритизируются по фреймворку RICE с учетом скорректированной уверенности (Confidence), и лучшая идея идет в следующий A/B спринт».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Experimentation Flywheel?</b></p><p>Непрерывный цикл генерации, проверки и масштабирования гипотез, где результаты каждого теста питают следующие гипотезы.</p></li>
+        <li><p><b>Что делать, если тест показал статистически значимое ухудшение метрики?</b></p><p>Провести анализ воронки трения (Friction Analysis), качественные исследования и выдвинуть гипотезу об устранении выявленных барьеров.</p></li>
+        <li><p><b>Как масштабировать успешный тест?</b></p><p>Распространить механику на смежные экраны, платформы и более широкие когорты пользователей.</p></li>
+        <li><p><b>Какую роль играет RICE-скоринг при формировании следующих гипотез?</b></p><p>Позволяет математически взвесить охват, ожидаемый эффект, уверенность и трудозатраты для выбора наиболее прибыльной задачи.</p></li>
+        <li><p><b>Почему качественные исследования (CustDev) необходимы после A/B теста?</b></p><p>Потому что A/B тест фиксирует поведение («что»), но не объясняет психологическую мотивацию клиента («почему»).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

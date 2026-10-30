@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Databases</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Infra</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Databases</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Infra</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Databases</h1>
+        <p class="section-shell__desc">Материалы по базам данных и хранилищам.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="db_intro" data-interview="2" data-title-link="https://ru.wikipedia.org/wiki/База_данных">
+  <div class="name" id="db_intro">
+    <a class="question-title-link" href="https://ru.wikipedia.org/wiki/База_данных" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое база данных?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>База данных (Database, DB)</b> — это организованное хранилище данных, к которому можно обращаться из приложения: читать, изменять, удалять и добавлять записи.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если у интернет-магазина есть личный кабинет, корзина, история заказов и адрес доставки, эти данные должны переживать перезапуск backend-сервиса. Поэтому их хранят не в памяти приложения, а в базе данных.</p>
+<p>Типичная веб-система часто состоит из трёх частей:</p>
+<ul>
+<li><b>Frontend</b> — интерфейс пользователя</li>
+<li><b>Backend</b> — серверная логика и API</li>
+<li><b>DB</b> — долговременное хранилище данных</li>
+</ul>
+<p>Backend обычно выступает посредником: проверяет запрос, обращается к БД, преобразует ответ и возвращает его клиенту.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Не каждому сайту нужна БД. Например, лендинг с перечнем услуг может быть статической страницей. Но если есть регистрация, платежи, история действий, персональные настройки, очереди задач или результаты экспериментов, без долговременного хранилища уже сложно.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ML Engineer редко администрирует БД как DBA, но постоянно взаимодействует с данными:</p>
+<ul>
+<li>хранит метаданные экспериментов и артефактов</li>
+<li>читает обучающие датасеты и витрины признаков</li>
+<li>пишет результаты batch inference</li>
+<li>проектирует схемы для feature store</li>
+<li>использует векторные БД или поисковые индексы в RAG-системах</li>
+<li>разбирается, почему inference-сервис стал медленным из-за запросов к БД</li>
+</ul>
+<p>Поэтому важно понимать не только <code>SELECT *</code>, но и ограничения транзакций, индексы, репликацию, мониторинг и безопасность.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://ru.wikipedia.org/wiki/%D0%91%D0%B0%D0%B7%D0%B0_%D0%B4%D0%B0%D0%BD%D0%BD%D1%8B%D1%85" target="_blank" rel="noopener">База данных</a></td><td>Короткое общее определение БД и базовых терминов.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/amvera/articles/754702/" target="_blank" rel="noopener">Виды баз данных. Большой обзор типов СУБД</a></td><td>Большой обзор разных классов БД: реляционные, key-value, документные, временные ряды, графовые, поисковые, векторные и другие.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_intro" target="_blank" rel="noopener">Что такое PostgreSQL</a></li>
+<li><a href="../../../db/redis.html#redis_intro" target="_blank" rel="noopener">Что такое Redis и зачем он ML-инженеру</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое база данных?</b></p>
+<p>Организованное долговременное хранилище данных, к которому приложение обращается через СУБД или специализированный движок.</p>
+</li>
+<li><p><b>Чем БД отличается от файла на диске?</b></p>
+<p>Файл тоже хранит данные, но СУБД добавляет язык запросов, индексы, транзакции, права доступа, конкурентную работу нескольких клиентов, резервное копирование и механизмы восстановления.</p>
+</li>
+<li><p><b>Зачем ML Engineer знать базы данных?</b></p>
+<p>Чтобы корректно доставать данные для обучения, хранить результаты пайплайнов, понимать задержки inference-сервисов, проектировать feature store и не ломать продуктовые данные неудачными запросами.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dbms_types" data-interview="2" data-title-link="https://habr.com/ru/companies/amvera/articles/754702/">
+  <div class="name" id="dbms_types">
+    <a class="question-title-link" href="https://habr.com/ru/companies/amvera/articles/754702/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Какие бывают виды СУБД?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>СУБД</b> — система управления базами данных. Это программный слой, который отвечает за хранение, запросы, права доступа, конкурентную работу, восстановление и оптимизацию обращения к данным.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Базы данных различаются не только синтаксисом запросов, но и тем, под какую модель данных и нагрузку они оптимизированы.</p>
+<table class="task-table">
+<thead><tr><th>Тип</th><th>Как хранит данные</th><th>Где полезно</th></tr></thead>
+<tbody>
+<tr><td><b>Реляционная</b></td><td>Таблицы, строки, связи, SQL</td><td>Пользователи, заказы, транзакции, метаданные ML-пайплайнов</td></tr>
+<tr><td><b>Ключ-значение</b></td><td>Быстрый доступ по ключу</td><td>Кэш, сессии, rate limit, быстрые lookup-таблицы</td></tr>
+<tr><td><b>Документная</b></td><td>JSON/BSON-документы</td><td>Гибкие сущности, события, конфиги, профили</td></tr>
+<tr><td><b>Колоночная</b></td><td>Данные по столбцам</td><td>Аналитика, агрегации, большие таблицы признаков</td></tr>
+<tr><td><b>Time-series</b></td><td>Значения с временной меткой</td><td>Метрики, мониторинг, телеметрия, логи</td></tr>
+<tr><td><b>Графовая</b></td><td>Узлы и связи</td><td>Социальные графы, knowledge graph, рекомендации</td></tr>
+<tr><td><b>Поисковая</b></td><td>Инвертированные индексы</td><td>Full-text search, логи, поиск по документам</td></tr>
+<tr><td><b>Векторная</b></td><td>Векторы эмбеддингов и ANN-индексы</td><td>RAG, semantic search, поиск похожих объектов</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Выбор БД — это выбор компромиссов. PostgreSQL удобен как универсальная реляционная БД, Redis хорош для кэша, ClickHouse — для аналитических агрегаций, Elasticsearch/OpenSearch — для поиска, а векторные хранилища — для поиска по эмбеддингам. Один проект может использовать сразу несколько БД, если нагрузки действительно разные.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В ML-продукте может быть такая связка:</p>
+<ul>
+<li>PostgreSQL хранит пользователей, задания и статусы пайплайнов</li>
+<li>S3/MinIO хранит большие датасеты и модели</li>
+<li>ClickHouse хранит события и метрики</li>
+<li>Redis кэширует признаки для online inference</li>
+<li>Vector DB хранит эмбеддинги документов для RAG</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/amvera/articles/754702/" target="_blank" rel="noopener">Виды баз данных. Большой обзор типов СУБД</a></td><td>Обзор типов БД и примеров реализаций: от реляционных и key-value до графовых, поисковых и векторных.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/579248/" target="_blank" rel="noopener">Какую СУБД выбрать и почему? Статья 1</a></td><td>Вводная статья про выбор СУБД и логику сравнения разных классов хранилищ.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/581492/" target="_blank" rel="noopener">Какую СУБД выбрать и почему? Статья 2</a></td><td>Продолжение про выбор СУБД и практические критерии.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_intro" target="_blank" rel="noopener">PostgreSQL — реляционная СУБД</a></li>
+<li><a href="../../../db/redis.html#redis_intro" target="_blank" rel="noopener">Redis — in-memory key-value хранилище</a></li>
+<li><a href="../../../db/redis.html#redis_data_types" target="_blank" rel="noopener">Структуры данных Redis</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему нет одной идеальной БД для всего?</b></p>
+<p>Разные БД оптимизированы под разные запросы: транзакции, кэш, аналитику, поиск, графы, временные ряды или векторы. Универсальность обычно означает компромиссы по скорости, простоте и масштабу.</p>
+</li>
+<li><p><b>Когда лучше начать с PostgreSQL?</b></p>
+<p>Когда данные хорошо описываются таблицами, важны транзакции, SQL, целостность и умеренная универсальность. Для многих ML-сервисов PostgreSQL хватает для метаданных, задач, пользователей и результатов.</p>
+</li>
+<li><p><b>Когда нужна отдельная аналитическая или векторная БД?</b></p>
+<p>Когда запросы становятся специализированными: большие агрегации по событиям, поиск по текстам, ANN-поиск по эмбеддингам или поток метрик с временными метками.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sql_basics" data-interview="5" data-title-link="https://sql-academy.org/ru/guide">
+  <div class="name" id="sql_basics">
+    <a class="question-title-link" href="https://sql-academy.org/ru/guide" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое SQL?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>SQL (Structured Query Language)</b> — декларативный язык для работы с реляционными базами данных. На SQL описывают, какие данные нужны, а СУБД сама выбирает план выполнения запроса.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Реляционная БД хранит данные в таблицах. Таблица состоит из строк и столбцов, а связи между таблицами задаются ключами.</p>
+<p>Основные группы SQL-команд:</p>
+<table class="task-table">
+<thead><tr><th>Группа</th><th>Что делает</th><th>Примеры</th></tr></thead>
+<tbody>
+<tr><td><b>DDL</b></td><td>Описывает структуру</td><td><code>CREATE TABLE</code>, <code>ALTER TABLE</code>, <code>DROP TABLE</code></td></tr>
+<tr><td><b>DML</b></td><td>Меняет данные</td><td><code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code></td></tr>
+<tr><td><b>DQL</b></td><td>Читает данные</td><td><code>SELECT</code></td></tr>
+<tr><td><b>DCL</b></td><td>Управляет доступом</td><td><code>GRANT</code>, <code>REVOKE</code></td></tr>
+<tr><td><b>TCL</b></td><td>Управляет транзакциями</td><td><code>BEGIN</code>, <code>COMMIT</code>, <code>ROLLBACK</code></td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В ML-задаче можно собрать обучающую выборку SQL-запросом:</p>
+
+</div>
+<div class="code-block" data-lang="sql">SELECT
+    u.user_id,
+    u.country,
+    COUNT(o.order_id) AS orders_count,
+    AVG(o.amount) AS avg_order_amount,
+    MAX(o.created_at) AS last_order_at
+FROM users AS u
+LEFT JOIN orders AS o
+    ON u.user_id = o.user_id
+WHERE u.created_at &gt;= DATE '2025-01-01'
+GROUP BY u.user_id, u.country;</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для ML Engineer SQL важен не только как способ &quot;достать табличку&quot;. Ошибочный <code>JOIN</code>, утечка таргета через будущие данные или неверный фильтр по времени могут испортить датасет сильнее, чем неудачный выбор модели.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://sql-academy.org/ru/guide" target="_blank" rel="noopener">Интерактивный учебник по SQL</a></td><td>Короткий практический ввод в SQL-запросы.</td></tr>
+<tr><td><a href="https://stepik.org/course/63054/promo?search=4607567594" target="_blank" rel="noopener">Интерактивный тренажер по SQL</a></td><td>Практика SQL на задачах.</td></tr>
+<tr><td><a href="https://stepik.org/course/551/promo" target="_blank" rel="noopener">Stepik: Введение в базы данных</a></td><td>Базовый курс по SQL и реляционным БД.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_joins" target="_blank" rel="noopener">JOIN-ы и размножение строк</a></li>
+<li><a href="../../../db/postgresql.html#pg_group_by" target="_blank" rel="noopener">GROUP BY, HAVING и агрегаты</a></li>
+<li><a href="../../../db/postgresql.html#pg_null" target="_blank" rel="noopener">NULL и его ловушки</a></li>
+<li><a href="../../../db/postgresql.html#pg_cte_subqueries" target="_blank" rel="noopener">CTE и подзапросы</a></li>
+<li><a href="../../../db/postgresql.html#pg_window_functions" target="_blank" rel="noopener">Оконные функции для фичей</a></li>
+<li><a href="../../../practise/db/postgresql.html#practise_pg_join_fanout" target="_blank" rel="noopener">Практика по SQL-запросам</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему SQL называют декларативным языком?</b></p>
+<p>Потому что мы описываем желаемый результат, а не пошаговый алгоритм получения данных. Оптимизатор СУБД сам выбирает порядок чтения таблиц, использование индексов и стратегию соединений.</p>
+</li>
+<li><p><b>Какие SQL-операции чаще всего нужны ML Engineer?</b></p>
+<p><code>SELECT</code>, <code>WHERE</code>, <code>JOIN</code>, <code>GROUP BY</code>, оконные функции, CTE, агрегации, фильтры по времени и создание витрин признаков.</p>
+</li>
+<li><p><b>Какая частая ML-ошибка связана с SQL?</b></p>
+<p>Data leakage: например, когда признаки считаются с использованием событий, которые произошли после момента предсказания.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="nosql" data-interview="3" data-title-link="https://habr.com/ru/articles/228327/">
+  <div class="name" id="nosql">
+    <a class="question-title-link" href="https://habr.com/ru/articles/228327/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое NoSQL?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>NoSQL</b> — семейство нереляционных подходов к хранению данных. Это не одна технология, а общий ярлык для key-value, документных, wide-column, графовых, time-series, поисковых и других хранилищ.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>NoSQL часто выбирают, когда реляционная модель неудобна или нагрузка требует другой архитектуры:</p>
+<ul>
+<li>нужен очень быстрый доступ по ключу</li>
+<li>схема данных часто меняется</li>
+<li>данные естественно выглядят как документы или граф</li>
+<li>нужно горизонтально масштабировать запись</li>
+<li>важнее доступность и скорость, чем строгие транзакции на много таблиц</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>NoSQL не означает &quot;SQL больше не нужен&quot;. В реальных системах SQL и NoSQL часто живут вместе. Например, PostgreSQL хранит критичные сущности, Redis кэширует online features, MongoDB хранит гибкие документы, а Elasticsearch/OpenSearch используется для поиска по логам или текстам.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для RAG-сервиса можно хранить:</p>
+<ul>
+<li>исходные документы в объектном хранилище</li>
+<li>метаданные документов в PostgreSQL</li>
+<li>эмбеддинги чанков в векторной БД</li>
+<li>временный кэш ответов и rate limit в Redis</li>
+</ul>
+<p>Это не &quot;зоопарк ради зоопарка&quot;, если у каждого хранилища есть понятная роль.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/228327/" target="_blank" rel="noopener">Разбираем ACID по буквам в NoSQL</a></td><td>Разбор того, как идеи ACID проявляются в NoSQL-системах.</td></tr>
+<tr><td><a href="https://bookmk.ru/?product=nosql-%D0%BD%D0%BE%D0%B2%D0%B0%D1%8F-%D0%BC%D0%B5%D1%82%D0%BE%D0%B4%D0%BE%D0%BB%D0%BE%D0%B3%D0%B8%D1%8F-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D0%B8-%D0%BD%D0%B5%D1%80%D0%B5%D0%BB" target="_blank" rel="noopener">NoSQL. Новая методология разработки нереляционных баз данных</a></td><td>Книга про NoSQL-подходы и модели данных.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/redis.html#redis_intro" target="_blank" rel="noopener">Redis как пример NoSQL key-value</a></li>
+<li><a href="../../../db/redis.html#redis_data_types" target="_blank" rel="noopener">Структуры данных Redis</a></li>
+<li><a href="../../../db/postgresql.html#pg_data_types" target="_blank" rel="noopener">JSONB в PostgreSQL: документы внутри реляционной БД</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие основные классы NoSQL есть?</b></p>
+<p>Key-value, документные, wide-column, графовые, time-series, поисковые и векторные хранилища.</p>
+</li>
+<li><p><b>Когда NoSQL может быть лучше SQL?</b></p>
+<p>Когда данные плохо ложатся в таблицы, нужна гибкая схема, быстрый доступ по ключу, специализированный поиск или горизонтальное масштабирование под конкретный паттерн нагрузки.</p>
+</li>
+<li><p><b>Какой главный риск у NoSQL для ML-продукта?</b></p>
+<p>Риск выбрать хранилище по моде, а не по запросам. Потом сложные аналитические выборки, консистентность и миграции данных становятся дороже, чем ожидалось.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="acid_transactions" data-interview="3" data-title-link="https://habr.com/ru/articles/555920/">
+  <div class="name" id="acid_transactions">
+    <a class="question-title-link" href="https://habr.com/ru/articles/555920/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое транзакции и ACID?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Транзакция</b> — логическая единица работы с БД, которая должна выполниться целиком или не выполниться вовсе.</p>
+<p><b>ACID</b> — набор свойств транзакций: Atomicity, Consistency, Isolation, Durability.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Свойства ACID:</p>
+<table class="task-table">
+<thead><tr><th>Свойство</th><th>Смысл</th></tr></thead>
+<tbody>
+<tr><td><b>Atomicity</b></td><td>Все операции транзакции применяются целиком или откатываются</td></tr>
+<tr><td><b>Consistency</b></td><td>После транзакции данные остаются в допустимом состоянии</td></tr>
+<tr><td><b>Isolation</b></td><td>Параллельные транзакции не должны некорректно мешать друг другу</td></tr>
+<tr><td><b>Durability</b></td><td>Зафиксированные изменения не теряются при сбое</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если ML-пайплайн записывает результат batch inference, удобно делать это транзакционно:</p>
+<ol>
+<li>записать новую версию предсказаний</li>
+<li>записать метаданные запуска</li>
+<li>обновить статус пайплайна</li>
+<li>зафиксировать изменения</li>
+</ol>
+<p>Если на третьем шаге всё упало, лучше откатить всё, чем оставить систему в состоянии &quot;предсказания есть, но статус запуска неизвестен&quot;.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Isolation важен для аналитики и обучения. Если во время построения датасета часть таблиц читается до обновления, а часть после, можно получить неконсистентную выборку. Для больших offline-выгрузок часто используют снапшоты, версионирование данных или отдельные аналитические реплики.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/555920/" target="_blank" rel="noopener">Требования ACID на простом языке</a></td><td>Понятное объяснение четырёх свойств ACID.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/537594/" target="_blank" rel="noopener">Что такое транзакция</a></td><td>Вводная статья про транзакции и их роль в БД.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/228327/" target="_blank" rel="noopener">Разбираем ACID по буквам в NoSQL</a></td><td>Как свойства ACID обсуждаются в контексте NoSQL.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_mvcc_vacuum" target="_blank" rel="noopener">MVCC и VACUUM</a></li>
+<li><a href="../../../db/postgresql.html#pg_isolation_locks" target="_blank" rel="noopener">Уровни изоляции и блокировки</a></li>
+<li><a href="../../../db/redis.html#redis_atomicity" target="_blank" rel="noopener">Атомарность в Redis: MULTI/EXEC и Lua</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое транзакция?</b></p>
+<p>Набор операций с БД, который рассматривается как единая операция: либо все изменения применяются, либо все откатываются.</p>
+</li>
+<li><p><b>Расшифруй ACID.</b></p>
+<p>Atomicity — атомарность, Consistency — согласованность, Isolation — изолированность, Durability — долговечность.</p>
+</li>
+<li><p><b>Почему ACID важен для ML Engineer?</b></p>
+<p>Потому что пайплайны часто записывают несколько связанных сущностей: статусы, метрики, версии датасетов, предсказания и артефакты. Без транзакций легко получить неполное или противоречивое состояние.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cap_theorem" data-badge-type="additional" data-interview="2" data-title-link="https://habr.com/ru/articles/130577/">
+  <div class="name" id="cap_theorem">
+    <a class="question-title-link" href="https://habr.com/ru/articles/130577/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое CAP-теорема?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>CAP-теорема</b> говорит, что в распределённой системе при сетевом разделении нельзя одновременно гарантировать все три свойства: Consistency, Availability и Partition tolerance.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Три буквы CAP:</p>
+<table class="task-table">
+<thead><tr><th>Свойство</th><th>Смысл</th></tr></thead>
+<tbody>
+<tr><td><b>Consistency</b></td><td>Все клиенты видят согласованное состояние данных</td></tr>
+<tr><td><b>Availability</b></td><td>Каждый корректный запрос получает ответ</td></tr>
+<tr><td><b>Partition tolerance</b></td><td>Система продолжает работать при сетевых разрывах между узлами</td></tr>
+</tbody>
+</table><p>В распределённой системе сетевые проблемы считаются неизбежными. Поэтому практический выбор чаще звучит так: что делать при partition — сохранять строгую согласованность или доступность?</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>CAP часто упрощают до &quot;выбери любые две буквы&quot;, но это грубая формулировка. В реальности системы настраивают компромиссы: кворумы чтения/записи, уровни консистентности, задержки репликации, eventual consistency, read-your-writes и другие гарантии.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для ML Engineer компромисс зависит от сценария:</p>
+<ul>
+<li><b>Feature lookup для online inference:</b> лучше не отдавать противоречивые критичные признаки, но иногда допустим слегка устаревший кэш.</li>
+<li><b>Лента рекомендаций:</b> eventual consistency часто приемлема.</li>
+<li><b>Списание денег за платную генерацию:</b> нужна строгая согласованность.</li>
+<li><b>Метрики мониторинга:</b> можно потерпеть задержку или небольшую неточность, зато система должна оставаться доступной.</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/130577/" target="_blank" rel="noopener">CAP-теорема простым, доступным языком</a></td><td>Интуитивное объяснение CAP.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/328792/" target="_blank" rel="noopener">Всё, что вы не знали о CAP теореме</a></td><td>Более аккуратный разбор CAP и распространённых упрощений.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/redis.html#redis_replication_cluster" target="_blank" rel="noopener">Репликация, Sentinel и Redis Cluster</a></li>
+<li><a href="../../../db/redis.html#redis_persistence" target="_blank" rel="noopener">RDB и AOF: чем платит Redis за скорость</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что утверждает CAP-теорема?</b></p>
+<p>В распределённой системе при сетевом разделении нельзя одновременно гарантировать строгую согласованность и доступность.</p>
+</li>
+<li><p><b>Почему Partition tolerance почти всегда обязателен?</b></p>
+<p>Потому что сетевые сбои, задержки и недоступность узлов в распределённых системах происходят неизбежно.</p>
+</li>
+<li><p><b>Как CAP связан с ML-продуктами?</b></p>
+<p>Он помогает понимать, какие гарантии нужны разным данным: платежам, признакам, метрикам, кэшу, рекомендациям и логам.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db_indexes" data-interview="3" data-title-link="https://habr.com/ru/articles/102785/">
+  <div class="name" id="db_indexes">
+    <a class="question-title-link" href="https://habr.com/ru/articles/102785/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое индексы в БД?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Индекс в БД</b> — дополнительная структура данных, которая ускоряет поиск строк по одному или нескольким столбцам. Индекс похож на оглавление книги: вместо полного просмотра таблицы СУБД может быстрее найти нужные записи.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Индексы ускоряют чтение, но не бесплатны:</p>
+<ul>
+<li>занимают место на диске</li>
+<li>замедляют <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code></li>
+<li>требуют обслуживания и статистики</li>
+<li>могут не использоваться, если запрос написан неудачно или фильтр слишком широкий</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Типы индексов">
+<p>Частые типы индексов:</p>
+<table class="task-table">
+<thead><tr><th>Тип</th><th>Где полезен</th></tr></thead>
+<tbody>
+<tr><td><b>B-Tree</b></td><td>равенство, диапазоны, сортировка, самый частый выбор</td></tr>
+<tr><td><b>Hash</b></td><td>точный поиск по равенству</td></tr>
+<tr><td><b>GIN / inverted</b></td><td>массивы, JSONB, full-text search</td></tr>
+<tr><td><b>GiST / spatial</b></td><td>геоданные, диапазоны, специальные типы</td></tr>
+<tr><td><b>Partial</b></td><td>индекс только на часть строк</td></tr>
+<tr><td><b>Functional</b></td><td>индекс по выражению, например <code>lower(email)</code></td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если online inference читает последние признаки пользователя, запрос вида:</p>
+
+</div>
+<div class="code-block" data-lang="sql">SELECT *
+FROM user_features
+WHERE user_id = 42
+ORDER BY event_time DESC
+LIMIT 1;</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>может выиграть от составного индекса:</p>
+
+</div>
+<div class="code-block" data-lang="sql">CREATE INDEX user_features_user_time_idx
+ON user_features (user_id, event_time DESC);</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Индексы нужно подбирать под реальные запросы, а не &quot;на всякий случай&quot;. Для этого смотрят <code>EXPLAIN</code>, <code>EXPLAIN ANALYZE</code>, slow query logs, Query Analytics в PMM или аналоги в конкретной СУБД.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/102785/" target="_blank" rel="noopener">Обзор типов индексов Oracle, MySQL, PostgreSQL, MS SQL</a></td><td>Краткий обзор B-Tree, Hash, Bitmap, inverted, partial и functional indexes.</td></tr>
+<tr><td><a href="https://use-the-index-luke.com/" target="_blank" rel="noopener">Use The Index, Luke</a></td><td>Классический практический ресурс про SQL-индексы и tuning запросов.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_indexes" target="_blank" rel="noopener">Индексы в PostgreSQL: B-tree, GIN, частичные, составные</a></li>
+<li><a href="../../../db/postgresql.html#pg_explain" target="_blank" rel="noopener">Как читать EXPLAIN и EXPLAIN ANALYZE</a></li>
+<li><a href="../../../db/postgresql.html#pg_pgvector" target="_blank" rel="noopener">Векторные индексы pgvector: IVFFlat и HNSW</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужны индексы?</b></p>
+<p>Чтобы ускорять чтение и поиск строк, избегая полного просмотра больших таблиц.</p>
+</li>
+<li><p><b>Почему нельзя проиндексировать все столбцы?</b></p>
+<p>Индексы занимают место, замедляют запись и усложняют обслуживание. Лишний индекс может вредить.</p>
+</li>
+<li><p><b>Что должен уметь ML Engineer?</b></p>
+<p>Понимать, почему фича-сервис или выгрузка датасета стали медленными, читать план запроса на базовом уровне и обсуждать индекс с backend/data-инженерами.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="sharding_replication" data-badge-type="additional" data-interview="2" data-title-link="https://habr.com/ru/articles/555920/">
+  <div class="name" id="sharding_replication">
+    <a class="question-title-link" href="https://habr.com/ru/articles/555920/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое sharding и replication?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Replication</b> — копирование данных между несколькими узлами БД.</p>
+<p><b>Sharding</b> — горизонтальное разбиение данных на части, где разные шарды хранят разные строки или ключи.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Репликация и шардинг решают разные задачи.</p>
+<table class="task-table">
+<thead><tr><th>Механизм</th><th>Что даёт</th><th>Типичный риск</th></tr></thead>
+<tbody>
+<tr><td><b>Replication</b></td><td>Отказоустойчивость, read replicas, резервные копии</td><td>задержка репликации, split-brain, сложный failover</td></tr>
+<tr><td><b>Sharding</b></td><td>Масштабирование объёма данных и записи</td><td>сложные <code>JOIN</code>, ребалансировка, выбор shard key</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если inference-сервис много читает справочник признаков, можно добавить read-replica и разгрузить primary. Если же таблица событий выросла до терабайтов и запись упирается в один узел, может понадобиться шардинг или перенос аналитической нагрузки в ClickHouse/BigQuery/Snowflake.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Шардинг почти всегда дороже, чем кажется. До него часто пробуют:</p>
+<ul>
+<li>правильные индексы</li>
+<li>партиционирование</li>
+<li>read replicas</li>
+<li>кэширование</li>
+<li>перенос аналитики из OLTP-БД</li>
+<li>архивирование старых данных</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/537594/" target="_blank" rel="noopener">Что такое транзакция</a></td><td>Контекст про согласованность операций в БД.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/130577/" target="_blank" rel="noopener">CAP-теорема простым, доступным языком</a></td><td>Полезно читать рядом с репликацией и распределёнными БД.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/328792/" target="_blank" rel="noopener">Всё, что вы не знали о CAP теореме</a></td><td>Более глубокий взгляд на распределённые компромиссы.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/redis.html#redis_replication_cluster" target="_blank" rel="noopener">Репликация и шардирование в Redis Cluster</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем репликация отличается от шардинга?</b></p>
+<p>Репликация создаёт копии одних и тех же данных. Шардинг делит разные части данных между узлами.</p>
+</li>
+<li><p><b>Что такое lag репликации?</b></p>
+<p>Задержка между записью на primary и появлением этих данных на replica. Из-за lag можно прочитать устаревшее состояние.</p>
+</li>
+<li><p><b>Почему shard key важен?</b></p>
+<p>От него зависит равномерность распределения данных и запросов. Плохой ключ приводит к горячим шардам и сложным запросам между шардами.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db_monitoring" data-badge-type="additional" data-interview="1" data-title-link="https://habr.com/ru/articles/694724/">
+  <div class="name" id="db_monitoring">
+    <a class="question-title-link" href="https://habr.com/ru/articles/694724/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что мониторить в базе данных?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>DB monitoring</b> — наблюдение за состоянием БД, запросами и инфраструктурой вокруг неё: CPU, RAM, диск, соединения, задержки, ошибки, репликация, slow queries и алерты.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer мониторинг БД важен, потому что деградация БД часто выглядит как &quot;модель стала медленной&quot;, хотя проблема находится в чтении признаков, записи предсказаний или перегруженной аналитической витрине.</p>
+<p>Базовые группы метрик:</p>
+<table class="task-table">
+<thead><tr><th>Группа</th><th>Что смотреть</th></tr></thead>
+<tbody>
+<tr><td><b>Инфраструктура</b></td><td>CPU, RAM, disk I/O, свободное место, network</td></tr>
+<tr><td><b>Подключения</b></td><td>число соединений, idle connections, pool saturation</td></tr>
+<tr><td><b>Запросы</b></td><td>QPS, latency, slow queries, locks, ошибки</td></tr>
+<tr><td><b>Хранилище</b></td><td>размер таблиц и индексов, bloat, рост данных</td></tr>
+<tr><td><b>Репликация</b></td><td>lag, состояние replica, failover</td></tr>
+<tr><td><b>Бэкапы</b></td><td>успешность, длительность, возможность восстановления</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Инструменты">
+<p>Часто встречаются:</p>
+<ul>
+<li><b>PMM (Percona Monitoring and Management)</b> — мониторинг, алерты и query analytics для БД</li>
+<li><b>Prometheus + Grafana</b> — сбор метрик и дашборды</li>
+<li><b>Zabbix</b> — классический мониторинг инфраструктуры и сервисов</li>
+<li><b>postgres_exporter / mysqld_exporter / mongodb_exporter</b> — экспортеры метрик для Prometheus</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если latency inference выросла, полезно проверить:</p>
+<ol>
+<li>не вырос ли p95/p99 запросов к feature store</li>
+<li>не закончились ли соединения в pool</li>
+<li>нет ли долгих блокировок</li>
+<li>не читает ли пайплайн обучения тяжёлую таблицу с primary</li>
+<li>не отстаёт ли реплика, из которой читается offline-аналитика</li>
+</ol>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/694724/" target="_blank" rel="noopener">Как настроить open-source мониторинг для вашей БД?</a></td><td>Вводная статья про PMM: мониторинг, алерты и query analytics.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/760728/" target="_blank" rel="noopener">Ad-hoc мониторинг: сбор, хранение и визуализация данных</a></td><td>Пример локального сбора, хранения и визуализации мониторинговых данных.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/tensor/articles/502478/" target="_blank" rel="noopener">Мониторим базу PostgreSQL — кто виноват, и что делать</a></td><td>Практический разбор мониторинга PostgreSQL и поиска причин проблем.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/480902/" target="_blank" rel="noopener">Новые возможности postgres_exporter для мониторинга PostgreSQL</a></td><td>Про Prometheus exporter для PostgreSQL.</td></tr>
+<tr><td><a href="https://shrihariharidas73.medium.com/unlocking-database-insights-monitoring-mysql-with-prometheus-and-grafana-ddd2c4f01929" target="_blank" rel="noopener">Monitoring MySQL with Prometheus and Grafana</a></td><td>Пример мониторинга MySQL через Prometheus и Grafana.</td></tr>
+<tr><td><a href="https://www.zabbix.com/ru/integrations/postgresql" target="_blank" rel="noopener">Шаблон PostgreSQL для Zabbix</a></td><td>Готовая интеграция PostgreSQL в Zabbix.</td></tr>
+<tr><td><a href="https://logz.io/blog/mongodb-monitoring-prometheus-best-practices/" target="_blank" rel="noopener">Best Practices for MongoDB Monitoring with Prometheus</a></td><td>Практики мониторинга MongoDB через Prometheus.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_explain" target="_blank" rel="noopener">EXPLAIN ANALYZE для медленных запросов</a></li>
+<li><a href="../../../db/postgresql.html#pg_mvcc_vacuum" target="_blank" rel="noopener">Раздувание таблиц и VACUUM</a></li>
+<li><a href="../../../db/redis.html#redis_eviction" target="_blank" rel="noopener">maxmemory и вытеснение в Redis</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие метрики БД важно смотреть первыми?</b></p>
+<p>CPU, RAM, disk I/O, свободное место, количество соединений, latency запросов, slow queries, locks, ошибки и replication lag.</p>
+</li>
+<li><p><b>Почему slow queries важны для ML-сервисов?</b></p>
+<p>Даже хорошая модель будет отвечать медленно, если признаки или метаданные достаются неэффективным запросом.</p>
+</li>
+<li><p><b>Что такое query analytics?</b></p>
+<p>Анализ запросов к БД: какие запросы выполняются чаще всего, сколько занимают времени и какую нагрузку создают.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db_security" data-interview="1" data-title-link="https://habr.com/ru/articles/550882/">
+  <div class="name" id="db_security">
+    <a class="question-title-link" href="https://habr.com/ru/articles/550882/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Как думать о безопасности БД?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Безопасность БД</b> — набор практик, которые защищают данные от несанкционированного доступа, утечек, случайного удаления, подмены и нарушения доступности.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer безопасность БД особенно важна из-за данных. Обучающие выборки часто содержат персональные данные, бизнес-события, финансовые признаки или чувствительные тексты. Ошибка в доступах или выгрузке может быть дороже ошибки модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Основные практики">
+<p>Базовый минимум:</p>
+<ul>
+<li>принцип наименьших привилегий</li>
+<li>отдельные пользователи для приложения, аналитики, мониторинга и пайплайнов</li>
+<li>запрет shared-аккаунтов</li>
+<li>секреты в secret manager, а не в коде и ноутбуках</li>
+<li>TLS для соединений</li>
+<li>сетевые ограничения: private network, firewall, allowlist</li>
+<li>регулярные бэкапы и проверка восстановления</li>
+<li>аудит действий и логирование подозрительных запросов</li>
+<li>маскирование или обезличивание чувствительных данных</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для пайплайна обучения лучше создать отдельного пользователя с <code>SELECT</code> только на нужные витрины, а не выдавать права администратора на всю БД. Если пайплайн должен писать результаты, запись можно ограничить конкретной схемой или таблицами.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Мониторинг безопасности — это не только &quot;поймать взлом&quot;. Полезно видеть:</p>
+<ul>
+<li>неудачные попытки логина</li>
+<li>обращения к системным таблицам</li>
+<li>массовые выгрузки</li>
+<li>изменение ролей и паролей</li>
+<li>создание дампов</li>
+<li>доступ с непривычных адресов</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/550882/" target="_blank" rel="noopener">Обеспечение безопасности базы данных PostgreSQL</a></td><td>Практический обзор мер безопасности PostgreSQL.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/gaz-is/articles/753298/" target="_blank" rel="noopener">Как прикрыть уязвимости PostgreSQL</a></td><td>Большой материал про уязвимости, контроль и защиту PostgreSQL.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/pgdayrussia/articles/329306/" target="_blank" rel="noopener">Руководство по безопасности MongoDB</a></td><td>Перевод руководства по security-практикам MongoDB.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/solarsecurity/articles/705550/" target="_blank" rel="noopener">Тест-драйв «Гарда БД»: восемь базовых проверок</a></td><td>Что проверять в системах Database Activity Monitoring.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/vk/articles/760268/" target="_blank" rel="noopener">Защищай, но проверяй. Как самостоятельно защитить СУБД от взлома</a></td><td>Практический взгляд на самостоятельную проверку защиты СУБД.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подробнее в разделе «Базы данных»">
+<ul>
+<li><a href="../../../db/postgresql.html#pg_python" target="_blank" rel="noopener">Параметризованные запросы из Python</a></li>
+<li><a href="../../../db/postgresql.html#pg_constraints" target="_blank" rel="noopener">Ограничения целостности в PostgreSQL</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое принцип наименьших привилегий?</b></p>
+<p>Пользователь или сервис получает только те права, которые нужны для работы, и ничего сверх этого.</p>
+</li>
+<li><p><b>Почему нельзя хранить пароли от БД в ноутбуках?</b></p>
+<p>Ноутбуки часто попадают в git, шарятся между людьми и запускаются в разных окружениях. Секреты должны жить в secret manager или переменных окружения, управляемых платформой.</p>
+</li>
+<li><p><b>Что особенно важно для ML-данных?</b></p>
+<p>Контроль доступа, обезличивание, аудит выгрузок, корректная работа с персональными данными и отделение production-данных от исследовательских окружений.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="db_additional_resources" data-interview="1" data-title-link="https://habr.com/ru/companies/selectel/articles/710484/">
+  <div class="name" id="db_additional_resources">
+    <a class="question-title-link" href="https://habr.com/ru/companies/selectel/articles/710484/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Дополнительные материалы по БД<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="remark" data-title="Раздел «Базы данных»">
+<table class="task-table">
+<thead><tr><th>Страница</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="../../../db/redis.html" target="_blank" rel="noopener">Redis</a></td><td>Структуры данных, TTL, кэширование и инвалидация кэша, Redis в ML-сервисах.</td></tr>
+<tr><td><a href="../../../db/postgresql.html" target="_blank" rel="noopener">PostgreSQL</a></td><td>SQL для ML, оконные функции, EXPLAIN и индексы, MVCC, pgvector.</td></tr>
+<tr><td><a href="../../../practise/db/postgresql.html" target="_blank" rel="noopener">Практика: PostgreSQL</a></td><td>Задачи с автопроверкой по SQL.</td></tr>
+<tr><td><a href="../../../practise/db/redis.html" target="_blank" rel="noopener">Практика: Redis</a></td><td>Задачи с автопроверкой по Redis.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Инструменты">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://marketplace.visualstudio.com/items?itemName=ms-ossdata.vscode-pgsql" target="_blank" rel="noopener">PostgreSQL plugin for Visual Studio Code</a></td><td>Расширение VS Code для работы с PostgreSQL.</td></tr>
+<tr><td><a href="https://use-the-index-luke.com/" target="_blank" rel="noopener">Use The Index, Luke</a></td><td>Практический ресурс про индексы, планы запросов и SQL performance.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Курсы">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://sql-academy.org/ru/guide" target="_blank" rel="noopener">SQL Academy</a></td><td>Интерактивный учебник по SQL.</td></tr>
+<tr><td><a href="https://stepik.org/course/551/promo" target="_blank" rel="noopener">Stepik: Введение в базы данных</a></td><td>Базовый курс по БД и SQL.</td></tr>
+<tr><td><a href="https://stepik.org/course/197661/promo?search=4607582887" target="_blank" rel="noopener">Stepik: SQL для анализа данных</a></td><td>Практика SQL для аналитических задач.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PL0lO_mIqDDFXcxN3fRjc-EOWZLqW8dLVV" target="_blank" rel="noopener">YouTube-плейлист по SQL</a></td><td>Видеокурс по SQL .</td></tr>
+<tr><td><a href="https://www.youtube.com/@PostgresProfessional/featured" target="_blank" rel="noopener">Postgres Professional на YouTube</a></td><td>Канал с лекциями и докладами по PostgreSQL.</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные источники">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://youtu.be/GQfC0nYrto8?si=ei5_N1QPamgkGWiK" target="_blank" rel="noopener">YouTube: GQfC0nYrto8</a></td><td>Видео по базам данных .</td></tr>
+<tr><td><a href="https://youtu.be/IBzTDkYNB7I?si=ZNETSljoMp42RldD" target="_blank" rel="noopener">YouTube: IBzTDkYNB7I</a></td><td>Видео по базам данных .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=jcsG-IlJ-SA" target="_blank" rel="noopener">YouTube: jcsG-IlJ-SA</a></td><td>Видео по базовым темам БД .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=vFmajCQ7Wuc" target="_blank" rel="noopener">YouTube: vFmajCQ7Wuc</a></td><td>Видео по базам данных .</td></tr>
+<tr><td><a href="https://youtu.be/qdNlt8wR_84?si=wzuJp_S9E6zmVNgb" target="_blank" rel="noopener">YouTube: qdNlt8wR_84</a></td><td>Видео по базам данных .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=Yh4CrPHVBdE&list=PLiMWaCMwGJXnhmmh5pu9sdWekdRwAzV5f&index=3" target="_blank" rel="noopener">Плейлист по БД</a></td><td>Плейлист .</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLBheEHDcG7-k1Y_Uy04Dj2ylWhcfSfqoF" target="_blank" rel="noopener">Плейлист SQL / БД</a></td><td>YouTube-плейлист из раздела курсов.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLnh8EajVFTl5q3x1Mp6Fh9YEvv70dL6re" target="_blank" rel="noopener">Плейлист PostgreSQL</a></td><td>YouTube-плейлист по PostgreSQL.</td></tr>
+</tbody>
+</table>
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      
+        <!-- Карточка входа в тест -->
+        <div class="quiz-entry" 
+             data-quiz-id="mlops:databases"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

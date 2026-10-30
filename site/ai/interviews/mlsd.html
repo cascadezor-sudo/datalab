@@ -1,0 +1,955 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>MLSD</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <script defer src="../../assets/js/core.js"></script>
+    <script defer src="../../assets/js/questions.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <style>
+      .mlsd-canvas-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+      }
+
+      .mlsd-canvas-figure {
+        margin: 16px 0 0;
+        text-align: center;
+      }
+
+      .mlsd-canvas-figure a {
+        display: block;
+      }
+
+      .mlsd-canvas-figure img {
+        width: 100%;
+        max-height: 72vh;
+        object-fit: contain;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--bg-secondary);
+        cursor: zoom-in;
+      }
+
+      .mlsd-canvas-figure figcaption {
+        margin-top: 8px;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+    </style>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="interviews">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">MLSD</h1>
+            <p class="subtitle">Как проходить ML System Design и защищать проекты из резюме</p>
+          </div>
+          <div class="page-header-cta">
+            <a class="page-header-button" href="../../ai/interviews/index.html">К разделу Интервью</a>
+          </div>
+        </div>
+      </header>
+
+      <h2 id="mlsd-what">Что такое MLSD</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Архитектура" />
+            </div>
+            <h2 class="card-title">Суть формата</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Определение" data-type="definition">
+              MLSD — это собеседование по проектированию ML-системы end-to-end: от бизнес-задачи и данных до модели, сервиса, мониторинга, стоимости и отказоустойчивости.
+            </div>
+            <div class="info-card-auto" data-title="Главное" data-type="remark">
+              На MLSD оценивают не только знание моделей. Смотрят, умеешь ли ты превращать неопределенную продуктовую задачу в рабочую архитектуру с понятными компромиссами.
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/question.svg" alt="Вопросы" />
+            </div>
+            <h2 class="card-title">Что проверяют</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Чек-лист" data-type="definition">
+              <ul>
+                <li>Умеешь ли уточнять требования и ограничения.</li>
+                <li>Понимаешь ли данные, разметку, leakage и feedback loop.</li>
+                <li>Можешь ли выбрать baseline, модель и метрики.</li>
+                <li>Понимаешь ли offline/online pipeline, deployment и monitoring.</li>
+                <li>Умеешь ли объяснять trade-offs: качество, latency, стоимость, масштаб, надежность.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-strategy">Главная стратегия прохождения</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/guide.svg" alt="Стратегия" />
+            </div>
+            <h2 class="card-title">Не начинай с модели</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Правило" data-type="definition">
+              В начале MLSD нельзя сразу говорить "возьмем BERT/LightGBM/LLM". Сначала фиксируем задачу, пользователей, сценарии, метрики, ограничения и только потом переходим к ML-части.
+            </div>
+            <div class="info-card-auto" data-title="Формула ответа" data-type="explanation">
+              Задача -> требования -> метрики -> данные -> baseline -> модель -> offline pipeline -> online serving -> evaluation -> monitoring -> scaling -> риски.
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/chat.svg" alt="Диалог" />
+            </div>
+            <h2 class="card-title">Веди интервьюера</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Как говорить" data-type="definition">
+              <ul>
+                <li>Проговаривай план: "Сначала уточню требования, затем нарисую high-level схему".</li>
+                <li>Задавай уточняющие вопросы, но не зависай на них.</li>
+                <li>Каждый выбор объясняй через ограничение: latency, cost, data quality, freshness, traffic.</li>
+                <li>После каждого блока делай мини-резюме и переходи дальше.</li>
+              </ul>
+            </div>
+            <div class="info-card-auto" data-title="Ошибка" data-type="remark">
+              Плохой MLSD — это набор несвязанных технологий. Хороший MLSD — это связная история о системе, где понятно, почему каждый компонент появился.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-order">Порядок рассказа на MLSD</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/progress.svg" alt="Порядок" />
+            </div>
+            <h2 class="card-title">Сценарий ответа</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Последовательность" data-type="definition">
+              <ol>
+                <li><b>Clarify:</b> кто пользователь, какой сценарий, что считается успехом.</li>
+                <li><b>Metrics:</b> ML-метрики, продуктовые метрики, технические SLO.</li>
+                <li><b>High-level design:</b> нарисовать компоненты и поток данных.</li>
+                <li><b>Data:</b> источники, разметка, freshness, качество, leakage.</li>
+                <li><b>Baseline:</b> простая эвристика или классическая модель.</li>
+                <li><b>Modeling:</b> модель, признаки, обучение, валидация, ablation.</li>
+                <li><b>Offline pipeline:</b> сбор данных, feature engineering, training, registry.</li>
+                <li><b>Online pipeline:</b> API, feature lookup, inference, cache, fallback.</li>
+                <li><b>Evaluation:</b> offline, online A/B, human eval, guardrails.</li>
+                <li><b>Deployment:</b> CI/CD, canary, rollback, shadow mode.</li>
+                <li><b>Monitoring:</b> качество, latency, cost, drift, data health.</li>
+                <li><b>Scaling:</b> throughput, batch/stream, sharding, queues, storage.</li>
+                <li><b>Risks:</b> cold start, bias, security, privacy, деградации.</li>
+                <li><b>Next steps:</b> что улучшать после MVP.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/time.svg" alt="Тайминг" />
+            </div>
+            <h2 class="card-title">Тайминг</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Ориентир" data-type="explanation">
+              <ul>
+                <li>2-3 минуты — уточнение задачи и метрик.</li>
+                <li>5 минут — схема и основные компоненты.</li>
+                <li>5-7 минут — данные, baseline, модель, обучение.</li>
+                <li>5-7 минут — serving, monitoring, scaling, риски.</li>
+              </ul>
+            </div>
+            <div class="info-card-auto" data-title="Практика" data-type="remark">
+              Если интервьюер перебивает и уводит глубже в один блок — нормально. Но до перебивания ты должен показать, что видишь систему целиком.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-diagram">Что рисовать во время MLSD</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/roadmap.svg" alt="Схема" />
+            </div>
+            <h2 class="card-title">Визуальная схема обязательна</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Инструменты" data-type="definition">
+              Рисуй решение в Obsidian Canvas, Miro, Excalidraw или draw.io. На MLSD схема важнее красивых формулировок: она показывает, что ты держишь систему в голове.
+            </div>
+            <div class="info-card-auto" data-title="Что должно быть на схеме" data-type="explanation">
+              <ul>
+                <li>Пользователь или внешний клиент.</li>
+                <li>API/backend и основные сервисы.</li>
+                <li>Источники данных и хранилища.</li>
+                <li>Feature pipeline или retrieval pipeline.</li>
+                <li>Training pipeline и model registry.</li>
+                <li>Inference service, cache, fallback.</li>
+                <li>Monitoring, алерты, feedback loop.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/warning.svg" alt="Ошибки" />
+            </div>
+            <h2 class="card-title">Как не испортить схему</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Антипаттерны" data-type="remark">
+              <ul>
+                <li>Рисовать только модель без данных, API и мониторинга.</li>
+                <li>Не показывать offline/online разделение.</li>
+                <li>Не показывать обратную связь от пользователей.</li>
+                <li>Не отмечать fallback, cache и деградации.</li>
+                <li>Использовать названия технологий без объяснения потока данных.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-answer-template">Шаблон MLSD-ответа</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/chat.svg" alt="Фразы" />
+            </div>
+            <h2 class="card-title">Готовые переходы</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Шаблон" data-type="explanation">
+              <ul>
+                <li>"Сначала зафиксирую задачу и ограничения, чтобы не проектировать в вакууме".</li>
+                <li>"Для MVP я бы начал с простого baseline, чтобы быстро получить нижнюю планку качества".</li>
+                <li>"Дальше разделю систему на offline training и online serving".</li>
+                <li>"Основной trade-off здесь — качество против latency/cost".</li>
+                <li>"Для продакшна нужен fallback, потому что модель может деградировать или быть недоступной".</li>
+                <li>"Мониторить будем не только latency, но и data drift, prediction drift и бизнес-метрики".</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/achievement.png" alt="Финал" />
+            </div>
+            <h2 class="card-title">Как закрывать ответ</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Финал" data-type="definition">
+              В конце коротко повтори архитектуру, назови главный риск и предложи следующий шаг: A/B-тест, улучшение данных, оптимизация inference, расширение мониторинга или переход от MVP к production-grade версии.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-checklist">Чек-лист перед собеседованием</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/progress.svg" alt="Чек-лист" />
+            </div>
+            <h2 class="card-title">Что подготовить</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Перед MLSD" data-type="definition">
+              <ul>
+                <li>2-3 схемы своих проектов из резюме в Obsidian Canvas / Miro.</li>
+                <li>Метрики: ML, продуктовые, технические.</li>
+                <li>Ограничения: latency, traffic, data freshness, cost, privacy.</li>
+                <li>Список trade-offs и альтернатив, которые рассматривались.</li>
+                <li>Пояснение, что именно делал ты лично.</li>
+                <li>Fallback-ответы про scaling, monitoring, drift, cold start, canary, rollback.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/test.png" alt="Тренировка" />
+            </div>
+            <h2 class="card-title">Как тренироваться</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Практика" data-type="explanation">
+              Запиши на видео 15-минутный рассказ по каждому проекту: 2 минуты high-level, 5 минут architecture, 5 минут ML/data, 3 минуты production/risks. После записи проверь, есть ли в рассказе схема, метрики, trade-offs и личный вклад.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-examples">Примеры MLSD-планов к разным проектам</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/form.svg" alt="Шаблон" />
+            </div>
+            <h2 class="card-title">Единый шаблон</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Заполнять для каждого проекта" data-type="definition">
+              <ol>
+                <li>Название проекта и бизнес-задача.</li>
+                <li>Пользователи и сценарий использования.</li>
+                <li>Входные данные, разметка, freshness, объем.</li>
+                <li>Baseline и почему он подходит для MVP.</li>
+                <li>ML-подход, признаки, модель, обучение.</li>
+                <li>Offline pipeline: data validation, training, registry.</li>
+                <li>Online pipeline: API, feature lookup/retrieval, inference, cache.</li>
+                <li>Метрики качества, продуктовые метрики, SLO.</li>
+                <li>Monitoring: drift, latency, errors, cost, деградация качества.</li>
+                <li>Scaling: очереди, батчинг, шардирование, autoscaling, storage.</li>
+                <li>Риски и edge cases.</li>
+                <li>Что лично сделал кандидат.</li>
+                <li>2-минутная версия и 15-20-минутная MLSD-версия рассказа.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="mlsd-projects">Проекты из резюме</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp.svg" alt="RAG" />
+            </div>
+            <h2 class="card-title">RAG-поиск для службы поддержки</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> отвечать на вопросы операторов/пользователей по базе документов и снижать MTTR.</li>
+                <li><b>Данные:</b> статьи, инструкции, тикеты, FAQ, история обращений; контроль freshness и прав доступа.</li>
+                <li><b>Baseline:</b> BM25/keyword search + ручной выбор статей.</li>
+                <li><b>ML:</b> embeddings, FAISS/Chroma, reranker, генерация ответа LLM с citations.</li>
+                <li><b>Offline:</b> парсинг документов, chunking, embedding, индекс, evaluation set.</li>
+                <li><b>Online:</b> query -> retrieve top-K -> rerank -> context packing -> LLM -> ответ с источниками.</li>
+                <li><b>Метрики:</b> Recall@K, MRR, groundedness, answer accuracy, MTTR, latency P95.</li>
+                <li><b>Monitoring:</b> пустые выдачи, hallucinations, drift документов, cost/query, feedback операторов.</li>
+                <li><b>Личный вклад:</b> retrieval pipeline, FastAPI, индексация, метрики, мониторинг, продакшн-интеграция.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/rocket.svg" alt="Inference" />
+            </div>
+            <h2 class="card-title">Оптимизация LLM-инференса</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> снизить latency P95 и стоимость GPU при сохранении качества.</li>
+                <li><b>Данные:</b> реальные запросы, распределение длины промптов, traffic peaks, SLA.</li>
+                <li><b>Baseline:</b> исходный LLM endpoint без батчинга/квантования.</li>
+                <li><b>ML/Infra:</b> fp16/int8, quantization, KV-cache, continuous batching, streaming.</li>
+                <li><b>Offline:</b> benchmark на replay-наборе, качество до/после, профилирование.</li>
+                <li><b>Online:</b> gateway -> queue/batcher -> model server -> streaming response -> logs.</li>
+                <li><b>Метрики:</b> TTFT, tokens/sec, P50/P95/P99 latency, cost/query, error rate, quality guardrails.</li>
+                <li><b>Monitoring:</b> GPU utilization, queue depth, OOM, timeout, деградация качества.</li>
+                <li><b>Личный вклад:</b> benchmarking, выбор оптимизаций, production rollout, canary/rollback.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/classicml.png" alt="Scoring" />
+            </div>
+            <h2 class="card-title">Кредитный скоринг</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> предсказывать риск дефолта и снижать FPR без потери recall по плохим заемщикам.</li>
+                <li><b>Данные:</b> анкета, транзакции, история платежей, антифрод-сигналы, временная валидация.</li>
+                <li><b>Baseline:</b> logistic regression / rules.</li>
+                <li><b>ML:</b> LightGBM/CatBoost/scikit-learn, calibration, feature importance, fairness checks.</li>
+                <li><b>Offline:</b> PySpark ETL, feature generation, train/validation by time, model registry.</li>
+                <li><b>Online:</b> заявка -> feature lookup -> model scoring -> decision rules -> audit log.</li>
+                <li><b>Метрики:</b> AUC, FPR, recall, approval rate, bad rate, business loss/profit.</li>
+                <li><b>Monitoring:</b> PSI, drift признаков, approval distribution, default rate, latency.</li>
+                <li><b>Личный вклад:</b> pipeline, модель, валидация, rollout, объяснимость для бизнеса.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/k8s.png" alt="Kubernetes" />
+            </div>
+            <h2 class="card-title">Миграция сервисов в Kubernetes</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> ускорить релизы, снизить инфраструктурные расходы и повысить надежность ML/API-сервисов.</li>
+                <li><b>Данные:</b> инвентарь сервисов, нагрузка, зависимости, SLO, стоимость текущей инфраструктуры.</li>
+                <li><b>Baseline:</b> ручные деплои/VM/docker-compose без autoscaling.</li>
+                <li><b>Архитектура:</b> EKS/K8s, ingress, service discovery, secrets, CI/CD, observability.</li>
+                <li><b>Offline/CI:</b> build images, tests, security scan, deployment manifests.</li>
+                <li><b>Online:</b> traffic routing, canary, HPA, rollback, logs/metrics/traces.</li>
+                <li><b>Метрики:</b> deployment time, uptime, error rate, infra cost, release frequency.</li>
+                <li><b>Monitoring:</b> pod health, CPU/GPU/memory, saturation, alerts, incident metrics.</li>
+                <li><b>Личный вклад:</b> миграционный план, CI/CD, Helm/manifests, rollout, снижение cost.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp.svg" alt="Whisper" />
+            </div>
+            <h2 class="card-title">ASR на Whisper</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> транскрибировать аудио с низким WER и приемлемой задержкой.</li>
+                <li><b>Данные:</b> аудиозаписи, разметка, языки, шумы, доменные термины, privacy.</li>
+                <li><b>Baseline:</b> готовый Whisper без доменного fine-tuning.</li>
+                <li><b>ML:</b> fine-tuning Whisper, VAD, normalization, post-processing, confidence scores.</li>
+                <li><b>Offline:</b> dataset curation, augmentation, training, validation by speaker/domain.</li>
+                <li><b>Online:</b> upload/stream -> preprocessing -> ASR inference -> postprocess -> transcript.</li>
+                <li><b>Метрики:</b> WER/CER, latency, throughput, manual correction rate.</li>
+                <li><b>Monitoring:</b> audio duration, failure rate, WER proxy, queue depth, GPU utilization.</li>
+                <li><b>Личный вклад:</b> fine-tuning, FastAPI inference, latency optimization, monitoring.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp-agents.png" alt="Summarization" />
+            </div>
+            <h2 class="card-title">mBART-саммаризация диалогов</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> сокращать длинные диалоги саппорта до краткого, точного summary.</li>
+                <li><b>Данные:</b> диалоги, итоговые заметки операторов, языки, PII, токсичность/ошибки.</li>
+                <li><b>Baseline:</b> extractive summary или шаблонные правила.</li>
+                <li><b>ML:</b> mBART/seq2seq, factual consistency checks, length control.</li>
+                <li><b>Offline:</b> очистка диалогов, train/eval, human eval, regression set.</li>
+                <li><b>Online:</b> dialogue chunks -> summarizer -> factuality guardrail -> final summary.</li>
+                <li><b>Метрики:</b> ROUGE/BERTScore, factual consistency, human acceptance, MTTR.</li>
+                <li><b>Monitoring:</b> hallucinations, PII leaks, summary length, operator feedback.</li>
+                <li><b>Личный вклад:</b> модель, evaluation, интеграция в workflow саппорта, guardrails.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/cv.png" alt="CLIP" />
+            </div>
+            <h2 class="card-title">Семантический поиск CLIP + FAISS</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> искать визуальные ассеты/кадры по тексту и ускорять рабочий процесс монтажа.</li>
+                <li><b>Данные:</b> изображения/видео, captions, metadata, права доступа, обновления индекса.</li>
+                <li><b>Baseline:</b> поиск по тегам и filenames.</li>
+                <li><b>ML:</b> CLIP embeddings, FAISS index, optional rerank, deduplication.</li>
+                <li><b>Offline:</b> extraction кадров, embedding jobs, index build, validation queries.</li>
+                <li><b>Online:</b> text query -> embedding -> FAISS top-K -> filters -> results UI/API.</li>
+                <li><b>Метрики:</b> Recall@K, MRR, search success rate, time-to-asset, cost/query.</li>
+                <li><b>Monitoring:</b> index freshness, embedding failures, empty results, latency.</li>
+                <li><b>Личный вклад:</b> embedding pipeline, FAISS, quantization/cost reduction, API.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/link.svg" alt="RecSys" />
+            </div>
+            <h2 class="card-title">Рекомендательная система</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="MLSD-план" data-type="definition">
+              <ul>
+                <li><b>Задача:</b> повысить CTR, повторные заказы и retention через персональные рекомендации.</li>
+                <li><b>Данные:</b> события пользователей, товары/контент, заказы, просмотры, признаки сегментов.</li>
+                <li><b>Baseline:</b> popularity, rules, TF-IDF similarity.</li>
+                <li><b>ML:</b> ALS, candidate generation, ranking model, сегментация, exploration.</li>
+                <li><b>Offline:</b> event ETL, negative sampling, training, evaluation by time split.</li>
+                <li><b>Online:</b> user -> candidates -> ranking -> business rules -> recommendations.</li>
+                <li><b>Метрики:</b> NDCG@K, Recall@K, CTR, conversion, repeat orders, churn.</li>
+                <li><b>Monitoring:</b> coverage, diversity, popularity bias, cold start, CTR drift.</li>
+                <li><b>Личный вклад:</b> модели, feature pipeline, AWS/Docker/GitHub Actions, A/B-метрики.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-recordings">Примеры MLSD в записях</h2>
+      <div class="cards-grid">
+        <a class="card" href="../../ai/interviews/videos.html?type=mlsd">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/interviews.svg" alt="Записи MLSD" />
+            </div>
+            <h2 class="card-title">Все MLSD-записи</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Открыть страницу записей с фильтром MLSD.
+            </p>
+            <span class="card-link">Смотреть MLSD</span>
+          </div>
+        </a>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp.svg" alt="RAG" />
+            </div>
+            <h2 class="card-title">MLSD по RAG</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Пример" data-type="example">
+              Проектирование RAG-системы: корпоративный ассистент для работы с документами. Используй как пример для проектов про retrieval, LLM, citations, hallucination control и feedback loop.
+            </div>
+            <a href="../../ai/interviews/videos.html?type=mlsd&amp;topic=RAG">Открыть запись по RAG</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp-agents.png" alt="Agents" />
+            </div>
+            <h2 class="card-title">MLSD по мультиагентным системам</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Пример" data-type="example">
+              Проектирование корпоративного ассистента для аналитики и принятия решений. Используй как пример для проектов, где есть orchestration, tools, memory, planning, evaluation и safety.
+            </div>
+            <a href="../../ai/interviews/videos.html?type=mlsd&amp;topic=Agents">Открыть запись по Agents</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid mlsd-canvas-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp.svg" alt="RAG" />
+            </div>
+            <h2 class="card-title">Канва: MLSD по RAG</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Схема проектирования RAG: ingestion, retrieval, generation, evaluation и улучшения пайплайна.
+            </p>
+            <figure class="mlsd-canvas-figure">
+              <a href="../../images/interviews/mlsd-rag.png" target="_blank" rel="noopener noreferrer">
+                <img
+                  src="../../images/interviews/mlsd-rag.png"
+                  alt="Канва MLSD: проектирование RAG-системы"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </a>
+              <figcaption>Нажми на схему, чтобы открыть в полном размере</figcaption>
+            </figure>
+            <a href="../../ai/interviews/videos.html?type=mlsd&amp;topic=RAG">Открыть запись по RAG</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/nlp-agents.png" alt="Agents" />
+            </div>
+            <h2 class="card-title">Канва: MLSD по мультиагентам</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Схема мультиагентной системы: router, planner, retrieval, critic, memory и online-сервис.
+            </p>
+            <figure class="mlsd-canvas-figure">
+              <a
+                href="../../images/interviews/mlsd-multi-agents.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="../../images/interviews/mlsd-multi-agents.png"
+                  alt="Канва MLSD: мультиагентная система"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </a>
+              <figcaption>Нажми на схему, чтобы открыть в полном размере</figcaption>
+            </figure>
+            <a href="../../ai/interviews/videos.html?type=mlsd&amp;topic=Agents">Открыть запись по Agents</a>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="mlsd-related">Связанные материалы</h2>
+      <div class="cards-grid">
+        <a class="card" href="../../ai/interviews/legend.html">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/chat.svg" alt="Легенда" />
+            </div>
+            <h2 class="card-title">Легенда</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Подготовка self-pitch и сильных историй по проектам.</p>
+            <span class="card-link">Открыть легенду</span>
+          </div>
+        </a>
+
+        <a class="card" href="../../ai/interviews/cv.html">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/report.png" alt="Резюме" />
+            </div>
+            <h2 class="card-title">Резюме</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Проекты и формулировки, которые нужно разворачивать в MLSD-планы.</p>
+            <span class="card-link">Открыть резюме</span>
+          </div>
+        </a>
+
+        <a class="card" href="../../ai/interviews/your_questions.html">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/question.svg" alt="Вопросы" />
+            </div>
+            <h2 class="card-title">Вопросы интервьюеру</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Вопросы про команду, стек, процессы и ожидания на MLSD.</p>
+            <span class="card-link">Открыть вопросы</span>
+          </div>
+        </a>
+
+        <a class="card" href="../../ai/roadmap/architecture.html">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Архитектура" />
+            </div>
+            <h2 class="card-title">Архитектура ML-систем</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Роадмап по архитектуре ML-систем и системному проектированию.</p>
+            <span class="card-link">Открыть роадмап</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- firebase-sdk-auth:start -->
+      
+      
+      <!-- firebase-sdk-auth:end -->
+      <script src="../../authGuard.js"></script>
+
+      <button aria-label="Наверх" id="scrollToTopBtn" type="button">
+        <svg
+          fill="none"
+          height="24"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <script src="../../assets/js/init-page.js"></script>
+    </main>
+  </body>
+</html>

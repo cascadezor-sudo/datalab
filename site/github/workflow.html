@@ -1,0 +1,1032 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Github Actions</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/quiz.js"></script>
+    <script src="../assets/js/components/block-tests.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Workflow</span>
+            <span class="pill pill--soft">GitHub</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Github Actions</h1>
+          <p class="section-shell__desc">CI/CD, воркфлоу и автоматизация в GitHub.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+
+        <h3>Блок 8</h3>
+        <!-- md:replace:gha-basics:start -->
+<li class="question" data-md-source="true" data-md-id="gha-basics" data-interview="3">
+  <div class="name" id="gha-basics">
+    GitHub Workflow
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Workflow — это YAML-файл в <code>.github/workflows/</code>, состоящий из триггеров (<code>on</code>), наборов заданий (<code>jobs</code>) и шагов (<code>steps</code>).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда нужно автоматизировать сборку, тесты, линтинг, релизы или деплой.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Hello from workflow"</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем нужен workflow">
+<p>Workflow облегчает жизнь разработчикам, автоматизируя рутинные задачи внутри репозитория.</p>
+<ul>
+<li><b>Экономия времени:</b> не нужно вручную запускать тесты, линтеры или сборку — всё делается автоматически при каждом пуше или пулл-реквесте.</li>
+<li><b>Повышение качества кода:</b> проверки (CI) запускаются всегда по одним и тем же правилам, уменьшая вероятность ошибок из-за &quot;человеческого фактора&quot;.</li>
+<li><b>Единообразие процессов:</b> все сборки, тесты и релизы проходят одинаково — нет различий между локальной машиной и сервером.</li>
+<li><b>Ускорение релизов:</b> быстро видеть, прошёл ли код все проверки — и если нет, сразу понятно, где ошибка.</li>
+<li><b>Автоматизация любых действий:</b> можно подключить деплой, автообновление документации, публикацию пакетов и т.д.</li>
+<li><b>Прозрачность:</b> история всех запусков workflow хранится на GitHub.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Где лежат workflow GitHub Actions?</b></p>
+<p>В <code>.github/workflows/*.yml</code> (или <code>.yaml</code>).</p>
+</li>
+<li><p><b>Из чего состоит минимальный workflow?</b></p>
+<p>Триггер <code>on</code>, один или несколько <code>jobs</code>, внутри — <code>steps</code> с <code>uses</code> или <code>run</code>.</p>
+</li>
+<li><p><b>Чем job отличается от step?</b></p>
+<p>Job — параллельная единица на runner; step — последовательная команда внутри job.</p>
+</li>
+<li><p><b>Зачем запускать CI на каждый push и PR?</b></p>
+<p>Одинаковые автоматические проверки у всех и прозрачная история «зелёный/красный» в GitHub.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-basics:end -->
+
+        <!-- md:replace:gha-badges:start -->
+<li class="question" data-md-source="true" data-md-id="gha-badges" data-interview="1">
+  <div class="name" id="gha-badges">
+    Badges
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Badges — это динамические значки в <code>README.md</code>, показывающие статус CI/CD, покрытие тестами, версии и другие метрики проекта.</p>
+
+</div>
+<div class="code-block" data-lang="markdown"># В README.md:
+[![CI Status](https://github.com/user/repo/actions/workflows/ci.yml/badge.svg)](https://github.com/user/repo/actions)
+[![Coverage](https://codecov.io/gh/user/repo/branch/main/graph/badge.svg)](https://codecov.io/gh/user/repo)
+[![License](https://img.shields.io/github/license/user/repo)](LICENSE)</div><figure style="text-align: center">
+  <img alt="Badges" src="../images/github/badges.png" width="1132" height="169" loading="lazy" decoding="async" style="max-width: 750px; width: 100%; height: auto" />
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<ul>
+<li>GitHub Actions автоматически генерирует badge для каждого workflow</li>
+<li>Цвет значка меняется в зависимости от статуса: зелёный (успех), красный (ошибка), жёлтый (в процессе)</li>
+<li>Клик по значку ведёт на страницу с деталями проверок</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем нужны бейджи">
+<p>Чтобы дать быстрый обзор состояния проекта и показать, что код регулярно тестируется и поддерживается.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Откуда берётся badge статуса CI в README?</b></p>
+<p>URL вида <code>.../actions/workflows/&lt;имя&gt;.yml/badge.svg</code> — GitHub отдаёт картинку по состоянию последнего run.</p>
+</li>
+<li><p><b>Меняется ли badge автоматически?</b></p>
+<p>Да — после каждого завершённого workflow run.</p>
+</li>
+<li><p><b>Зачем badge coverage или Python version?</b></p>
+<p>Быстро показать зрителю репозитория актуальные метрики без чтения CI.</p>
+</li>
+<li><p><b>Почему badge не заменяет просмотр логов?</b></p>
+<p>Показывает только pass/fail; причина ошибки — в Actions tab.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-badges:end -->
+
+        <!-- md:replace:gha-triggers:start -->
+<li class="question" data-md-source="true" data-md-id="gha-triggers" data-interview="2">
+  <div class="name" id="gha-triggers">
+    Триггеры
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Триггеры определяют, когда запускать workflow: по событиям GitHub, по CRON, вручную.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p><code>push/pull_request</code> — CI; <code>schedule</code> — периодические задачи; <code>workflow_dispatch</code> — ручной запуск с параметрами.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/triggers.yml
+name: Triggers
+on:
+  push:
+    branches: [main]
+    paths: ["src/**"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Target environment"
+        required: true
+        default: "staging"
+  schedule:
+    - cron: "0 6 * * 1"   # каждую неделю по понедельникам 06:00 UTC
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Triggered!"</div><div class="code-block" data-lang="yaml"># Запуск по таймеру (каждый день в 3:30 UTC)
+on:
+  schedule:
+    - cron: "30 3 * * *"
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Nightly job"</div><div class="code-block" data-lang="yaml"># Ручной запуск с параметрами (workflow_dispatch)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App version'
+        required: true
+        default: 'latest'
+      dry_run:
+        description: 'Dry run?'
+        required: false
+        default: 'false'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deploy ${{ github.event.inputs.version }} (dry_run: ${{ github.event.inputs.dry_run }})"</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем нужны триггеры">
+<p>Триггеры позволяют автоматически запускать workflow в нужные моменты:</p>
+<ul>
+<li><b>push/pull_request:</b> проверяют код сразу после коммита или при создании/изменении PR.</li>
+<li><b>schedule (cron):</b> полезно для регулярной проверки статуса проекта.</li>
+<li><b>workflow_dispatch:</b> позволяет запускать процессы вручную и передавать параметры.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какой триггер запускает CI при открытии PR?</b></p>
+<p><code>pull_request</code> (и часто <code>push</code> в ветку PR).</p>
+</li>
+<li><p><b>Для чего нужен <code>schedule</code> с cron?</b></p>
+<p>Периодические задачи: ночные тесты, обновление зависимостей, мониторинг.</p>
+</li>
+<li><p><b>Что даёт <code>workflow_dispatch</code>?</b></p>
+<p>Ручной запуск workflow из UI GitHub, иногда с параметрами.</p>
+</li>
+<li><p><b>Почему важно не ставить CI на каждое событие подряд без фильтров?</b></p>
+<p>Лишние запуски тратят минуты Actions и замедляют feedback.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-triggers:end -->
+
+        <!-- md:replace:gha-python-matrix:start -->
+<li class="question" data-md-source="true" data-md-id="gha-python-matrix" data-interview="1">
+  <div class="name" id="gha-python-matrix">
+    Проверка разных версий Python
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Матрица версий Python позволяет прогонять тесты параллельно на нескольких версиях интерпретатора.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Поддерживаете несколько версий Python (например, 3.9–3.12) и хотите гарантировать совместимость.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/python-matrix.yml
+name: Python Matrix
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements.txt
+      - run: pytest</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем это нужно">
+<p>Использование матрицы версий Python в CI помогает автоматизировать проверку кода на нескольких поддерживаемых версиях интерпретатора. Это гарантирует, что проект будет <b>корректно работать у всех пользователей</b> — независимо от того, какую версию Python они используют.</p>
+<p>Такой подход позволяет заранее обнаружить несовместимости (например, если используется новая конструкция языка или устаревшая зависимость) и повысить качество и надёжность библиотеки или приложения.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>strategy.matrix</code> в job?</b></p>
+<p>Запускает job несколько раз с разными значениями (например, версии Python).</p>
+</li>
+<li><p><b>Как в step обратиться к версии из матрицы?</b></p>
+<p><code>${{ matrix.python-version }}</code> в <code>setup-python</code> или команде.</p>
+</li>
+<li><p><b>Зачем тестировать на 3.9 и 3.12 одновременно?</b></p>
+<p>Поймать несовместимость синтаксиса и зависимостей до релиза.</p>
+</li>
+<li><p><b>Параллельны ли job&#39;ы матрицы?</b></p>
+<p>Да — каждая комбинация matrix обычно идёт отдельным runner&#39;ом.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-python-matrix:end -->
+        
+        <!-- md:replace:gha-os-matrix:start -->
+<li class="question" data-md-source="true" data-md-id="gha-os-matrix" data-interview="1">
+  <div class="name" id="gha-os-matrix">
+    Проверка на разных ОС
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Матрица по ОС позволяет запускать те же проверки на Linux, Windows и macOS, выявляя системные различия.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Кроссплатформенные библиотеки/CLI, нативные зависимости, различия путей, прав, оболочек.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/os-matrix.yml
+name: OS Matrix
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements.txt
+      - run: pytest -q</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем это нужно">
+<p>Использование матрицы по ОС в CI помогает автоматизировать проверку кода на разных операционных системах. Это гарантирует, что проект будет <b>корректно работать на всех платформах</b> — независимо от того, какую операционную систему использует пользователь.</p>
+<p>Такой подход позволяет заранее обнаружить несовместимости (например, нативные зависимости или различия в путях файловой системы) и повысить надёжность библиотеки или приложения.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем matrix по <code>ubuntu</code>, <code>windows</code>, <code>macos</code>?</b></p>
+<p>Поймать баги путей, прав, shell и нативных библиотек, видимые только на одной ОС.</p>
+</li>
+<li><p><b>Почему на Windows падает <code>rm -rf</code>, написанный в bash-стиле?</b></p>
+<p>По умолчанию другая оболочка и другие команды — нужен <code>shell: bash</code> или кроссплатформенный скрипт.</p>
+</li>
+<li><p><b>Что указывают в <code>runs-on</code> для matrix?</b></p>
+<p><code>${{ matrix.os }}</code> — например <code>ubuntu-latest</code>, <code>windows-latest</code>.</p>
+</li>
+<li><p><b>Когда matrix по ОС избыточен?</b></p>
+<p>Для чистого Linux-сервиса без кроссплатформенных пользователей.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-os-matrix:end -->
+        
+        <h3>Блок 9</h3>
+        <!-- md:replace:gha-multiple-workflows:start -->
+<li class="question" data-md-source="true" data-md-id="gha-multiple-workflows" data-badge-type="additional" data-interview="1">
+  <div class="name" id="gha-multiple-workflows">
+    Несколько workflow в проекте
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В репозитории может быть несколько независимых workflow для разных целей: CI, линтинг, релизы, деплой, периодические проверки.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Когда нужно разделить ответственность, ускорить сборки, ограничить триггеры и права по задачам.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/
+#   ci.yml     — сборка+тесты для всех пушей/PR
+#   lint.yml   — быстрый линт и format-check на PR
+#   nightly.yml — ночные проверки по расписанию
+
+# ci.yml — общий CI
+name: CI
+on: [push, pull_request]
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt &amp;&amp; pytest -q
+
+# lint.yml — быстрые статические проверки
+name: Lint
+on:
+  pull_request:
+    paths: ["src/**", ".github/workflows/lint.yml"]
+permissions: { contents: read }
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run pre-commit run --all-files
+
+# nightly.yml — запускается по расписанию
+name: Nightly
+on:
+  schedule:
+    - cron: "0 2 * * *"
+permissions: { contents: read }
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/smoke.sh</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Разделение на несколько workflow даёт точные триггеры, разные <code>permissions</code>, независимые статусы в PR и быстрее обратную связь.</p>
+<ul>
+<li><b>Гибкость в настройке триггеров:</b> можно запускать разные проверки на разные события.</li>
+<li><b>Быстрее обратная связь:</b> статические проверки (lint) идут параллельно с тестами.</li>
+<li><b>Прозрачность статусов:</b> в pull request отображаются отдельные статусы для каждого workflow.</li>
+<li><b>Изоляция прав:</b> каждому workflow можно задать свои <code>permissions</code> и секреты.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Сколько workflow может быть в одном репозитории?</b></p>
+<p>Несколько независимых YAML в <code>.github/workflows/</code>.</p>
+</li>
+<li><p><b>Зачем разделять CI и deploy на разные файлы?</b></p>
+<p>Разные триггеры, права и статусы checks в PR.</p>
+</li>
+<li><p><b>Запускаются ли все workflow на каждый push?</b></p>
+<p>Только те, чьи <code>on:</code> совпали с событием (если нет path-фильтров, мешающих запуску).</p>
+</li>
+<li><p><b>Как nightly-тесты не мешать быстрому PR CI?</b></p>
+<p>Вынести в отдельный workflow с <code>schedule</code>, без тяжёлых step в основном CI.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-multiple-workflows:end -->
+        
+        <!-- md:replace:gha-contexts:start -->
+<li class="question" data-md-source="true" data-md-id="gha-contexts" data-badge-type="additional" data-interview="1">
+  <div class="name" id="gha-contexts">
+    Контексты и выражения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Контексты (например, <code>github</code>, <code>env</code>, <code>secrets</code>) дают доступ к данным события и окружению; выражения пишутся как <code>${{ ... }}</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для условного выполнения шагов, доступа к секретам и параметрам запуска.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/if-secrets.yml
+name: Conditions
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - if: ${{ github.ref == 'refs/heads/main' }}
+        run: echo "Main branch build"
+      - run: echo "Key: ${{ secrets.API_KEY }}"</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем это нужно">
+<p>Контексты и выражения делают workflow гибкими и адаптивными:</p>
+<ul>
+<li><b>Гибкая логика:</b> можно запускать шаги только при определённых условиях (например, только для main-ветки).</li>
+<li><b>Безопасность:</b> секреты и токены не прописываются прямо в коде, а подтягиваются из <code>secrets</code>.</li>
+<li><b>Переиспользуемость:</b> значения меняются автоматически в зависимости от контекста.</li>
+<li><b>Удобство поддержки:</b> легко менять поведение workflow путём изменения переменных или секретов.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как в YAML обратиться к имени ветки в событии push?</b></p>
+<p><code>${{ github.ref_name }}</code> или контекст <code>github</code> в выражении.</p>
+</li>
+<li><p><b>Где брать секреты в workflow?</b></p>
+<p><code>${{ secrets.MY_TOKEN }}</code> — значения задаются в Settings, не в коде репозитория.</p>
+</li>
+<li><p><b>Зачем <code>if: github.ref == &#39;refs/heads/main&#39;</code> на step?</b></p>
+<p>Выполнять шаг только для ветки <code>main</code> (например, деплой).</p>
+</li>
+<li><p><b>Почему нельзя печатать secrets в логах?</b></p>
+<p>GitHub может их замаскировать, но утечка через echo всё равно риск компрометации.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-contexts:end -->
+        
+        <!-- md:replace:gha-permissions:start -->
+<li class="question" data-md-source="true" data-md-id="gha-permissions" data-badge-type="additional" data-interview="2">
+  <div class="name" id="gha-permissions">
+    Права и безопасность
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>permissions</code> задаёт права токена <code>GITHUB_TOKEN</code>; секреты хранятся в настройках; версии actions желательно фиксировать.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Всегда — принцип наименьших прав и закрепление версий (sha) для сторонних actions.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/permissions.yml
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "${{ secrets.API_KEY }}"</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Уменьшение прав снижает риск злоупотреблений; секреты не логируйте и не печатайте в явном виде.</p>
+<ul>
+<li><b>Минимизация рисков:</b> если у workflow меньше прав, злоумышленник не сможет навредить даже при уязвимости.</li>
+<li><b>Защита секретов:</b> секреты (пароли, токены) не попадают в логи и случайные коммиты.</li>
+<li><b>Контроль версий actions:</b> закрепляя версию стороннего действия (по SHA), вы защищены от неявного обновления с уязвимостью.</li>
+<li><b>Аудит:</b> видно, кто и для чего получает доступ — легче обнаружить лишние привилегии.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что ограничивает блок <code>permissions</code> в workflow?</b></p>
+<p>Права автоматического <code>GITHUB_TOKEN</code> на contents, packages, pull-requests и т.д.</p>
+</li>
+<li><p><b>Зачем принцип наименьших прав для CI?</b></p>
+<p>Скомпрометированный workflow или action не сможет лишний раз писать в репозиторий.</p>
+</li>
+<li><p><b>Почему actions лучше пинить на commit SHA, а не на <code>@v3</code>?</b></p>
+<p>Тег может быть переписан; SHA фиксирует конкретный код action.</p>
+</li>
+<li><p><b>Где хранить production-секреты?</b></p>
+<p>GitHub Secrets / Environments, не в <code>.env</code> внутри git.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-permissions:end -->     
+      
+        <h3>Блок 10</h3>
+        <!-- md:replace:gha-reusable:start -->
+<li class="question" data-md-source="true" data-md-id="gha-reusable" data-badge-type="additional" data-interview="1">
+  <div class="name" id="gha-reusable">
+    Переиспользуемые workflow
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Workflow можно вызывать из другого workflow через <code>workflow_call</code>, передавая параметры и секреты.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для DRY-подхода в монорепах и мультипроектах.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/reusable.yml (библиотечный)
+on:
+  workflow_call:
+    inputs:
+      node:
+        required: true
+        type: string
+    secrets:
+      NPM_TOKEN:
+        required: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ inputs.node }}" }
+      - run: npm ci
+
+# .github/workflows/consumer.yml (использующий)
+name: Consumer
+on: [push]
+jobs:
+  use:
+    uses: ./.github/workflows/reusable.yml
+    with:
+      node: "20"
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это нужно">
+<p>Переиспользуемые workflow позволяют централизовать общие процессы (тесты, сборка, публикация) и избавляют от дублирования кода в CI/CD — достаточно обновить логику только в одном месте. Особенно полезно для монорепозиториев и команд с множеством схожих продуктовых потоков.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какой ключ включает reusable workflow?</b></p>
+<p><code>on: workflow_call</code> в вызываемом файле.</p>
+</li>
+<li><p><b>Как вызвать его из другого workflow?</b></p>
+<p>Job с <code>uses: org/repo/.github/workflows/ci.yml@ref</code> и блок <code>with:</code> / <code>secrets:</code>.</p>
+</li>
+<li><p><b>Зачем DRY для CI в монорепо?</b></p>
+<p>Общие шаги lint/test меняют в одном месте, а не в десяти копиях YAML.</p>
+</li>
+<li><p><b>Что передают через <code>secrets: inherit</code>?</b></p>
+<p>Проброс секретов вызывающего репозитория в reusable workflow без дублирования имён.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-reusable:end -->
+        
+        <!-- md:replace:gha-monorepo:start -->
+<li class="question" data-md-source="true" data-md-id="gha-monorepo" data-interview="1">
+  <div class="name" id="gha-monorepo">
+    Выборочные запуски и path-фильтры
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В монорепо можно запускать job&#39;ы только при изменениях в нужных пакетах с помощью <code>paths</code>/<code>paths-ignore</code> и условий.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Чтобы ускорить CI и экономить минуты при работе с множеством пакетов.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/monorepo.yml
+name: Monorepo selective CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/api/**"
+      - ".github/workflows/monorepo.yml"
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cd packages/api &amp;&amp; npm ci &amp;&amp; npm test</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это нужно">
+<p>Выборочные запуски с помощью <code>paths</code> нужны для экономии CI-минут в больших репозиториях:</p>
+<ul>
+<li><b>Экономия ресурсов:</b> запускаются только те проверки, которые реально нужны при изменении определённых директорий.</li>
+<li><b>Быстрее обратная связь:</b> тесты одного пакета запускаются независимо.</li>
+<li><b>Удобно для монорепозитория:</b> если в проекте много под-проектов, можно настроить запуск только нужных workflow.</li>
+<li><b>Чище история билдов:</b> нет &quot;шумных&quot; запусков в Actions.</li>
+</ul>
+<p><b>Пример:</b> если у вас 5 пакетов, но вы меняете лишь один — CI проверит только его.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делают <code>paths</code> / <code>paths-ignore</code> в <code>on.push</code>?</b></p>
+<p>Запускают workflow только если изменились файлы по указанным шаблонам.</p>
+</li>
+<li><p><b>Зачем это в монорепо с десятком пакетов?</b></p>
+<p>Не гонять тесты API, если меняли только документацию другого модуля.</p>
+</li>
+<li><p><b>Можно ли комбинировать path-фильтр с <code>if</code> на job?</b></p>
+<p>Да — двойная защита: не стартовать лишний job и не выполнять дорогие step.</p>
+</li>
+<li><p><b>Какой риск у слишком агрессивных <code>paths-ignore</code>?</b></p>
+<p>Пропустить поломку, если общий конфиг влияет на несколько пакетов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-monorepo:end -->
+        
+        <!-- md:replace:gha-timeouts-retries:start -->
+<li class="question" data-md-source="true" data-md-id="gha-timeouts-retries" data-interview="1">
+  <div class="name" id="gha-timeouts-retries">
+    Timeouts, retries и продолжение при ошибках
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>timeout-minutes</code> ограничивает длительность job/step; повторные попытки и игнорирование ошибок управляются стратегиями и <code>continue-on-error</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Для контроля зависающих задач и экспериментальных проверок.</p>
+
+</div>
+<div class="code-block" data-lang="yaml"># .github/workflows/timeouts.yml
+name: Timeouts
+on: [push]
+jobs:
+  flaky:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - run: ./run-flaky-tests.sh
+        continue-on-error: true</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это нужно">
+<ul>
+<li><b><code>timeout-minutes</code>:</b> позволяет избежать зависания job/step на неопределённое время. Экономит CI-минуты и ускоряет обратную связь.</li>
+<li><b><code>continue-on-error</code>:</b> иногда отдельный шаг не критичен для всего пайплайна — позволяет идти дальше даже при ошибке.</li>
+<li><b>Retries (strategy):</b> для нестабильных (&quot;flaky&quot;) тестов полезно задавать попытки повторного запуска.</li>
+</ul>
+<p>Все эти параметры вместе повышают надёжность CI: pipeline быстрее выявляет реальные проблемы и освобождает ресурсы при зависаниях.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем <code>timeout-minutes</code> на job?</b></p>
+<p>Остановить зависший процесс и не занимать runner бесконечно.</p>
+</li>
+<li><p><b>Что делает <code>continue-on-error: true</code> на step?</b></p>
+<p>Workflow продолжится, даже если шаг упал — полезно для некритичных проверок.</p>
+</li>
+<li><p><b>Когда уместны retries для flaky-тестов?</b></p>
+<p>Временные сетевые сбои; но лучше чинить тест, а не маскировать баг.</p>
+</li>
+<li><p><b>Чем опасен слишком большой timeout?</b></p>
+<p>Долго платите минутами Actions и поздно узнаёте о зависании.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:gha-timeouts-retries:end -->
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="github:workflow"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+</body></html>

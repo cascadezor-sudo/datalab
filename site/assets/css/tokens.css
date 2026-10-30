@@ -1,0 +1,1155 @@
+@import url("./fonts.css");
+
+/* =====================================================
+   DESIGN TOKENS — Single source of truth
+   All CSS custom properties live here.
+   Every other stylesheet references these.
+   ===================================================== */
+
+/* ── Color primitives ────────────────────────────────── */
+:root {
+  /* Purple scale — legacy (градиенты/старый контент) */
+  --purple-50: #f5f3ff;
+  --purple-100: #ede9fe;
+  --purple-200: #ddd6fe;
+  --purple-300: #c4b5fd;
+  --purple-400: #a78bfa;
+  --purple-500: #7c6bef;
+  --purple-600: #6d5ef0;
+  --purple-700: #5b4ee0;
+  --purple-800: #4c3fc7;
+  --purple-900: #3d31a8;
+
+  /* Blue scale — палитра «синий + розовый» (основной синий) */
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+
+  /* Green / forest — палитра «зелёный + коричневый» */
+  --forest-100: #dcfce7;
+  --forest-200: #bbf7d0;
+  --forest-500: #22c55e;
+  --forest-600: #16a34a;
+  --forest-700: #15803d;
+  --forest-800: #166534;
+  --forest-900: #14532d;
+
+  /* Brown — второй тон earth */
+  --brown-700: #a16207;
+  --brown-800: #92400e;
+  --brown-900: #78350f;
+
+  /* Teal scale — нейтральный акцент (не входит в пару classic) */
+  --teal-100: #ccfbf1;
+  --teal-300: #5eead4;
+  --teal-400: #2dd4bf;
+  --teal-500: #14b8a6;
+  --teal-600: #0d9488; /* main teal */
+  --teal-700: #0f766e;
+
+  /* Neutral / surface */
+  --neutral-0: #ffffff;
+  --neutral-50: #fafaf9;
+  --neutral-100: #f5f4f2;
+  --neutral-150: #eeede9;
+  --neutral-200: #e5e4e0;
+  --neutral-300: #d0cfc9;
+  --neutral-400: #a8a69e;
+  --neutral-500: #7a7870;
+  --neutral-600: #56554e;
+  --neutral-700: #3a3930;
+  --neutral-800: #252420;
+  --neutral-900: #111110;
+
+  /* Dark-mode surfaces (cool dark) */
+  --dark-50: #f0f3fa;
+  --dark-100: #e0e6f4;
+  --dark-800: #1c2230;
+  --dark-850: #161b24;
+  --dark-900: #0d1117;
+  --dark-950: #090d14;
+}
+
+/* ── Semantic tokens — Light theme (default) — палитра Vibecode ─ */
+:root {
+  /* Surfaces — warm off-white, сине-розовая пара (Vibecode) */
+  --bg: #f5f1eb; /* warm cream canvas (original) */
+  --bg-secondary: #edeae3; /* subtle inset */
+  --bg-card: #fcfbf8; /* warm white card (original) */
+  --bg-elevated: #fffffe; /* dropdowns, tooltips */
+  --bg-nav: rgba(252, 251, 248, 0.9); /* navbar glass */
+
+  /* Text */
+  --text: #1a1a1a; /* warm near-black (original) */
+  --text-muted: #4a5568;
+  --text-subtle: #718096;
+  --text-inverse: var(--neutral-0);
+
+  /* Brand — пара «синий + розовый» (только эти два оттенка) */
+  --brand: var(--blue-600);
+  --brand-hover: var(--blue-700);
+  --brand-light: var(--blue-100);
+  --brand-text: var(--neutral-0);
+  --brand-secondary: #ec4899;
+
+  /* Второй тон пары = розовый (не отдельная бирюза) */
+  --accent: var(--brand-secondary);
+  --accent-hover: #db2777;
+  --accent-light: #fce7f3;
+
+  /* Functional colors */
+  --success: #16a34a;
+  --success-light: #dcfce7;
+  --warning: #d97706;
+  --warning-light: #fef3c7;
+  --danger: #dc2626;
+  --danger-light: #fee2e2;
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  /* Borders */
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --border-brand: rgba(37, 99, 235, 0.35);
+
+  /* Shadows (warm-neutral) */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.09), 0 4px 8px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.06);
+
+  /* Матовое стекло: плашки, через которые просвечивает фон страницы */
+  /* Opaque glass fallback avoids expensive live backdrop compositing. */
+  --surface-glass-bg: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  --surface-glass-border: color-mix(
+    in srgb,
+    var(--border-strong) 38%,
+    transparent
+  );
+  --surface-glass-blur: none;
+  --surface-glass-shadow: var(--shadow-sm);
+
+  /* Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Spacing (unchanged from previous system) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* Typography */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Transition */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Container */
+  --container-max-width: 1200px;
+  --container-padding: var(--space-md);
+
+  /* ── Legacy name aliases (backward compat) ── */
+  --bg-color: var(--bg);
+  --card-bg: var(--bg-card);
+  --card-border: var(--border);
+  --text-color: var(--text);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --nav-bg: var(--bg-nav);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: var(--blue-300);
+  --primary: var(--brand);
+  /* Светлый синий — второй оттенок той же пары (не третий цвет) */
+  --primary-2: var(--blue-400);
+  --muted: var(--text-muted);
+  --bg-2: var(--bg-card);
+  --card: rgba(0, 0, 0, 0.025);
+  --border-color: var(--border);
+  --shadow: var(--shadow-md);
+  /* Note: --shadow-lg and --radius-xl are already defined above — no alias needed */
+  --primary-color: var(--brand);
+  --success-color: var(--success);
+  --warning-color: var(--warning);
+  --danger-color: var(--danger);
+  --nav-search-margin: 6px;
+
+  /* Доли акцента при смешении с нейтралью / фоном (+~3% к прежним hero): едино для hero, иконок, brand */
+  --mix-accent-surface-a: 59%;
+  --mix-accent-surface-b: 51%;
+
+  /* Лёгкое свечение подложки страницы — в том же ключе, что hero (+~3% к 18/15/12) */
+  --mix-page-glow-brand: 21%;
+  --mix-page-glow-primary-2: 18%;
+  --mix-page-glow-secondary: 15%;
+
+  /* Gradient system — из пары синий ↔ розовый, приглушённо как hero */
+  --gradient-brand: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-index-hero: var(--gradient-brand);
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-600) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--blue-800) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-teal: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-500) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--blue-700) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-secondary: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  --gradient-success: linear-gradient(
+    135deg,
+    color-mix(in srgb, #065f46 var(--mix-accent-surface-a), var(--neutral-600)),
+    color-mix(in srgb, #10b981 var(--mix-accent-surface-b), var(--neutral-700))
+  );
+  --gradient-warning: linear-gradient(
+    135deg,
+    color-mix(in srgb, #92400e var(--mix-accent-surface-a), var(--neutral-600)),
+    color-mix(in srgb, #f59e0b var(--mix-accent-surface-b), var(--neutral-700))
+  );
+  --gradient-info: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-800) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-purple: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-700) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-orange: linear-gradient(
+    135deg,
+    color-mix(in srgb, #ea580c var(--mix-accent-surface-a), var(--neutral-600)),
+    color-mix(in srgb, #fdba74 var(--mix-accent-surface-b), var(--neutral-700))
+  );
+  --gradient-section: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.08),
+    rgba(236, 72, 153, 0.07)
+  );
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-secondary) 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  /* Legacy section tokens */
+  --section-definition: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.1),
+    rgba(96, 165, 250, 0.08)
+  );
+  --section-remark: linear-gradient(
+    135deg,
+    rgba(236, 72, 153, 0.11),
+    rgba(244, 114, 182, 0.08)
+  );
+  --section-example: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.12),
+    rgba(37, 99, 235, 0.06)
+  );
+  --section-explanation: linear-gradient(
+    135deg,
+    rgba(236, 72, 153, 0.08),
+    rgba(244, 114, 182, 0.06)
+  );
+  --section-exercise: linear-gradient(
+    135deg,
+    rgba(255, 193, 7, 0.1),
+    rgba(255, 152, 0, 0.1)
+  );
+
+  /* Leaderboard metals */
+  --gold-color: #fbbf24;
+  --silver-color: #9ca3af;
+  --bronze-color: #d97706;
+}
+
+/* ── Semantic tokens — Dark theme ────────────────────── */
+[data-theme="dark"] body {
+  /* Surfaces */
+  --bg: var(--dark-900);
+  --bg-secondary: var(--dark-850);
+  --bg-card: var(--dark-800);
+  --bg-elevated: #212b3a;
+  --bg-nav: rgba(13, 17, 23, 0.9);
+
+  /* Text */
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-subtle: #6e7681;
+  --text-inverse: var(--neutral-900);
+
+  /* Brand — синий + розовый (тёмная тема) */
+  --brand: var(--blue-400);
+  --brand-hover: var(--blue-300);
+  --brand-light: rgba(96, 165, 250, 0.15);
+  --brand-secondary: #f472b6;
+
+  --accent: var(--brand-secondary);
+  --accent-hover: #f9a8d4;
+  --accent-light: rgba(244, 114, 182, 0.12);
+
+  /* Functional */
+  --success: #22c55e;
+  --success-light: rgba(34, 197, 94, 0.12);
+  --warning: #f59e0b;
+  --warning-light: rgba(245, 158, 11, 0.12);
+  --danger: #f87171;
+  --danger-light: rgba(248, 113, 113, 0.12);
+  --info: var(--brand);
+  --info-light: rgba(96, 165, 250, 0.12);
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-brand: rgba(96, 165, 250, 0.3);
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.5), 0 8px 16px rgba(0, 0, 0, 0.35);
+
+  --surface-glass-bg: color-mix(in srgb, var(--bg-card) 86%, transparent);
+  --surface-glass-border: color-mix(in srgb, var(--border) 72%, transparent);
+  --surface-glass-blur: none;
+  --surface-glass-shadow: var(--shadow-sm);
+
+  /* Legacy aliases — dark overrides */
+  --bg-color: var(--bg);
+  --card-bg: var(--bg-card);
+  --card-border: var(--border);
+  --text-color: var(--text);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --nav-bg: var(--bg-nav);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: var(--blue-300);
+  --primary: var(--brand);
+  --primary-2: var(--blue-300);
+  --muted: var(--text-muted);
+  --bg-2: var(--bg-elevated);
+  --card: rgba(255, 255, 255, 0.04);
+  --border-color: var(--border);
+  --shadow: var(--shadow-md);
+  --primary-color: var(--brand);
+
+  /* Блики фона — те же шаги +3%, что в светлой теме */
+  --mix-page-glow-brand: 21%;
+  --mix-page-glow-primary-2: 18%;
+  --mix-page-glow-secondary: 15%;
+
+  /* Доли к тёмному фону и к карточке (чат) — в одной системе с hero */
+  --mix-accent-surface-a: 37%;
+  --mix-accent-surface-b: 27%;
+  --mix-accent-on-card-a: 43%;
+  --mix-accent-on-card-b: 33%;
+
+  /* Gradient overrides for dark */
+  --gradient-brand: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-index-hero: var(--gradient-brand);
+  --gradient-msg-user-dark: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-on-card-a),
+      var(--bg-card)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-on-card-b),
+      var(--bg-card)
+    )
+  );
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-800) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--blue-600) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-secondary: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+  --gradient-success: linear-gradient(
+    135deg,
+    color-mix(in srgb, #065f46 var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(in srgb, #10b981 var(--mix-accent-surface-b), var(--dark-950))
+  );
+  --gradient-warning: linear-gradient(
+    135deg,
+    color-mix(in srgb, #92400e var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(in srgb, #f59e0b var(--mix-accent-surface-b), var(--dark-950))
+  );
+  --gradient-teal: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-700) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--blue-500) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-info: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-800) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-purple: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--blue-600) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-orange: linear-gradient(
+    135deg,
+    color-mix(in srgb, #ea580c var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(in srgb, #fdba74 var(--mix-accent-surface-b), var(--dark-950))
+  );
+  --section-definition: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.12),
+    rgba(244, 114, 182, 0.08)
+  );
+
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-secondary) 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+}
+
+/* Earth — зелёно-коричневая пара */
+html.palette-earth,
+body.palette-earth {
+  --bg: #f6f3ec;
+  --bg-secondary: #ece5d8;
+  --bg-card: #fffdf7;
+  --bg-elevated: #fffaf0;
+  --bg-nav: rgba(255, 253, 247, 0.9);
+
+  --text: #18201b;
+  --text-muted: #5f6b60;
+  --text-subtle: #7b8478;
+
+  /* Зелёный — первый тон пары */
+  --brand: var(--forest-800);
+  --brand-hover: var(--forest-900);
+  --brand-light: var(--forest-200);
+  --brand-text: #ffffff;
+
+  /* Коричневый — второй тон пары */
+  --brand-secondary: var(--brown-800);
+  --accent: var(--brown-800);
+  --accent-hover: var(--brown-900);
+  --accent-light: #ffedd5;
+
+  --border: rgba(26, 38, 30, 0.12);
+  --border-strong: rgba(26, 38, 30, 0.22);
+  --border-brand: rgba(22, 101, 52, 0.38);
+
+  --primary: var(--brand);
+  /* Более светлый зелёный того же ряда (не отдельный бирюзовый) */
+  --primary-2: var(--forest-500);
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: var(--forest-200);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  /* Немного мягче классики: те же доли, что у hero; brand/hero наследуют формулу из :root с forest/brown */
+  --mix-accent-surface-a: 55%;
+  --mix-accent-surface-b: 47%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-800) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brown-800) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-teal: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-700) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--forest-500) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-info: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-900) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brown-800) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-purple: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-800) var(--mix-accent-surface-a),
+      var(--neutral-600)
+    ),
+    color-mix(
+      in srgb,
+      var(--brown-800) var(--mix-accent-surface-b),
+      var(--neutral-700)
+    )
+  );
+  --gradient-section: linear-gradient(
+    135deg,
+    rgba(22, 101, 52, 0.12),
+    rgba(146, 64, 14, 0.11)
+  );
+
+  --section-definition: linear-gradient(
+    135deg,
+    rgba(22, 101, 52, 0.14),
+    rgba(34, 197, 94, 0.08)
+  );
+  --section-remark: linear-gradient(
+    135deg,
+    rgba(146, 64, 14, 0.13),
+    rgba(120, 53, 15, 0.1)
+  );
+  --section-example: linear-gradient(
+    135deg,
+    rgba(34, 197, 94, 0.12),
+    rgba(22, 101, 52, 0.085)
+  );
+  --section-explanation: linear-gradient(
+    135deg,
+    rgba(22, 101, 52, 0.1),
+    rgba(146, 64, 14, 0.085)
+  );
+  --section-exercise: linear-gradient(
+    135deg,
+    rgba(154, 107, 47, 0.12),
+    rgba(245, 158, 11, 0.1)
+  );
+
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-secondary) 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  /* Плитки иконок — приглушённо, в одном стиле с классической темой */
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--forest-600) 55%, var(--neutral-400)) 0%,
+    color-mix(in srgb, var(--forest-800) 70%, var(--neutral-500)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--brown-800) 40%, var(--neutral-400)) 0%,
+    color-mix(in srgb, var(--brown-700) 55%, var(--neutral-500)) 100%
+  );
+}
+
+html.palette-earth[data-theme="dark"] body,
+html[data-theme="dark"].palette-earth,
+[data-theme="dark"] body.palette-earth {
+  --bg: #0e1512;
+  --bg-secondary: #121d18;
+  --bg-card: #17231d;
+  --bg-elevated: #1b2a23;
+  --bg-nav: rgba(14, 21, 18, 0.9);
+
+  --text: #edf5ed;
+  --text-muted: #aab9ac;
+  --text-subtle: #839286;
+
+  --brand: #4ade80;
+  --brand-hover: #86efac;
+  --brand-light: rgba(74, 222, 128, 0.14);
+
+  --brand-secondary: #d6a75f;
+  --accent: #d6a75f;
+  --accent-hover: #f0c986;
+  --accent-light: rgba(214, 167, 95, 0.14);
+
+  --border: rgba(237, 245, 237, 0.11);
+  --border-strong: rgba(237, 245, 237, 0.2);
+  --border-brand: rgba(74, 222, 128, 0.35);
+
+  --primary: var(--brand);
+  --primary-2: #86efac;
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: rgba(74, 222, 128, 0.22);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  /* Чуть больше акцента (+~3% к прошлой earth-dark), остальное — формула body.dark + mix */
+  --mix-accent-surface-a: 25%;
+  --mix-accent-surface-b: 19%;
+  --mix-accent-on-card-a: 35%;
+  --mix-accent-on-card-b: 29%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-700) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--brown-700) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-teal: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-600) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--forest-500) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-info: linear-gradient(
+    135deg,
+    color-mix(in srgb, #14532d var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-purple: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--forest-700) var(--mix-accent-surface-a),
+      var(--dark-950)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--dark-950)
+    )
+  );
+  --gradient-section: linear-gradient(
+    135deg,
+    rgba(74, 222, 128, 0.1),
+    rgba(214, 167, 95, 0.09)
+  );
+
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-secondary) 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  /* Тёмные плитки иконок — приглушённо */
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--forest-900) 85%, var(--dark-950)) 0%,
+    color-mix(in srgb, var(--forest-600) 35%, var(--dark-850)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--brown-900) 75%, var(--dark-950)) 0%,
+    color-mix(in srgb, var(--brown-700) 40%, var(--dark-850)) 100%
+  );
+}
+
+/* ── Sepia — тёплая «бумага», терракота + сиена ─────── */
+html.palette-sepia,
+body.palette-sepia {
+  --bg: #f2e8dc;
+  --bg-secondary: #e6d9c8;
+  --bg-card: #faf5eb;
+  --bg-elevated: #fff9f2;
+  --bg-nav: rgba(250, 245, 235, 0.92);
+
+  --text: #2c1810;
+  --text-muted: #6b5344;
+  --text-subtle: #826b5c;
+
+  --brand: #9c4221;
+  --brand-hover: #7c2d12;
+  --brand-light: rgba(156, 66, 33, 0.14);
+  --brand-text: #fff;
+
+  --brand-secondary: #5c3d2e;
+  --accent: var(--brand-secondary);
+  --accent-hover: #42231a;
+  --accent-light: rgba(92, 61, 46, 0.12);
+
+  --border: rgba(44, 24, 16, 0.12);
+  --border-strong: rgba(44, 24, 16, 0.22);
+  --border-brand: rgba(156, 66, 33, 0.4);
+
+  --primary: var(--brand);
+  --primary-2: #c2410c;
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: rgba(156, 66, 33, 0.18);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  --mix-accent-surface-a: 52%;
+  --mix-accent-surface-b: 44%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-surface-a),
+      var(--neutral-500)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--neutral-600)
+    )
+  );
+  --gradient-teal: linear-gradient(
+    135deg,
+    color-mix(in srgb, #9c4221 var(--mix-accent-surface-a), var(--neutral-500)),
+    color-mix(in srgb, #78350f var(--mix-accent-surface-b), var(--neutral-600))
+  );
+  --gradient-info: var(--gradient-primary);
+  --gradient-purple: var(--gradient-primary);
+  --gradient-section: linear-gradient(
+    135deg,
+    rgba(156, 66, 33, 0.12),
+    rgba(92, 61, 46, 0.1)
+  );
+
+  --section-definition: linear-gradient(
+    135deg,
+    rgba(156, 66, 33, 0.14),
+    rgba(194, 65, 12, 0.09)
+  );
+  --section-remark: linear-gradient(
+    135deg,
+    rgba(92, 61, 46, 0.13),
+    rgba(124, 45, 18, 0.1)
+  );
+  --section-example: linear-gradient(
+    135deg,
+    rgba(194, 65, 12, 0.11),
+    rgba(156, 66, 33, 0.08)
+  );
+  --section-explanation: linear-gradient(
+    135deg,
+    rgba(156, 66, 33, 0.1),
+    rgba(92, 61, 46, 0.09)
+  );
+  --section-exercise: linear-gradient(
+    135deg,
+    rgba(180, 83, 9, 0.12),
+    rgba(124, 45, 18, 0.1)
+  );
+
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    #c2410c 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, #9c4221 58%, var(--neutral-400)) 0%,
+    color-mix(in srgb, #7c2d12 72%, var(--neutral-500)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, #78350f 45%, var(--neutral-400)) 0%,
+    color-mix(in srgb, #5c3d2e 58%, var(--neutral-500)) 100%
+  );
+}
+
+html.palette-sepia[data-theme="dark"] body,
+html[data-theme="dark"].palette-sepia,
+[data-theme="dark"] body.palette-sepia {
+  --bg: #1a1410;
+  --bg-secondary: #221a14;
+  --bg-card: #2a2119;
+  --bg-elevated: #30261c;
+  --bg-nav: rgba(26, 20, 16, 0.92);
+
+  --text: #f5ebe0;
+  --text-muted: #b8a090;
+  --text-subtle: #8f7d6e;
+
+  --brand: #fb923c;
+  --brand-hover: #fdba74;
+  --brand-light: rgba(251, 146, 60, 0.16);
+
+  --brand-secondary: #d4a574;
+  --accent: var(--brand-secondary);
+  --accent-hover: #e8c49a;
+  --accent-light: rgba(212, 165, 116, 0.14);
+
+  --border: rgba(245, 235, 224, 0.1);
+  --border-strong: rgba(245, 235, 224, 0.2);
+  --border-brand: rgba(251, 146, 60, 0.38);
+
+  --primary: var(--brand);
+  --primary-2: #fdba74;
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: rgba(251, 146, 60, 0.2);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  --mix-accent-surface-a: 24%;
+  --mix-accent-surface-b: 18%;
+  --mix-accent-on-card-a: 34%;
+  --mix-accent-on-card-b: 28%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(in srgb, #c2410c var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(in srgb, #d4a574 var(--mix-accent-surface-b), var(--dark-950))
+  );
+  --gradient-teal: var(--gradient-primary);
+  --gradient-info: var(--gradient-primary);
+  --gradient-purple: var(--gradient-primary);
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, #9a3412 78%, var(--dark-950)) 0%,
+    color-mix(in srgb, #ea580c 32%, var(--dark-850)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, #713f12 72%, var(--dark-950)) 0%,
+    color-mix(in srgb, #d4a574 38%, var(--dark-850)) 100%
+  );
+}
+
+/* ── Graphite — нейтральный графит + холодный сланец ─ */
+html.palette-graphite,
+body.palette-graphite {
+  --bg: #e8eaee;
+  --bg-secondary: #dfe3e8;
+  --bg-card: #f4f5f7;
+  --bg-elevated: #fafbfc;
+  --bg-nav: rgba(244, 245, 247, 0.92);
+
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-subtle: #64748b;
+
+  --brand: #475569;
+  --brand-hover: #334155;
+  --brand-light: rgba(71, 85, 105, 0.14);
+  --brand-text: #fff;
+
+  --brand-secondary: #64748b;
+  --accent: var(--brand-secondary);
+  --accent-hover: #475569;
+  --accent-light: rgba(100, 116, 139, 0.12);
+
+  --border: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(15, 23, 42, 0.18);
+  --border-brand: rgba(71, 85, 105, 0.42);
+
+  --primary: var(--brand);
+  --primary-2: #94a3b8;
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: rgba(71, 85, 105, 0.16);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  --mix-accent-surface-a: 50%;
+  --mix-accent-surface-b: 42%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--brand) var(--mix-accent-surface-a),
+      var(--neutral-500)
+    ),
+    color-mix(
+      in srgb,
+      var(--brand-secondary) var(--mix-accent-surface-b),
+      var(--neutral-600)
+    )
+  );
+  --gradient-teal: var(--gradient-primary);
+  --gradient-info: var(--gradient-primary);
+  --gradient-purple: var(--gradient-primary);
+  --gradient-section: linear-gradient(
+    135deg,
+    rgba(71, 85, 105, 0.12),
+    rgba(100, 116, 139, 0.1)
+  );
+
+  --section-definition: linear-gradient(
+    135deg,
+    rgba(71, 85, 105, 0.14),
+    rgba(148, 163, 184, 0.1)
+  );
+  --section-remark: linear-gradient(
+    135deg,
+    rgba(100, 116, 139, 0.13),
+    rgba(71, 85, 105, 0.09)
+  );
+  --section-example: linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.12),
+    rgba(71, 85, 105, 0.08)
+  );
+  --section-explanation: linear-gradient(
+    135deg,
+    rgba(71, 85, 105, 0.1),
+    rgba(100, 116, 139, 0.09)
+  );
+  --section-exercise: linear-gradient(
+    135deg,
+    rgba(100, 116, 139, 0.11),
+    rgba(51, 65, 85, 0.09)
+  );
+
+  --text-emphasis-gradient: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-secondary) 100%
+  );
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, #475569 55%, var(--neutral-400)) 0%,
+    color-mix(in srgb, #334155 68%, var(--neutral-500)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, #64748b 48%, var(--neutral-300)) 0%,
+    color-mix(in srgb, #475569 58%, var(--neutral-500)) 100%
+  );
+}
+
+html.palette-graphite[data-theme="dark"] body,
+html[data-theme="dark"].palette-graphite,
+[data-theme="dark"] body.palette-graphite {
+  --bg: #0f1115;
+  --bg-secondary: #14181e;
+  --bg-card: #1a1f27;
+  --bg-elevated: #1e242e;
+  --bg-nav: rgba(15, 17, 21, 0.92);
+
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-subtle: #64748b;
+
+  --brand: #94a3b8;
+  --brand-hover: #cbd5e1;
+  --brand-light: rgba(148, 163, 184, 0.16);
+
+  --brand-secondary: #64748b;
+  --accent: var(--brand-secondary);
+  --accent-hover: #94a3b8;
+  --accent-light: rgba(100, 116, 139, 0.14);
+
+  --border: rgba(226, 232, 240, 0.1);
+  --border-strong: rgba(226, 232, 240, 0.2);
+  --border-brand: rgba(148, 163, 184, 0.38);
+
+  --primary: var(--brand);
+  --primary-2: #cbd5e1;
+  --link-color: var(--brand);
+  --link-hover: var(--brand-hover);
+  --accent-color: var(--brand);
+  --accent-main: var(--brand);
+  --accent-soft: rgba(148, 163, 184, 0.2);
+  --primary-color: var(--brand);
+
+  --info: var(--brand);
+  --info-light: var(--brand-light);
+
+  --mix-accent-surface-a: 22%;
+  --mix-accent-surface-b: 16%;
+  --mix-accent-on-card-a: 32%;
+  --mix-accent-on-card-b: 26%;
+
+  --gradient-primary: linear-gradient(
+    135deg,
+    color-mix(in srgb, #475569 var(--mix-accent-surface-a), var(--dark-950)),
+    color-mix(in srgb, #64748b var(--mix-accent-surface-b), var(--dark-950))
+  );
+  --gradient-teal: var(--gradient-primary);
+  --gradient-info: var(--gradient-primary);
+  --gradient-purple: var(--gradient-primary);
+  --gradient-pop: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+
+  --palette-icon-soft-a: linear-gradient(
+    145deg,
+    color-mix(in srgb, #1e293b 82%, var(--dark-950)) 0%,
+    color-mix(in srgb, #64748b 35%, var(--dark-850)) 100%
+  );
+  --palette-icon-soft-b: linear-gradient(
+    145deg,
+    color-mix(in srgb, #334155 75%, var(--dark-950)) 0%,
+    color-mix(in srgb, #94a3b8 32%, var(--dark-850)) 100%
+  );
+}

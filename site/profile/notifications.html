@@ -1,0 +1,2423 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Уведомления</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css" />
+    <link rel="stylesheet" href="../assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="../assets/css/navigation.css" />
+    <link rel="stylesheet" href="../assets/css/profile.css" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<style>
+      /* Achievement Status Selector Styles */
+      .achievement-status-selector {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      
+      .achievement-preview {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: rgba(106, 90, 205, 0.1);
+        border: 2px solid rgba(106, 90, 205, 0.2);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+      
+      .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+      
+      .achievement-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+      }
+      
+      .achievement-text {
+        font-weight: 500;
+        color: var(--text-primary);
+        flex: 1;
+      }
+      
+      .btn-select-achievement {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        align-self: flex-start;
+      }
+      
+      .btn-select-achievement:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+      
+      .btn-select-achievement:active {
+        transform: translateY(0);
+      }
+
+      /* Темная тема для кнопки выбора достижения */
+      [data-theme="dark"] .btn-select-achievement {
+        background: linear-gradient(135deg, #4c3a8a, #6b46c1);
+        box-shadow: 0 2px 4px rgba(106, 90, 205, 0.3);
+      }
+
+      [data-theme="dark"] .btn-select-achievement:hover {
+        background: linear-gradient(135deg, #3b2f6b, #4c3a8a);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.4);
+      }
+      
+      /* Dark theme support */
+      [data-theme="dark"] .achievement-preview {
+        background: rgba(106, 90, 205, 0.15);
+        border-color: rgba(106, 90, 205, 0.3);
+      }
+      
+      [data-theme="dark"] .achievement-preview:hover {
+        background: rgba(106, 90, 205, 0.2);
+        border-color: rgba(106, 90, 205, 0.4);
+      }
+
+      /* Offers section styles */
+      .offers-section {
+        margin-top: 8px;
+      }
+
+      .section-hint {
+        margin-top: 12px;
+        text-align: center;
+      }
+
+      .section-hint small {
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-style: italic;
+      }
+
+      .offers-list {
+        margin-bottom: 12px;
+      }
+
+      .offers-list .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px 20px;
+        background: var(--card-bg);
+        border: 2px dashed var(--border-color);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .offers-list .empty-state:hover {
+        border-color: rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.02);
+      }
+
+      /* Profile actions styles */
+      .profile-actions {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      }
+
+      .btn-secondary {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        font-size: 14px;
+      }
+
+      .btn-secondary:hover {
+        background: var(--input-bg);
+        border-color: var(--text-secondary);
+        color: var(--text-primary);
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary.danger {
+        color: #ef4444;
+        border-color: #ef4444;
+      }
+
+      .btn-secondary.danger:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+      }
+
+      /* Achievement buttons styles */
+      .achievement-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .btn-clear-status {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-clear-status:hover {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: #ef4444;
+        color: #ef4444;
+        transform: translateY(-1px);
+      }
+
+      .offer-item {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+
+      .offer-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        border-color: rgba(16, 185, 129, 0.3);
+      }
+
+      .offer-info {
+        flex: 1;
+      }
+
+      .offer-company {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .offer-details {
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      .offer-date {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .offer-notes {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .offer-notes code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+      }
+
+      .offer-notes ul {
+        margin: 4px 0;
+        padding-left: 16px;
+      }
+
+      .offer-notes li {
+        margin: 2px 0;
+      }
+
+      .offer-notes strong {
+        font-weight: 600;
+      }
+
+      .offer-notes p {
+        margin: 4px 0;
+      }
+
+      .offer-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn-edit-offer, .btn-delete-offer {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+      }
+
+      .btn-edit-offer:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+        background: rgba(59, 130, 246, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-delete-offer:hover {
+        border-color: #ef4444;
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+        transform: translateY(-1px);
+      }
+
+      .btn-add-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        width: 100%;
+        font-size: 14px;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-add-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-add-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Темная тема для кнопки добавления оффера */
+      [data-theme="dark"] .btn-add-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-add-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      /* Offer modal styles */
+      .offer-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+      }
+
+      .offer-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .offer-modal-content {
+        background: var(--card-bg);
+        border-radius: 12px;
+        padding: 24px;
+        width: 90%;
+        max-width: 400px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      }
+
+      .offer-modal h3 {
+        margin: 0 0 16px 0;
+        color: var(--text-primary);
+      }
+
+      .offer-modal .field {
+        margin-bottom: 16px;
+      }
+
+      .offer-modal .field input, .offer-modal .field textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+      }
+
+      .offer-modal .field textarea {
+        resize: vertical;
+        min-height: 60px;
+      }
+
+      .offer-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+
+      .btn-save-offer {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      .btn-save-offer:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+      }
+
+      .btn-save-offer:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Темная тема для кнопки сохранения оффера */
+      [data-theme="dark"] .btn-save-offer {
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+      }
+
+      [data-theme="dark"] .btn-save-offer:hover {
+        background: linear-gradient(135deg, #047857, #059669);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+      }
+
+      .btn-cancel-offer {
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      /* Preview styles for offers */
+      .preview-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 8px;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+
+      .markdown-preview {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 40px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Markdown editor styles */
+      .markdown-editor {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .markdown-tabs {
+        display: flex;
+        background: var(--input-bg);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .markdown-tab {
+        flex: 1;
+        background: none;
+        border: none;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 14px;
+        transition: all 0.2s ease;
+      }
+
+      .markdown-tab.active {
+        background: var(--card-bg);
+        color: var(--text-primary);
+        border-bottom: 2px solid #3b82f6;
+      }
+
+      .markdown-tab:hover:not(.active) {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--text-primary);
+      }
+
+      .markdown-preview {
+        padding: 12px;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 60px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .markdown-preview code {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+      }
+
+      .markdown-preview ul {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+
+      .markdown-preview li {
+        margin: 4px 0;
+      }
+
+      .markdown-preview strong {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .markdown-preview p {
+        margin: 8px 0;
+      }
+
+      .markdown-preview p:first-child {
+        margin-top: 0;
+      }
+
+      .markdown-preview p:last-child {
+        margin-bottom: 0;
+      }
+      
+      /* Achievement Selection Modal */
+      .achievement-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+      }
+      
+      .achievement-modal.show {
+        opacity: 1;
+        visibility: visible;
+      }
+      
+      .achievement-modal-content {
+        background: var(--card-bg);
+        border-radius: 20px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .achievement-modal-scrollable {
+        padding: 24px 24px 0 24px;
+        overflow-y: auto;
+        flex: 1;
+        /* Стили для скроллбара */
+        scrollbar-width: thin;
+        scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.5);
+        border-radius: 4px;
+      }
+
+      .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(156, 163, 175, 0.7);
+      }
+
+      /* Темная тема для скроллбара */
+      [data-theme="dark"] .achievement-modal-scrollable {
+        scrollbar-color: rgba(75, 85, 99, 0.6) transparent;
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(75, 85, 99, 0.6);
+      }
+
+      [data-theme="dark"] .achievement-modal-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(75, 85, 99, 0.8);
+      }
+
+      
+      .achievement-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      
+      .achievement-modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+      }
+      
+      .achievement-modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+      }
+      
+      .achievement-modal-close:hover {
+        background: var(--border-color);
+        color: var(--text-primary);
+      }
+      
+      .achievement-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      
+      .achievement-option {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: var(--card-bg);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+      
+      .achievement-option:hover {
+        border-color: #6a5acd;
+        background: rgba(106, 90, 205, 0.05);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.1);
+      }
+      
+         .achievement-option.selected {
+           border-color: #6a5acd;
+           background: rgba(106, 90, 205, 0.1);
+           box-shadow: 0 0 0 2px rgba(106, 90, 205, 0.2);
+         }
+
+         .achievement-option.locked {
+           opacity: 0.5;
+           cursor: not-allowed;
+           background: var(--border-color);
+         }
+
+         .achievement-option.locked:hover {
+           transform: none;
+           box-shadow: none;
+           border-color: var(--border-color);
+           background: var(--border-color);
+         }
+      
+      .achievement-option-icon {
+        font-size: 32px;
+        flex-shrink: 0;
+      }
+      
+      .achievement-option-content {
+        flex: 1;
+      }
+      
+      .achievement-option-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+      
+      .achievement-option-description {
+        font-size: 14px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+      
+      .achievement-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        padding: 16px 24px 24px 24px;
+        border-top: 1px solid var(--border-color);
+        background: var(--card-bg);
+        border-radius: 0 0 20px 20px;
+        flex-shrink: 0;
+      }
+      
+      .btn-cancel {
+        background: var(--border-color);
+        color: var(--text-primary);
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+      
+      .btn-cancel:hover {
+        background: var(--text-secondary);
+        color: white;
+      }
+      
+      .btn-confirm {
+        background: linear-gradient(135deg, #6a5acd, #8b7ed8);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+      
+      .btn-confirm:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(106, 90, 205, 0.3);
+      }
+      
+      .btn-confirm:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+      
+      @media (max-width: 768px) {
+        .achievement-grid {
+          grid-template-columns: 1fr;
+        }
+        
+        .achievement-modal-content {
+          width: 95%;
+          padding: 16px;
+        }
+        
+        .achievement-modal-actions {
+          flex-direction: column;
+        }
+      }
+    </style>
+
+    <script src="../assets/js/components/navigation.js"></script>
+    
+    <style>
+      /* Стили для уведомлений с markdown */
+      .notification-text {
+        font-size: .95rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      /* многосрочное усечение без порчи тегов */
+      .clamp-2 { 
+        display: -webkit-box; 
+        -webkit-line-clamp: 2; 
+        line-clamp: 2;
+        -webkit-box-orient: vertical; 
+        overflow: hidden; 
+      }
+      .clamp-3 { 
+        display: -webkit-box; 
+        -webkit-line-clamp: 3; 
+        line-clamp: 3;
+        -webkit-box-orient: vertical; 
+        overflow: hidden; 
+      }
+      
+      .clamp-4 { 
+        display: -webkit-box; 
+        -webkit-line-clamp: 4; 
+        line-clamp: 4;
+        -webkit-box-orient: vertical; 
+        overflow: hidden; 
+      }
+      
+      /* Динамическая высота для буллет-списков */
+      .clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+      
+      /* Для буллет-списков используем динамическую высоту */
+      .notification-text.clamp-auto {
+        max-height: none;
+        overflow: visible;
+      }
+      
+      /* ===== Карточка уведомления =====
+         Сетка «иконка | содержимое»: раньше бейдж типа и дедлайн висели на
+         position: absolute в одном углу и налезали друг на друга. */
+      .notification-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        column-gap: 12px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        margin-bottom: 0;
+      }
+
+      .notification-item .notification-icon {
+        width: 34px;
+        height: 34px;
+        font-size: 17px;
+      }
+
+      .notification-item .notification-body {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      /* min-height равен высоте иконки: заголовок и бейдж встают на её ось. */
+      .notification-item .notification-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 34px;
+      }
+
+      .notification-item .notification-title {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--text-primary);
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .notification-item .notification-text {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        color: var(--text-secondary);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        max-height: none;
+        overflow-wrap: anywhere;
+      }
+
+      /* Затеняющий градиент от старой вёрстки не нужен: обрезкой занимается
+         line-clamp, а полоска поверх текста выглядела грязью. */
+      .notification-item .notification-text::after {
+        content: none;
+      }
+
+      .notification-item .notification-meta {
+        display: flex;
+        /* flex-direction явно: на ≤768px profile.css разворачивает мету
+           в колонку, и дедлайн уезжал под время. */
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        margin-top: 2px;
+        font-size: 0.78rem;
+        color: var(--text-muted, var(--text-secondary));
+      }
+
+      .notification-item .notification-time,
+      .notification-item .notification-deadline {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+
+      .notification-item .meta-icon {
+        font-size: 0.85em;
+        line-height: 1;
+      }
+
+      .notification-item .notification-deadline {
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+        color: var(--text-secondary);
+      }
+
+      .notification-item .notification-deadline.is-overdue {
+        background: rgba(239, 68, 68, 0.12);
+        color: #dc2626;
+      }
+
+      [data-theme="dark"] .notification-item .notification-deadline.is-overdue {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+      }
+
+      /* Тип события — мини-бейдж, всегда в одну строку */
+      .notification-item .notification-type {
+        flex-shrink: 0;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        line-height: 1.4;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        white-space: nowrap;
+      }
+
+      .notification-item .notification-type.task,
+      .notification-item .notification-type.assignment {
+        background: rgba(59, 130, 246, 0.12);
+        color: #2563eb;
+      }
+
+      .notification-item .notification-type.meeting {
+        background: rgba(245, 158, 11, 0.14);
+        color: #b45309;
+      }
+
+      .notification-item .notification-type.mock {
+        background: rgba(16, 185, 129, 0.14);
+        color: #047857;
+      }
+
+      .notification-item .notification-type.event {
+        background: rgba(107, 114, 128, 0.14);
+        color: #4b5563;
+      }
+
+      .notification-item .notification-type.comment {
+        background: rgba(106, 90, 205, 0.14);
+        color: #5b4bc4;
+      }
+
+      .notification-item .notification-type.overdue {
+        background: rgba(239, 68, 68, 0.14);
+        color: #dc2626;
+      }
+
+      .notification-item .notification-type.deadline {
+        background: rgba(249, 115, 22, 0.14);
+        color: #c2410c;
+      }
+
+      /* Темная тема */
+      [data-theme="dark"] .notification-item .notification-type.task,
+      [data-theme="dark"] .notification-item .notification-type.assignment {
+        background: rgba(59, 130, 246, 0.22);
+        color: #93c5fd;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.meeting {
+        background: rgba(245, 158, 11, 0.22);
+        color: #fcd34d;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.mock {
+        background: rgba(16, 185, 129, 0.22);
+        color: #6ee7b7;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.event {
+        background: rgba(148, 163, 184, 0.22);
+        color: #cbd5e1;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.comment {
+        background: rgba(139, 126, 216, 0.24);
+        color: #c4b5fd;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.overdue {
+        background: rgba(239, 68, 68, 0.24);
+        color: #fca5a5;
+      }
+
+      [data-theme="dark"] .notification-item .notification-type.deadline {
+        background: rgba(249, 115, 22, 0.24);
+        color: #fdba74;
+      }
+
+      /* Вкладки: иконка отдельным span, иначе эмодзи липнет к слову */
+      .notifications-tabs .tab-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .notifications-tabs .tab-icon {
+        font-size: 0.9em;
+        line-height: 1;
+      }
+
+      /* Убираем лишний отступ у списков */
+      .notification-text .md-list {
+        margin: 2px 0 0;
+        padding-left: 1.1rem;
+      }
+      .notification-text .md-list li {
+        margin: 1px 0;
+      }
+
+      /* Центрирование кнопки "Отметить все как прочитанные" */
+      .notifications-actions {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+
+      @media (max-width: 600px) {
+        .notification-item {
+          column-gap: 10px;
+          padding: 12px 14px;
+        }
+
+        .notification-item .notification-topline {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+          min-height: 0;
+        }
+
+        .notification-item .notification-type {
+          order: -1;
+        }
+      }
+
+      /* Карточка синхронизации с Telegram */
+      .telegram-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-bottom: 20px;
+      }
+
+      .telegram-card-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .telegram-card-icon {
+        font-size: 26px;
+        line-height: 1;
+      }
+
+      .telegram-card-heading {
+        flex: 1;
+      }
+
+      .telegram-card-title {
+        margin: 0;
+        font-size: 1.05rem;
+        color: var(--text-primary);
+      }
+
+      .telegram-card-status {
+        margin: 4px 0 0;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+      }
+
+      .telegram-card-status.is-linked {
+        color: #10b981;
+      }
+
+      .telegram-toggles {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      /* Без этого правила display: grid перебивает браузерный [hidden],
+         и ученик с непривязанным Telegram видит пустые неактивные
+         чекбоксы — хотя по умолчанию все уведомления включены. */
+      .telegram-toggles[hidden] {
+        display: none;
+      }
+
+      .telegram-toggle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.92rem;
+        color: var(--text-primary);
+        cursor: pointer;
+      }
+
+      .telegram-toggle input {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: #3b82f6;
+      }
+
+      .telegram-toggle.is-muted {
+        opacity: 0.5;
+      }
+
+      .telegram-card-hint {
+        margin: 12px 0 0;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      /* Центрирование прогресса по темам */
+      .progress-heatmap-container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    </style>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="profile" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Уведомления</h1>
+            <p class="subtitle">Система просмотра уведомлений: новые задания, мок-собесы и встречи, комментарии к заданиям</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../profile.html" class="page-header-button">Назад к профилю</a>
+          </div>
+        </div>
+      </header>
+      
+      <!-- Синхронизация с Telegram-ботом -->
+      <section class="telegram-card" id="telegramCard" hidden>
+        <div class="telegram-card-header">
+          <span class="telegram-card-icon" aria-hidden="true">✈️</span>
+          <div class="telegram-card-heading">
+            <h2 class="telegram-card-title">Уведомления в Telegram</h2>
+            <p class="telegram-card-status" id="telegramStatus">Проверяем привязку…</p>
+          </div>
+        </div>
+        <div class="telegram-toggles" id="telegramToggles" hidden>
+          <label class="telegram-toggle">
+            <input type="checkbox" data-pref="enabled" />
+            <span>Присылать уведомления в бот</span>
+          </label>
+          <label class="telegram-toggle">
+            <input type="checkbox" data-pref="taskDeadlines" />
+            <span>Дедлайны и просрочки по доске задач</span>
+          </label>
+          <label class="telegram-toggle">
+            <input type="checkbox" data-pref="taskAssigned" />
+            <span>Новые задания, встречи и мок-собесы</span>
+          </label>
+          <label class="telegram-toggle">
+            <input type="checkbox" data-pref="reportReminder" />
+            <span>Напоминание отправить дневной отчёт</span>
+          </label>
+          <label class="telegram-toggle">
+            <input type="checkbox" data-pref="weeklyDigest" />
+            <span>Еженедельный дайджест прогресса</span>
+          </label>
+        </div>
+        <p class="telegram-card-hint" id="telegramHint"></p>
+      </section>
+
+      <!-- Блок уведомлений -->
+      <div class="notifications-container-main">
+        <h2 class="section-title">🔔 Уведомления</h2>
+        <div class="notifications-tabs">
+          <button class="tab-btn active" data-tab="all">Все</button>
+          <button class="tab-btn" data-tab="comments"><span class="tab-icon" aria-hidden="true">💬</span>Комментарии</button>
+          <button class="tab-btn" data-tab="events"><span class="tab-icon" aria-hidden="true">📅</span>События</button>
+          <button class="tab-btn" data-tab="deadlines"><span class="tab-icon" aria-hidden="true">⏰</span>Дедлайны</button>
+        </div>
+        
+        <div class="notifications-content">
+          <div id="notificationsList" class="notifications-list">
+            <!-- Уведомления будут загружены динамически -->
+          </div>
+          
+          <!-- Кнопка "Смотреть еще" для остальных уведомлений -->
+          <div id="showMoreNotifications" class="show-more-container" hidden>
+            <button id="showMoreNotificationsBtn" class="btn-show-more">
+              <span class="btn-text">👁️ Показать ещё уведомления</span>
+              <span class="btn-count"></span>
+            </button>
+          </div>
+          
+          <div id="notificationsEmpty" class="notifications-empty" hidden>
+            <div class="empty-icon">🔔</div>
+            <p>У вас пока нет уведомлений</p>
+            <small>Здесь будут появляться комментарии от ментора, новые задания и встречи</small>
+          </div>
+          
+          <div id="notificationsLoading" class="notifications-loading">
+            <div class="loading-spinner"></div>
+            <p>Загружаем уведомления...</p>
+          </div>
+        </div>
+        
+        <div class="notifications-actions">
+          <button id="markAllReadBtn" class="btn-link" disabled>✓ Отметить все как прочитанные</button>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+
+    <!-- Config loader -->
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/gamification.js"></script>
+    
+    <!-- Система уведомлений -->
+    <script src="../assets/js/components/achievement-api.js"></script>
+    <script src="../assets/js/notifications.js"></script>
+
+    <!-- Manual Firebase initialization -->
+    <script>
+      // Initialize Firebase manually for this page
+      console.log('Setting up manual Firebase initialization for profile page...');
+    </script>
+
+    <script>
+      // Ждем полной загрузки DOM
+      document.addEventListener('DOMContentLoaded', function () {
+        console.log('DOM loaded, initializing profile manager...');
+        console.log('Scripts loaded:', {
+          firebase: typeof firebase,
+          configLoader: typeof window.configLoader
+        });
+
+        // Инициализация Firebase и базы данных
+        async function initializeFirebase() {
+          try {
+            console.log('Initializing Firebase for profile...');
+
+            // Проверяем, что Firebase SDK загружен
+            if (typeof firebase === 'undefined') {
+              console.error('Firebase SDK not loaded');
+              return;
+            }
+
+            // Проверяем, что configLoader доступен
+            if (typeof window.configLoader === 'undefined') {
+              console.error('ConfigLoader not available');
+              return;
+            }
+
+            // Загружаем конфигурацию Firebase
+            console.log('Loading Firebase config...');
+            const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+            console.log('Firebase config loaded:', firebaseConfig);
+
+            // Инициализируем Firebase приложение
+            if (!firebase.apps.length) {
+              console.log('Initializing Firebase app...');
+              firebase.initializeApp(firebaseConfig);
+              console.log('Firebase initialized');
+            } else {
+              console.log('Firebase app already initialized');
+            }
+
+            // Создаем ссылку на базу данных
+            console.log('Creating database reference...');
+            db = firebase.database();
+            console.log('Database reference created');
+
+            // Получаем текущего пользователя
+            console.log('Getting current user...');
+            currentUser = firebase.auth().currentUser;
+            if (currentUser) {
+              console.log('User authenticated:', currentUser.email);
+              
+              // Инициализируем систему геймификации
+              if (window.gamificationSystem) {
+                await window.gamificationSystem.initialize(firebaseConfig);
+                console.log('Gamification system initialized');
+              }
+                initializeNotifications().catch(error => {
+                console.error('❌ Ошибка инициализации уведомлений:', error);
+              });
+            } else {
+              console.log('No current user, waiting for auth state change...');
+              // Listen for auth state changes
+              firebase.auth().onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                  console.log('User authenticated:', user.email);
+                  
+                  // Инициализируем систему геймификации
+                  if (window.gamificationSystem) {
+                    await window.gamificationSystem.initialize(firebaseConfig);
+                    console.log('Gamification system initialized');
+                  }
+                  
+                  initializeNotifications().catch(error => {
+                    console.error('❌ Ошибка инициализации уведомлений:', error);
+                  });
+                } else {
+                  console.log('User not authenticated, redirecting...');
+                  window.location.href = '/index.html';
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Failed to initialize Firebase for profile:', error);
+            console.error('Error details:', error.message, error.stack);
+          }
+        }
+
+        console.log('Profile manager initialized');
+
+        // ===== СИСТЕМА УВЕДОМЛЕНИЙ =====
+        
+        // Элементы уведомлений
+        const notificationsList = document.getElementById('notificationsList');
+        const notificationsEmpty = document.getElementById('notificationsEmpty');
+        const notificationsLoading = document.getElementById('notificationsLoading');
+        const markAllReadBtn = document.getElementById('markAllReadBtn');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+
+        // Состояние уведомлений
+        let notifications = [];
+        let currentTab = 'all';
+        let unreadCount = 0;
+
+        // Лента открывается тремя свежими карточками, остальное — по кнопке.
+        // Раньше события показывались все сразу, и у ученика с активной доской
+        // задач страница начиналась с десятка карточек.
+        const NOTIFICATIONS_PAGE_SIZE = 3;
+        let visibleNotificationsCount = NOTIFICATIONS_PAGE_SIZE;
+
+        // Единственный источник данных — глобальная система уведомлений
+        // (assets/js/notifications.js). Раньше здесь лежала её копия, которая
+        // читала только events, не знала про доску задач и поэтому расходилась
+        // с тем, что уходит в Telegram.
+        async function loadNotifications() {
+          const system = window.notificationSystem;
+          if (!system) {
+            console.warn('Глобальная система уведомлений недоступна');
+            showNotificationsLoading(false);
+            return;
+          }
+          notifications = [...system.notifications];
+          unreadCount = system.unreadCount;
+          updateNotificationsUI();
+          showNotificationsLoading(false);
+        }
+
+        // Функция обновления UI уведомлений
+        function updateNotificationsUI() {
+          if (!notificationsList) {
+            console.warn('⚠️ updateNotificationsUI: элемент notificationsList не найден');
+            return;
+          }
+
+          console.log('🎨 Обновление UI уведомлений...');
+          console.log('📋 Текущая вкладка:', currentTab);
+          console.log('📝 Всего уведомлений:', notifications.length);
+
+          // Фильтруем по текущей вкладке
+          let filteredNotifications = notifications;
+          if (currentTab !== 'all') {
+            console.log(`🔍 Фильтруем уведомления по вкладке "${currentTab}"...`);
+            filteredNotifications = notifications.filter(n => {
+              const matches = (() => {
+                if (currentTab === 'comments') return n.type === 'comment';
+                if (currentTab === 'events') return n.type === 'event' || n.type === 'task';
+                if (currentTab === 'deadlines') return Boolean(n.deadlineState);
+                return true;
+              })();
+              
+              console.log(`🔍 Уведомление ${n.id} (${n.type}): ${matches ? '✅ проходит' : '❌ отфильтровано'}`);
+              return matches;
+            });
+          } else {
+            console.log('🔍 Показываем все уведомления (вкладка "all")');
+          }
+          
+          console.log('🔍 Отфильтрованные уведомления:', filteredNotifications.length);
+          console.log('📝 Детали отфильтрованных уведомлений:', filteredNotifications.map(n => ({
+            id: n.id,
+            type: n.type,
+            title: n.title
+          })));
+
+          // Показываем/скрываем пустое состояние
+          if (filteredNotifications.length === 0) {
+            console.log('📭 Нет уведомлений для отображения, показываем пустое состояние');
+            console.log('📋 Состояние элементов:', {
+              notificationsList: !!notificationsList,
+              notificationsEmpty: !!notificationsEmpty,
+              notificationsListDisplay: notificationsList?.style.display,
+              notificationsEmptyHidden: notificationsEmpty?.hidden
+            });
+            
+            notificationsList.style.display = 'none';
+            notificationsEmpty.hidden = false;
+            
+
+          } else {
+            console.log('📋 Показываем список уведомлений');
+            console.log('📋 Состояние элементов:', {
+              notificationsList: !!notificationsList,
+              notificationsEmpty: !!notificationsEmpty,
+              notificationsListDisplay: notificationsList?.style.display,
+              notificationsEmptyHidden: notificationsEmpty?.hidden
+            });
+            
+            // Именно '' , а не 'block': инлайновый display перебивает
+            // .notifications-list { display: flex; gap: 12px } и карточки
+            // слипаются без отступов.
+            notificationsList.style.display = '';
+            notificationsEmpty.hidden = true;
+          }
+
+          // Очищаем список
+          notificationsList.innerHTML = '';
+
+          // Сортируем ВСЕ уведомления по времени (новые сначала) - ВАЖНО!
+          const sortedNotifications = [...filteredNotifications].sort((a, b) => b.timestamp - a.timestamp);
+          
+          console.log('🔄 Сортировка уведомлений по времени:', sortedNotifications.map(n => ({
+            id: n.id,
+            type: n.type,
+            eventType: n.eventType,
+            timestamp: new Date(n.timestamp).toLocaleString('ru-RU')
+          })));
+          
+          // Лимит общий для всех типов: лента отсортирована по времени, и
+          // делить её на «события» и «комментарии» значило показывать сначала
+          // все события, а свежий комментарий прятать под кнопку.
+          const visibleNotifications = sortedNotifications.slice(0, visibleNotificationsCount);
+          const restCount = sortedNotifications.length - visibleNotifications.length;
+
+          console.log(`👁️ Показываем ${visibleNotifications.length} уведомлений, скрыто ещё ${restCount}`);
+
+          visibleNotifications.forEach(notification => {
+            console.log(`📝 Создаем элемент для уведомления:`, {
+              id: notification.id,
+              type: notification.type,
+              title: notification.title
+            });
+            
+            const notificationElement = createNotificationElement(notification);
+            if (notificationElement) {
+              console.log(`🔧 Элемент уведомления создан:`, {
+                element: notificationElement,
+                className: notificationElement.className,
+                innerHTML: notificationElement.innerHTML.substring(0, 100) + '...'
+              });
+              
+              notificationsList.appendChild(notificationElement);
+              console.log(`✅ Элемент уведомления ${notification.id} добавлен в DOM`);
+              
+              // Проверяем, что элемент действительно добавлен
+              const addedElement = notificationsList.querySelector(`[data-notification-id="${notification.id}"]`);
+              if (addedElement) {
+                console.log(`✅ Элемент ${notification.id} найден в DOM после добавления`);
+                
+                // Проверяем CSS свойства элемента
+                const computedStyle = window.getComputedStyle(addedElement);
+                console.log(`🎨 CSS свойства элемента ${notification.id}:`, {
+                  display: computedStyle.display,
+                  visibility: computedStyle.visibility,
+                  opacity: computedStyle.opacity,
+                  height: computedStyle.height,
+                  width: computedStyle.width,
+                  position: computedStyle.position,
+                  zIndex: computedStyle.zIndex,
+                  color: computedStyle.color,
+                  backgroundColor: computedStyle.backgroundColor
+                });
+              } else {
+                console.warn(`⚠️ Элемент ${notification.id} не найден в DOM после добавления`);
+              }
+            } else {
+              console.warn(`⚠️ Не удалось создать элемент для уведомления ${notification.id}`);
+            }
+          });
+
+          // Показываем кнопку "Смотреть еще", пока лента не раскрыта целиком
+          const showMoreContainer = document.getElementById('showMoreNotifications');
+          if (showMoreContainer) {
+            showMoreContainer.hidden = restCount === 0;
+            const countSpan = document
+              .getElementById('showMoreNotificationsBtn')
+              ?.querySelector('.btn-count');
+            if (countSpan) {
+              countSpan.textContent = restCount > 0 ? ` (${restCount})` : '';
+            }
+          }
+
+          // Обновляем кнопку "Отметить все как прочитанные"
+          markAllReadBtn.disabled = unreadCount === 0;
+
+          // НЕ обновляем бейдж в заголовке - никаких индикаторов в шапке
+          
+          // Индикаторами владеет глобальная система: держать здесь вторую копию
+          // означало две реализации, спорящие за одни и те же узлы DOM.
+          window.notificationSystem?.updateAllIndicators?.();
+          
+          // Отладочная информация о финальном состоянии
+          console.log('🎯 Финальное состояние UI уведомлений:');
+          console.log('📋 Элемент notificationsList:', notificationsList);
+          console.log('👁️ Видимость notificationsList:', notificationsList.style.display);
+          console.log('📝 Количество дочерних элементов:', notificationsList.children.length);
+          console.log('🔍 Дочерние элементы:', Array.from(notificationsList.children).map(child => ({
+            className: child.className,
+            dataset: child.dataset,
+            textContent: child.textContent?.substring(0, 50) + '...'
+          })));
+          
+          // Дополнительная отладочная информация о CSS
+          if (notificationsList) {
+            const computedStyle = window.getComputedStyle(notificationsList);
+            console.log('🎨 CSS свойства notificationsList:', {
+              display: computedStyle.display,
+              visibility: computedStyle.visibility,
+              opacity: computedStyle.opacity,
+              height: computedStyle.height,
+              width: computedStyle.width,
+              position: computedStyle.position,
+              zIndex: computedStyle.zIndex
+            });
+            
+            // Проверяем родительские элементы
+            // let parent = notificationsList.parentElement;
+            // let level = 0;
+            // while (parent && level < 5) {
+            //   const parentStyle = window.getComputedStyle(parent);
+            //   console.log(`👨‍👩‍👧‍👦 Родитель ${level + 1}:`, {
+            //     tagName: parent.tagName,
+            //     className: parent.className,
+            //     display: parentStyle.display,
+            //     visibility: parentStyle.visibility,
+            //     opacity: parentStyle.opacity,
+            //     height: parentStyle.height,
+            //     width: parentStyle.width
+            //   });
+            //   parent = parent.parentElement;
+            //   level++;
+            // }
+          }
+          
+          // Автоматически отмечаем уведомления как прочитанные при просмотре
+          markNotificationsAsViewed(filteredNotifications);
+        }
+
+        // Функция обрезки длинного текста
+        function truncateText(text, maxLength = 120) {
+          if (!text) return '';
+          
+          if (text.length <= maxLength) return text;
+          
+          // Обрезаем текст и ищем последнее полное слово
+          let truncated = text.substring(0, maxLength);
+          const lastSpaceIndex = truncated.lastIndexOf(' ');
+          
+          // Если есть пробел, обрезаем по последнему полному слову
+          if (lastSpaceIndex > maxLength * 0.8) { // Если пробел находится в последних 20% текста
+            truncated = truncated.substring(0, lastSpaceIndex);
+          }
+          
+          return truncated.trim() + '...';
+        }
+
+        // Безопасный markdown-парсер (ссылки + буллеты)
+        function parseMarkdownLinks(text = "") {
+          const src = String(text).replace(/\r\n?/g, "\n").trim();
+
+          // Разметку разворачиваем в простой текст: ссылки, жирный, код, заголовки.
+          let processed = src.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1');
+          processed = processed.replace(/\*\*([^*]+)\*\*/g, '$1');
+          processed = processed.replace(/`([^`]+)`/g, '$1');
+          processed = processed.replace(/^#{1,6}\s+/gm, '');
+          processed = processed.replace(/^[-*•]\s+/gm, '');
+
+          // Строки склеиваем осмысленно: пустые выкидываем, чтобы не получалось
+          // «Задание:; ; Milestone», а после двоеточия продолжаем то же
+          // предложение, а не начинаем новый пункт.
+          const lines = processed
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+          processed = lines.reduce((acc, line) => {
+            if (!acc) return line;
+            return /[:—-]$/.test(acc) ? `${acc} ${line}` : `${acc} • ${line}`;
+          }, '');
+
+          processed = processed.replace(/\s{2,}/g, ' ').trim();
+
+          // Жёсткое усечение — только страховка от гигантских комментариев,
+          // видимую длину задаёт CSS-клэмп по строкам.
+          if (processed.length > 220) {
+            processed = `${processed.slice(0, 220).trimEnd()}…`;
+          }
+          // Экранируем в самом конце: текст комментария пишет ментор, а карточка
+          // собирается через innerHTML.
+          return escapeHtml(processed);
+        }
+
+        function escapeHtml(value) {
+          return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+          })[character]);
+        }
+
+        // Функция создания элемента уведомления
+        function createNotificationElement(notification) {
+          const div = document.createElement('div');
+          div.className = `notification-item ${notification.read ? '' : 'unread'}`;
+          div.dataset.notificationId = notification.id;
+          
+          // Каскадное появление: задержку ограничиваем, иначе нижние карточки
+          // длинного списка ждут своей очереди по нескольку секунд.
+          const index = document.querySelectorAll('.notification-item').length;
+          div.style.animationDelay = `${Math.min(index, 8) * 0.04}s`;
+
+          const icon = getNotificationIcon(notification);
+          const typeClass = getNotificationTypeClass(notification);
+          const timeText = formatTime(notification.timestamp);
+          
+          // Сначала парсим markdown в HTML (без обрезки текста)
+          const processedHtml = parseMarkdownLinks(notification.text);
+          
+          // Дедлайн живёт в нижней строке метаданных: в правом верхнем углу он
+          // перекрывался бейджем типа.
+          const deadlineClass = notification.deadlineState === 'overdue' ? ' is-overdue' : '';
+          const deadlineHTML = notification.dueDateStr
+            ? `<span class="notification-deadline${deadlineClass}"><span class="meta-icon" aria-hidden="true">⏰</span>${t('до {date}', { date: escapeHtml(notification.dueDateStr) })}</span>`
+            : '';
+
+          const textHTML = processedHtml
+            ? `<p class="notification-text">${processedHtml}</p>`
+            : '';
+
+          div.innerHTML = `
+            <div class="notification-icon">${icon}</div>
+            <div class="notification-body">
+              <div class="notification-topline">
+                <h3 class="notification-title">${escapeHtml(notification.title)}</h3>
+                <span class="notification-type ${typeClass}">${getNotificationTypeText(notification)}</span>
+              </div>
+              ${textHTML}
+              <div class="notification-meta">
+                <span class="notification-time"><span class="meta-icon" aria-hidden="true">🕐</span>${timeText}</span>
+                ${deadlineHTML}
+              </div>
+            </div>
+          `;
+
+          // Добавляем обработчик клика
+          div.addEventListener('click', () => {
+            handleNotificationClick(notification);
+          });
+
+          return div;
+        }
+
+        // Функция получения иконки для уведомления
+        function getNotificationIcon(notification) {
+          if (notification.type === 'comment') return '💬';
+          if (notification.deadlineState === 'overdue') return '🔥';
+          if (notification.deadlineState === 'soon') return '⏰';
+          switch (notification.eventType) {
+            case 'task':
+            case 'assignment': return '📚';
+            case 'meeting': return '🤝';
+            case 'mock': return '🎤';
+            default: return notification.type === 'task' ? '📋' : '📅';
+          }
+        }
+
+        // Функция получения класса типа уведомления
+        function getNotificationTypeClass(notification) {
+          if (notification.type === 'comment') return 'comment';
+          // deadlineState считается в notifications.js по тем же границам, что и
+          // серверный дайджест, поэтому бейдж совпадает с сообщением в Telegram.
+          if (notification.deadlineState === 'overdue') return 'overdue';
+          if (notification.deadlineState === 'soon') return 'deadline';
+          switch (notification.eventType) {
+            case 'task': return 'task';
+            case 'assignment': return 'assignment';
+            case 'meeting': return 'meeting';
+            case 'mock': return 'mock';
+            default: return 'event';
+          }
+        }
+
+        // Функция получения текста типа уведомления
+        function getNotificationTypeText(notification) {
+          if (notification.type === 'comment') return t('Комментарий');
+          if (notification.deadlineState === 'overdue') return t('Просрочено');
+          if (notification.deadlineState === 'soon') return t('Дедлайн сегодня');
+          switch (notification.eventType) {
+            case 'task':
+            case 'assignment': return t('Задание');
+            case 'meeting': return t('Встреча');
+            case 'mock': return t('Мок-собес');
+            default: return t('Событие');
+          }
+        }
+
+        // Функция получения текста типа события
+        function getEventTypeText(eventType) {
+          switch (eventType) {
+            case 'task': return 'задание';
+            case 'assignment': return 'задание';
+            case 'meeting': return 'встреча';
+            case 'mock': return 'мок-собес';
+            default: return 'событие';
+          }
+        }
+
+        // Функция форматирования времени
+        function formatTime(timestamp) {
+          const now = Date.now();
+          const diff = now - timestamp;
+          const minutes = Math.floor(diff / (1000 * 60));
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+          if (minutes < 1) return t('Только что');
+          if (minutes < 60) return t('{count} мин назад', { count: minutes });
+          if (hours < 24) return t('{count} ч назад', { count: hours });
+          if (days < 7) return t('{count} дн назад', { count: days });
+          
+          return new Date(timestamp).toLocaleDateString(window.i18n?.locale || 'ru-RU');
+        }
+
+        // Функция обработки клика по уведомлению
+        async function handleNotificationClick(notification) {
+          // Отмечаем как прочитанное
+          if (!notification.read) {
+            notification.read = true;
+            unreadCount--;
+            
+            // Сохраняем статус в Firebase
+            try {
+              if (db && currentUser) {
+                const userRef = db.ref(`users/${currentUser.uid}/notifications/${notification.id}`);
+                await userRef.set({
+                  read: true,
+                  readAt: Date.now()
+                });
+              }
+            } catch (error) {
+              console.warn('Не удалось сохранить статус уведомления:', error);
+            }
+            
+            updateNotificationsUI();
+          }
+
+          // Переходим к событию
+          if (notification.eventId) {
+            window.location.href = `/calender/?event=${notification.eventId}`;
+          }
+        }
+
+        // Функция показа/скрытия загрузки
+        function showNotificationsLoading(show) {
+          console.log(`🔄 showNotificationsLoading(${show}):`, {
+            notificationsLoading: !!notificationsLoading,
+            currentDisplay: notificationsLoading?.style.display,
+            currentHidden: notificationsLoading?.hidden,
+            elementExists: !!notificationsLoading
+          });
+          
+          if (notificationsLoading) {
+            const oldDisplay = notificationsLoading.style.display;
+            notificationsLoading.style.display = show ? 'block' : 'none';
+            console.log(`✅ Loading state updated: ${show ? 'shown' : 'hidden'} (было: ${oldDisplay})`);
+            
+            // Дополнительная проверка
+            setTimeout(() => {
+              const computedStyle = window.getComputedStyle(notificationsLoading);
+              console.log(`🔍 Проверка состояния загрузки через 100ms:`, {
+                display: computedStyle.display,
+                visibility: computedStyle.visibility,
+                opacity: computedStyle.opacity
+              });
+            }, 100);
+          } else {
+            console.warn('⚠️ showNotificationsLoading: элемент notificationsLoading не найден');
+          }
+        }
+
+        // Функция отметки всех как прочитанных
+        async function markAllAsRead() {
+          try {
+            if (db && currentUser) {
+              // Сохраняем статус каждого уведомления в Firebase
+              const updates = {};
+              notifications.forEach(n => {
+                if (!n.read) {
+                  n.read = true;
+                  updates[`notifications/${n.id}`] = {
+                    read: true,
+                    readAt: Date.now()
+                  };
+                }
+              });
+              
+              if (Object.keys(updates).length > 0) {
+                const userRef = db.ref(`users/${currentUser.uid}`);
+                await userRef.update(updates);
+              }
+            }
+          } catch (error) {
+            console.warn('Не удалось сохранить статус уведомлений:', error);
+          }
+          
+          unreadCount = 0;
+          updateNotificationsUI();
+        }
+
+
+
+        // Обработчики для вкладок уведомлений
+        if (tabBtns) {
+          tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+              console.log(`🔄 Переключение на вкладку: ${btn.dataset.tab}`);
+              console.log(`📋 Состояние до переключения:`, {
+                currentTab: currentTab,
+                totalNotifications: notifications.length,
+                filteredCount: notifications.filter(n => {
+                  if (btn.dataset.tab === 'all') return true;
+                  if (btn.dataset.tab === 'comments') return n.type === 'comment';
+                  if (btn.dataset.tab === 'events') return n.type === 'event' || n.type === 'task';
+                  if (btn.dataset.tab === 'deadlines') return Boolean(n.deadlineState);
+                  return true;
+                }).length
+              });
+              
+              // Убираем активный класс со всех кнопок
+              tabBtns.forEach(b => b.classList.remove('active'));
+              
+              // Добавляем активный класс к нажатой кнопке
+              btn.classList.add('active');
+              
+              // Обновляем текущую вкладку
+              currentTab = btn.dataset.tab;
+
+              // Каждая вкладка открывается свёрнутой: раскрытый список «Все»
+              // не должен превращать «Дедлайны» в простыню.
+              visibleNotificationsCount = NOTIFICATIONS_PAGE_SIZE;
+
+              console.log(`📋 Текущая вкладка обновлена на: ${currentTab}`);
+              console.log(`📝 Всего уведомлений: ${notifications.length}`);
+              
+              // Обновляем UI уведомлений
+              updateNotificationsUI();
+              
+              console.log(`✅ Переключились на вкладку: ${currentTab}`);
+            });
+          });
+          
+          console.log(`✅ Обработчики вкладок добавлены для ${tabBtns.length} кнопок`);
+        } else {
+          console.warn('⚠️ Кнопки вкладок не найдены');
+        }
+
+        if (markAllReadBtn) {
+          markAllReadBtn.addEventListener('click', markAllAsRead);
+        }
+
+        // Обработчик для кнопки "Смотреть еще"
+        const showMoreNotificationsBtn = document.getElementById('showMoreNotificationsBtn');
+        if (showMoreNotificationsBtn) {
+          showMoreNotificationsBtn.addEventListener('click', showMoreNotifications);
+        }
+
+        // ===== СИНХРОНИЗАЦИЯ С TELEGRAM-БОТОМ =====
+
+        const TELEGRAM_PREFERENCE_KEYS = ['enabled', 'taskDeadlines', 'taskAssigned', 'reportReminder', 'weeklyDigest'];
+        const STAFF_ROLES = ['mentor', 'curator', 'admin', 'admin-helper'];
+        let telegramPreferences = {};
+
+        async function initializeTelegramCard() {
+          const card = document.getElementById('telegramCard');
+          if (!card || !db || !currentUser) return;
+
+          let role = '';
+          let chatId = null;
+          let stored = {};
+          try {
+            // Точечные чтения собственного профиля: тянуть весь users/<uid>
+            // ради трёх полей запрещено стандартом доступа к данным.
+            const [roleSnapshot, chatSnapshot, preferencesSnapshot] = await Promise.all([
+              db.ref(`users/${currentUser.uid}/role`).once('value'),
+              db.ref(`users/${currentUser.uid}/telegramChatId`).once('value'),
+              db.ref(`users/${currentUser.uid}/telegramStudentPreferences`).once('value')
+            ]);
+            role = String(roleSnapshot.val() || '').toLowerCase();
+            chatId = chatSnapshot.val();
+            stored = preferencesSnapshot.val() || {};
+          } catch (error) {
+            console.warn('Не удалось прочитать настройки Telegram:', error);
+            return;
+          }
+
+          // У сотрудников свои переключатели в кабинете ментора.
+          if (STAFF_ROLES.includes(role)) return;
+
+          const statusEl = document.getElementById('telegramStatus');
+          const togglesEl = document.getElementById('telegramToggles');
+          const hintEl = document.getElementById('telegramHint');
+
+          card.hidden = false;
+          telegramPreferences = Object.fromEntries(
+            TELEGRAM_PREFERENCE_KEYS.map(key => [key, stored[key] !== false])
+          );
+
+          if (!chatId) {
+            statusEl.textContent = t('Telegram пока не привязан');
+            statusEl.classList.remove('is-linked');
+            togglesEl.hidden = true;
+            hintEl.innerHTML = t('Привязка происходит автоматически, когда ментор выдаёт доступ через {bot}. Если бот у вас уже есть, а привязки нет — напишите ментору.', {
+              bot: '<a href="https://t.me/schmidtml_bot" target="_blank" rel="noopener">@schmidtml_bot</a>',
+            });
+            return;
+          }
+
+          statusEl.textContent = t('Telegram привязан — уведомления приходят в @schmidtml_bot');
+          statusEl.classList.add('is-linked');
+          togglesEl.hidden = false;
+          hintEl.textContent = t('Дедлайны приходят одним дайджестом утром, напоминание об отчёте — вечером.');
+          renderTelegramToggles();
+
+          togglesEl.querySelectorAll('input[data-pref]').forEach(input => {
+            input.addEventListener('change', () => saveTelegramPreference(input));
+          });
+        }
+
+        function renderTelegramToggles() {
+          const togglesEl = document.getElementById('telegramToggles');
+          if (!togglesEl) return;
+          togglesEl.querySelectorAll('input[data-pref]').forEach(input => {
+            const key = input.dataset.pref;
+            input.checked = telegramPreferences[key] !== false;
+            const muted = key !== 'enabled' && telegramPreferences.enabled === false;
+            input.disabled = muted;
+            input.closest('.telegram-toggle')?.classList.toggle('is-muted', muted);
+          });
+        }
+
+        async function saveTelegramPreference(input) {
+          const key = input.dataset.pref;
+          const previous = telegramPreferences[key];
+          telegramPreferences[key] = input.checked;
+          renderTelegramToggles();
+          const hintEl = document.getElementById('telegramHint');
+          try {
+            const result = await window.achievementApi.updateOwnTelegramNotificationSettings({ [key]: input.checked });
+            telegramPreferences = { ...telegramPreferences, ...(result?.preferences || {}) };
+            if (hintEl) hintEl.textContent = t('Настройки сохранены.');
+          } catch (error) {
+            console.error('Не удалось сохранить настройку уведомлений:', error);
+            telegramPreferences[key] = previous;
+            if (hintEl) hintEl.textContent = t('Не удалось сохранить настройку. Попробуйте ещё раз.');
+          }
+          renderTelegramToggles();
+        }
+
+        // Функция инициализации уведомлений
+        async function initializeNotifications() {
+          if (db && currentUser) {
+            console.log('🔔 Инициализация системы уведомлений для профиля...');
+            console.log('📊 Текущий пользователь:', currentUser.uid);
+            console.log('🗄️ База данных:', !!db);
+            
+            // Инициализируем глобальную систему уведомлений
+            if (window.notificationSystem && !window.notificationSystem.isInitialized) {
+              console.log('🌐 Инициализация глобальной системы уведомлений...');
+              // Получаем конфигурацию Firebase для инициализации
+              const firebaseConfig = {
+                databaseURL: db.app.options.databaseURL,
+                apiKey: db.app.options.apiKey,
+                authDomain: db.app.options.authDomain,
+                projectId: db.app.options.projectId,
+                storageBucket: db.app.options.storageBucket,
+                messagingSenderId: db.app.options.messagingSenderId,
+                appId: db.app.options.appId
+              };
+              
+              console.log('⚙️ Конфигурация Firebase для уведомлений:', firebaseConfig);
+              
+              try {
+                await window.notificationSystem.initialize(firebaseConfig);
+                console.log('✅ Глобальная система уведомлений инициализирована в профиле');
+                
+                // Ждем загрузки уведомлений из глобальной системы
+                await window.notificationSystem.loadNotifications();
+                console.log('📥 Уведомления загружены из глобальной системы');
+                
+                // Загружаем уведомления в профиль
+                loadNotifications();
+              } catch (error) {
+                console.warn('⚠️ Не удалось инициализировать глобальную систему уведомлений:', error);
+                console.log('🔄 Продолжаем с локальной системой уведомлений');
+                loadNotifications();
+              }
+            } else if (window.notificationSystem && window.notificationSystem.isInitialized) {
+              console.log('ℹ️ Глобальная система уведомлений уже инициализирована');
+              
+              // Если система уже инициализирована, загружаем уведомления
+              if (window.notificationSystem.notifications.length === 0) {
+                console.log('📥 Загружаем уведомления в глобальную систему...');
+                await window.notificationSystem.loadNotifications();
+              }
+              
+              // Загружаем уведомления в профиль
+              loadNotifications();
+            } else {
+              console.log('⚠️ Глобальная система уведомлений недоступна, используем локальную');
+              loadNotifications();
+            }
+            // НЕ настраиваем бейдж в заголовке - никаких индикаторов в шапке
+            cleanupOldNotifications().catch(error => {
+              console.error('❌ Ошибка очистки старых уведомлений:', error);
+            });
+            window.notificationSystem?.updateAllIndicators?.();
+            initializeTelegramCard().catch(error => {
+              console.error('❌ Ошибка инициализации карточки Telegram:', error);
+            });
+            // Периодическое обновление уже живёт в notifications.js:
+            // второй таймер здесь только удваивал чтения.
+            
+            console.log('✅ Система уведомлений профиля инициализирована');
+            
+          } else {
+            console.warn('⚠️ Не удалось инициализировать уведомления: отсутствует пользователь или база данных');
+          }
+        }
+
+        // Функция очистки старых уведомлений (старше 30 дней)
+        async function cleanupOldNotifications() {
+          if (!db || !currentUser) return;
+          
+          try {
+            const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+            const userNotificationsRef = db.ref(`users/${currentUser.uid}/notifications`);
+            const userNotificationsSnapshot = await userNotificationsRef.once('value');
+            const userNotificationsData = userNotificationsSnapshot.val() || {};
+            
+            const updates = {};
+            let hasUpdates = false;
+            
+            // Удаляем уведомления старше 30 дней
+            for (const [notificationId, notificationData] of Object.entries(userNotificationsData)) {
+              if (notificationData.readAt && notificationData.readAt < thirtyDaysAgo) {
+                updates[notificationId] = null; // null удаляет поле
+                hasUpdates = true;
+              }
+            }
+            
+            if (hasUpdates) {
+              await userNotificationsRef.update(updates);
+              console.log('Очищены старые уведомления');
+            }
+          } catch (error) {
+            console.warn('Не удалось очистить старые уведомления:', error);
+          }
+        }
+
+        // Функция автоматической отметки уведомлений как просмотренных
+        async function markNotificationsAsViewed(notificationsToMark) {
+          if (!db || !currentUser || !notificationsToMark.length) return;
+          
+          try {
+            const updates = {};
+            let hasUpdates = false;
+            
+            // Отмечаем уведомления как просмотренные (но не прочитанные)
+            for (const notification of notificationsToMark) {
+              if (!notification.read && !notification.viewed) {
+                updates[`notifications/${notification.id}/viewed`] = true;
+                updates[`notifications/${notification.id}/viewedAt`] = Date.now();
+                notification.viewed = true;
+                hasUpdates = true;
+              }
+            }
+            
+            if (hasUpdates) {
+              const userRef = db.ref(`users/${currentUser.uid}`);
+              await userRef.update(updates);
+            }
+          } catch (error) {
+            console.warn('Не удалось отметить уведомления как просмотренные:', error);
+          }
+        }
+
+        // Функция показа следующей порции уведомлений
+        function showMoreNotifications() {
+          visibleNotificationsCount += NOTIFICATIONS_PAGE_SIZE;
+          updateNotificationsUI();
+        }
+
+        // Функция setupNotificationsBadge удалена - никаких индикаторов в шапке профиля
+
+        // Ждем загрузки Firebase SDK и configLoader
+        let waitAttempts = 0;
+        const maxWaitAttempts = 50; // 5 секунд максимум
+
+        function waitForDependencies() {
+          waitAttempts++;
+          console.log(`Checking dependencies... (attempt ${waitAttempts}/${maxWaitAttempts})`, {
+            firebase: typeof firebase,
+            configLoader: typeof window.configLoader
+          });
+
+          if (typeof firebase !== 'undefined' && typeof window.configLoader !== 'undefined') {
+            console.log('All dependencies ready, initializing Firebase...');
+            initializeFirebase();
+          } else if (waitAttempts >= maxWaitAttempts) {
+            console.error('Dependencies not available after maximum attempts');
+            alert(t('Ошибка загрузки зависимостей. Попробуйте обновить страницу.'));
+          } else {
+            console.log('Waiting for dependencies...');
+            setTimeout(waitForDependencies, 100);
+          }
+        }
+
+        // Начинаем ожидание загрузки зависимостей с небольшой задержкой
+        setTimeout(waitForDependencies, 100);
+      });
+    </script>
+  </body>
+</html>

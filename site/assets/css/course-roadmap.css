@@ -1,0 +1,910 @@
+.course-roadmap-page {
+  --roadmap-panel: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  --roadmap-panel-strong: var(--bg-card);
+  --roadmap-line: color-mix(in srgb, var(--border-strong) 68%, transparent);
+  --roadmap-done: var(--success);
+  --roadmap-assigned: var(--brand);
+  --roadmap-current: var(--warning);
+  --roadmap-open: var(--text-subtle);
+  --roadmap-mock: #e11d48;
+  --roadmap-mock-strong: #f97316;
+}
+
+.course-roadmap-page .container {
+  max-width: 1440px;
+}
+
+.course-roadmap-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.roadmap-notices {
+  margin: 0 0 14px;
+}
+
+.roadmap-notice {
+  padding: 15px 16px;
+  background: var(--roadmap-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: var(--surface-glass-blur);
+  backdrop-filter: var(--surface-glass-blur);
+}
+
+.roadmap-notice.important {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--warning-light) 42%,
+    var(--roadmap-panel)
+  );
+}
+
+.roadmap-notice-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.roadmap-notice p {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.roadmap-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.roadmap-panel,
+.milestone-card,
+.roadmap-insight {
+  background: var(--roadmap-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: var(--surface-glass-blur);
+  backdrop-filter: var(--surface-glass-blur);
+}
+
+.roadmap-panel {
+  position: sticky;
+  top: 84px;
+  padding: 16px;
+}
+
+.roadmap-panel-title {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.roadmap-settings-skeleton {
+  display: none;
+  gap: 12px;
+}
+
+.settings-loading .roadmap-settings-skeleton {
+  display: grid;
+}
+
+.settings-loading .roadmap-settings-content {
+  display: none;
+}
+
+.roadmap-settings-content [hidden] {
+  display: none !important;
+}
+
+.roadmap-stats-skeleton {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.roadmap-stat--skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.roadmap-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.roadmap-field span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+}
+
+.roadmap-field select,
+.roadmap-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+}
+
+.roadmap-field select:focus,
+.roadmap-field input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+/* Контур фокуса подавлялся для всех способов фокусировки, включая клавиатуру.
+   :focus-visible перебивает подавление, а мышиный клик рамку по-прежнему
+   не рисует. */
+.roadmap-field select:focus-visible,
+.roadmap-field input:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+.roadmap-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.roadmap-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+}
+
+.roadmap-check span {
+  color: var(--text);
+}
+
+.roadmap-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.roadmap-stat {
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.roadmap-stat strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.roadmap-stat span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.roadmap-progress {
+  height: 9px;
+  margin: 14px 0 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border) 56%, transparent);
+  border-radius: 999px;
+}
+
+.roadmap-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+  border-radius: inherit;
+  transition: width 0.25s ease;
+}
+
+.roadmap-note {
+  display: none;
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.course-roadmap-page.can-manage .roadmap-note {
+  display: block;
+}
+
+.roadmap-content {
+  min-width: 0;
+  max-width: 760px;
+  margin: 0;
+}
+
+.roadmap-insights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.roadmap-insight:first-child {
+  grid-column: 1 / -1;
+}
+
+.roadmap-insight {
+  padding: 14px;
+}
+
+.roadmap-insight span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+}
+
+.roadmap-insight strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.milestone-list {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.milestone-list::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 20px;
+  bottom: 20px;
+  width: 2px;
+  background: var(--roadmap-line);
+}
+
+.milestone-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  max-width: 100%;
+}
+
+.milestone-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--roadmap-open);
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 0 0 6px var(--bg);
+}
+
+.milestone-card.status-done .milestone-marker {
+  background: var(--roadmap-done);
+}
+.milestone-card.status-assigned .milestone-marker {
+  background: var(--roadmap-assigned);
+}
+.milestone-card.status-current .milestone-marker {
+  background: var(--roadmap-current);
+}
+
+/* Закрыт этап или нет — видно по самой карточке, а не по кнопкам:
+   закрытая — зелёная тонированная, с галочкой у номера; текущая — с
+   оранжевым кольцом; поставленная — синий бейдж. */
+.milestone-card.status-done {
+  border-color: color-mix(in srgb, var(--roadmap-done) 40%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--roadmap-done) 10%, transparent),
+      transparent 60%
+    ),
+    var(--roadmap-panel);
+}
+
+.milestone-card.status-done .milestone-marker::after {
+  content: "✓";
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--roadmap-done);
+  color: white;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.milestone-card.status-done .milestone-title {
+  color: var(--text-muted);
+}
+
+.milestone-card.status-current:not(.milestone-card--mock) {
+  border-color: color-mix(in srgb, var(--roadmap-current) 55%, var(--border));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--roadmap-current) 18%, transparent),
+    var(--shadow-sm);
+}
+
+.milestone-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.milestone-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.milestone-status--done {
+  border-color: transparent;
+  background: var(--roadmap-done);
+  color: white;
+}
+
+.milestone-status--assigned {
+  border-color: transparent;
+  background: var(--roadmap-assigned);
+  color: white;
+}
+
+.milestone-status--current {
+  border-color: color-mix(in srgb, var(--roadmap-current) 55%, var(--border));
+  background: color-mix(in srgb, var(--warning-light) 70%, var(--bg-card));
+  color: var(--roadmap-current);
+}
+
+.milestone-status--done::before,
+.milestone-status--assigned::before {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.milestone-card--mock {
+  border-color: color-mix(in srgb, var(--roadmap-mock) 48%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--roadmap-mock) 12%, transparent),
+      transparent 58%
+    ),
+    var(--roadmap-panel);
+  box-shadow:
+    0 12px 34px color-mix(in srgb, var(--roadmap-mock) 15%, transparent),
+    var(--shadow-sm);
+}
+
+.milestone-card--mock::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid
+    color-mix(in srgb, var(--roadmap-mock-strong) 22%, transparent);
+  pointer-events: none;
+}
+
+.milestone-card--mock .milestone-marker,
+.milestone-card--mock.status-done .milestone-marker,
+.milestone-card--mock.status-assigned .milestone-marker,
+.milestone-card--mock.status-current .milestone-marker {
+  background: linear-gradient(
+    135deg,
+    var(--roadmap-mock),
+    var(--roadmap-mock-strong)
+  );
+  box-shadow:
+    0 0 0 6px var(--bg),
+    0 10px 22px color-mix(in srgb, var(--roadmap-mock) 28%, transparent);
+}
+
+.milestone-main {
+  min-width: 0;
+}
+
+.milestone-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.milestone-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.milestone-title-alert {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--roadmap-mock);
+  color: white;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: text-top;
+}
+
+.milestone-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.milestone-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.milestone-pill.required {
+  color: var(--brand);
+}
+.milestone-pill.optional {
+  color: var(--warning);
+}
+.milestone-pill.additional {
+  color: var(--warning);
+}
+
+.milestone-heading {
+  min-width: 0;
+}
+
+.milestone-pill--mock {
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--roadmap-mock),
+    var(--roadmap-mock-strong)
+  );
+  color: white;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.track-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+/* Чип раздела — одна строка: название и, если есть, номера блоков компактной
+   меткой. Подписи «блоки N» / «материал» второй строкой убраны. */
+.track-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.track-chip:hover {
+  border-color: var(--track-color, var(--brand));
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--track-color, var(--brand)) 14%, transparent);
+}
+
+.track-chip::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--track-color, var(--brand));
+  flex: 0 0 auto;
+}
+
+.track-chip strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Страница закрыта для выбранного ученика: откроется при постановке этапа. */
+.track-chip--locked {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.track-chip-lock {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.track-chip-blocks {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--track-color, var(--brand)) 14%,
+    transparent
+  );
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.milestone-highlight {
+  position: relative;
+  margin-top: 12px;
+  padding: 12px 14px 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+  border-left: 4px solid var(--warning);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning-light) 46%, var(--bg-card));
+}
+
+.milestone-highlight-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.milestone-highlight-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.milestone-highlight p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.milestone-highlight code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  font-size: 12px;
+}
+
+.milestone-actions {
+  display: none;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.course-roadmap-page.can-manage .milestone-actions {
+  display: flex;
+}
+
+.milestone-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.milestone-reopen-btn {
+  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.milestone-reopen-btn:hover {
+  color: var(--text);
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.milestone-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.milestone-date input {
+  width: 138px;
+  padding: 7px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.milestone-buttons {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.roadmap-button {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 11px;
+  background: var(--bg-card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.roadmap-button:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.roadmap-button.primary {
+  border-color: transparent;
+  background: var(--brand);
+  color: white;
+}
+
+.roadmap-button.success {
+  border-color: transparent;
+  background: var(--success);
+  color: white;
+}
+
+.roadmap-button.ghost {
+  background: transparent;
+}
+
+.roadmap-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.milestone-done-note {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 11px;
+  color: var(--roadmap-done);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.milestone-card.status-done .milestone-actions {
+  opacity: 0.85;
+}
+
+/* Диалог предпросмотра. Классы kanban-page/kanban-modal дают ему переменные
+   и рамку доски, но kanban-page рассчитан на <body> — снимаем высоту. */
+.roadmap-preview {
+  min-height: 0;
+}
+
+.roadmap-preview-inner {
+  display: grid;
+  gap: 16px;
+  max-height: min(858px, calc(100vh - 30px));
+  padding: 18px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.roadmap-preview-heading {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.roadmap-preview-heading h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.roadmap-preview-kicker {
+  margin: 0;
+  color: var(--kanban-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.roadmap-preview-body {
+  display: grid;
+  gap: 12px;
+}
+
+.roadmap-preview-body:empty::before {
+  content: "У задания нет описания.";
+  color: var(--kanban-muted);
+  font-size: 13px;
+}
+
+.roadmap-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kanban-border);
+}
+
+.roadmap-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  max-width: min(380px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.roadmap-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-theme="dark"] body .milestone-marker {
+  box-shadow: 0 0 0 6px var(--bg);
+}
+
+@media (max-width: 980px) {
+  .roadmap-notices {
+    grid-template-columns: 1fr;
+    margin-top: -22px;
+  }
+
+  .roadmap-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .roadmap-panel {
+    position: static;
+  }
+
+  .roadmap-insights {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .course-roadmap-actions,
+  .milestone-top,
+  .milestone-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .milestone-card {
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 13px;
+  }
+
+  .milestone-marker {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    font-size: 13px;
+  }
+
+  .milestone-list::before {
+    left: 18px;
+  }
+
+  .milestone-status {
+    align-self: flex-start;
+  }
+
+  .milestone-date input,
+  .roadmap-button {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}

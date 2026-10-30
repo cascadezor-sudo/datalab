@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ru" data-palette="vibecode" data-theme="light"><head>
+    <meta charset="UTF-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Повторение</title>
+    <link href="assets/css/tokens.css" rel="stylesheet">
+    <link href="assets/css/task-table.css" rel="stylesheet">
+    <link href="assets/css/skeleton.css" rel="stylesheet">
+    <link href="assets/css/comparison-cards.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/navigation.css">
+    <link rel="stylesheet" href="assets/css/pages-modern.css">
+    <link rel="stylesheet" href="assets/css/spaced-repetition.css">
+    <link rel="stylesheet" href="assets/katex/katex.min.css">
+    <script src="assets/js/components/navigation.js"></script><link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <script src="assets/js/firebase-mock.js"></script>
+<script src="/assets/js/components/command-palette.js" async=""></script></head>
+  <body class="main" data-i18n="" style="visibility: visible;"><svg aria-hidden="true" width="0" height="0" style="position: absolute; width: 0px; height: 0px; overflow: hidden;"><symbol id="grad-coin" viewBox="0 0 64 64">
+    <defs>
+      <linearGradient id="grad-coin-rim" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#fbe08a"></stop>
+        <stop offset="0.45" stop-color="#e2a52c"></stop>
+        <stop offset="1" stop-color="#9a6410"></stop>
+      </linearGradient>
+      <linearGradient id="grad-coin-face" x1="18" y1="14" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#f6cf5c"></stop>
+        <stop offset="1" stop-color="#d69420"></stop>
+      </linearGradient>
+      <linearGradient id="grad-coin-glyph" x1="22" y1="22" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#7a4d08"></stop>
+        <stop offset="1" stop-color="#4f3004"></stop>
+      </linearGradient>
+      <radialGradient id="grad-coin-shine" cx="22" cy="18" r="30" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"></stop>
+        <stop offset="0.6" stop-color="#ffffff" stop-opacity="0"></stop>
+      </radialGradient>
+    </defs>
+    <!-- тень ребра -->
+    <circle cx="32" cy="33.5" r="30" fill="#6b4408" opacity="0.35"></circle>
+    <!-- ребро с насечкой -->
+    <circle cx="32" cy="32" r="30" fill="url(#grad-coin-rim)"></circle>
+    <circle cx="32" cy="32" r="27.6" fill="none" stroke="#7a4d08" stroke-opacity="0.45" stroke-width="1.6" stroke-dasharray="1.4 2.2"></circle>
+    <!-- поле монеты -->
+    <circle cx="32" cy="32" r="24" fill="url(#grad-coin-face)" stroke="#8a5a0c" stroke-width="1.2"></circle>
+    <circle cx="32" cy="32" r="21.5" fill="none" stroke="#fff3c4" stroke-opacity="0.55" stroke-width="0.8"></circle>
+    <!-- ∇: тиснение — светлый край сверху, тёмный глиф -->
+    <path d="M20.5 22.2 H43.5 L32 43.2 Z" fill="none" stroke="#fff3c4" stroke-opacity="0.7" stroke-width="1.4" stroke-linejoin="round" transform="translate(0 -1)"></path>
+    <path d="M20.5 22.2 H43.5 L32 43.2 Z" fill="url(#grad-coin-glyph)" stroke="#3d2503" stroke-width="0.9" stroke-linejoin="round"></path>
+    <path d="M25.2 25.4 H38.8 L32 37.8 Z" fill="url(#grad-coin-face)"></path>
+    <!-- блик -->
+    <circle cx="32" cy="32" r="30" fill="url(#grad-coin-shine)"></circle>
+  </symbol></svg>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a><nav id="navbar" data-nav-variant="curator" data-nav-role="mentor" aria-label="Основная навигация"><button type="button" class="mobile-menu-btn" aria-label="Меню навигации" aria-expanded="false" aria-controls="nav-primary-links">☰</button><a href="/main.html" class="nav-logo" aria-label="DataLab — на главную"><img src="/favicon.svg" alt="" width="28" height="28"><span class="nav-logo__text">DataLab</span></a><div class="nav-links" id="nav-primary-links"><div class="dropdown dropdown--mega"><button type="button" class="dropdown-btn" aria-haspopup="true" aria-expanded="false" aria-controls="nav-dropdown-4">Материалы</button><div class="dropdown-content" id="nav-dropdown-4"><div class="dropdown-mega__top"><a href="/roadmap/index.html">Карта разделов</a><a href="/roadmap/interactive.html" class="dropdown-mega__secondary">интерактивная</a></div><div class="dropdown-mega__columns"><div class="dropdown-group"><span class="dropdown-group__title">Основы</span><a href="/python/index.html">Python</a><a href="/math/index.html">Математика</a><a href="/db/index.html">Базы данных</a><a href="/github/index.html">Git</a><a href="/linux/index.html">Linux</a></div><div class="dropdown-group"><span class="dropdown-group__title">Machine Learning</span><a href="/ai/ml/index.html">Машинное обучение</a><a href="/ai/mlops/index.html">MLOps</a><a href="/practise/index.html">Практика</a></div></div><div class="dropdown-mega__footer"><a href="/materials/index.html">Доп. источники</a></div></div></div><div class="dropdown"><button type="button" class="dropdown-btn active" aria-haspopup="true" aria-expanded="false" aria-controls="nav-dropdown-5">Прогресс</button><div class="dropdown-content" id="nav-dropdown-5"><a href="/spaced-repetition.html" class="active" aria-current="page">Повторение карточек</a><a href="/calender/index.html">Доска задач</a><a href="/leaderboard.html">Лидерборд</a><a href="/my-reports.html">Отчеты</a><a href="/tests/index.html">Тесты</a><a href="/achievements.html">Достижения</a><a href="/wallet.html">Кошелёк</a></div></div><a href="/ai/interviews/index.html">Собесы</a><a href="/mentor-stats/index.html">Кабинет</a></div><button type="button" class="nav-search-btn" aria-label="Поиск" aria-keyshortcuts="Control+K"><svg class="nav-search-btn__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg><span class="nav-search-btn__label">Поиск</span><kbd aria-hidden="true">Ctrl K</kbd></button><a href="/mentor-stats/online.html" class="nav-online-badge" hidden="" aria-describedby="nav-online-popover"><span class="nav-online-badge__dot" aria-hidden="true"></span><span data-online-count="">0</span><span class="nav-online-badge__word"> онлайн</span><span class="nav-online-popover" id="nav-online-popover" role="tooltip"><span class="nav-online-popover__head">Учеников на сайте за последние 20 минут</span></span></a><div class="dropdown nav-account"><button type="button" aria-label="Меню аккаунта" class="dropdown-btn" aria-haspopup="true" aria-expanded="false" aria-controls="nav-dropdown-6"><span class="nav-avatar" aria-hidden="true">S</span></button><div class="dropdown-content" id="nav-dropdown-6"><a href="/profile.html">Профиль</a><a href="/news.html">Новости</a><a href="/suggestions.html">Предложения</a><button type="button" id="theme-toggle-nav" class="appearance-trigger">Оформление</button><button type="button" class="nav-lang-btn" lang="en" title="Switch to English" aria-label="Switch to English">English</button><button type="button" class="nav-logout-item">Выйти</button></div></div></nav>
+    <div class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1>Повторение</h1>
+            <p class="subtitle">Карточки из теоретического минимума</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="profile.html" class="page-header-button">Назад к профилю</a>
+          </div>
+        </div>
+      </header>
+
+      <main id="main-content" tabindex="-1" class="sr-shell">
+        <section class="sr-overview" aria-label="Сессия повторения">
+          <div class="sr-stats" aria-label="Статистика повторения">
+            <div class="sr-stat sr-stat-accent">
+              <span class="sr-stat-value" id="sr-stat-due">0</span>
+              <span class="sr-stat-label">к повторению</span>
+            </div>
+            <div class="sr-stat">
+              <span class="sr-stat-value" id="sr-stat-new">0</span>
+              <span class="sr-stat-label">новых</span>
+            </div>
+            <div class="sr-stat">
+              <span class="sr-stat-value" id="sr-stat-reviewed">0</span>
+              <span class="sr-stat-label">сегодня</span>
+            </div>
+            <div class="sr-stat">
+              <span class="sr-stat-value" id="sr-stat-mature">0</span>
+              <span class="sr-stat-label">закреплено</span>
+            </div>
+          </div>
+
+          <section class="sr-toolbar" aria-label="Фильтры карточек">
+            <div class="sr-filters">
+              <select class="sr-select" id="sr-mode" aria-label="Режим">
+                <option value="due">К повторению</option>
+                <option value="completed">Из изученных вопросов</option>
+                <option value="new">Новые</option>
+                <option value="all">Все карточки</option>
+              </select>
+              <select class="sr-select" id="sr-category" aria-label="Раздел" data-ready="true"><option value="">Все разделы</option><option value="ml_models_cv">Архитектуры CV</option><option value="ml_models_dl">Архитектуры DL</option><option value="ml_models_nlp">Архитектуры NLP</option><option value="ml_nlp_base">Базовый NLP</option><option value="db">Базы данных</option><option value="ml_timeseries">Временные ряды</option><option value="ml_dl">Глубокое обучение</option><option value="ml_classic">Классическое ML</option><option value="ml_cv">Компьютерное зрение</option><option value="math">Математика</option><option value="cloud">Облачные сервисы</option><option value="ml_optimization">Оптимизация ML</option><option value="classic_ml_practise">Практика Classic ML</option><option value="dl_practise">Практика DL</option><option value="nlp_practise">Практика NLP</option><option value="db_postgresql_practise">Практика PostgreSQL</option><option value="db_redis_practise">Практика Redis</option><option value="ml_nlp_advanced">Продвинутый NLP</option><option value="ml_recsys">Рекомендательные системы</option><option value="ml_agents">AI Агенты</option><option value="clearml">ClearML</option><option value="ml_cv_dl">CV и Deep Learning</option><option value="docker">Docker</option><option value="github">Git &amp; GitHub</option><option value="grafana">Grafana</option><option value="kafka">Kafka</option><option value="linux">Linux</option><option value="mlflow">MLflow</option><option value="db_postgresql">PostgreSQL</option><option value="prometheus">Prometheus</option><option value="python">Python</option><option value="ml_rag">RAG системы</option><option value="db_redis">Redis</option><option value="tensorboard">TensorBoard</option><option value="wandb">Weights &amp; Biases</option></select>
+              <input class="sr-search" id="sr-search" type="search" placeholder="Поиск по карточкам" aria-label="Поиск по карточкам">
+            </div>
+            <button type="button" class="sr-btn sr-btn-ghost" id="sr-reset">
+              Сбросить
+            </button>
+          </section>
+        </section>
+
+        <section id="sr-card-container" aria-live="polite">
+          <div class="sr-empty">
+            <strong>Нет карточек для этого режима</strong>
+            <span>Если ты только начал, переключись на "Все карточки" или отметь несколько вопросов как выполненные.</span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="assets/katex/katex.min.js"></script>
+    <script src="assets/katex/auto-render.min.js"></script>
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/components/achievement-api.js"></script>
+    <script src="assets/js/components/spaced-repetition.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        try {
+          const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+          const system = new window.SpacedRepetitionSystem();
+          window.spacedRepetitionSystem = system;
+          system.bindEvents();
+          await system.initialize(firebaseConfig);
+        } catch (error) {
+          console.error("Failed to initialize spaced repetition:", error);
+          const container = document.getElementById("sr-card-container");
+          if (container) {
+            container.innerHTML = `
+              <div class="sr-empty">
+                <strong>${t("Не удалось загрузить повторение")}</strong>
+                <span>${t("Попробуйте обновить страницу.")}</span>
+              </div>
+            `;
+          }
+        }
+      });
+    </script>
+    <script src="authGuard.js"></script>
+  
+
+</body></html>

@@ -1,0 +1,1792 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Рекомендательные системы</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/block-tests.js"></script>
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">Рекомендательные системы</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Рекомендательные системы</h1>
+          <p class="section-shell__desc">Вопросы по рекомендательным системам.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 1</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_basics" data-badge-type="required" data-interview="3">
+  <div class="name" id="recsys_basics">
+    Что такое рекомендательные системы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Рекомендательная система</b> - это модель или набор моделей, которые выбирают для пользователя релевантные объекты: товары, видео, статьи, музыку, вакансии, друзей или поисковые подсказки.</p>
+<p>Обычно есть пользователи $u \in U$, объекты $i \in I$ и история взаимодействий:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+R = \{(u, i, y_{ui}, t, c)\},
+$$">$$
+R = \{(u, i, y_{ui}, t, c)\},
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $y_{ui}$ - сигнал интереса, $t$ - время, $c$ - контекст.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Разреженная матрица взаимодействий пользователь-объект" src="../../images/ml/recsys/user-item-matrix.png" width="1680" height="930" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Игрушечная матрица $R$: 14 пользователей (строки) на 22 объекта (столбцы). Цветные ячейки — известные оценки от 1 (красный) до 5 (тёмно-зелёный), серые с вопросом — пары, по которым не было ни одного взаимодействия. Заполнено 14% ячеек, и это ещё оптимистично: в реальном каталоге плотность бывает 0.1% и ниже. Заметьте, что оценки скучены в левой части: у объектов i1-i10 их заметно больше, чем у i16-i22 — популярность уже перекошена в самих данных.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Типы рекомендаций">
+<table class="task-table">
+<thead><tr><th>Тип</th><th>Идея</th><th>Пример</th></tr></thead>
+<tbody>
+<tr><td>Collaborative filtering</td><td>похожие пользователи или объекты</td><td>&quot;пользователи, похожие на вас, смотрели...&quot;</td></tr>
+<tr><td>Content-based</td><td>признаки объекта и профиля пользователя</td><td>рекомендовать похожие статьи по тексту</td></tr>
+<tr><td>Hybrid</td><td>смешать несколько источников сигнала</td><td>CF + текст + категории</td></tr>
+<tr><td>Knowledge-based</td><td>правила и ограничения домена</td><td>подбор недвижимости по бюджету</td></tr>
+<tr><td>Context-aware</td><td>учитывать контекст</td><td>время суток, гео, устройство</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Feedback">
+<p><b>Explicit feedback</b> - явная оценка: рейтинг, лайк, дизлайк, анкета.</p>
+<p><b>Implicit feedback</b> - неявный сигнал: клик, просмотр, покупка, досмотр, dwell time, добавление в корзину. В индустрии implicit feedback встречается чаще, но он шумнее: клик не всегда означает удовлетворение.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Ключевые проблемы">
+<ul>
+<li><b>User-item interaction matrix</b> почти всегда разрежена: большинство пользователей видели малую долю каталога.</li>
+<li><b>Cold start</b> возникает для новых пользователей или новых объектов без истории.</li>
+<li><b>Long-tail problem</b> означает, что популярные объекты получают много показов, а нишевые редко получают шанс.</li>
+<li><b>Feedback loops</b> усиливают прошлые решения системы: что показали, то и получило больше данных.</li>
+<li><b>Exposure bias</b> и <b>popularity bias</b> мешают отличить настоящий интерес от эффекта видимости и популярности.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Длинный хвост популярности объектов" src="../../images/ml/recsys/long-tail.png" width="1800" height="720" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Синтетический каталог из 4000 объектов. Слева обе шкалы линейные и показаны только первые 600 рангов: синяя область — 452 объекта (11.3% каталога), которые собирают 80% всех взаимодействий, оранжевая — длинный хвост из 3548 объектов с оставшимися 20%. Справа те же данные в двойных логарифмических координатах: почти прямая — признак степенного закона, красный пунктир отмечает ранг 452, границу головы и хвоста. Именно из-за такой формы модель, оптимизирующая средний клик, легко скатывается к показу одной только головы.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Классический collaborative filtering">
+<p>В user-user CF (коллаборативная фильтрация) ищут похожих пользователей и рекомендуют то, что понравилось соседям. В item-item CF ищут похожие объекты и рекомендуют объекты, похожие на уже потреблённые.</p>
+<p>Популярные меры похожести:</p>
+<ul>
+<li>cosine similarity;</li>
+<li>Pearson correlation;</li>
+<li>Jaccard similarity для бинарных множеств взаимодействий.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какая основная цель рекомендательной системы?</b></p>
+<p>Выбрать и упорядочить объекты, которые с высокой вероятностью будут полезны или интересны конкретному пользователю в текущем контексте.</p>
+</li>
+<li><p><b>Чем collaborative filtering отличается от content-based подхода?</b></p>
+<p>Collaborative filtering использует паттерны взаимодействий пользователей и объектов, а content-based подход опирается на признаки объектов и профиль пользователя.</p>
+</li>
+<li><p><b>Чем implicit feedback сложнее explicit feedback?</b></p>
+<p>Он доступнее и масштабнее, но шумнее: просмотр, клик или покупка не всегда означают истинное предпочтение.</p>
+</li>
+<li><p><b>Что такое cold start?</b></p>
+<p>Проблема рекомендаций для новых пользователей или объектов, у которых ещё мало или нет истории взаимодействий.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_matrix_factorization" data-badge-type="required" data-difficulty="hard" data-interview="5">
+  <div class="name question-difficulty-hard question-hard-title" id="recsys_matrix_factorization">
+    Как работают matrix factorization и latent factor models?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Идея матричной факторизации">
+<p><b>Matrix factorization (матричное разложение)</b> приближает матрицу наблюдений пользователь–объект низкоранговым произведением. В задачах <b>explicit feedback</b> (явная обратная связь — явные числовые оценки или лайки) пусть $r_{ui}$ — оценка пользователя $u$ объекту $i$, а множество наблюдений $\Omega = \{(u,i): r_{ui}\ \text{известна}\}$. Модель</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\hat{r}_{ui} = \langle \mathbf{p}_u, \mathbf{q}_i \rangle = \mathbf{p}_u^\top \mathbf{q}_i,
+$$">$$
+\hat{r}_{ui} = \langle \mathbf{p}_u, \mathbf{q}_i \rangle = \mathbf{p}_u^\top \mathbf{q}_i,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\mathbf{p}_u, \mathbf{q}_i \in \mathbb{R}^d$ — <b>embeddings</b> (эмбеддинги) пользователя и объекта соответственно — это простейший <b>latent factor model</b> (модель латентных факторов) с размерностью $d$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Свёртка в матрицы">
+<p>Соберём эмбеддинги в строки матрицы $P \in \mathbb{R}^{|U|\times d}$ для пользователей и $Q \in \mathbb{R}^{|I|\times d}$ для объектов. Тогда</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\hat{R} \approx PQ^\top.
+$$">$$
+\hat{R} \approx PQ^\top.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Подбор $P,Q$ можно трактовать как поиск аппроксимации разреженной матрицы $R$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Схема разложения матрицы взаимодействий на два множителя" src="../../images/ml/recsys/matrix-factorization.png" width="1800" height="720" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Слева наблюдения $R$: 16 пользователей на 24 объекта, заполнено 18% ячеек, серые клетки не наблюдались. Справа два плотных множителя с $d = 4$ латентными факторами. В левой панели цвет кодирует величину $\hat r_{ui}$ — зелёный высокий, красный низкий; в двух правых панелях тем же цветом показаны сами значения латентных факторов, у которых по отдельности смысла нет. Главное в схеме — счёт параметров в заголовке: вместо 384 независимых ячеек модель хранит 160 чисел. Именно это сжатие и заставляет её обобщать на пары, которых не было в обучении.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="FunkSVD и ошибка восстановления">
+<p><b>FunkSVD</b> задаёт задачу в виде регуляризованной <b>weighted squared loss</b> (взвешенной квадратичной ошибки):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\sum_{(u,i)\in\Omega}\left(r_{ui} - \mathbf{p}_u^\top \mathbf{q}_i\right)^2
++ \lambda_P \|\mathbf{p}_u\|^2 + \lambda_Q \|\mathbf{q}_i\|^2.
+$$">$$
+\sum_{(u,i)\in\Omega}\left(r_{ui} - \mathbf{p}_u^\top \mathbf{q}_i\right)^2
++ \lambda_P \|\mathbf{p}_u\|^2 + \lambda_Q \|\mathbf{q}_i\|^2.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Оптимизируют методом стохастического градиентного спуска <b>SGD</b> (по наблюдению или минибатчу). Для наблюдаемых рейтингов обновление по паре $(u,i)$ с шагом $\eta$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\mathbf{p}_u \leftarrow \mathbf{p}_u + \eta \bigl( e_{ui}\mathbf{q}_i - \lambda_P \mathbf{p}_u \bigr),\qquad
+\mathbf{q}_i \leftarrow \mathbf{q}_i + \eta \bigl( e_{ui}\mathbf{p}_u - \lambda_Q \mathbf{q}_i \bigr),
+$$">$$
+\mathbf{p}_u \leftarrow \mathbf{p}_u + \eta \bigl( e_{ui}\mathbf{q}_i - \lambda_P \mathbf{p}_u \bigr),\qquad
+\mathbf{q}_i \leftarrow \mathbf{q}_i + \eta \bigl( e_{ui}\mathbf{p}_u - \lambda_Q \mathbf{q}_i \bigr),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $e_{ui} = r_{ui} - \mathbf{p}_u^\top \mathbf{q}_i$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Матричная факторизация по шагам" src="../../images/ml/recsys/matrix_factorization.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Слева разреженная матрица оценок $R$ (знаки вопроса — пары без взаимодействий). Справа $\hat R = UV^\top$ с $k=2$ латентными факторами. Градиентный спуск подгоняет произведение только к известным ячейкам: RMSE на них падает с шага на шаг, а ячейки без оценок получают предсказания (зелёные рамки) — это и есть рекомендации.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Probabilistic Matrix Factorization (PMF)">
+<p><b>PMF</b> (вероятностная матричная факторизация) задаёт гауссовскую наблюдаемую модель</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+r_{ui} \mid \mathbf{p}_u, \mathbf{q}_i \sim \mathcal{N}\!\left(\mathbf{p}_u^\top \mathbf{q}_i,\ \sigma_r^2\right),
+$$">$$
+r_{ui} \mid \mathbf{p}_u, \mathbf{q}_i \sim \mathcal{N}\!\left(\mathbf{p}_u^\top \mathbf{q}_i,\ \sigma_r^2\right),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>при этом на факторы задают априоры $\mathbf{p}_u \sim \mathcal{N}(\mathbf{0}, \sigma_p^2 I)$ и $\mathbf{q}_i \sim \mathcal{N}(\mathbf{0}, \sigma_q^2 I)$. Максимизация <b>MAP</b>-оценки существенным образом эквивалентна задаче FunkSVD: добавочные члены лог-плотности задают те же $\ell_2$-штрафы с коэффициентами, монотонно выраженными через $\sigma_r,\sigma_p,\sigma_q$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Alternating Least Squares (ALS)">
+<p><b>ALS</b> попеременно фиксирует множества $\{\mathbf{p}_u\}$ и $\{\mathbf{q}_i\}$ и на каждом шаге решает <b>least squares</b> (МНК) с $\ell_2$-штрафом (<b>ridge regression</b> — гребневая регрессия) для активной группы параметров при фиксации противоположной. У пары наблюдений $(u,i)$ выражение ошибки линейно по каждому из векторов $\mathbf{p}_u$ или $\mathbf{q}_i$, поэтому подзадачи малой размерности $d$ замкнуты в явном виде. Нет ручной настройки <b>learning rate</b> (скорости обучения) как при SGD, что удобно на CPU для очень больших разреженных матриц при умеренном $d$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Confidence weights и WRMF">
+<p>Для <b>implicit feedback</b> (неявная обратная связь) нули не означают «дизлайк». Пусть $c_{ui} &gt; 0$ — степень <b>confidence</b> доверия к тому, что пользователь $u$ любит объект $i$ (обычно $c_{ui} = 1 + \alpha\, n_{ui}$ для числа взаимодействий $n_{ui}$). <b>WRMF</b> минимизирует</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\sum_{u,i} c_{ui}\bigl(y_{ui} - \mathbf{p}_u^\top \mathbf{q}_i\bigr)^2 + \lambda \bigl(\|P\|_F^2 + \|Q\|_F^2\bigr),
+$$">$$
+\sum_{u,i} c_{ui}\bigl(y_{ui} - \mathbf{p}_u^\top \mathbf{q}_i\bigr)^2 + \lambda \bigl(\|P\|_F^2 + \|Q\|_F^2\bigr),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $y_{ui} \in \{0,1\}$ — наблюдаемый признак взаимодействия. Положительные пары получают больший вес $c_{ui}$, а нули остаются в сумме с малыми весами, что смягчает трактовку отсутствия события как жёсткого «нет соответствия».</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="NMF">
+<p><b>NMF</b> (non-negative matrix factorization — неотрицательная матричная факторизация) добавляет ограничения $\mathbf{p}_u \geq 0$, $\mathbf{q}_i \geq 0$ координатно, давая более интерпретируемые «части–целое» интерпретации признаков, часто через мультипликативные обновления вместо SGD по нулям производной на границе.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Базовые методы и названия">
+<table class="task-table">
+<thead><tr><th>Обозначение</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td><b>SVD</b> по полной матрице</td><td>традиционное разложение редко применимо к разрежённым $r_{ui}$, используют аппроксимации после mean imputation либо латентный семантический анализ (LSA) где уместно</td></tr>
+<tr><td><b>FunkSVD</b></td><td>SGD по наблюдаемым $(u,i)$ с регуляризацией</td></tr>
+<tr><td><b>PMF</b></td><td>вероятностный взгляд + MAP $\leftrightarrow$ регуляризованный квадратичный loss</td></tr>
+<tr><td><b>ALS</b></td><td>чередование закрытых форм МНК по пользователям и объектам</td></tr>
+<tr><td><b>WRMF</b></td><td>implicit feedback с весами доверия $c_{ui}$</td></tr>
+<tr><td><b>BPR-MF</b></td><td><b>pairwise</b> (попарная) ранжирующая цель, см. ниже</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Bias terms">
+<p>Одна только скалярная близость $\mathbf{p}_u^\top \mathbf{q}_i$ часто недостаточна. В задачах с рейтингами добавляют <b>bias terms</b> (смещения):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\hat{r}_{ui} = \mu + b_u + b_i + \mathbf{p}_u^\top \mathbf{q}_i,
+$$">$$
+\hat{r}_{ui} = \mu + b_u + b_i + \mathbf{p}_u^\top \mathbf{q}_i,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\mu$ — <b>global mean</b> (глобальное среднее), $b_u$ — смещение пользователя, $b_i$ — смещение объекта (популярность, средняя оценка и т.п.). Все параметры обучаются вместе с эмбеддингами под тот же loss.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="BPR loss">
+<p>Для задач implicit recommendation (<b>рекомендации по неявной обратной связи</b>) часто важно не восстановление конкретного значения <b>score</b> (выхода модели), а <b>pairwise ranking</b> (попарное ранжирование): для пользователя позитив $i$ должен быть над негативом $j$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\hat{y}_{ui} = \mathbf{p}_u^\top \mathbf{q}_i \quad\text{(часто с bias)}\, .
+$$">$$
+\hat{y}_{ui} = \mathbf{p}_u^\top \mathbf{q}_i \quad\text{(часто с bias)}\, .
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Цель <b>BPR</b> для выборки троек $(u,i,j)$, где пользователь имеет наблюденное действие над $i$ и считается более релевантным, чем $j$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\mathcal{L} = -\frac{1}{|\mathcal{S}|}\sum_{(u,i,j)\in\mathcal{S}} \ln \sigma\!\bigl(\hat{y}_{ui}-\hat{y}_{uj}\bigr),
+$$">$$
+\mathcal{L} = -\frac{1}{|\mathcal{S}|}\sum_{(u,i,j)\in\mathcal{S}} \ln \sigma\!\bigl(\hat{y}_{ui}-\hat{y}_{uj}\bigr),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>$\sigma(z) = 1/(1+e^{-z})$ — <b>sigmoid</b>.</p>
+<p>Это pairwise optimization (попарная оптимизация): модель учится упорядочивать объекты.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Практические детали">
+<p><b>Regularization</b> (регуляризация) ограничивает нормы эмбеддингов. <b>Negative sampling</b> (сэмплирование негативов) определяет, как формировать корректные пары или тройки для обучения. Для implicit feedback это критично: отсутствие клика часто есть «ещё не видел», а не нелюбовь к объекту.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что задаёт простейшая матричная факторизация без смещений?</b></p>
+<p>Аппроксимацию $r_{ui} \approx \mathbf{p}_u^\top\mathbf{q}_i$, то есть сумму по $d$ латентных факторов с разделяемым представлением пользователя и объекта.</p>
+</li>
+<li><p><b>Чем FunkSVD от MAP-вид PMF связаны?</b></p>
+<p>Оба приводят к минимизации квадратичной ошибки на наблюдениях плюс $\ell_2$-штрафы на факторы; PMF явно фиксирует вероятностную модель.</p>
+</li>
+<li><p><b>Зачем в WRMF вводят $c_{ui}$?</b></p>
+<p>Чтобы по-разному взвешивать уверенность в положительных и нулевых ячейках маски implicit матрицы.</p>
+</li>
+<li><p><b>Что оптимизирует BPR loss?</b></p>
+<p>Он увеличивает разрыв score между позитивным и сэмплированным негативным объектом через логарифм sigmoid разности предсказаний.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_retrieval" data-badge-type="required" data-interview="4">
+  <div class="name" id="recsys_retrieval">
+    Что такое retrieval в рекомендательных системах?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Two-stage recommendation">
+<p>В индустриальных системах рекомендации часто строят в два этапа:</p>
+<ol>
+<li><b>Retrieval / candidate generation</b> быстро достаёт сотни или тысячи кандидатов из огромного каталога.</li>
+<li><b>Ranking</b> медленнее и точнее сортирует этих кандидатов.</li>
+</ol>
+<p>Retrieval отвечает за recall: хороший объект должен попасть в кандидаты, иначе ranking уже не сможет его выбрать.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Воронка retrieval → ranking → re-ranking" src="../../images/ml/recsys/retrieval_ranking.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Каталог из миллионов объектов невозможно прогнать через тяжёлую модель на каждый запрос. Retrieval дёшево отбирает тысячи кандидатов по близости эмбеддингов (ANN), ranking точно скорит сотню кандидатов с богатыми признаками, re-ranking накладывает бизнес-правила и разнообразие. Точки — объекты: на каждом этапе их становится на порядок меньше.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Two-Tower models">
+<p>Two-Tower модель отдельно кодирует пользователя и объект:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+e_u = f_\theta(u, context), \qquad e_i = g_\phi(i),
+$$">$$
+e_u = f_\theta(u, context), \qquad e_i = g_\phi(i),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>а score считает через dot product или cosine similarity:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+s(u,i) = e_u^\top e_i.
+$$">$$
+s(u,i) = e_u^\top e_i.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Такой дизайн позволяет заранее посчитать item embeddings и быстро искать ближайшие объекты.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Схема двухбашенной модели для retrieval" src="../../images/ml/recsys/two-tower.png" width="1725" height="1080" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Синяя башня слева кодирует пользователя, оранжевая справа — объект, и встречаются они только в зелёном блоке скалярного произведения. Отсюда и главное свойство для production: башню объектов прогоняют офлайн по всему каталогу и складывают результат в ANN-индекс, а башню пользователя считают online на каждый запрос. Если бы башни обменивались признаками раньше, как это делают ranking-модели, предвычислить каталог было бы нельзя и пришлось бы скорить каждый объект отдельно.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Negative sampling">
+<p>Для retrieval нужны негативные примеры:</p>
+<ul>
+<li><b>random negatives</b> - случайные объекты;</li>
+<li><b>hard negatives</b> - похожие, но не выбранные объекты;</li>
+<li><b>in-batch negatives</b> - объекты других пользователей в том же батче;</li>
+<li><b>dynamic negatives</b> - негативы, которые обновляются по текущей модели.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="ANN">
+<p>Для поиска ближайших embeddings используют Approximate Nearest Neighbor:</p>
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td>FAISS</td><td>библиотека для быстрого vector search</td></tr>
+<tr><td>IVF</td><td>кластеризация пространства и поиск внутри ближайших кластеров</td></tr>
+<tr><td>PQ</td><td>product quantization для сжатия векторов</td></tr>
+<tr><td>HNSW</td><td>граф ближайших соседей</td></tr>
+<tr><td>ScaNN</td><td>ANN-подход с оптимизациями для больших embedding search</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Production retrieval">
+<p>В production важны embedding stores, online retrieval, real-time обновления, fresh embeddings и контроль latency. Retrieval часто комбинирует несколько источников кандидатов: персональные embeddings, популярное, свежие объекты, похожие объекты, правила бизнеса.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен retrieval-этап?</b></p>
+<p>Чтобы быстро сузить огромный каталог до небольшого набора кандидатов с высоким recall.</p>
+</li>
+<li><p><b>Почему Two-Tower удобен для retrieval?</b></p>
+<p>Item embeddings можно предвычислить, а online нужно только посчитать user embedding и сделать ANN-поиск.</p>
+</li>
+<li><p><b>Что такое hard negatives?</b></p>
+<p>Негативные объекты, которые похожи на позитивные и поэтому заставляют модель учиться более тонкому различению.</p>
+</li>
+<li><p><b>Зачем нужен ANN?</b></p>
+<p>Точный поиск ближайших по всему каталогу дорогой; ANN ускоряет поиск ценой небольшой потери точности.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_ranking" data-badge-type="additional research" data-interview="4">
+  <div class="name" id="recsys_ranking">
+    Как устроен ranking в рекомендательных системах?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Ranking">
+<p><b>Ranking</b> получает набор кандидатов и сортирует их по вероятности целевого действия: клика, покупки, просмотра, досмотра, подписки или долгосрочной ценности.</p>
+<p>В отличие от retrieval, ranking может использовать больше признаков и более тяжёлую модель, потому что работает не со всем каталогом, а с ограниченным числом кандидатов.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Место ranking в воронке рекомендаций" src="../../images/ml/recsys/retrieval_ranking.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Ranking — вторая ступень воронки: на вход приходит уже не каталог, а сотни кандидатов от retrieval, поэтому здесь можно позволить себе тяжёлую модель с признаками пользователя, объекта и контекста. Дальше re-ranking с бизнес-правилами формирует итоговую выдачу.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Learning to Rank">
+<p>Классические LTR-подходы:</p>
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td>RankNet</td><td>pairwise loss для сравнения документов или объектов</td></tr>
+<tr><td>LambdaRank</td><td>приближает оптимизацию ranking-метрик через lambda gradients</td></tr>
+<tr><td>LambdaMART</td><td>градиентный бустинг деревьев с LambdaRank-идеей</td></tr>
+<tr><td>XGBoost/LightGBM/CatBoost ranking</td><td>tree-based ranking с query/user группами</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Deep ranking models">
+<p>Популярные архитектуры для таблично-категориальных recommendation features:</p>
+<ul>
+<li><b>Wide &amp; Deep</b> - memorization + generalization;</li>
+<li><b>DeepFM</b>, <b>xDeepFM</b> - factorization machines + neural network;</li>
+<li><b>DCN/DCNv2</b> - explicit feature crosses;</li>
+<li><b>DLRM</b> - embedding tables + dense features;</li>
+<li><b>PNN</b>, <b>NFM</b>, <b>FiBiNET</b> - разные способы моделировать feature interactions;</li>
+<li><b>AutoInt</b> - attention для взаимодействий признаков.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Спектр моделей ранжирования от wide к deep" src="../../images/ml/recsys/wide-deep-spectrum.png" width="1800" height="385" loading="lazy" decoding="async" style="max-width: 1000px; width: 100%; height: auto" />
+  <figcaption>
+    Слева wide-модель: разреженные признаки и их пересечения идут прямо в выходной юнит — это memorization, запоминание частых комбинаций. Справа deep-модель: те же разреженные признаки сначала сжимаются в плотные эмбеддинги, потом проходят скрытые слои — это generalization. Посередине Wide &amp; Deep обучает обе ветви совместно и складывает их в одном выходе. Жёлтые кружки в нижнем ряду — активные ненулевые признаки конкретного примера, серые — нули. <a href="https://arxiv.org/abs/1606.07792" target="_blank" rel="noopener">Источник: Cheng et al., 2016</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Attention-based ranking">
+<p>Для последовательной истории пользователя используют модели вроде DIN, DIEN, BST, ETA. Они строят representation пользователя не как один фиксированный embedding, а с учётом конкретного candidate item: какая часть истории релевантна этому объекту.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ranking не решает всё">
+<p>Если retrieval не достал хороший объект, ranking не сможет его поднять. Если кандидаты однообразны, ranking может улучшить CTR, но ухудшить diversity, novelty и долгосрочную удовлетворённость.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем ranking отличается от retrieval?</b></p>
+<p>Retrieval быстро достаёт кандидатов из большого каталога, ranking точнее сортирует ограниченный набор кандидатов.</p>
+</li>
+<li><p><b>Что такое Learning to Rank?</b></p>
+<p>Семейство методов, которые обучаются упорядочивать объекты, а не только предсказывать независимые вероятности.</p>
+</li>
+<li><p><b>Почему деревья часто сильны в ranking?</b></p>
+<p>Они хорошо работают с табличными признаками, нелинейностями, пропусками и feature interactions.</p>
+</li>
+<li><p><b>Зачем attention в ranking-моделях?</b></p>
+<p>Чтобы выбирать релевантные части истории пользователя относительно конкретного candidate item.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_sequential" data-badge-type="additional" data-interview="3">
+  <div class="name" id="recsys_sequential">
+    Что такое sequential recommendation?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Последовательные рекомендации">
+<p><b>Sequential recommendation</b> (последовательная рекомендация — рекомендация с учётом порядка событий) формулируется как задача предсказания следующего действия пользователя (<b>next-item prediction</b> — предсказание следующего объекта):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+(i_1, i_2, \ldots, i_t) \mapsto i_{t+1}.
+$$">$$
+(i_1, i_2, \ldots, i_t) \mapsto i_{t+1}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>История задаёт последовательность <b>item ID</b> идентификаторов; контекст важен для медиасервисов, e-commerce-сессий, музыки, поиска.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Модели последовательностей">
+<table class="task-table">
+<thead><tr><th>Семейство</th><th>Примеры</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td><b>Markov chains</b> (цепи Маркова)</td><td>first-order / higher-order</td><td>следующий объект зависит от небольшого префикса</td></tr>
+<tr><td>Session-based</td><td>co-visitation, session graphs</td><td>короткая сессия без долгоживущего профиля</td></tr>
+<tr><td>RNN-based</td><td>GRU4Rec, LSTM</td><td>скрытое состояние обновляется по шагам</td></tr>
+<tr><td>Transformer-based</td><td>SASRec, BERT4Rec, TiSASRec</td><td><b>self-attention</b> (самовнимание) по позициям</td></tr>
+<tr><td>GPT-style</td><td>autoregressive models</td><td><b>autoregressive</b> (авторегрессионное) предсказание слева направо</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Autoregressive и masked подходы">
+<p><b>Autoregressive recommendation</b> (авторегрессионная рекомендация) использует только прошлый контекст:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+P(i_{t+1} \mid i_1, \ldots, i_t).
+$$">$$
+P(i_{t+1} \mid i_1, \ldots, i_t).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p><b>Masked item prediction</b> (предсказание маскированных объектов) скрывает часть позиций и учит модель восстанавливать их по двустороннему контексту.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="SASRec: self-attention с причинной маской">
+<p><b>SASRec</b> (Self-Attentive Sequential Recommendation) кодирует последовательность до индекса $t$ стеком слоёв <b>Transformer</b> (трансформер, как в «Attention is all you need»), но с <b>causal mask</b> (причинной маской внимания): позиция $s$ не видит будущие индексы $&gt;s$. Вход — эмбеддинги объектов плюс <b>positional encoding</b> (позиционное кодирование). Для позиции $t$ выход слоя $h_t$ подаётся в линейный слой к логитам по каталогу (или к dot-product с эмбеддингами всех объектов):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+P(i_{t+1} = k \mid i_{1:t}) \propto \exp\bigl( h_t^\top \mathbf{e}_k \bigr).
+$$">$$
+P(i_{t+1} = k \mid i_{1:t}) \propto \exp\bigl( h_t^\top \mathbf{e}_k \bigr).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Функция потерь — <b>cross-entropy</b> (перекрёстная энтропия) по следующему наблюдаемому объекту; на практике учитывают усечённую длину истории и <b>negative sampling</b> для softmax по большому каталогу.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Устройство блока Trm и общая схема SASRec с мультимодальными признаками" src="../../images/ml/recsys/sasrec.png" width="830" height="796" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Панель A — внутренность одного блока Trm снизу вверх: single-head attention, Add и Norm, dropout, point-wise feed-forward, снова Add и Norm и dropout; две дуги слева — остаточные связи. Панель B — вариант SASRec с дополнительной информацией: снизу последовательность товаров пользователя, дальше item-эмбеддинги $v$, к ним прибавляются позиционные $p_1, p_2, p_3$ и конкатенация модальностей (Image, Tabular, Text), сверху два ряда блоков Trm и проекция в предсказанный следующий товар. Обратите внимание на стрелки между рядами Trm: они идут только слева направо — позиция не видит будущего. <a href="https://www.researchgate.net/figure/The-SASRec-architecture-with-the-inclusion-of-multi-modal-auxiliary-information_fig1_364440156" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="BERT4Rec: двунаправленный контекст и Cloze">
+<p><b>BERT4Rec</b> переносит идею <b>BERT</b> (bidirectional encoder) на последовательность кликов: на вход подают последовательность с частично заменёнными на специальный токен <b>[MASK]</b> позициями; стек <b>Transformer encoder</b> (без причинной маски внутри слоя) строит представления с учётом левого и правого контекста. Обучающая цель — многоклассовая классификация: какой был настоящий объект на маскированных позициях (аналог Cloze-task). На инференсе для следующего объекта задают расширенный контекст и оценивают кандидатов по условному распределению.</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+P(i_m \mid i_{1:t}\ \text{с маской на позиции } m) \propto \exp\bigl( \mathbf{f}_m^\top \mathbf{e}_{i_m}\bigr),
+$$">$$
+P(i_m \mid i_{1:t}\ \text{с маской на позиции } m) \propto \exp\bigl( \mathbf{f}_m^\top \mathbf{e}_{i_m}\bigr),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\mathbf{f}_m$ — выход кодировщика в позиции $m$, $\mathbf{e}$ — общая таблица item-эмбеддингов.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Сравнение архитектур BERT4Rec, SASRec и RNN" src="../../images/ml/recsys/bert4rec-vs-sasrec.png" width="909" height="395" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Четыре панели из статьи BERT4Rec. (a) — устройство одного слоя Transformer. (b) — сам BERT4Rec: на входе последовательность $v_1 \ldots v_{t-1}$ и токен [mask] на последней позиции, стрелки между блоками Trm идут в обе стороны, а проекция сверху предсказывает объект $v_t$ именно на маскированной позиции. (c) — SASRec: те же блоки Trm, но связи только слева направо, и каждая позиция предсказывает свой следующий объект, поэтому над позициями стоят $v_2, \ldots, v_{t+1}$. (d) — RNN-подход: одно скрытое состояние передаётся по цепочке от шага к шагу. <a href="https://arxiv.org/abs/1904.06690" target="_blank" rel="noopener">Источник: Sun et al., 2019</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Связь с практикой">
+<p>SASRec органичнее сочетается с генерацией <b>left-to-right</b> (слева направо) на инференсе. <b>BERT4Rec</b> сильнее эксплуатирует <b>bidirectional</b> (двунаправленный) контекст при обучении по маске; при онлайновой выдаче важно не «подсматривать» будущие события — используют только прошлый префикс (<b>causal</b> порядок по времени — причинный по времени). Оба семейства стыкуют с <b>truncation</b> (усечением истории), <b>negative sampling</b> и временными особенностями (например, в <b>TiSASRec</b>).</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Тепловые карты средних весов внимания SASRec на MovieLens-1M" src="../../images/ml/recsys/sasrec-attention.png" width="1690" height="728" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Средние веса внимания SASRec на MovieLens-1M: строка — шаг времени, столбец — позиция в истории, номера идут от 0 до 14. Бледно-жёлтый верхний правый угол обеих карт — это и есть причинная маска: на шаге $t$ модель не смотрит на позиции правее $t$. В слое 1 вес размазан по всей доступной истории, а в слое 2 самая тёмная клетка каждой строки лежит точно на диагонали — второй слой почти целиком опирается на последний просмотренный объект. Шкалы у панелей разные: максимум слева около 0.05, справа около 0.15, так что сравнивать надо форму, а не оттенок. <a href="https://arxiv.org/abs/1808.09781" target="_blank" rel="noopener">Источник: Kang, McAuley, 2018</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Temporal embeddings">
+<p>Время между событиями тоже несёт сигнал. <b>TiSASRec</b> и аналоги моделируют <b>time intervals</b> (интервалы времени), сезонность и динамику сессий, а не только порядок идентификаторов.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое next-item prediction?</b></p>
+<p>Предсказание следующего объекта по префиксу последовательности пользователя или сессии.</p>
+</li>
+<li><p><b>Почему порядок действий важен?</b></p>
+<p>Недавние события часто лучше отражают текущий <b>intent</b> (намерение), чем усреднённый долгосрочный профиль.</p>
+</li>
+<li><p><b>Чем SASRec отличается от GRU4Rec?</b></p>
+<p>SASRec использует <b>self-attention</b> и позиционные модификаторы; GRU4Rec — <b>RNN</b> (рекуррентную сеть) с одним скрытым вектором, обновляемым по шагам.</p>
+</li>
+<li><p><b>В чём принципиальное отличие BERT4Rec от SASRec по направлению информации?</b></p>
+<p>BERT4Rec допускает двунаправленное согласование по маскированным позициям в обучении; SASRec применяет причинную маску и типично предсказывает только следующий шаг.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_losses" data-badge-type="required" data-interview="3">
+  <div class="name" id="recsys_losses">
+    Какие loss functions используют в RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Pointwise losses">
+<p>Pointwise-подход рассматривает каждую пару $(u,i)$ независимо:</p>
+<ul>
+<li><b>MSE</b> для рейтингов: $(r_{ui} - \hat{r}_{ui})^2$;</li>
+<li><b>BCE</b> для клика или покупки;</li>
+<li><b>Weighted BCE</b> для implicit feedback, где positive и negative примеры имеют разные веса.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Pairwise losses">
+<p>Pairwise-подход оптимизирует относительный порядок:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+s(u,i^+) &gt; s(u,i^-).
+$$">$$
+s(u,i^+) &gt; s(u,i^-).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Примеры:</p>
+<ul>
+<li>BPR;</li>
+<li>margin ranking loss;</li>
+<li>hinge loss;</li>
+<li>triplet loss.</li>
+</ul>
+<p>Для BPR:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+L = -\log \sigma(\hat{y}_{ui} - \hat{y}_{uj}).
+$$">$$
+L = -\log \sigma(\hat{y}_{ui} - \hat{y}_{uj}).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Кривая BPR-лосса и вес тройки в градиенте" src="../../images/ml/recsys/bpr-loss.png" width="1800" height="726" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    По горизонтали в обеих панелях отложена разность score позитива и негатива. Слева сам лосс: при равных score он равен $\ln 2 \approx 0.69$, при нарушенном порядке растёт почти линейно, а при верном стремится к нулю, но нулём не становится — модель всегда получает стимул увеличивать разрыв. Справа множитель, с которым тройка входит в градиент: в точке равенства он равен 0.5, а для уже хорошо разделённых пар падает почти до нуля. Отсюда практический вывод: случайные лёгкие негативы быстро перестают учить модель, и нужны hard negatives.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Listwise losses">
+<p>Listwise-подход работает сразу со списком кандидатов и ближе к ranking-метрикам:</p>
+<ul>
+<li>ListNet;</li>
+<li>ListMLE;</li>
+<li>LambdaLoss;</li>
+<li>SoftRank.</li>
+</ul>
+<p>Такие лоссы сложнее, но лучше отражают реальную задачу сортировки top-$K$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Сравнение pointwise, pairwise и listwise подходов" src="../../images/ml/recsys/losses-pointwise-pairwise-listwise.png" width="1800" height="694" loading="lazy" decoding="async" style="max-width: 1000px; width: 100%; height: auto" />
+  <figcaption>
+    Три колонки различаются тем, что лосс вообще видит за один шаг. Pointwise (слева) получает одну пару пользователь-объект и метку 0 или 1 и штрафует отклонение предсказания от метки. Pairwise (в центре) получает тройку и требует лишь того, чтобы score позитива был выше score негатива — абсолютные значения не важны. Listwise (справа) видит весь упорядоченный список, зелёные клетки — релевантные позиции, и оптимизирует качество порядка целиком. Внизу каждой колонки — типичные представители семейства.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Contrastive learning">
+<p>Contrastive losses учат embeddings сближать позитивные пары и отталкивать негативные:</p>
+<ul>
+<li>InfoNCE;</li>
+<li>NT-Xent;</li>
+<li>contrastive softmax;</li>
+<li>sampled softmax.</li>
+</ul>
+<p>Они часто используются в retrieval, representation learning и self-supervised RecSys.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что оптимизирует pointwise loss?</b></p>
+<p>Независимое качество предсказания для каждой пары пользователь-объект.</p>
+</li>
+<li><p><b>Что оптимизирует pairwise loss?</b></p>
+<p>Относительный порядок: позитивный объект должен иметь score выше негативного.</p>
+</li>
+<li><p><b>Почему listwise losses ближе к реальной выдаче?</b></p>
+<p>Потому что рекомендация показывается списком, и важны позиции объектов внутри top-$K$.</p>
+</li>
+<li><p><b>Где полезен contrastive learning?</b></p>
+<p>В обучении embeddings для retrieval и self-supervised представлений пользователей или объектов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_metrics" data-badge-type="required" data-interview="5">
+  <div class="name" id="recsys_metrics">
+    Какие метрики используют для рекомендаций?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Offline metrics">
+<p>Для top-$K$ рекомендаций часто считают:</p>
+<table class="task-table">
+<thead><tr><th>Метрика</th><th>Что измеряет</th></tr></thead>
+<tbody>
+<tr><td>Precision@K</td><td>доля релевантных объектов среди top-$K$</td></tr>
+<tr><td>Recall@K</td><td>доля найденных релевантных объектов</td></tr>
+<tr><td>HitRate@K</td><td>был ли хотя бы один hit в top-$K$</td></tr>
+<tr><td>MAP</td><td>средняя precision по позициям релевантных объектов</td></tr>
+<tr><td>MRR</td><td>обратный ранг первого релевантного объекта</td></tr>
+<tr><td>ROC-AUC / PR-AUC</td><td>качество бинарного scoring</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="DCG и NDCG">
+<p>DCG учитывает позицию: релевантный объект выше в списке ценнее.</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+DCG@K = \sum_{r=1}^{K} \frac{rel_r}{\log_2(r+1)}.
+$$">$$
+DCG@K = \sum_{r=1}^{K} \frac{rel_r}{\log_2(r+1)}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>NDCG нормирует DCG на идеальную выдачу:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+NDCG@K = \frac{DCG@K}{IDCG@K}.
+$$">$$
+NDCG@K = \frac{DCG@K}{IDCG@K}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Как считается NDCG" src="../../images/ml/recsys/ndcg.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Пять позиций выдачи с релевантностями. Вклад позиции — $(2^{rel_i}-1)/\log_2(i+1)$: релевантный объект внизу списка даёт меньше. DCG складывается построчно, IDCG — тот же список в идеальном порядке, NDCG — их отношение. Перестановка самого релевантного объекта на первое место поднимает NDCG с 0.60 до 0.94.
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="Разбор Precision@k, Recall@k и NDCG@k на одном примере" src="../../images/ml/recsys/metrics-topk.png" width="1800" height="848" loading="lazy" decoding="async" style="max-width: 1000px; width: 100%; height: auto" />
+  <figcaption>
+    Один и тот же пример во всех трёх панелях: выдача из 10 объектов, релевантны позиции 1, 3, 4 и 8 (зелёные), а всего у пользователя 6 релевантных объектов. Сверху под каждой позицией написан её вес $1/\log_2(r+1)$: он падает с 1.00 на первой позиции до 0.29 на десятой. Слева внизу видно ключевое различие: Precision@k скачет и в среднем убывает (с 1.00 до 0.40), а Recall@k только растёт и упирается в 0.67, потому что два релевантных объекта в top-10 вообще не попали. Справа фиолетовые столбики — накопленный DCG, серые — идеальный IDCG, линия по правой оси — их отношение: NDCG@10 = 0.68, штраф именно за то, что хиты стоят не в самом начале.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Business metrics">
+<p>В production смотрят не только offline ranking:</p>
+<table class="task-table">
+<thead><tr><th>Метрика</th><th>Что измеряет</th></tr></thead>
+<tbody>
+<tr><td><b>CTR</b> (click-through rate)</td><td>доля кликов по рекомендациям среди показов: насколько список «соблазняет» открыть объект; может расти за счёт сенсационных заголовков, поэтому смотрят в связке с качеством сессии.</td></tr>
+<tr><td><b>CVR</b> (conversion rate)</td><td>доля пользователей (или сессий), совершивших целевое действие после показа/клика: покупка, добавление в корзину, подписка, скачивание — зависит от определения «конверсии» в продукте.</td></tr>
+<tr><td><b>GMV</b> (gross merchandise value)</td><td>валовой объём сделок через платформу (до вычета скидок, возвратов, комиссий — уточняют по внутреннему определению); показывает масштаб монетизации каталога и влияние рекомендаций на продажи.</td></tr>
+<tr><td><b>Retention</b></td><td>удержание: доля пользователей, вернувшихся в сервис за период (например, day-7 / week-4); отражает долгосрочную ценность системы, а не только разовый клик.</td></tr>
+<tr><td><b>Session length</b></td><td>длина сессии — время активности за один заход или число действий до ухода; прокси вовлечённости в рамках одного визита.</td></tr>
+<tr><td><b>Watch time</b></td><td>суммарное время просмотра контента (часто по видео/стримам); ближе к реальной ценности для медиа, чем один CTR по превью.</td></tr>
+<tr><td><b>Dwell time</b></td><td>время «задержки» пользователя на странице или у блока (до скролла, клика, ухода); сигнал интереса к объекту, но шумный из-за вкладок, отвлечений и разной скорости чтения.</td></tr>
+</tbody>
+</table><p>Бизнес-метрики зависят от продукта: для видео watch time может быть важнее клика, а для маркетплейса важны конверсия и GMV.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Beyond accuracy">
+<p>Хорошая система должна быть не только точной:</p>
+<ul>
+<li><b>Diversity</b> - разнообразие выдачи;</li>
+<li><b>Novelty</b> - новые для пользователя объекты;</li>
+<li><b>Serendipity</b> - неожиданные, но полезные рекомендации;</li>
+<li><b>Coverage</b> - доля каталога, которая получает показы;</li>
+<li><b>Calibration</b> - соответствие выдачи интересам пользователя по распределению категорий.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Temporal split и leave-one-out на логах шести пользователей" src="../../images/ml/recsys/train-test-split.png" width="1800" height="715" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Шесть пользователей, по горизонтали — время в днях, каждый квадратик — одно событие: синий попал в train, оранжевый в test. Слева temporal split: одна общая дата отсечения на 14-м дне, всё после неё уходит в тест, поэтому размер теста у пользователей разный: у u3 туда попадает пять событий, а у u2 всего одно. Справа leave-one-out: в тест уходит ровно последнее событие каждого пользователя, а даты у всех разные. Второй вариант удобнее для сравнения моделей, но допускает утечку: в train одного пользователя попадают события более поздние, чем тестовое событие другого.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Precision@K отличается от Recall@K?</b></p>
+<p>Precision@K измеряет чистоту top-$K$, Recall@K - сколько релевантных объектов удалось найти.</p>
+</li>
+<li><p><b>Зачем нужен NDCG?</b></p>
+<p>Он учитывает позиции релевантных объектов и нормирует качество на идеальный список.</p>
+</li>
+<li><p><b>Почему offline-метрики недостаточны?</b></p>
+<p>Они могут не совпадать с CTR, retention, GMV и долгосрочной удовлетворённостью пользователя.</p>
+</li>
+<li><p><b>Что такое coverage?</b></p>
+<p>Доля объектов каталога, которые система вообще рекомендует или показывает.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_embeddings" data-badge-type="required" data-interview="3">
+  <div class="name" id="recsys_embeddings">
+    Как устроено representation learning в RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Embeddings">
+<p>В RecSys embeddings переводят пользователей, объекты и контекст в векторы:</p>
+<ul>
+<li>user embeddings;</li>
+<li>item embeddings;</li>
+<li>context embeddings;</li>
+<li>session embeddings.</li>
+</ul>
+<p>Затем модель сравнивает векторы, объединяет их или подаёт в ranking network.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Пространство эмбеддингов и его дрейф во времени" src="../../images/ml/recsys/embedding-space.png" width="1800" height="818" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Слева схематичная картина того, ради чего всё это делается: объекты одной тематики оказываются рядом, а пользователь (чёрная звезда) живёт в том же пространстве, и рекомендация сводится к поиску ближайших точек внутри пунктирного круга. Оси не имеют смысла сами по себе — это просто латентные факторы. Справа тот же приём используется для мониторинга: синее облако — эмбеддинги месяц назад, красное — сегодня. Заметный сдвиг вправо-вниз при неизменной модели означает, что поменялись данные или пайплайн признаков, и retrieval стоит перепроверить.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Multimodal embeddings">
+<p>Объекты могут иметь разные модальности:</p>
+<ul>
+<li>текст: название, описание, отзывы;</li>
+<li>изображение: обложка, фото товара;</li>
+<li>видео: кадры, звук, динамика;</li>
+<li>аудио: треки, подкасты, речь.</li>
+</ul>
+<p>Multimodal recommendation объединяет эти источники, чтобы лучше решать cold start и понимать контент.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Self-supervised learning">
+<p>Self-supervised подходи создают обучающий сигнал из самих данных:</p>
+<ul>
+<li>contrastive recommendation;</li>
+<li>masked item modeling;</li>
+<li>next-item prediction;</li>
+<li>multi-view learning;</li>
+<li>реконструкция последовательности или графа.</li>
+</ul>
+<p>Это особенно полезно, когда explicit labels мало, но логов поведения много.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Практический смысл">
+<p>Сильные embeddings нужны retrieval, ranking, similarity search, cold start, deduplication, recommendations explainability и мониторингу drift. Но embedding сам по себе не гарантирует хорошую выдачу: важны данные, sampling, loss, метрики и serving.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужны embeddings в RecSys?</b></p>
+<p>Чтобы представить пользователей, объекты, контекст и сессии в компактном векторном пространстве.</p>
+</li>
+<li><p><b>Как multimodal embeddings помогают cold start?</b></p>
+<p>Новый объект можно рекомендовать по тексту, изображению или видео ещё до накопления взаимодействий.</p>
+</li>
+<li><p><b>Что такое self-supervised learning для рекомендаций?</b></p>
+<p>Обучение на задачах, где сигнал строится из самих логов: скрыть item, предсказать следующий, сблизить похожие views.</p>
+</li>
+<li><p><b>Почему embeddings нужно мониторить?</b></p>
+<p>Их распределение может дрейфовать из-за смены каталога, поведения пользователей, модели или данных.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_graph_recommendation" data-badge-type="required" data-interview="1">
+  <div class="name" id="recsys_graph_recommendation">
+    Как графовые модели применяются в рекомендациях?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Граф рекомендаций">
+<p>Рекомендательную задачу представляют как <b>graph</b> (граф):</p>
+<ul>
+<li>узлы пользователей (<b>user nodes</b>);</li>
+<li>узлы объектов (<b>item nodes</b>);</li>
+<li>рёбра взаимодействий;</li>
+<li>дополнительные узлы: категории, авторы, бренды, запросы, теги.</li>
+</ul>
+<p>Рекомендация становится задачей <b>signal propagation</b> (распространения сигнала) по графу и обучения <b>node embeddings</b> (эмбеддингов узлов).</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="GNN basics">
+<p><b>Graph Neural Networks</b> (нейросети на графах) используют <b>message passing</b> (передачу сообщений):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+h_v^{(l+1)} = \mathrm{UPDATE}\!\left(h_v^{(l)},\ \mathrm{AGG}\!\left\{ h_u^{(l)}:\ u\in\mathcal{N}(v)\right\}\right),
+$$">$$
+h_v^{(l+1)} = \mathrm{UPDATE}\!\left(h_v^{(l)},\ \mathrm{AGG}\!\left\{ h_u^{(l)}:\ u\in\mathcal{N}(v)\right\}\right),
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>$\mathcal{N}(v)$ — окрестность $v$, <b>AGG</b> — агрегатор (<b>mean</b>, сумма, attention и т.д.), <b>UPDATE</b> — нейросеть по конкатенации признаков. В двудольном user–item графе сигнал <b>collaborative filtering</b> (совместная фильтрация) переходит между группами на каждом слое $l$.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Короткая сводка GNN-моделей RecSys">
+<table class="task-table">
+<thead><tr><th>Модель</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td><b>NGCF</b></td><td>graph convolution с нелинейностями и линейными преобразованиями между слоями</td></tr>
+<tr><td><b>LightGCN</b></td><td>без нелинейностей и learnable трансформаций между слоями — только лёгкое распространение и взвешенная сумма по слоям</td></tr>
+<tr><td><b>PinSage</b></td><td>масштабируемое обучение на большом item–item графе с <b>random walk</b> сэмплингом и MapReduce</td></tr>
+<tr><td><b>GraphSAGE</b></td><td>сэмплирование соседей и обобщение на новые узлы (<b>inductive</b> setting)</td></tr>
+</tbody>
+</table>
+</div>
+<figure style="text-align: center">
+  <img alt="Схема NGCF: слои распространения эмбеддингов и предсказание" src="../../images/ml/recsys/ngcf-architecture.png" width="1000" height="883" loading="lazy" decoding="async" style="max-width: 750px; width: 100%; height: auto" />
+  <figcaption>
+    Схема NGCF для одной пары пользователь-объект. Снизу — обучаемые ID-эмбеддинги $e^{(0)}$. Дальше идут слои распространения $l = 1, 2, 3$: внутри каждого вектор узла собирается из векторов соседей, но перед сложением применяются обучаемые матрицы $W_1^{(l)}$ и $W_2^{(l)}$ — именно их LightGCN потом и выбросит. Сверху представления всех слоёв конкатенируются в $e^*_{u_1}$ и $e^*_{i_4}$, и предсказание считается их скалярным произведением. Слева и справа — две зеркальные копии одного механизма: для пользователя соседи это объекты, для объекта — пользователи. <a href="https://arxiv.org/abs/1905.08108" target="_blank" rel="noopener">Источник: Wang et al., 2019</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="LightGCN: только линейное распространение">
+<p><b>LightGCN</b> сознательно убирает характерные для <b>GCN</b> (Graph Convolutional Network) нелинейности $\sigma$ и матрицы весов $W^{(l)}$ между слоями в пользу чистой нормализованной суммы соседей (для двудольного графа пользователь–объект). Инициализация $e_u^{(0)}, e_i^{(0)}$ — обучаемые ID-эмбеддинги. Рекуррентное обновление (для одной доли; зеркально для другой):</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+e_u^{(l+1)} = \sum_{i\in\mathcal{N}_u} \frac{1}{\sqrt{|\mathcal{N}_u|}\,\sqrt{|\mathcal{N}_i|}}\, e_i^{(l)},\qquad
+e_i^{(l+1)} = \sum_{u\in\mathcal{N}_i} \frac{1}{\sqrt{|\mathcal{N}_i|}\,\sqrt{|\mathcal{N}_u|}}\, e_u^{(l)}.
+$$">$$
+e_u^{(l+1)} = \sum_{i\in\mathcal{N}_u} \frac{1}{\sqrt{|\mathcal{N}_u|}\,\sqrt{|\mathcal{N}_i|}}\, e_i^{(l)},\qquad
+e_i^{(l+1)} = \sum_{u\in\mathcal{N}_i} \frac{1}{\sqrt{|\mathcal{N}_i|}\,\sqrt{|\mathcal{N}_u|}}\, e_u^{(l)}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Итоговое представление — <b>layer combination</b> (комбинация слоёв), как правило нормализованная сумма по $l=0,\ldots,L$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\mathbf{e}_u = \sum_{l=0}^{L} \alpha_l\, e_u^{(l)},\qquad
+\mathbf{e}_i = \sum_{l=0}^{L} \alpha_l\, e_i^{(l)},
+$$">$$
+\mathbf{e}_u = \sum_{l=0}^{L} \alpha_l\, e_u^{(l)},\qquad
+\mathbf{e}_i = \sum_{l=0}^{L} \alpha_l\, e_i^{(l)},
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\alpha_l$ фиксированы (часто равномерные) или обучаемые. Предсказание релевантности — скалярное произведение $\mathbf{e}_u^\top \mathbf{e}_i$. Упрощение часто даёт лучшее качество и стабильность на чисто <b>bipartite interaction</b> графах, чем тяжёлые GCN.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Схема LightGCN: нормализованная сумма соседей и комбинация слоёв" src="../../images/ml/recsys/lgc.png" width="834" height="603" loading="lazy" decoding="async" style="max-width: 750px; width: 100%; height: auto" />
+  <figcaption>
+    Сравните эту схему с предыдущей: внутри слоя не осталось ничего, кроме блока Normalized Sum по соседям — ни матриц $W$, ни нелинейностей. Слева агрегируются соседи пользователя $u_1$ (это объекты $i_1, i_2, i_3$), справа — соседи объекта $i_4$ (пользователи $u_2, u_3$). Выходы всех слоёв, включая исходный $e^{(0)}$, складываются с весами в блоке Layer Combination, и уже эта взвешенная сумма идёт в предсказание. <a href="https://arxiv.org/abs/2002.02126" target="_blank" rel="noopener">Источник: He et al., 2020</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="PinSage: масштаб и item–item граф">
+<p><b>PinSage</b> (Pinterest) обучает эмбеддинги предметов на большом <b>item–item</b> графе сходства (рёбра из <b>co-engagement</b> — совместных действий пользователей). Вместо полного соседства используют <b>importance-based neighbor sampling</b> (важностное сэмплирование соседей на основе случайных обходов) и <b>convolutional</b> агрегирование по подвыборке соседей — идея родственна <b>GraphSAGE</b>, но специализирована под миллиарды предметов и распределённый конвейер (<b>MapReduce</b>). Эмбеддинг узла обновляется агрегатом по соседям и нейросетевым <b>UPDATE</b>; обучение с <b>hard negative mining</b> по внутренним негативам повышает качество ранжирования.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Advanced graph recommendation">
+<p><b>Knowledge graph recommendation</b> добавляет явные типизированные связи (фильм–жанр, товар–бренд). <b>Heterogeneous graphs</b> (гетерогенные графы) различают типы узлов и рёбер. <b>Hypergraph recommendation</b> моделирует связи групп объектов одним гиперребром.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="t-SNE эмбеддингов до и после трёх слоёв распространения" src="../../images/ml/recsys/ngcf-tsne.png" width="1612" height="858" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Зачем вообще гонять сигнал по графу. Шесть случайных пользователей датасета Gowalla показаны звёздами, кружками того же цвета — их объекты, пунктир соединяет пользователя с его объектами. Слева обычная матричная факторизация: точки разных цветов перемешаны, и линии тянутся через весь график. Справа NGCF после трёх слоёв распространения: цвета собрались в отдельные компактные группы, каждая рядом со своей звездой. Это и есть коллаборативный сигнал, явно вложенный в геометрию пространства. <a href="https://arxiv.org/abs/1905.08108" target="_blank" rel="noopener">Источник: Wang et al., 2019</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как представить RecSys как граф?</b></p>
+<p>Пользователи и объекты — узлы, взаимодействия — рёбра (часто двудольный граф).</p>
+</li>
+<li><p><b>Что такое message passing?</b></p>
+<p>Итеративное обновление вектора узла из векторов соседей через агрегирование и нелинейность (если есть).</p>
+</li>
+<li><p><b>Почему LightGCN популярен?</b></p>
+<p>Убраны лишние нелинейности и преобразования между слоями; остаётся чистая нормализованная <b>neighborhood aggregation</b> (агрегация окрестности) и явная комбинация слоёв для выразительных представлений.</p>
+</li>
+<li><p><b>Чем PinSage отличается от чисто user–item LightGCN по постановке графа?</b></p>
+<p>PinSage ориентирован на крупный <b>item-item</b> граф сходства и индустриальный конвейер сэмплирования; LightGCN в классической статье фокусируется на двудольном графе взаимодействий user–item.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 4</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_exploration_rl" data-badge-type="additional" data-interview="2">
+  <div class="name" id="recsys_exploration_rl">
+    Зачем нужны exploration и reinforcement learning в RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Exploration vs exploitation">
+<p><b>Exploitation</b> показывает то, что модель уже считает лучшим.</p>
+<p><b>Exploration</b> иногда показывает менее уверенные объекты, чтобы собрать данные и найти новые хорошие варианты.</p>
+<p>Без exploration система застревает в feedback loop: показывает популярное, получает данные только о популярном и становится ещё более уверенной в популярном.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Multi-armed bandits">
+<p>Bandit-подход выбирает действие и сразу получает reward. Популярные стратегии:</p>
+<table class="task-table">
+<thead><tr><th>Стратегия</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>$\varepsilon$-greedy (epsilon-greedy)</b></td><td>с вероятностью $1-\varepsilon$ выбирать «лучшее» действие по текущей оценке mean reward, с вероятностью $\varepsilon$ — случайное; простой baseline для баланса exploration/exploitation, но $\varepsilon$ нужно подбирать или уменьшать со временем.</td></tr>
+<tr><td><b>UCB</b> (upper confidence bound)</td><td>выбирать действие с высокой верхней границей доверительного интервала для оценки среднего reward — чаще тянет «руку» с большой неопределённостью (exploration) и со временем концентрируется на сильных (exploitation); при стандартных предположениях даёт контроль сожаления (regret).</td></tr>
+<tr><td><b>Thompson Sampling</b></td><td>для каждого действия поддерживается байесовское распределение reward; на шаге сэмплируется «гипотеза», и берётся $\arg\max$ — естественный stochastic exploration, хорош в практике для бандитов с Bernoulli/Gaussian моделями.</td></tr>
+<tr><td><b>Contextual bandits</b></td><td>перед выбором действия учитывается контекст (пользователь, объект, время, устройство); по сути policy $\pi(a\mid x)$; мост между простым бандитом и полноценным RL, частый выбор в рекламе и персонализации.</td></tr>
+</tbody>
+</table>
+</div>
+<figure style="text-align: center">
+  <img alt="Сожаление трёх стратегий бандита и апостериорные распределения Thompson Sampling" src="../../images/ml/recsys/bandits.png" width="1800" height="709" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Слева симуляция: 6 объектов с истинными CTR от 5% до 14%, 20000 показов, усреднение по 20 прогонам. Серая пунктирная прямая — случайный показ без обучения, её линейный рост и есть цена отсутствия эксплуатации. Все три стратегии растут заметно медленнее, но в этой постановке с редкими наградами UCB со стандартной константой исследует избыточно и проигрывает $\varepsilon$-greedy и Thompson Sampling. Справа — почему Thompson Sampling вообще работает: у объекта с 5 показами апостериорное распределение CTR почти плоское, у объекта с 2000 показов — узкий пик, и сэмплирование из этих распределений само даёт больше шансов тому, о ком мы мало знаем.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="RL recommendation">
+<p>Reinforcement learning рассматривает рекомендации как последовательное принятие решений. Это важно, когда цель долгосрочная: retention, learning progress, subscription renewal, user satisfaction.</p>
+<p>Сложные случаи:</p>
+<ul>
+<li>slate recommendation: выбрать целый список;</li>
+<li>delayed rewards: reward приходит позже;</li>
+<li>reward shaping: правильно задать сигнал награды.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Риск">
+<p>RL в рекомендациях трудно валидировать offline. Неправильная награда может оптимизировать клики в ущерб доверию, разнообразию или долгосрочной ценности.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое exploration?</b></p>
+<p>Намеренный показ не самых очевидных объектов, чтобы собрать информацию и улучшить будущие рекомендации.</p>
+</li>
+<li><p><b>Чем contextual bandit отличается от обычного bandit?</b></p>
+<p>Он учитывает контекст пользователя, объекта и ситуации при выборе действия.</p>
+</li>
+<li><p><b>Когда нужен RL-подход?</b></p>
+<p>Когда важна долгосрочная последовательность решений, а не только немедленный клик.</p>
+</li>
+<li><p><b>Что такое delayed reward?</b></p>
+<p>Награда, которая проявляется не сразу: например, пользователь вернулся через неделю после серии рекомендаций.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_bias_fairness_robustness" data-badge-type="required" data-interview="2">
+  <div class="name" id="recsys_bias_fairness_robustness">
+    Какие bias, fairness и robustness проблемы есть в RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Recommendation biases">
+<p>Частые смещения:</p>
+<ul>
+<li><b>popularity bias</b> - система чрезмерно продвигает популярные объекты;</li>
+<li><b>selection bias</b> - данные собраны неравномерно;</li>
+<li><b>position bias</b> - верхние позиции получают больше кликов просто из-за позиции;</li>
+<li><b>exposure bias</b> - пользователь не взаимодействует с тем, чего не видел.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Position bias: падение CTR по позициям и propensity позиции" src="../../images/ml/recsys/position-bias.png" width="1800" height="692" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Слева синие столбики — наблюдаемый CTR по позициям, оранжевая пунктирная линия — истинная релевантность объектов, которая в этой симуляции у всех примерно одинакова (0.19-0.24). CTR всё равно падает с 0.22 на первой позиции до 0.04 на десятой: разница вызвана исключительно тем, что нижние позиции реже видят. Справа — та же зависимость в чистом виде: вероятность просмотра позиции, propensity, от 1.00 на первой до 0.18 на десятой. Именно на эти числа делят наблюдения в IPS, чтобы модель не выучила, что верхние объекты лучше просто потому, что они верхние.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Fairness">
+<p>Fairness в рекомендациях бывает разной:</p>
+<table class="task-table">
+<thead><tr><th>Вид fairness</th><th>Что контролируют</th></tr></thead>
+<tbody>
+<tr><td><b>User fairness</b></td><td>сравнимые метрики качества (релевантность, бизнес-исход) для разных групп пользователей (регион, язык, новый/старый, уровень активности); резкий разрыв — повод для constraints и переразбиения выборок.</td></tr>
+<tr><td><b>Item fairness</b></td><td>доля показов и шанс быть увиденным для качественных, но «не раскрученных» объектов; иначе закрепляется <b>popularity bias</b> и long-tail вымирает в данных.</td></tr>
+<tr><td><b>Creator fairness</b></td><td>продавцы/авторы сравнимого качества не должны стабильно проигрывать в exposure из-за стартовой метрики или манипуляций; важно для маркетплейсов, стриминга и UGC.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Robustness">
+<p>Рекомендательные системы атакуют и случайно ломают:</p>
+<table class="task-table">
+<thead><tr><th>Угроза</th><th>Как проявляется</th></tr></thead>
+<tbody>
+<tr><td><b>Shilling attacks</b></td><td>боты/синдикаты создают ложные профили, рейтинги или совместные покупки, чтобы поднять или уронить товар; цель — манипуляция выдачей и репутацией.</td></tr>
+<tr><td><b>Data poisoning</b></td><td>в обучающий лог вносят искажённые события (инъекция в офлайн-датасет, компрометация ETL); модель учится на «яде» и деградирует в проде.</td></tr>
+<tr><td><b>Adversarial recommendation</b></td><td>подбор входов (текст карточки, fake co-visitation) так, чтобы обмануть scoring или обойти фильтры; смежно с adversarial examples для энкодеров.</td></tr>
+<tr><td><b>Bot traffic</b></td><td>нечеловеческие клики/показы размывают CTR/CVR, ломают A/B и бандиты; требует антифрода, rate limits и отделения сигналов по устройствам/сетям.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что делать">
+<p>Используют debiasing, propensity scoring, exploration, constraints на выдачу, антифрод, мониторинг распределений, ручные guardrails и раздельный анализ метрик по сегментам.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое popularity bias?</b></p>
+<p>Склонность системы непропорционально часто рекомендовать популярные объекты.</p>
+</li>
+<li><p><b>Почему exposure bias опасен?</b></p>
+<p>Модель видит feedback только по показанным объектам и не знает, как пользователь отреагировал бы на непоказанные.</p>
+</li>
+<li><p><b>Что означает item fairness?</b></p>
+<p>Объекты должны иметь разумный шанс быть показанными, если они релевантны, даже без большой исторической популярности.</p>
+</li>
+<li><p><b>Что такое shilling attack?</b></p>
+<p>Атака, где искусственные пользователи или взаимодействия пытаются продвинуть или занизить объекты.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_cold_start_hybrid" data-badge-type="required" data-interview="5">
+  <div class="name" id="recsys_cold_start_hybrid">
+    Как решать cold start и строить hybrid recommendation?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Cold start">
+<p>Cold start бывает нескольких видов:</p>
+<ul>
+<li>новый пользователь;</li>
+<li>новый объект;</li>
+<li>новый рынок или домен;</li>
+<li>zero-shot recommendation для объектов или пользователей без истории.</li>
+</ul>
+<p>Главная проблема: collaborative signal ещё не накопился.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Стратегии для cold start" src="../../images/ml/recsys/cold_start.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    У нового пользователя пустая строка в матрице оценок. Стратегии по очереди: популярное (средняя оценка объекта по всем — одно и то же всем), контентная модель (признаки из анкеты и объектов), онбординг (просим оценить несколько объектов — появляется собственная строка для MF) и гибрид, где источники смешиваются с весами. Зелёная шкала — условная уверенность рекомендаций, растёт с каждым шагом.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Side information">
+<p>Для cold start используют дополнительную информацию:</p>
+<ul>
+<li>user metadata: регион, язык, подписки, выбранные интересы;</li>
+<li>item metadata: категория, бренд, цена, автор, теги;</li>
+<li>контент: текст, изображения, видео, аудио;</li>
+<li>context features: устройство, время, гео, источник трафика.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Hybrid recommendation">
+<p>Hybrid-система объединяет несколько источников:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+score(u,i) = \alpha \cdot score_{collab}(u,i) + \beta \cdot score_{content}(u,i) + \gamma \cdot score_{context}(u,i).
+$$">$$
+score(u,i) = \alpha \cdot score_{collab}(u,i) + \beta \cdot score_{content}(u,i) + \gamma \cdot score_{context}(u,i).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>В реальности это может быть не линейная формула, а retrieval/ranking pipeline, где разные модели дают кандидатов и признаки.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Early fusion и late fusion трёх источников сигнала" src="../../images/ml/recsys/early-late-fusion.png" width="1800" height="803" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Одни и те же три источника — коллаборативный сигнал, контент и контекст — можно смешать на разной глубине. Слева early fusion: признаки склеиваются в один вектор ещё до модели, и модель сама учит взаимодействия между источниками, но переучивать её приходится целиком. Справа late fusion: у каждого источника своя модель, а наверху складываются готовые score с весами $\alpha, \beta, \gamma$ из формулы выше. Второй вариант проще в эксплуатации и позволяет менять источники по отдельности, зато не умеет ловить взаимодействия между ними.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Fusion">
+<p>Metadata fusion и multimodal fusion можно делать рано или поздно:</p>
+<ul>
+<li>early fusion: объединить признаки до модели;</li>
+<li>late fusion: смешать scores разных моделей;</li>
+<li>hybrid retrieval: разные retrieval-источники дают кандидатов.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему collaborative filtering плохо работает при cold start?</b></p>
+<p>Ему нужны взаимодействия, а у нового пользователя или объекта их ещё нет.</p>
+</li>
+<li><p><b>Какие данные помогают new item cold start?</b></p>
+<p>Метаданные, текст, изображения, видео, аудио и другие признаки объекта.</p>
+</li>
+<li><p><b>Что такое hybrid recommendation?</b></p>
+<p>Комбинация collaborative, content-based, contextual и других сигналов.</p>
+</li>
+<li><p><b>Чем early fusion отличается от late fusion?</b></p>
+<p>Early fusion объединяет признаки до модели, late fusion смешивает outputs или scores нескольких моделей.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 5</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_industrial_design" data-badge-type="required" data-difficulty="hard" data-interview="4">
+  <div class="name question-difficulty-hard question-hard-title" id="recsys_industrial_design">
+    Как проектировать индустриальную рекомендательную систему?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Multi-stage architecture">
+<p>Индустриальная RecSys часто состоит из нескольких стадий:</p>
+<ol>
+<li>candidate generation;</li>
+<li>filtering and business rules;</li>
+<li>ranking;</li>
+<li>re-ranking;</li>
+<li>blending, diversity и constraints;</li>
+<li>logging и monitoring.</li>
+</ol>
+<p>Каждая стадия оптимизирует свой компромисс между качеством, latency и управляемостью.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Воронка стадий промышленной рекомендательной системы" src="../../images/ml/recsys/recsys-funnel.png" width="1800" height="1057" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Ширина блока показывает, сколько кандидатов доходит до стадии: от всего каталога в $10^7 - 10^9$ объектов до примерно тысячи после retrieval и десятков после re-ranking. Слева от блоков подписаны их цели (и там, где это осмысленно, бюджет времени), справа — что именно на них происходит. Ключ ко всей схеме: сверху вниз кандидатов становится меньше, зато на каждого можно потратить намного больше вычислений, поэтому retrieval оптимизируют по recall и укладывают примерно в 10 мс, а ranking уже может позволить себе впятеро больший бюджет, сотни признаков и тяжёлую модель.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Serving">
+<p>Online inference должен быть быстрым. Используют:</p>
+<ul>
+<li>low-latency feature retrieval;</li>
+<li>batching;</li>
+<li>quantization;</li>
+<li>distillation;</li>
+<li>caching;</li>
+<li>Redis или специализированные stores;</li>
+<li>GPU inference там, где это оправдано.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Infrastructure">
+<p>Компоненты production RecSys:</p>
+<ul>
+<li>feature stores, например Feast;</li>
+<li>Kafka и streaming pipelines;</li>
+<li>embedding stores;</li>
+<li>distributed training;</li>
+<li>parameter servers;</li>
+<li>sharded embeddings;</li>
+<li>batch и real-time pipelines.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Главный инженерный риск">
+<p>Модель может быть хорошей offline, но непригодной online: слишком медленная, требует недоступных признаков, плохо обновляет embeddings, ломает логи или не выдерживает нагрузку.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему RecSys обычно multi-stage?</b></p>
+<p>Один этап не может одновременно быстро искать по всему каталогу и точно ранжировать с тяжёлыми признаками.</p>
+</li>
+<li><p><b>Что такое re-ranking?</b></p>
+<p>Постобработка выдачи после ranking: diversity, business constraints, freshness, fairness, deduplication.</p>
+</li>
+<li><p><b>Зачем нужен feature store?</b></p>
+<p>Чтобы согласованно получать признаки для обучения и online inference.</p>
+</li>
+<li><p><b>Почему sharded embeddings важны?</b></p>
+<p>Большие embedding tables могут не помещаться на одной машине или GPU, поэтому их распределяют.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_experimentation" data-badge-type="required" data-difficulty="hard" data-interview="4">
+  <div class="name question-difficulty-hard question-hard-title" id="recsys_experimentation">
+    Как оценивать RecSys online и offline?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Online experimentation">
+<p>Главный способ проверить влияние на продукт - controlled experiment:</p>
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Зачем и как</th></tr></thead>
+<tbody>
+<tr><td><b>A/B testing</b></td><td>случайно делит трафик между контролем и вариантом; измеряет причинный эффект на метрики; для рекомендаций важны длительность, первичная и guardrail-метрики, стратификация по сегментам.</td></tr>
+<tr><td><b>Interleaving</b></td><td>в одной выдаче чередуются элементы из двух ранжировщиков по честному шаблону; по кликам оценивают, чей список предпочтительнее при том же контексте; нужно меньше трафика, чем для полного A/B всего ранжира.</td></tr>
+<tr><td><b>Holdout groups</b></td><td>доля пользователей (или карточек каталога) держится на старой политике или без персонализации; даёт долгосрочный baseline и оценку инкремента от RecSys, но создаёт «долг» по данным и справедливости.</td></tr>
+<tr><td><b>Guardrail metrics</b></td><td>ограничители при эксперименте: latency, доля ошибок, toxicity, diversity/coverage, падение редких сегментов; рост целевой метрики не должен «ломать» платформу и пользователей.</td></tr>
+</tbody>
+</table><p>Online-метрики могут отличаться от offline, потому что пользователи реагируют на выдачу, а система меняет будущие данные.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Сравнение схем A/B-теста и interleaving" src="../../images/ml/recsys/ab-vs-interleaving.png" width="1800" height="806" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Слева A/B-тест: поток пользователей делится на две непересекающиеся группы, каждая целиком живёт под своей моделью, и сравниваются средние метрики групп (закрашенные квадратики — клики). Разброс между людьми огромен, поэтому нужен большой трафик и длительность. Справа interleaving: списки обеих моделей перемешиваются в одной выдаче одному пользователю, синие карточки пришли от старой модели, оранжевые от новой, и очко получает та модель, чей объект кликнули — здесь оба клика достались новой. Сравнение идёт внутри одной сессии, поэтому шум между пользователями уходит и трафика нужно меньше.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Counterfactual evaluation">
+<p>Counterfactual evaluation пытается оценить новую политику по логам старой политики. Основные идеи:</p>
+<table class="task-table">
+<thead><tr><th>Идея</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>IPS</b> (inverse propensity scoring)</td><td>для каждого лог-события вес $1/\pi_b(a\mid x)$, где $\pi_b$ — старая политика; несмещённая оценка value при корректных propensities, но огромная дисперсия при малых $\pi_b$.</td></tr>
+<tr><td><b>Self-normalized IPS</b></td><td>нормирует сумму взвешенных наград на сумму весов; снижает дисперсию, но вводит небольшой bias — частый компромисс в практике.</td></tr>
+<tr><td><b>Doubly robust (DR)</b></td><td>совмещает IPS с моделью outcome $Q(x,a)$: если модель верна, bias уходит; если propensity верна, остаётся устойчивость; при хорошем DR обычно лучше IPS по MSE.</td></tr>
+<tr><td><b>Off-policy evaluation (OPE)</b></td><td>общий класс методов оценить $\pi_e$, не крутя её в проде: IPS/SNIPS/DR, иногда bootstrap и confidence bounds; критично для безопасного выката и подбора гиперпараметров политики.</td></tr>
+</tbody>
+</table><p>Нужны propensities: вероятности того, что старая политика показала конкретные объекты.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Monitoring">
+<p>В production нужно мониторить:</p>
+<table class="task-table">
+<thead><tr><th>Сигнал</th><th>Что отслеживать</th></tr></thead>
+<tbody>
+<tr><td><b>Feature drift</b></td><td>смещение распределения входов (категории, время суток, география): модель может деградировать «молча»; алерты по PSI/KS, сравнение с обучающим срезом.</td></tr>
+<tr><td><b>Embedding drift</b></td><td>меняются нормы/косинусы, кластеры или calibrator по векторам — признак смены контента или поломки пайплайна фичей; коррелирует с качеством retrieval.</td></tr>
+<tr><td><b>Data quality</b></td><td>пропуски, аномалии, дубликаты, задержки стримов, сломанные join&#39;ы — первичный слой до ML-метрик.</td></tr>
+<tr><td><b>Latency</b></td><td>p50/p95/p99 по стадиям (retrieval, ranking, rerank): рост забирает конверсию и стабильность SLA даже при «умной» модели.</td></tr>
+<tr><td><b>CTR / CVR / retention</b></td><td>продуктовые метрики и сегменты: отдельно смотреть holdout, новых пользователей и тёмные long-tail, чтобы не пропустить регрессию.</td></tr>
+<tr><td><b>Coverage и diversity</b></td><td>не схлопнулась ли выдача в топ-100 популярных; для бизнеса и fairness важно распределение показов по каталогу/селлерам.</td></tr>
+<tr><td><b>Доля fallback-рекомендаций</b></td><td>сколько трафика уходит на popular, cold-start или rule-based при ошибках модели; резкий рост — тревожный индикатор инцидента.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Causal inference">
+<p>В рекомендациях легко спутать корреляцию и причинность. Пользователь купил объект после рекомендации, но это не всегда значит, что рекомендация вызвала покупку. Поэтому нужны A/B tests, causal inference и корректная логика атрибуции.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен A/B test, если offline-метрика выросла?</b></p>
+<p>Offline-рост не гарантирует улучшение пользовательского поведения и бизнес-метрик online.</p>
+</li>
+<li><p><b>Что такое interleaving?</b></p>
+<p>Метод сравнения ранжировщиков, где их результаты смешиваются в одной выдаче и анализируется, кто получает больше кликов.</p>
+</li>
+<li><p><b>Что оценивает IPS?</b></p>
+<p>Контрфактическое качество новой политики с поправкой на вероятность показов старой политики.</p>
+</li>
+<li><p><b>Что такое embedding drift?</b></p>
+<p>Изменение распределения embeddings во времени, которое может указывать на смену данных, модели или поведения пользователей.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_search_recommendation" data-badge-type="additional" data-interview="2">
+  <div class="name" id="recsys_search_recommendation">
+    Как связаны search и recommendation?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Общая задача">
+<p>Search и recommendation похожи: обе системы находят релевантные объекты и ранжируют их. Разница в intent:</p>
+<ul>
+<li>в search пользователь явно задаёт query;</li>
+<li>в recommendation система выводит intent из поведения, профиля и контекста.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Hybrid retrieval">
+<p>Для поиска и рекомендаций часто объединяют:</p>
+<ul>
+<li>lexical retrieval;</li>
+<li>semantic search;</li>
+<li>query embeddings;</li>
+<li>user/session embeddings;</li>
+<li>collaborative candidates;</li>
+<li>business rules.</li>
+</ul>
+<p>Так появляются unified retrieval systems.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Общий стек поиска и рекомендаций" src="../../images/ml/recsys/search_vs_recommendation.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Схема показывает, где именно проходит граница между двумя задачами. Различаются только верхние два уровня: в поиске intent приходит явным запросом и обрабатывается query understanding, в рекомендациях его приходится выводить из профиля и сессии. Ниже обе ветки сходятся в один вектор, и дальше идёт общая машинерия — гибридный retrieval из лексического, семантического и коллаборативного источников, затем ranking и re-ranking. Поэтому в компаниях эти системы часто делит одна команда и один сервинг.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Query understanding">
+<p>Для search ranking важны:</p>
+<ul>
+<li>нормализация query;</li>
+<li>intent classification;</li>
+<li>entity linking;</li>
+<li>query embeddings;</li>
+<li>session search context.</li>
+</ul>
+<p>Эти признаки можно использовать и в рекомендациях, например после поисковой сессии.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Fusion">
+<p>Search + recommendation fusion полезен в маркетплейсах, медиа и knowledge platforms: поиск говорит, что пользователь хочет прямо сейчас, а рекомендации добавляют персонализацию, похожие объекты и discovery.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Главное отличие search от recommendation?</b></p>
+<p>В search есть явный query, а в recommendation intent чаще неявно выводится из поведения и контекста.</p>
+</li>
+<li><p><b>Что такое semantic search?</b></p>
+<p>Поиск по смысловой близости embeddings, а не только по совпадению слов.</p>
+</li>
+<li><p><b>Зачем объединять search и recommendation?</b></p>
+<p>Чтобы учитывать одновременно явный запрос, историю пользователя и персонализацию.</p>
+</li>
+<li><p><b>Что такое query embedding?</b></p>
+<p>Векторное представление поискового запроса, которое можно сравнивать с item embeddings.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 6</h3>
+<li class="question" data-md-source="true" data-md-id="recsys_llm_foundation_models" data-badge-type="research" data-interview="1">
+  <div class="name" id="recsys_llm_foundation_models">
+    Как LLM и foundation models применяются в RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="LLM recommendation">
+<p>LLM можно использовать в рекомендациях несколькими способами:</p>
+<table class="task-table">
+<thead><tr><th>Роль LLM</th><th>Что делает</th></tr></thead>
+<tbody>
+<tr><td><b>Prompt-based recommendation</b></td><td>в промпт кладут профиль пользователя, историю и каталог (или сжатые описания); модель ранжирует/выбирает пункты или генерирует список id — гибко, но дорого и трудно контролировать на полном каталоге без retrieval.</td></tr>
+<tr><td><b>Генерация объяснений</b></td><td>текст «почему мы это порекомендовали» рядом с карточкой; улучшает доверие и кликабельность, требует guardrails от галлюцинаций и PII.</td></tr>
+<tr><td><b>Reranking кандидатов</b></td><td>LLM переупорядочивает десятки-сотни кандидатов, уже отфильтрованных ANN/heuristics; баланс качества и стоимости/latency.</td></tr>
+<tr><td><b>Query and intent understanding</b></td><td>разбор запроса, нормализация сущностей, уточнение намерения (жанр, бюджет, режим); признаки для поиска и для ранжирования.</td></tr>
+<tr><td><b>Item metadata enrichment</b></td><td>теги/атрибуты/эмбеддинги из текста и картинок товара; помогает cold start и фильтрам без ручного таксономиста.</td></tr>
+<tr><td><b>Conversational recommendation</b></td><td>многоходовый диалог: уточнение предпочтений, замена условий; нужна память, политика выдачи и связка с каталогом/API.</td></tr>
+</tbody>
+</table>
+</div>
+<figure style="text-align: center">
+  <img alt="Параллельная эволюция языковых моделей и рекомендательных систем" src="../../images/ml/recsys/llm4rec-milestones.png" width="1700" height="512" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Две дорожки вдоль общей оси времени. Сверху языковые модели: n-граммы и word2vec, затем предобученные BERT и GPT-2, затем LLM после порога примерно в 10 миллиардов параметров. Снизу рекомендательные системы: SVD и матричная факторизация, затем PLM-based (BERT4Rec, GPT4Rec) и DNN-based (CNN, RNN, GNN, GAN, DRL), затем LLM-based (P5, Chat-Rec, TALLRec). Смысл картинки в вертикальном соответствии: каждый скачок в NLP через некоторое время воспроизводился в рекомендациях, и текущая волна LLM4Rec — очередной такой перенос. <a href="https://arxiv.org/abs/2307.02046" target="_blank" rel="noopener">Источник: Wu et al., 2023</a>
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="Три способа приспособить LLM под рекомендации через промпт" src="../../images/ml/recsys/llm4rec-prompting.png" width="1700" height="916" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Три уровня вмешательства в модель, сверху вниз по возрастанию стоимости. Method 1, in-context learning: LLM заморожена (синяя снежинка), в промпт кладут описание задачи и несколько примеров. Method 2, prompt tuning: обучаются добавленные к входу prompt-токены $w_1 \ldots w_n$ и у самой LLM только входной слой (подпись input layer only), остальные веса заморожены — красное пламя всюду отмечает то, что обновляется по лоссу, синяя снежинка то, что нет. Method 3, instruction tuning: обучаются уже веса самой LLM на наборах инструкций из нескольких задач. Слева показано, какие данные нужны каждому варианту: от нескольких демонстраций до мультизадачного корпуса. <a href="https://arxiv.org/abs/2307.02046" target="_blank" rel="noopener">Источник: Wu et al., 2023</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Generative recommendation">
+<p>Generative recommendation формулирует задачу как генерацию item ids, titles, queries или действий. GPT-style модели могут использовать историю пользователя как последовательность токенов и предсказывать следующий item.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Foundation models">
+<p>Foundation-подходы используют большие предобученные модели для representations:</p>
+<table class="task-table">
+<thead><tr><th>Направление</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>Large embedding models</b></td><td>общие текстовые/sequence-трансформеры (или их скрытые состояния) как универсальный энкодер пользователей и объектов; fine-tuning или двухэтапное обучение под домен.</td></tr>
+<tr><td><b>User behavior modeling</b></td><td>предобучение на длинных последовательностях кликов/просмотров (next-item, contrastive) с переносом на downstream-задачу; ближе к representation learning, чем к чату.</td></tr>
+<tr><td><b>Multimodal recommendation</b></td><td>совместная сеть по нескольким модальностям (текст + картинка + аудио) для единого item/user space; нужна для fashion, short video, музыки.</td></tr>
+<tr><td><b>CLIP-like recommendation</b></td><td>сопряжение текстовых и визуальных энкодеров общим embedding space (contrastive); «картинка как текст» и наоборот для поиска и cold start по картинке.</td></tr>
+<tr><td><b>Vision-language recommendation</b></td><td>VLM (BLIP/Florence-подобные) для глубокого понимания превью, субтитров и OCR на изображении товара; тяжелее, но богаче признаки для ранжирования и безопасности.</td></tr>
+</tbody>
+</table><p>Они особенно полезны для rich content и cold start.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические ограничения">
+<p>LLM дороги, медленны и могут плохо контролироваться. В production их часто используют не вместо retrieval/ranking pipeline, а как компонент: генерация признаков, объяснения, query understanding, offline enrichment или reranking малого списка.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Где LLM полезны в RecSys?</b></p>
+<p>В понимании запросов, обогащении метаданных, объяснениях, conversational UX и reranking небольшого списка.</p>
+</li>
+<li><p><b>Что такое generative recommendation?</b></p>
+<p>Подход, где модель генерирует следующий объект или рекомендацию как последовательность токенов.</p>
+</li>
+<li><p><b>Почему multimodal foundation models помогают cold start?</b></p>
+<p>Они извлекают смысл из текста, изображений и видео без необходимости ждать много взаимодействий.</p>
+</li>
+<li><p><b>Почему LLM редко заменяет весь RecSys pipeline?</b></p>
+<p>Из-за latency, стоимости, управляемости и необходимости строгого контроля качества выдачи.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="recsys_papers" data-badge-type="research" data-interview="1">
+  <div class="name" id="recsys_papers">
+    Какие paper&#39;ы важны для RecSys?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Классика">
+<table class="task-table">
+<thead><tr><th>Paper</th><th>Почему важен</th></tr></thead>
+<tbody>
+<tr><td><a href="https://ieeexplore.ieee.org/document/5197422" target="_blank" rel="noopener">Matrix Factorization Techniques for RecSys</a> (Koren, Bell, Volinsky, 2009)</td><td>каноническое изложение <b>matrix factorization</b> после <b>Netflix Prize</b></td></tr>
+<tr><td><a href="https://dl.acm.org/doi/10.1145/1378704.1378719" target="_blank" rel="noopener">The Netflix Prize</a> (Bennett, Lanning, KDD Cup 2007)</td><td>постановка масштабного соревнования и влияние на <b>collaborative filtering</b></td></tr>
+<tr><td><a href="https://arxiv.org/abs/1205.2618" target="_blank" rel="noopener">BPR: Bayesian Personalized Ranking from Implicit Feedback</a> (Rendle et al., 2012)</td><td>классическая <b>pairwise</b> цель для implicit feedback</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Industrial">
+<table class="task-table">
+<thead><tr><th>Paper</th><th>Идея</th></tr></thead>
+<tbody>
+<tr><td><a href="https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf" target="_blank" rel="noopener">Deep Neural Networks for YouTube Recommendations</a> (Covington et al., 2016)</td><td>двухстадийная схема <b>candidate generation</b> + <b>ranking</b></td></tr>
+<tr><td><a href="https://arxiv.org/abs/1606.07792" target="_blank" rel="noopener">Wide &amp; Deep Learning for Recommender Systems</a> (Cheng et al., 2016)</td><td><b>memorization</b> + <b>generalization</b> в production-ранжировании</td></tr>
+<tr><td><a href="https://arxiv.org/abs/1906.00091" target="_blank" rel="noopener">The Deep Learning Recommendation Model</a> (Naumov et al., 2019)</td><td><b>embedding</b>-тяжёлая архитектура <b>DLRM</b> для индустриальных табличных + категориальных признаков</td></tr>
+<tr><td><a href="https://arxiv.org/abs/1806.01973" target="_blank" rel="noopener">Graph Convolutional Neural Networks for Web-Scale Recommender Systems</a> (Ying et al., KDD 2018) — <b>PinSage</b></td><td>масштабируемые рекомендации на большом <b>item graph</b></td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Sequential и graph">
+<table class="task-table">
+<thead><tr><th>Направление</th><th>Paper</th></tr></thead>
+<tbody>
+<tr><td>Sequential</td><td><a href="https://arxiv.org/abs/1808.09781" target="_blank" rel="noopener">Self-Attentive Sequential Recommendation</a> (Kang, McAuley, 2018) — <b>SASRec</b></td></tr>
+<tr><td>Sequential</td><td><a href="https://arxiv.org/abs/1904.06690" target="_blank" rel="noopener">BERT4Rec: Sequential Recommendation with Bidirectional Encoder Representations from Transformer</a> (Sun et al., 2019)</td></tr>
+<tr><td>Graph</td><td><a href="https://arxiv.org/abs/1905.08108" target="_blank" rel="noopener">Neural Graph Collaborative Filtering</a> (Wang et al., 2019) — <b>NGCF</b></td></tr>
+<tr><td>Graph</td><td><a href="https://arxiv.org/abs/2002.02126" target="_blank" rel="noopener">LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation</a> (He et al., 2020)</td></tr>
+</tbody>
+</table>
+</div>
+<figure style="text-align: center">
+  <img alt="Хронология ключевых работ по рекомендательным системам" src="../../images/ml/recsys/recsys-timeline.png" width="1800" height="672" loading="lazy" decoding="async" style="max-width: 1000px; width: 100%; height: auto" />
+  <figcaption>
+    Работы из таблиц выше плюс текущая волна LLM4Rec, выстроенные в один порядок чтения: от Netflix Prize и канонической матричной факторизации через BPR к индустриальным YouTube DNN, Wide &amp; Deep и DLRM, дальше к трансформерам над последовательностями (SASRec, BERT4Rec) и графам (NGCF, PinSage, LightGCN) и наконец к LLM4Rec. Точки расставлены равномерно, а не пропорционально годам, так что читать стоит именно порядок идей. Под каждым названием — в одну строку то, чем работа важна.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Как читать">
+<p>Разумный порядок: <b>matrix factorization</b> и <b>BPR</b>, затем YouTube / Wide&amp;Deep / <b>DLRM</b> как индустриальные опорные точки, далее <b>SASRec</b> и <b>BERT4Rec</b> для <b>sequence modeling</b> (моделирования последовательностей), затем <b>LightGCN</b> и <b>PinSage</b> для <b>graph-based recommendation</b> (графовых рекомендаций).</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему Netflix Prize важен для RecSys?</b></p>
+<p>Он показал силу <b>collaborative filtering</b>, матричной факторизации и ансамблей на крупной публичной задаче.</p>
+</li>
+<li><p><b>Что важно в статье YouTube Recommendations?</b></p>
+<p>Явное разделение <b>candidate generation</b> и <b>ranking</b> для масштаба и задержки в продакшене.</p>
+</li>
+<li><p><b>Почему Wide &amp; Deep стал влиятельным?</b></p>
+<p>Он объединил запоминание частых <b>feature crosses</b> и обобщение через глубокую сеть.</p>
+</li>
+<li><p><b>Какие статьи читать для sequential recommendation?</b></p>
+<p><b>SASRec</b> и <b>BERT4Rec</b> как базовые трансформерные подходы к последовательностям кликов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="ml:recsys"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

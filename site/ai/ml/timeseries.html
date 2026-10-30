@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Временные ряды</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/block-tests.js"></script>
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">Временные ряды</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Временные ряды</h1>
+          <p class="section-shell__desc">Вопросы по временным рядам.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 1</h3>
+<li class="question" data-md-source="true" data-md-id="time_series_definition" data-badge-type="required" data-interview="2" data-title-link="https://youtu.be/BGCDq03n_xA">
+  <div class="name" id="time_series_definition">
+    <a class="question-title-link" href="https://youtu.be/BGCDq03n_xA" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое временной ряд?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Временной ряд</b> - это последовательность наблюдений, упорядоченных по времени:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_1, y_2, \ldots, y_T,
+$$">$$
+y_1, y_2, \ldots, y_T,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $y_t$ - значение величины в момент времени $t$. В ML чаще пишут не просто $y_i$, а именно $y_t$, потому что порядок наблюдений важен.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Реальный временной ряд" src="../../images/ml/timeseries/ts.png" width="725" height="373" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+  <figcaption>
+    Пример настоящего ряда с дневным шагом: с ноября 2009 по конец 2013 года (ось x подписана date_oper, ось y без подписи). В нём видно сразу всё, о чём пойдёт речь дальше: восходящий тренд (уровень поднялся примерно со 150 тысяч до 400–500 тысяч), сильный шум от дня ко дню и отдельные выбросы — вниз почти до нуля и вверх до 820 тысяч. Именно из-за такой структуры наблюдения нельзя перемешивать: соседние дни похожи друг на друга, и порядок несёт информацию.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Почему это отдельный тип данных">
+<p>В обычной табличной задаче объекты часто считают независимыми. Во временных рядах это почти никогда не так: значение сегодня зависит от вчерашнего, прошлой недели, сезона, праздников, промоакций, состояния оборудования и других временных факторов.</p>
+<p>Главная особенность ряда - <b>зависимость от прошлого</b>. Поэтому нельзя случайно перемешивать наблюдения перед train/test split: это приводит к утечке будущего в обучение.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Примеры временных рядов">
+<ul>
+<li>продажи магазина по дням;</li>
+<li>температура воздуха по часам;</li>
+<li>CPU utilization сервера по минутам;</li>
+<li>цена акции по торговым дням;</li>
+<li>количество заявок в поддержку по неделям.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Горизонт прогноза">
+<p><b>Горизонт прогноза</b> - это насколько далеко вперёд мы предсказываем:</p>
+<ul>
+<li>one-step forecast: $\hat{y}_{t+1}$;</li>
+<li>multi-step forecast: $\hat{y}_{t+1}, \ldots, \hat{y}_{t+h}$.</li>
+</ul>
+<p>Чем дальше горизонт, тем выше неопределённость и тем важнее учитывать сезонность, тренд и внешние признаки.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Горизонт прогноза и доверительный интервал" src="../../images/ml/timeseries/forecast-horizon.png" width="1066" height="557" loading="lazy" decoding="async" style="max-width: 750px; width: 100%; height: auto" />
+  <figcaption>
+    Синим — история из 100 наблюдений, оранжевым — прогноз на 30 шагов вперёд, светлая заливка — 95% доверительный интервал. Красные стрелки показывают его полную ширину на двух горизонтах: при $h=1$ это около 16 единиц по вертикальной шкале, то есть $\pm 8$ вокруг прогноза, а при $h=30$ — уже около 85, то есть $\pm 43$. Здесь интервал расширяется как $\sqrt{h}$, потому что ошибки отдельных шагов накапливаются. Практический вывод: прогноз на завтра и прогноз на месяц вперёд — задачи разной сложности, и оценивать их качество надо отдельно по каждому горизонту.
+  </figcaption>
+</figure>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://youtu.be/BGCDq03n_xA" target="_blank" rel="noopener">Короткое введение во временные ряды</a></li>
+<li><a href="https://youtu.be/u433nrxdf5k?list=PLdY5JiCCj1leoA0tOqvO89j0EFu_ASzwm" target="_blank" rel="noopener">Лекция по временным рядам с математическим бэкграундом</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое временной ряд?</b></p>
+<p>Это последовательность наблюдений $y_1, \ldots, y_T$, упорядоченных по времени.</p>
+</li>
+<li><p><b>Почему временной ряд нельзя просто перемешать перед обучением?</b></p>
+<p>Потому что порядок несёт информацию. Случайное перемешивание может дать модели доступ к будущему и завысить качество.</p>
+</li>
+<li><p><b>Что такое горизонт прогноза?</b></p>
+<p>Количество будущих шагов, которые нужно предсказать: например, один день вперёд или 30 дней вперёд.</p>
+</li>
+<li><p><b>Чем временной ряд отличается от обычной табличной выборки?</b></p>
+<p>Наблюдения во временном ряду обычно зависимы друг от друга, а в табличных задачах их часто приближённо считают независимыми.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="time_series_components" data-badge-type="required" data-interview="4" data-title-link="https://www.youtube.com/watch?v=zNdf-cEoqqs&amp;ab_channel=%D0%A8%D0%BA%D0%BE%D0%BB%D0%B0%D0%91%D0%BE%D0%BB%D1%8C%D1%88%D0%B8%D1%85%D0%94%D0%B0%D0%BD%D0%BD%D1%8B%D1%85">
+  <div class="name" id="time_series_components">
+    <a class="question-title-link" href="https://www.youtube.com/watch?v=zNdf-cEoqqs&amp;ab_channel=%D0%A8%D0%BA%D0%BE%D0%BB%D0%B0%D0%91%D0%BE%D0%BB%D1%8C%D1%88%D0%B8%D1%85%D0%94%D0%B0%D0%BD%D0%BD%D1%8B%D1%85" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Какие свойства есть у временного ряда?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Основные компоненты">
+<p>Временной ряд часто раскладывают на несколько смысловых частей:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = T_t + S_t + R_t,
+$$">$$
+y_t = T_t + S_t + R_t,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $T_t$ - тренд, $S_t$ - сезонность, $R_t$ - остаток или шум.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Разложение ряда на тренд, сезонность и остаток" src="../../images/ml/timeseries/ts-decomposition.png" width="1184" height="1086" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Классический ряд числа авиапассажиров (1949–1960, тысячи человек) разложен аддитивно с периодом 12 через statsmodels seasonal_decompose. Сверху вниз: исходный ряд, тренд (сглаженный скользящим средним, растёт примерно со 130 до 470), сезонность (один и тот же годовой профиль с летним пиком около $+65$ и провалом в ноябре около $-55$) и остаток. Отдельно посмотри на нижнюю панель: в середине ряда, около 1954–1956, остаток почти нулевой, а к краям разброс доходит до $\pm 60$. Это подсказка, что сезонность здесь скорее мультипликативная и аддитивное разложение ей не совсем подходит.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Компоненты ряда">
+<table class="task-table">
+<thead><tr><th>Компонента</th><th>Что означает</th><th>Пример</th></tr></thead>
+<tbody>
+<tr><td><b>Тренд</b></td><td>Долгосрочное направление изменения</td><td>продажи растут год к году</td></tr>
+<tr><td><b>Сезонность</b></td><td>Повторяемый паттерн с известным периодом</td><td>пики заказов по выходным</td></tr>
+<tr><td><b>Цикл</b></td><td>Длинные колебания без фиксированного периода</td><td>экономические циклы</td></tr>
+<tr><td><b>Шум</b></td><td>Нерегулярная часть, которую модель не объяснила</td><td>случайные отклонения спроса</td></tr>
+<tr><td><b>Выбросы</b></td><td>Резкие нетипичные значения</td><td>авария, распродажа, сбой датчика</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Аддитивная и мультипликативная формы">
+<p>Если амплитуда сезонности примерно постоянна, удобно использовать аддитивную модель:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = T_t + S_t + R_t.
+$$">$$
+y_t = T_t + S_t + R_t.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Если сезонные колебания растут вместе с уровнем ряда, лучше думать в мультипликативной форме:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = T_t \cdot S_t \cdot R_t.
+$$">$$
+y_t = T_t \cdot S_t \cdot R_t.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>На практике мультипликативную структуру часто переводят в аддитивную через логарифмирование.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Аддитивная и мультипликативная сезонность" src="../../images/ml/timeseries/additive-multiplicative.png" width="1402" height="522" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Слева синим — аддитивный ряд: сезонная волна даёт постоянные $\pm 30$ и в начале, и в конце. Справа фиолетовым — мультипликативный: та же волна составляет $\pm 25\%$ от текущего уровня, поэтому её размах растёт вместе с серым пунктирным трендом. Отсюда простое правило выбора: размах колебаний не зависит от уровня — берём аддитивную модель, растёт вместе с уровнем — мультипликативную или логарифм, который превращает вторую в первую. Обрати внимание, что вертикальные шкалы панелей разные: слева до 300, справа до 350.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если интернет-магазин каждый декабрь продаёт больше из-за праздников, это сезонность. Если при этом бизнес из года в год растёт, это тренд. Если в один день случился технический сбой и продажи резко упали, это выброс.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://www.youtube.com/watch?v=zNdf-cEoqqs&ab_channel=%D0%A8%D0%BA%D0%BE%D0%BB%D0%B0%D0%91%D0%BE%D0%BB%D1%8C%D1%88%D0%B8%D1%85%D0%94%D0%B0%D0%BD%D0%BD%D1%8B%D1%85" target="_blank" rel="noopener">Видео про свойства временных рядов: сезонность, тренд и другие компоненты</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое тренд во временном ряду?</b></p>
+<p>Долгосрочное направление изменения уровня ряда: рост, падение или медленное изменение среднего.</p>
+</li>
+<li><p><b>Что такое сезонность?</b></p>
+<p>Повторяемый паттерн с более-менее фиксированным периодом: день, неделя, месяц, год.</p>
+</li>
+<li><p><b>Чем сезонность отличается от шума?</b></p>
+<p>Сезонность повторяется и её можно моделировать, а шум - нерегулярная необъяснённая часть.</p>
+</li>
+<li><p><b>Когда мультипликативную модель полезно логарифмировать?</b></p>
+<p>Когда амплитуда колебаний растёт вместе с уровнем ряда: после логарифма произведение превращается в сумму.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="time_series_validation" data-badge-type="required" data-interview="5">
+  <div class="name" id="time_series_validation">
+    Как валидировать модели на временных рядах?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Temporal split">
+<p>Во временных рядах train/test split делают по времени:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\underbrace{1,\ldots,t}_{train}
+\quad
+\underbrace{t+1,\ldots,T}_{test}.
+$$">$$
+\underbrace{1,\ldots,t}_{train}
+\quad
+\underbrace{t+1,\ldots,T}_{test}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Модель обучается только на прошлом и проверяется на будущем. Это имитирует реальное применение модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Утечка будущего">
+<p>Нельзя считать признаки с использованием будущих значений. Например, признак <code>rolling_mean_7</code> для момента $t$ должен использовать только $y_{t-6}, \ldots, y_t$ или только прошлые значения, если предсказываем $y_t$ заранее. Если случайно включить $y_{t+1}$ или более поздние точки, метрика станет искусственно хорошей.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Схемы валидации на временных рядах" src="../../images/ml/timeseries/ts_cv.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Четыре фолда подряд, синий — train, оранжевый — validation. Expanding window: обучение растёт, валидация всегда правее. Sliding window: длина обучения фиксирована, окно едет вправо. Случайный $k$-fold: часть обучающих блоков стоит правее валидационных — модель учится на будущем, и метрика получается завышенной.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Backtesting">
+<p><b>Backtesting</b> - это проверка модели на нескольких последовательных временных срезах. Например:</p>
+<table class="task-table">
+<thead><tr><th>Fold</th><th>Train</th><th>Validation</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>$1..100$</td><td>$101..120$</td></tr>
+<tr><td>2</td><td>$1..120$</td><td>$121..140$</td></tr>
+<tr><td>3</td><td>$1..140$</td><td>$141..160$</td></tr>
+</tbody>
+</table><p>Такой подход показывает, стабильно ли модель работает на разных участках истории.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Схемы валидации на временных рядах" src="../../images/ml/timeseries/cv-schemes.png" width="1719" height="598" loading="lazy" decoding="async" style="max-width: 950px; width: 100%; height: auto" />
+  <figcaption>
+    Три схемы разбиения одного ряда на 4 фолда: синий — обучение, оранжевый — валидация, серый — не используется, время идёт слева направо. Расширяющееся окно: обучающая часть растёт от фолда к фолду, валидация всегда правее неё. Скользящее окно: длина обучения фиксирована (40 точек), окно целиком едет вправо — так проверяют модель, которую регулярно переобучают на свежих данных. Случайный $k$-fold: в фолдах 1–3 синие блоки стоят правее оранжевого, и красные стрелки показывают, что модель учится на данных из будущего относительно теста. Это и есть утечка: метрика получится завышенной, а в проде модель так работать не сможет.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Метрики">
+<p>Для временных рядов часто используют обычные регрессионные метрики: MAE, RMSE, MAPE, sMAPE. Но важно смотреть не только число, а ещё график прогноза, ошибки по времени и качество на разных горизонтах.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему temporal split лучше random split для временных рядов?</b></p>
+<p>Потому что random split перемешивает прошлое и будущее, создавая риск утечки и нереалистичной оценки качества.</p>
+</li>
+<li><p><b>Что такое backtesting?</b></p>
+<p>Проверка модели на нескольких последовательных временных разбиениях train/validation.</p>
+</li>
+<li><p><b>Что такое утечка будущего?</b></p>
+<p>Ситуация, когда модель при обучении или построении признаков использует информацию, которая в реальном прогнозе ещё недоступна.</p>
+</li>
+<li><p><b>Почему одной метрики может быть недостаточно?</b></p>
+<p>Ошибки могут быть сконцентрированы на праздниках, выбросах, смене режима или дальних горизонтах, хотя средняя метрика выглядит приемлемо.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="stationarity" data-badge-type="required" data-interview="5" data-title-link="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%A1%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%B5%20%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5%20%D1%80%D1%8F%D0%B4%D1%8B">
+  <div class="name" id="stationarity">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%A1%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%B5%20%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5%20%D1%80%D1%8F%D0%B4%D1%8B" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое стационарный временной ряд?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Слабая стационарность">
+<p>Временной ряд называют <b>стационарным в широком смысле</b>, если его основные статистические свойства не меняются со временем:</p>
+<ol>
+<li>$\mathbb{E}[y_t] = \mu$ - постоянное среднее;</li>
+<li>$\mathrm{Var}(y_t) = \sigma^2$ - постоянная дисперсия;</li>
+<li>$\mathrm{Cov}(y_t, y_{t-k})$ зависит только от лага $k$, а не от конкретного времени $t$.</li>
+</ol>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Три условия стационарности" src="../../images/ml/timeseries/stationary.png" width="820" height="624" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Шесть схематичных панелей: верхний ряд — нестационарные случаи, нижний — стационарные, по одному столбцу на каждое из трёх условий. Слева уровень (жёлтый пунктир) сверху смещается вверх, снизу держится постоянным. В центре сверху размах колебаний сужается (жёлтый коридор сходится), снизу остаётся одинаковым. Справа сверху жёлтые стрелки между соседними экстремумами разной длины, снизу — одинаковой. Ключевая мысль: стационарность требует всех трёх условий сразу, нарушение любого одного уже делает ряд нестационарным. <a href="https://ivan-shamaev.ru/time-series-analysis-forecasting-and-models-python-libraries/" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Зачем это нужно">
+<p>Многие классические модели временных рядов, например ARMA, предполагают стационарность. Если ряд имеет тренд, меняющуюся дисперсию или сезонные сдвиги, модель может принять нестационарную структуру за устойчивую закономерность и плохо прогнозировать.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Нестационарные ряды">
+<ul>
+<li>Средний уровень продаж растёт каждый месяц - меняется математическое ожидание.</li>
+<li>Амплитуда колебаний спроса увеличивается вместе с ростом бизнеса - меняется дисперсия.</li>
+<li>В ряду есть ежегодная сезонность - ковариационная структура зависит от календаря.</li>
+</ul>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Стационарность и дифференцирование" src="../../images/ml/timeseries/stationarity_diff.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Ряд с трендом и сезонностью: скользящее среднее (розовая линия) уползает вверх, полоса $\pm$ скользящего стандартного отклонения тоже смещается — ряд нестационарен. Первая разность $\Delta y_t$ убирает тренд, но сезонные колебания остаются; сезонная разность $\Delta_{12}\Delta y_t$ убирает и их — среднее и разброс перестают зависеть от времени.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Как проверять">
+<p>На практике смотрят график ряда, rolling mean, rolling variance, ACF/PACF и статистические тесты вроде ADF или KPSS. Тесты полезны, но их нельзя использовать без визуального анализа и понимания домена.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Скользящие среднее и дисперсия на стационарном и нестационарном ряде" src="../../images/ml/timeseries/stationarity-rolling.png" width="1403" height="850" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Так выглядит та же диагностика на реальных данных вместо схемы. Слева нестационарный ряд (случайное блуждание со сносом), справа стационарный AR(1) с $\varphi = 0.6$. Верхние панели: сам ряд синим и скользящее среднее по окну 50 красным — слева красная линия уверенно уходит с 0 до 30, справа всё время держится около нуля в пределах примерно $\pm 0.7$. Нижние панели: скользящее стандартное отклонение зелёным — слева оно скачет от 1.3 до 6.1, справа сидит в узком коридоре 0.85–1.5. Вертикальные шкалы у левой и правой колонок разные: слева ряд гуляет от $-5$ до 35, справа — от $-4$ до 4.
+  </figcaption>
+</figure>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%A1%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%B5%20%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5%20%D1%80%D1%8F%D0%B4%D1%8B" target="_blank" rel="noopener">Раздел Яндекс Хендбука про стационарные временные ряды</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает стационарность временного ряда?</b></p>
+<p>Статистические свойства ряда не меняются со временем: среднее, дисперсия и зависимость от лагов стабильны.</p>
+</li>
+<li><p><b>Почему тренд нарушает стационарность?</b></p>
+<p>Потому что среднее значение ряда меняется со временем.</p>
+</li>
+<li><p><b>Почему стационарность важна для ARMA-подобных моделей?</b></p>
+<p>Эти модели описывают устойчивую зависимость от прошлых значений и ошибок. При нестационарности параметры могут стать нестабильными.</p>
+</li>
+<li><p><b>Как на практике диагностируют нестационарность?</b></p>
+<p>Смотрят график, rolling statistics, ACF/PACF и используют тесты ADF/KPSS как дополнительную проверку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="variance_stabilization" data-badge-type="required" data-interview="4" data-title-link="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BA%20%D1%81%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%BC%3A%20%D1%81%D1%82%D0%B0%D0%B1%D0%B8%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%20%D0%B4%D0%B8%D1%81%D0%BF%D0%B5%D1%80%D1%81%D0%B8%D0%B8">
+  <div class="name" id="variance_stabilization">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BA%20%D1%81%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%BC%3A%20%D1%81%D1%82%D0%B0%D0%B1%D0%B8%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%20%D0%B4%D0%B8%D1%81%D0%BF%D0%B5%D1%80%D1%81%D0%B8%D0%B8" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Как стабилизировать дисперсию временного ряда?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Гомоскедастичность и гетероскедастичность">
+<p><b>Гомоскедастичность</b> означает, что дисперсия ошибок или самого ряда примерно постоянна во времени.</p>
+<p><b>Гетероскедастичность</b> означает, что дисперсия меняется: например, при большем уровне продаж разброс продаж тоже становится больше.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем стабилизировать дисперсию">
+<p>Если разброс растёт вместе с уровнем ряда, модель начинает хуже различать структуру и шум. В таких случаях полезно применить преобразование, которое сжимает большие значения сильнее малых.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Преобразования">
+<p>Частые варианты:</p>
+<table class="task-table">
+<thead><tr><th>Преобразование</th><th>Формула</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td>Логарифм</td><td>$z_t = \log y_t$</td><td>положительные значения, мультипликативная сезонность</td></tr>
+<tr><td>Корень</td><td>$z_t = \sqrt{y_t}$</td><td>счётчики, умеренная гетероскедастичность</td></tr>
+<tr><td>Box-Cox</td><td>$z_t = \frac{y_t^\lambda - 1}{\lambda}$</td><td>положительные значения, подбор степени</td></tr>
+</tbody>
+</table><p>Для $\lambda = 0$ преобразование Box-Cox переходит в логарифм: $z_t = \log y_t$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Логарифм стабилизирует дисперсию ряда" src="../../images/ml/timeseries/variance-stabilization.png" width="1404" height="851" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Верхние панели: слева синим исходный ряд авиапассажиров, справа зелёным его логарифм. Нижние панели важнее: красным показано скользящее стандартное отклонение по окну 12 для каждого из них. В исходной шкале оно растёт примерно с 14 до 85 тысяч человек, то есть в шесть раз за десять лет — типичная гетероскедастичность. После логарифма то же стандартное отклонение колеблется в узкой полосе 0.09–0.19 и такого роста уже не показывает. Ровно этого и добиваются логарифмом или Box-Cox: разброс перестаёт зависеть от уровня ряда.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Обратное преобразование">
+<p>Если модель обучалась на преобразованном ряде $z_t$, прогноз нужно вернуть в исходную шкалу. Для логарифма это $\hat{y}_t = \exp(\hat{z}_t)$. При этом для вероятностных прогнозов и доверительных интервалов обратное преобразование требует аккуратности: среднее в лог-шкале не обязано просто превращаться в среднее в исходной шкале.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BA%20%D1%81%D1%82%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D1%80%D0%BD%D1%8B%D0%BC%3A%20%D1%81%D1%82%D0%B0%D0%B1%D0%B8%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%20%D0%B4%D0%B8%D1%81%D0%BF%D0%B5%D1%80%D1%81%D0%B8%D0%B8" target="_blank" rel="noopener">Стабилизация дисперсии в Яндекс Хендбуке</a></li>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%BF%D1%80%D0%B5%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B9%20%D0%91%D0%BE%D0%BA%D1%81%D0%B0%2D%D0%9A%D0%BE%D0%BA%D1%81%D0%B0" target="_blank" rel="noopener">Преобразование Бокса-Кокса</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое гетероскедастичность?</b></p>
+<p>Ситуация, когда дисперсия ряда или ошибок меняется со временем или зависит от уровня ряда.</p>
+</li>
+<li><p><b>Зачем применять логарифм к временному ряду?</b></p>
+<p>Логарифм сжимает большие значения, часто стабилизирует дисперсию и переводит мультипликативные эффекты в аддитивные.</p>
+</li>
+<li><p><b>Что делает преобразование Box-Cox?</b></p>
+<p>Подбирает степенное преобразование положительного ряда, чтобы сделать дисперсию более стабильной и распределение ближе к удобному для модели.</p>
+</li>
+<li><p><b>Почему важно помнить об обратном преобразовании?</b></p>
+<p>Модель прогнозирует в преобразованной шкале, а бизнесу или метрике часто нужен прогноз в исходных единицах.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="differencing" data-badge-type="required" data-interview="4" data-title-link="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B5%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F%3A-,%D0%94%D0%B8%D1%84%D1%84%D0%B5%D1%80%D0%B5%D0%BD%D1%86%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%80%D1%8F%D0%B4%D0%B0,-%2C%20%D1%82%D0%BE%20%D0%B5%D1%81%D1%82%D1%8C%20%D0%BF%D0%B5%D1%80%D0%B5%D1%85%D0%BE%D0%B4">
+  <div class="name" id="differencing">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B5%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F%3A-,%D0%94%D0%B8%D1%84%D1%84%D0%B5%D1%80%D0%B5%D0%BD%D1%86%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%80%D1%8F%D0%B4%D0%B0,-%2C%20%D1%82%D0%BE%20%D0%B5%D1%81%D1%82%D1%8C%20%D0%BF%D0%B5%D1%80%D0%B5%D1%85%D0%BE%D0%B4" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое дифференцирование временного ряда?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Обычное дифференцирование">
+<p><b>Дифференцирование ряда</b> заменяет значения на разности соседних наблюдений:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\Delta y_t = y_t - y_{t-1}.
+$$">$$
+\Delta y_t = y_t - y_{t-1}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Это помогает убрать линейный тренд и приблизить ряд к стационарному.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Сезонное дифференцирование">
+<p>Если есть сезонность с периодом $s$, используют сезонную разность:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\Delta_s y_t = y_t - y_{t-s}.
+$$">$$
+\Delta_s y_t = y_t - y_{t-s}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Например, для недельной сезонности в дневных данных часто берут $s=7$.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Эффект первой и сезонной разности" src="../../images/ml/timeseries/differencing-steps.png" width="1184" height="1181" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Четыре шага на одном ряде авиапассажиров, красный пунктир на каждой панели — среднее. (1) Исходный ряд синим: среднее 280 не описывает ни начало, ни конец — это и есть тренд. (2) Первая разность $\Delta y_t$ оранжевым: тренд ушёл, среднее упало до 2, но регулярные годовые всплески на месте. (3) Сезонная разность $\Delta_{12} y_t$ зелёным: сезонность ушла, зато осталась медленно ползущая вверх кривая со средним 32 — это остаток тренда. (4) Обе разности сразу $\Delta_{12}\Delta y_t$ фиолетовым: колебания вокруг нуля без тренда и без сезонности. Панели 2 и 3 показывают главное: одна разность убирает что-то одно, и часто нужны обе.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если продажи растут примерно на 10 единиц каждый день, исходный ряд нестационарен по среднему. После перехода к разностям $\Delta y_t$ получится ряд около 10 с шумом вокруг этого уровня.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Первая и сезонная разность на анимации" src="../../images/ml/timeseries/stationarity_diff.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Тот же процесс в динамике: исходный ряд с трендом и сезонностью → $\Delta y_t$ (тренд ушёл, сезонность на месте) → $\Delta_{12}\Delta y_t$ (ушли обе). Розовая линия — скользящее среднее, полоса — скользящее стандартное отклонение: после обеих разностей они перестают плыть.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Передифференцирование">
+<p>Слишком много разностей может удалить полезный сигнал и усилить шум. Поэтому порядок дифференцирования $d$ в ARIMA обычно берут небольшим: часто $0$, $1$ или редко $2$.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%B5%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F%3A-,%D0%94%D0%B8%D1%84%D1%84%D0%B5%D1%80%D0%B5%D0%BD%D1%86%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%80%D1%8F%D0%B4%D0%B0,-%2C%20%D1%82%D0%BE%20%D0%B5%D1%81%D1%82%D1%8C%20%D0%BF%D0%B5%D1%80%D0%B5%D1%85%D0%BE%D0%B4" target="_blank" rel="noopener">Дифференцирование ряда в Яндекс Хендбуке</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое первая разность ряда?</b></p>
+<p>$\Delta y_t = y_t - y_{t-1}$, то есть изменение значения относительно предыдущего момента.</p>
+</li>
+<li><p><b>Зачем дифференцировать временной ряд?</b></p>
+<p>Чтобы убрать тренд или сезонный компонент и сделать ряд ближе к стационарному.</p>
+</li>
+<li><p><b>Что такое сезонное дифференцирование?</b></p>
+<p>Разность с лагом сезона: $\Delta_s y_t = y_t - y_{t-s}$.</p>
+</li>
+<li><p><b>Чем опасно передифференцирование?</b></p>
+<p>Оно может удалить полезную структуру ряда и превратить задачу в моделирование шума.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="acf_pacf" data-badge-type="required" data-interview="3" data-title-link="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%90%D0%B2%D1%82%D0%BE%D0%BA%D0%BE%D1%80%D1%80%D0%B5%D0%BB%D1%8F%D1%86%D0%B8%D0%BE%D0%BD%D0%BD%D0%B0%D1%8F%20%D1%84%D1%83%D0%BD%D0%BA%D1%86%D0%B8%D1%8F">
+  <div class="name" id="acf_pacf">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%90%D0%B2%D1%82%D0%BE%D0%BA%D0%BE%D1%80%D1%80%D0%B5%D0%BB%D1%8F%D1%86%D0%B8%D0%BE%D0%BD%D0%BD%D0%B0%D1%8F%20%D1%84%D1%83%D0%BD%D0%BA%D1%86%D0%B8%D1%8F" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что показывают ACF и PACF?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="ACF">
+<p><b>ACF</b> (autocorrelation function) показывает корреляцию ряда с самим собой на разных лагах:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\rho(k) = \mathrm{Corr}(y_t, y_{t-k}).
+$$">$$
+\rho(k) = \mathrm{Corr}(y_t, y_{t-k}).
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Если $\rho(7)$ высокая для дневных данных, это может говорить о недельной сезонности.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="PACF">
+<p><b>PACF</b> (partial autocorrelation function) показывает прямую связь между $y_t$ и $y_{t-k}$ после учёта промежуточных лагов $1,\ldots,k-1$.</p>
+<p>ACF отвечает на вопрос &quot;насколько ряд похож на себя через $k$ шагов&quot;, а PACF - &quot;есть ли у лага $k$ самостоятельный вклад после более близких лагов&quot;.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Как строятся ACF и PACF" src="../../images/ml/timeseries/acf_pacf.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Верх — ряд AR(1) с $\varphi=0.7$; розовая копия сдвигается на лаг $k$, корреляция между ними становится столбиком ACF. Серая полоса — зона незначимости $\pm 1.96/\sqrt{n}$. Для AR(1) ACF затухает геометрически, а PACF обрывается после лага 1; для MA(1) — наоборот: ACF обрывается, PACF затухает.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Связь с AR и MA">
+<p>Грубое правило для стационарных рядов:</p>
+<ul>
+<li>у AR($p$) PACF часто резко обрывается после лага $p$, а ACF убывает постепенно;</li>
+<li>у MA($q$) ACF часто резко обрывается после лага $q$, а PACF убывает постепенно;</li>
+<li>у ARMA обе функции обычно убывают без резкого простого обрыва.</li>
+</ul>
+<p>Это не строгий закон для всех данных, а диагностическая подсказка.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="ACF и PACF для AR(1), MA(1) и ARMA(1,1)" src="../../images/ml/timeseries/acf-pacf-patterns.png" width="1403" height="1183" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Три строки — три модели, в каждой слева ACF синим, справа PACF оранжевым; по 1000 сгенерированных наблюдений, голубая полоса — 95% зона незначимости. Верхняя строка, AR(1) с $\varphi = 0.7$: ACF затухает геометрически (примерно 0.70, 0.49, 0.34, 0.22, ...), а PACF обрывается сразу после лага 1 — красный пунктир отмечает место обрыва, дальше все столбики лежат внутри полосы. Средняя строка, MA(1) с $\theta = 0.7$: всё зеркально — обрывается ACF после лага 1, а PACF затухает с чередованием знака ($0.46$, $-0.27$, $0.19$, $-0.15$). Нижняя строка, ARMA(1,1): чистого обрыва на конкретном лаге нет ни у одной из функций, поэтому порядок по картинке уже не прочитать — нужны AIC/BIC и backtesting.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="warning" data-title="Интерпретация">
+<p>ACF/PACF нужно строить после разумной предобработки: удаления тренда, стабилизации дисперсии и сезонного дифференцирования, если они нужны. На явно нестационарном ряде графики могут вводить в заблуждение.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%90%D0%B2%D1%82%D0%BE%D0%BA%D0%BE%D1%80%D1%80%D0%B5%D0%BB%D1%8F%D1%86%D0%B8%D0%BE%D0%BD%D0%BD%D0%B0%D1%8F%20%D1%84%D1%83%D0%BD%D0%BA%D1%86%D0%B8%D1%8F" target="_blank" rel="noopener">Автокорреляционная функция в Яндекс Хендбуке</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что показывает ACF?</b></p>
+<p>Корреляцию ряда с самим собой на лаге $k$: насколько $y_t$ связан с $y_{t-k}$.</p>
+</li>
+<li><p><b>Что показывает PACF?</b></p>
+<p>Частную автокорреляцию: прямую связь с лагом $k$ после учёта промежуточных лагов.</p>
+</li>
+<li><p><b>Как ACF/PACF помогают выбирать ARIMA-параметры?</b></p>
+<p>Они дают подсказки для порядков AR и MA: $p$ связан с PACF, $q$ связан с ACF.</p>
+</li>
+<li><p><b>Почему ACF/PACF опасно смотреть на нестационарном ряде?</b></p>
+<p>Тренд и меняющаяся дисперсия создают сильные ложные корреляции, которые не являются стабильной зависимостью.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="exponential_smoothing" data-badge-type="required" data-interview="3" data-title-link="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%BE%D1%81%D1%82%D0%BE%D0%B5%20%D1%8D%D0%BA%D1%81%D0%BF%D0%BE%D0%BD%D0%B5%D0%BD%D1%86%D0%B8%D0%B0%D0%BB%D1%8C%D0%BD%D0%BE%D0%B5%20%D1%81%D0%B3%D0%BB%D0%B0%D0%B6%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5">
+  <div class="name" id="exponential_smoothing">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%BE%D1%81%D1%82%D0%BE%D0%B5%20%D1%8D%D0%BA%D1%81%D0%BF%D0%BE%D0%BD%D0%B5%D0%BD%D1%86%D0%B8%D0%B0%D0%BB%D1%8C%D0%BD%D0%BE%D0%B5%20%D1%81%D0%B3%D0%BB%D0%B0%D0%B6%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое экспоненциальное сглаживание?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Простое экспоненциальное сглаживание">
+<p><b>Exponential Smoothing</b> строит сглаженный уровень ряда, где новые наблюдения получают больший вес, а старые - экспоненциально меньший:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+\ell_t = \alpha y_t + (1-\alpha)\ell_{t-1},
+$$">$$
+\ell_t = \alpha y_t + (1-\alpha)\ell_{t-1},
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $\alpha \in [0,1]$ - параметр сглаживания.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Экспоненциальное сглаживание с разными значениями alpha" src="../../images/ml/timeseries/exp-smoothing-alpha.png" width="1513" height="566" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Слева один и тот же серый ряд сглажен тремя значениями $\alpha$; в момент $t = 60$ уровень скачком меняется с 20 на 32. Красная линия $\alpha = 0.9$ догоняет новый уровень почти мгновенно, но повторяет каждый шумовой зубец. Фиолетовая $\alpha = 0.05$ почти не шумит, зато выходит на новый уровень только к $t \approx 110$, то есть с опозданием примерно в полсотни шагов. Зелёная $\alpha = 0.3$ — компромисс. Справа те же три значения в виде весов $\alpha(1-\alpha)^k$: при $\alpha = 0.9$ последнему наблюдению достаётся вес 0.9 и почти ничего не остаётся остальным, при $\alpha = 0.05$ вес размазан по десяткам прошлых точек.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="explanation" data-title="Интуиция">
+<p>Если $\alpha$ близко к 1, модель быстро реагирует на новые значения, но сильнее ловит шум. Если $\alpha$ близко к 0, прогноз более гладкий, но медленно адаптируется к изменениям.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Экспоненциальное сглаживание при разных alpha" src="../../images/ml/timeseries/exp_smoothing.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Серый ряд со скачком уровня в $t=60$, розовая линия — $s_t=\alpha y_t+(1-\alpha)s_{t-1}$. При $\alpha=0.1$ линия гладкая, но догоняет новый уровень с большим опозданием; при $\alpha=0.9$ реагирует сразу, но повторяет каждый шумовой зубец. Справа — веса $\alpha(1-\alpha)^k$ прошлых наблюдений. В конце: простое сглаживание прогнозирует константу, метод Хольта добавляет тренд.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="Расширения">
+<table class="task-table">
+<thead><tr><th>Метод</th><th>Что учитывает</th><th>Когда полезен</th></tr></thead>
+<tbody>
+<tr><td>Simple Exponential Smoothing</td><td>только уровень</td><td>нет тренда и сезонности</td></tr>
+<tr><td>Holt</td><td>уровень и тренд</td><td>есть тренд</td></tr>
+<tr><td>Holt-Winters</td><td>уровень, тренд и сезонность</td><td>есть сезонность</td></tr>
+</tbody>
+</table><p>Holt-Winters бывает аддитивным и мультипликативным, как и разложение ряда на компоненты.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда хорошо работает">
+<p>Экспоненциальное сглаживание часто является сильным baseline для бизнес-рядов: спроса, продаж, трафика, метрик мониторинга. Оно простое, быстрое и хорошо интерпретируется.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Экспоненциально сглаживание также активно используется в глубоком обучении — например, при сглаживании истории градиентов (например, в оптимизаторе Adam), а также при усреднении статистик (среднего, дисперсии) в BatchNorm-слое при инференсе. Подробнее см. в <a href="../../ai/ml/dl.html#batchnorm" target="_blank" rel="noopener">Вопросе о BatchNorm</a> и <a href="../../ai/ml/dl.html#ema" target="_blank" rel="noopener">Вопросе о EMA</a></p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/analitika-vremennyh-ryadov#:~:text=%D0%9F%D1%80%D0%BE%D1%81%D1%82%D0%BE%D0%B5%20%D1%8D%D0%BA%D1%81%D0%BF%D0%BE%D0%BD%D0%B5%D0%BD%D1%86%D0%B8%D0%B0%D0%BB%D1%8C%D0%BD%D0%BE%D0%B5%20%D1%81%D0%B3%D0%BB%D0%B0%D0%B6%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5" target="_blank" rel="noopener">Простое экспоненциальное сглаживание в Яндекс Хендбуке</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает экспоненциальное сглаживание?</b></p>
+<p>Строит сглаженный уровень ряда, давая больший вес новым наблюдениям и меньший вес старым.</p>
+</li>
+<li><p><b>За что отвечает параметр $\alpha$?</b></p>
+<p>За скорость реакции на новые данные: большое $\alpha$ быстрее адаптируется, малое $\alpha$ сильнее сглаживает.</p>
+</li>
+<li><p><b>Чем Holt отличается от простого сглаживания?</b></p>
+<p>Holt дополнительно моделирует тренд.</p>
+</li>
+<li><p><b>Когда нужен Holt-Winters?</b></p>
+<p>Когда в ряде есть сезонность, которую нужно явно учитывать.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ar_ma_arma" data-badge-type="required" data-interview="4" data-title-link="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima">
+  <div class="name" id="ar_ma_arma">
+    <a class="question-title-link" href="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое модели AR, MA и ARMA?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="AR">
+<p><b>AR($p$)</b>, autoregressive model, предсказывает текущее значение через прошлые значения ряда:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = c + \varphi_1 y_{t-1} + \ldots + \varphi_p y_{t-p} + \varepsilon_t.
+$$">$$
+y_t = c + \varphi_1 y_{t-1} + \ldots + \varphi_p y_{t-p} + \varepsilon_t.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Идея: если прошлые значения хорошо объясняют текущее, их можно использовать как признаки.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="MA">
+<p><b>MA($q$)</b>, moving average model, описывает текущее значение через прошлые ошибки:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = c + \varepsilon_t + \theta_1 \varepsilon_{t-1} + \ldots + \theta_q \varepsilon_{t-q}.
+$$">$$
+y_t = c + \varepsilon_t + \theta_1 \varepsilon_{t-1} + \ldots + \theta_q \varepsilon_{t-q}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Здесь моделируется не сам прошлый ряд, а инерция случайных шоков.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="ARMA">
+<p><b>ARMA($p,q$)</b> объединяет AR и MA:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y_t = c + \sum_{i=1}^{p}\varphi_i y_{t-i} + \varepsilon_t + \sum_{j=1}^{q}\theta_j \varepsilon_{t-j}.
+$$">$$
+y_t = c + \sum_{i=1}^{p}\varphi_i y_{t-i} + \varepsilon_t + \sum_{j=1}^{q}\theta_j \varepsilon_{t-j}.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>ARMA применяют к стационарным рядам. Если ряд нестационарен, обычно переходят к ARIMA.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Реализации белого шума, AR(1) и MA(1)" src="../../images/ml/timeseries/ar-ma-paths.png" width="1403" height="804" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Все четыре панели построены на одной и той же последовательности шоков $\varepsilon_t$ — различается только модель, вертикальная шкала везде одинаковая, от $-6$ до 6. Серым белый шум: соседние точки независимы. Синим AR(1) с $\varphi = 0.9$: тот же шум, но ряд надолго уходит от нуля и гуляет примерно от $-5.5$ до 4.5 — шок затухает медленно, память длинная. Фиолетовым AR(1) с $\varphi = -0.8$: отрицательный коэффициент даёт знакопеременную пилу, значения перепрыгивают через ноль почти на каждом шаге. Оранжевым MA(1) с $\theta = 0.9$: шок влияет ровно на один следующий шаг, поэтому ряд чуть глаже белого шума, но долгих отклонений, как у AR, в нём нет.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Диагностика">
+<p>ACF и PACF помогают подобрать порядок $p$ и $q$, но окончательный выбор обычно проверяют по качеству на backtesting, информационным критериям AIC/BIC и анализу остатков.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="AR, MA и ARMA шаг за шагом" src="../../images/ml/timeseries/arima_components.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Одна и та же история (синие точки), три модели прогнозируют по шагам (розовые точки). AR(2): синие стрелки показывают, что новое значение собирается из $y_{t-1}$ и $y_{t-2}$. MA(1): оранжевый отрезок — прошлая ошибка $\varepsilon_{t-1}$, именно она даёт вклад. ARMA складывает оба механизма; ARIMA — это ARMA после дифференцирования.
+  </figcaption>
+</figure>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima#:~:text=%D0%B8%20%D0%BC%D0%BE%D0%B4%D0%B5%D0%BB%D1%8C%D1%8E%20%D0%B0%D0%B2%D1%82%D0%BE%D1%80%D0%B5%D0%B3%D1%80%D0%B5%D1%81%D1%81%D0%B8%D0%B8.-,%D0%9C%D0%BE%D0%B4%D0%B5%D0%BB%D1%8C%20%D1%81%D0%BA%D0%BE%D0%BB%D1%8C%D0%B7%D1%8F%D1%89%D0%B5%D0%B3%D0%BE%20%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B3%D0%BE,-MA(" target="_blank" rel="noopener">Модель MA в Яндекс Хендбуке</a></li>
+<li><a href="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima#:~:text=%D0%9F%D0%BE%D1%81%D0%BC%D0%BE%D1%82%D1%80%D0%B8%D0%BC%20%D0%BD%D0%B0%20%D0%B2%D0%B8%D0%B7%D1%83%D0%B0%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8E%3A-,%D0%9C%D0%BE%D0%B4%D0%B5%D0%BB%D1%8C%20%D0%B0%D0%B2%D1%82%D0%BE%D1%80%D0%B5%D0%B3%D1%80%D0%B5%D1%81%D1%81%D0%B8%D0%B8,-AR(" target="_blank" rel="noopener">Модель AR в Яндекс Хендбуке</a></li>
+<li><a href="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima#:~:text=%D0%B2%D0%BD%D0%B5%20%D0%B5%D0%B4%D0%B8%D0%BD%D0%B8%D1%87%D0%BD%D0%BE%D0%B3%D0%BE%20%D0%BA%D1%80%D1%83%D0%B3%D0%B0.-,%D0%9C%D0%BE%D0%B4%D0%B5%D0%BB%D1%8C%20ARMA,-(" target="_blank" rel="noopener">Модель ARMA в Яндекс Хендбуке</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает AR($p$)?</b></p>
+<p>Авторегрессионная модель, где $y_t$ зависит от $p$ предыдущих значений ряда.</p>
+</li>
+<li><p><b>Что означает MA($q$)?</b></p>
+<p>Модель скользящего среднего, где $y_t$ зависит от текущей и $q$ прошлых ошибок.</p>
+</li>
+<li><p><b>Что объединяет ARMA($p,q$)?</b></p>
+<p>Авторегрессионную часть по прошлым значениям и MA-часть по прошлым ошибкам.</p>
+</li>
+<li><p><b>Почему ARMA обычно требует стационарности?</b></p>
+<p>Она предполагает устойчивую зависимость от лагов и ошибок; при тренде или меняющейся дисперсии эта зависимость нестабильна.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="arima_sarima_sarimax" data-badge-type="required" data-interview="4" data-title-link="https://habr.com/ru/articles/821231/">
+  <div class="name" id="arima_sarima_sarimax">
+    <a class="question-title-link" href="https://habr.com/ru/articles/821231/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Чем отличаются ARIMA, SARIMA и SARIMAX?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="ARIMA">
+<p><b>ARIMA($p,d,q$)</b> - это ARMA после дифференцирования ряда $d$ раз:</p>
+<ul>
+<li>$p$ - порядок AR-части;</li>
+<li>$d$ - порядок дифференцирования;</li>
+<li>$q$ - порядок MA-части.</li>
+</ul>
+<p>Если $d=0$, ARIMA превращается в ARMA.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="AR, MA и ARMA: из чего собирается прогноз" src="../../images/ml/timeseries/arima_components.gif" width="960" height="540" loading="lazy" decoding="async" style="max-width: 800px; width: 100%; height: auto" />
+  <figcaption>
+    Компоненты, из которых состоит ARIMA: AR берёт прошлые значения (синие стрелки от $y_{t-1}$, $y_{t-2}$), MA — прошлые ошибки (оранжевый отрезок $\varepsilon_{t-1}$), ARMA — и то и другое. Буква I добавляет дифференцирование перед всем этим.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="SARIMA">
+<p><b>SARIMA</b> добавляет сезонные порядки:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+SARIMA(p,d,q)(P,D,Q)_s,
+$$">$$
+SARIMA(p,d,q)(P,D,Q)_s,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $s$ - длина сезона, а $P,D,Q$ - сезонные аналоги AR, differencing и MA.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="ARIMA против SARIMA на сезонном ряде" src="../../images/ml/timeseries/sarima-forecast.png" width="1513" height="601" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Обе модели обучены на логарифме ряда авиапассажиров за 1949–1958 (синяя линия) и прогнозируют 24 месяца 1959–1960; чёрным показан факт. Слева ARIMA(1,1,1) без сезонных членов: прогноз выродился в почти горизонтальную линию около 5.86, доверительный интервал раздувается веером, а MAE после возврата в исходную шкалу — 102 тысячи человек. Справа SARIMA(1,1,1)(0,1,1) с периодом 12: прогноз воспроизводит и годовые пики, и рост уровня, интервал заметно уже, MAE — 36 тысяч. Это и есть цена игнорирования сезонности: ошибка почти втрое больше при том же объёме данных.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="definition" data-title="SARIMAX">
+<p><b>SARIMAX</b> добавляет внешние признаки $X_t$: праздники, промоакции, цену, температуру, календарные факторы, маркетинговые расходы.</p>
+<p>Идея: прогноз зависит не только от прошлого ряда, но и от известных или прогнозируемых внешних переменных.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Когда что выбирать">
+<table class="task-table">
+<thead><tr><th>Модель</th><th>Когда подходит</th></tr></thead>
+<tbody>
+<tr><td>ARIMA</td><td>есть тренд, но нет выраженной сезонности</td></tr>
+<tr><td>SARIMA</td><td>есть регулярная сезонность</td></tr>
+<tr><td>SARIMAX</td><td>есть сезонность и внешние признаки</td></tr>
+</tbody>
+</table><p>В реальных задачах эти модели часто используют как сильный интерпретируемый baseline.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://habr.com/ru/articles/821231/" target="_blank" rel="noopener">ARIMA на Habr</a></li>
+<li><a href="https://education.yandex.ru/handbook/ml/article/modeli-vida-arima#:~:text=%D0%9C%D0%BE%D0%B4%D0%B5%D0%BB%D0%B8-,SARIMA,-%D0%B8%20ARIMAX" target="_blank" rel="noopener">SARIMA в Яндекс Хендбуке</a></li>
+<li><a href="https://habr.com/ru/articles/822987/" target="_blank" rel="noopener">SARIMAX на Habr</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означают параметры ARIMA($p,d,q$)?</b></p>
+<p>$p$ - число AR-лагов, $d$ - порядок дифференцирования, $q$ - число MA-лагов.</p>
+</li>
+<li><p><b>Чем ARIMA отличается от ARMA?</b></p>
+<p>ARIMA включает дифференцирование для работы с нестационарными рядами, ARMA применяется к стационарному ряду.</p>
+</li>
+<li><p><b>Когда нужна SARIMA?</b></p>
+<p>Когда в данных есть регулярная сезонность с периодом $s$.</p>
+</li>
+<li><p><b>Что добавляет SARIMAX?</b></p>
+<p>Внешние признаки $X_t$, которые помогают объяснить ряд помимо его собственной истории.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="prophet_lstm" data-badge-type="additional" data-interview="3" data-title-link="https://www.youtube.com/watch?v=VXMTsnjgywc&amp;ab_channel=%D0%91%D1%83%D0%B4%D0%B5%D1%82%D0%B4%D0%B5%D0%BD%D1%8C%D0%B8%D0%B1%D1%83%D0%B4%D0%B5%D1%82%D0%BA%D0%BE%D0%B4.Pythoncode.">
+  <div class="name" id="prophet_lstm">
+    <a class="question-title-link" href="https://www.youtube.com/watch?v=VXMTsnjgywc&amp;ab_channel=%D0%91%D1%83%D0%B4%D0%B5%D1%82%D0%B4%D0%B5%D0%BD%D1%8C%D0%B8%D0%B1%D1%83%D0%B4%D0%B5%D1%82%D0%BA%D0%BE%D0%B4.Pythoncode." target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Когда использовать Prophet и LSTM для временных рядов?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Prophet">
+<p><b>Prophet</b> - библиотека для прогнозирования временных рядов с явной декомпозицией:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+y(t) = g(t) + s(t) + h(t) + \varepsilon_t,
+$$">$$
+y(t) = g(t) + s(t) + h(t) + \varepsilon_t,
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $g(t)$ - тренд, $s(t)$ - сезонность, $h(t)$ - эффекты праздников и событий.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Слагаемые аддитивной модели Prophet" src="../../images/ml/timeseries/prophet-components.png" width="1183" height="1129" loading="lazy" decoding="async" style="max-width: 900px; width: 100%; height: auto" />
+  <figcaption>
+    Prophet собирает ряд из слагаемых, каждое из которых можно посмотреть отдельно — в этом и состоит его интерпретируемость. Красным $g(t)$: кусочно-линейный тренд, наклон меняется в двух changepoints (серый пунктир на днях 250 и 520), а на последнем участке рост почти останавливается. Зелёным $s(t)$: сумма недельной сезонности с периодом 7 и годовой с периодом 365 — частая мелкая рябь наложена на медленную годовую волну. Фиолетовым $h(t)$: эффекты праздников, десять всплесков высотой 35 в заданные даты (с меньшим следом на следующий день). Внизу синим итог $y(t) = g(t) + s(t) + h(t) + \varepsilon_t$ — то, что видно в сырых данных; попробуй на глаз найти в нём годовую волну и праздничные пики, чтобы почувствовать, зачем нужна декомпозиция.
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Когда Prophet удобен">
+<p>Prophet часто полезен для бизнес-рядов с календарной сезонностью, праздниками, пропусками и выбросами. Его сильная сторона - быстрый интерпретируемый baseline, а не универсальное превосходство над статистическими или ML-моделями.</p>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="LSTM">
+<p><b>LSTM</b> - рекуррентная нейросетевая архитектура, которая обрабатывает последовательность по шагам и хранит скрытое состояние. Для временных рядов LSTM может принимать окно прошлых значений и признаков:</p>
+<p><span class="latex-copy-wrap" data-latex="$$
+(y_{t-w}, \ldots, y_{t-1}, X_{t-w}, \ldots, X_{t-1}) \to \hat{y}_t.
+$$">$$
+(y_{t-w}, \ldots, y_{t-1}, X_{t-w}, \ldots, X_{t-1}) \to \hat{y}_t.
+$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Когда LSTM не лучший выбор">
+<p>LSTM требует больше данных, аккуратной валидации, нормализации, выбора окна, регуляризации и контроля утечек. На коротких рядах ARIMA, экспоненциальное сглаживание, Prophet или градиентный бустинг по лаговым признакам часто оказываются сильнее и стабильнее.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Практическое правило">
+<p>Если ряд один, короткий и нужен интерпретируемый прогноз, начни с naive baseline, экспоненциального сглаживания, ARIMA/SARIMA/SARIMAX или Prophet. Если рядов много, есть богатые признаки и сложные нелинейные зависимости, тогда нейросетевые модели могут быть оправданы.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<ul>
+<li><a href="https://www.youtube.com/watch?v=VXMTsnjgywc&ab_channel=%D0%91%D1%83%D0%B4%D0%B5%D1%82%D0%B4%D0%B5%D0%BD%D1%8C%D0%B8%D0%B1%D1%83%D0%B4%D0%B5%D1%82%D0%BA%D0%BE%D0%B4.Pythoncode." target="_blank" rel="noopener">Видео про Prophet и LSTM</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как Prophet представляет временной ряд?</b></p>
+<p>Как сумму тренда, сезонностей, эффектов праздников и ошибки: $y(t)=g(t)+s(t)+h(t)+\varepsilon_t$.</p>
+</li>
+<li><p><b>Когда Prophet особенно удобен?</b></p>
+<p>Для бизнес-рядов с календарной сезонностью, праздниками, пропусками и необходимостью быстро получить интерпретируемый baseline.</p>
+</li>
+<li><p><b>Что делает LSTM в задаче временных рядов?</b></p>
+<p>Обрабатывает последовательность прошлых значений и признаков через скрытое состояние, чтобы предсказать будущие значения.</p>
+</li>
+<li><p><b>Почему LSTM не стоит брать первым baseline?</b></p>
+<p>Она сложнее, требует больше данных и настройки; простые модели часто дают более устойчивый результат на коротких рядах.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="ml:timeseries"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

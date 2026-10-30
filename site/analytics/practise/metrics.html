@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Практика: Продуктовые метрики и SQL</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Практика Метрики</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Metrics & SQL Practise</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">10 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Практика: Продуктовые метрики и SQL</h1>
+        <p class="section-shell__desc">Практикум по расчету ключевых продуктовых показателей на реальных данных: SQL-запросы для DAU/MAU, воронок, когортного Retention в Pandas, юнит-экономики и анализа просадок.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="practise_dau_mau_sql" data-interview="5">
+  <div class="name" id="practise_dau_mau_sql">
+    Практика: Расчет DAU и MAU в SQL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Написание высокопроизводительного SQL-запроса для расчета суточной аудитории (DAU), скользящей 30-дневной месячной аудитории (Rolling MAU) и коэффициента Stickiness Ratio ($\frac{\mathrm{DAU}}{\mathrm{MAU}} \times 100\%$) на базе ClickHouse / PostgreSQL без полных блокировок таблиц.</p>
+<p>Если совсем простыми словами: <b>это классическая задача с технического собеседования на позицию Product Data Analyst</b>. Никаких «календарных» месяцев: строгий расчет скользящего 30-дневного окна для каждой даты.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурный подход к оптимизации SQL:</p>
+<ol>
+<li><b>Шаг 1 (Предагрегация):</b> Сначала сворачиваем миллиарды сырых событий в уникальные пары <code>(event_date, user_id)</code>. Это сокращает объем обрабатываемых строк в 100 раз.</li>
+<li><b>Шаг 2 (Самообъединение или оконная агрегация):</b> Для каждой даты $D$ находим количество уникальных пользователей в интервале $[D - 29, D]$. В ClickHouse для этого идеально подходит массив дат или оконная функция.</li>
+<li><b>Шаг 3:</b> Расчет отношения $\mathrm{Stickiness} = \mathrm{round}(\mathrm{DAU} / \mathrm{MAU} \times 100, 2)$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Дана таблица событий <code>app_events (event_time DateTime, user_id UInt64, event_name String)</code>.
+Целевые активные события: <code>app_open</code>, <code>send_message</code>, <code>make_transfer</code>.
+Период: последние 60 дней.
+Требуется рассчитать ежедневный DAU, 30-дневный Rolling MAU и Stickiness.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Высокопроизводительный расчет в ClickHouse
+WITH daily_users AS (
+    -- Шаг 1: Уникальные пользователи по дням
+    SELECT
+        toDate(event_time) AS report_date,
+        user_id
+    FROM app_events
+    WHERE event_name IN ('app_open', 'send_message', 'make_transfer')
+      AND event_time >= today() - 90
+    GROUP BY report_date, user_id
+),
+daily_dau AS (
+    SELECT
+        report_date,
+        count(user_id) AS dau
+    FROM daily_users
+    GROUP BY report_date
+)
+SELECT
+    d.report_date,
+    d.dau,
+    -- Шаг 2: Скользящий 30-дневный MAU
+    (
+        SELECT uniqExact(sub.user_id)
+        FROM daily_users AS sub
+        WHERE sub.report_date BETWEEN d.report_date - 29 AND d.report_date
+    ) AS rolling_mau,
+    -- Шаг 3: Stickiness
+    round(d.dau / rolling_mau * 100, 2) AS stickiness_pct
+FROM daily_dau AS d
+WHERE d.report_date >= today() - 60
+ORDER BY d.report_date DESC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование COUNT(DISTINCT) по сырым логам внутри скользящего окна.</b> Приводит к квадратичной сложности и OOM (Out Of Memory) на больших объемах данных.</li>
+        <li><b>Забывание о фильтрации по типу событий.</b> Включение технических фоновых событий (background_sync) искусственно раздувает аудиторию.</li>
+        <li><b>Использование календарного месяца вместо скользящего окна 30 дней.</b> Календарный месяц скачет в зависимости от длины месяца (28-31 день).</li>
+        <li><b>Ошибочное деление на ноль в первый день запуска продукта.</b> Необходима защита через <code>nullif(rolling_mau, 0)</code>.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как оптимизировать этот запрос в ClickHouse, если таблица содержит 10 миллиардов строк?»</i> Ответ: <i>«Создать Materialized View с движком <code>AggregatingMergeTree</code> и типом колонки <code>AggregateFunction(uniq, UInt64)</code> по группировке <code>(event_date)</code>. При выборке скользящего окна мы мгновенно объединяем 30 HLL-состояний через <code>uniqMerge()</code> за доли секунды без сканирования сырых строк».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое скользящий MAU (Rolling MAU)?</b></p><p>Количество уникальных активных пользователей за последние 30 дней относительно каждой точки времени.</p></li>
+        <li><p><b>Что измеряет показатель Stickiness Ratio?</b></p><p>Регулярность использования продукта пользователями: отношение суточной активности к месячной.</p></li>
+        <li><p><b>Какая агрегатная функция ClickHouse обеспечивает максимальную точность дедупликации?</b></p><p>uniqExact() (или приближенная сверхбыстрая uniq() на базе HyperLogLog).</p></li>
+        <li><p><b>Почему сначала нужно сделать GROUP BY (date, user_id)?</b></p><p>Для схлопывания дубликатов действий одного человека внутри суток до выполнения тяжелых скользящих агрегаций.</p></li>
+        <li><p><b>Какой бенчмарк Stickiness характерен для успешных социальных сетей?</b></p><p>Выше 50%.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_funnel_sql" data-interview="5">
+  <div class="name" id="practise_funnel_sql">
+    Практика: Построение продуктовой воронки в SQL
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Написание SQL-запроса для построения 4-шаговой продуктовой воронки чекаута e-commerce: <code>Каталог</code> $\to$ <code>Корзина</code> $\to$ <code>Чекаут</code> $\to$ <code>Оплата</code> с ограничением по времени прохождения (конверсионное окно 2 часа). Расчет абсолютного числа пользователей, конверсии к первому шагу и конверсии между соседними шагами.</p>
+<p>Если совсем простыми словами: <b>это скрипт, находящий место максимальной потери клиентов в процессе покупки</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Два подхода к расчету воронок в SQL:</p>
+<ol>
+<li><b>Стандартный SQL (Self-Joins / Conditional Aggregation):</b> Соединение шагов по пользователю с условием <code>t2.event_time > t1.event_time AND t2.event_time <= t1.event_time + INTERVAL 2 HOUR</code>.</li>
+<li><b>ClickHouse-way (windowFunnel):</b> Нативная векторизованная функция, работающая в десятки раз быстрее:
+<p><code>windowFunnel(7200)(event_time, cond1, cond2, cond3, cond4)</code></p>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Таблица <code>events (user_id, event_name, event_time)</code>.
+Шаги воронки:
+1. <code>view_catalog</code>
+2. <code>add_to_cart</code>
+3. <code>start_checkout</code>
+4. <code>purchase_success</code>
+Окно конверсии: 7200 секунд (2 часа).
+Период: за последние 7 дней.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Решение в ClickHouse через специализированный windowFunnel
+WITH funnel_levels AS (
+    SELECT
+        user_id,
+        windowFunnel(7200)( -- 2 часа в секундах
+            event_time,
+            event_name = 'view_catalog',
+            event_name = 'add_to_cart',
+            event_name = 'start_checkout',
+            event_name = 'purchase_success'
+        ) AS max_step
+    FROM events
+    WHERE event_time >= now() - INTERVAL 7 DAY
+    GROUP BY user_id
+)
+SELECT
+    step_name,
+    users_reached,
+    -- Конверсия к первому шагу (Overall Conversion)
+    round(users_reached / (SELECT count() FROM funnel_levels WHERE max_step >= 1) * 100, 2) AS cr_to_first_step,
+    -- Конверсия к предыдущему шагу (Step-by-Step Conversion)
+    round(users_reached / nullif(lagInFrame(users_reached) OVER (), 0) * 100, 2) AS step_cr
+FROM (
+    SELECT '1_view_catalog'    AS step_name, countIf(max_step >= 1) AS users_reached FROM funnel_levels
+    UNION ALL
+    SELECT '2_add_to_cart'     AS step_name, countIf(max_step >= 2) AS users_reached FROM funnel_levels
+    UNION ALL
+    SELECT '3_start_checkout'  AS step_name, countIf(max_step >= 3) AS users_reached FROM funnel_levels
+    UNION ALL
+    SELECT '4_purchase_success' AS step_name, countIf(max_step >= 4) AS users_reached FROM funnel_levels
+)
+ORDER BY step_name ASC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование строгого знака равенства (max_step = 2) вместо (max_step >= 2).</b> Пользователь, дошедший до 4-го шага, обязан учитываться на всех предшествующих шагах (1, 2 и 3).</li>
+        <li><b>Отсутствие ограничения временного окна.</b> Без окна покупка через 3 месяца после просмотра каталога ошибочно свяжется в одну воронку.</li>
+        <li><b>Игнорирование хронологии шагов.</b> Покупка не может засчитываться, если она произошла раньше добавления в корзину.</li>
+        <li><b>Забывание о NULL при делении на предыдущий шаг.</b> В первом шаге предыдущего значения нет, требуется обработка через <code>nullif()</code>.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как посчитать воронку в стандартном PostgreSQL без функции windowFunnel?»</i> Ответ: <i>«Через условную агрегацию: находим время первого шага $t_1$, затем время второго шага $t_2 > t_1$, затем $t_3 > t_2$ внутри CTE по каждому пользователю. Затем суммируем флаги <code>COUNT(user_id) FILTER (WHERE t1 IS NOT NULL)</code>, <code>FILTER (WHERE t2 IS NOT NULL)</code> и т.д.».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что возвращает функция windowFunnel в ClickHouse?</b></p><p>Максимальный достигнутый индекс шага воронки (от 0 до числа условий), уложившийся в заданный временной тайм-аут.</p></li>
+        <li><p><b>Почему при подсчете воронки используется условие max_step >= N, а не max_step = N?</b></p><p>Потому что воронка кумулятивна: пользователь, завершивший 3-й шаг, физически прошел 1-й и 2-й шаги.</p></li>
+        <li><p><b>Что такое Step-by-Step Conversion Rate?</b></p><p>Отношение числа пользователей на текущем шаге к числу пользователей строго на предыдущем шаге.</p></li>
+        <li><p><b>Какое окно конверсии принято считать стандартным для e-commerce сессий?</b></p><p>От 1 до 24 часов в зависимости от специфики покупки.</p></li>
+        <li><p><b>Как найти главное «узкое место» воронки?</b></p><p>По минимальному значению Step-by-Step конверсии вдоль воронки.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_cohort_retention_pandas" data-interview="5">
+  <div class="name" id="practise_cohort_retention_pandas">
+    Практика: Когортный Retention в Pandas
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Построение классической когортной матрицы удержания (Retention Table) с нуля на языке Python с использованием библиотеки Pandas. Группировка пользователей по месяцу первой активности, расчет жизненного цикла (Lifetime Period) и вывод процентной тепловой матрицы.</p>
+<p>Если совсем простыми словами: <b>это скрипт, строящий красивую треугольную таблицу удержания клиентов для продуктового отчета</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Пошаговый алгоритм на Pandas:</p>
+<ol>
+<li>Преобразуем даты в месячные периоды: <code>df['order_period'] = df['order_date'].dt.to_period('M')</code>.</li>
+<li>Определяем дату когорты каждого пользователя: <code>df['cohort_group'] = df.groupby('user_id')['order_period'].transform('min')</code>.</li>
+<li>Вычисляем возраст когорты в месяцах: <code>df['cohort_lifetime'] = (df['order_period'] - df['cohort_group']).apply(lambda x: x.n)</code>.</li>
+<li>Строим сводную таблицу (pivot table): строки — когорты, столбцы — возраст когорты, значения — <code>nunique('user_id')</code>.</li>
+<li>Делим каждую строку на размер нулевого месяца: <code>retention_matrix.divide(cohort_sizes, axis=0) * 100</code>.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Дан датасет транзакций пользователей e-commerce с января по июнь 2026 года.
+Требуется рассчитать процентный Retention первого, второго, третьего и последующих месяцев для каждой когорты и вывести матрицу.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# 1. Генерация реалистичного датасета активности
+np.random.seed(42)
+n_orders = 100000
+
+user_ids = np.random.randint(1000, 5000, size=n_orders)
+dates = pd.date_range("2026-01-01", "2026-06-30", freq="h")
+order_dates = np.random.choice(dates, size=n_orders)
+
+df = pd.DataFrame({"user_id": user_ids, "order_date": order_dates})
+
+# 2. Определение когорты и периодов
+df["period"] = df["order_date"].dt.to_period("M")
+df["cohort"] = df.groupby("user_id")["period"].transform("min")
+df["lifetime_month"] = (df["period"] - df["cohort"]).apply(lambda x: x.n)
+
+# 3. Построение когортной матрицы
+cohort_pivot = df.pivot_table(
+    index="cohort",
+    columns="lifetime_month",
+    values="user_id",
+    aggfunc="nunique"
+)
+
+# 4. Нормализация в проценты
+cohort_size = cohort_pivot[0]
+retention_matrix = cohort_pivot.divide(cohort_size, axis=0) * 100
+
+print("КОГОРТНАЯ МАТРИЦА УДЕРЖАНИЯ RETENTION (%):")
+print(retention_matrix.round(1))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование разности обычных дат вместо периодов.</b> Вычитание дат 31 января и 1 февраля даст разницу в 1 день, хотя это разные календарные месяцы. Использование <code>Period('M')</code> решает проблему идеально.</li>
+        <li><b>Забывание об удалении дубликатов визитов.</b> Один пользователь совершает 10 заказов в месяц. Функция агрегации обязана быть <code>nunique</code>, а не <code>count</code>.</li>
+        <li><b>Включение неполных текущих месяцев без предупреждения.</b> Текущий незавершенный месяц исказит показатели удержания.</li>
+        <li><b>Деление не на ту ось.</b> Деление <code>axis=1</code> вместо <code>axis=0</code> приведет к делению по колонкам вместо размера когорты.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как на собеседовании быстро написать когортный анализ в 3 строки Pandas?»</i> Ответ: <i>«1) Считаем когорту: <code>df['c'] = df.groupby('u')['d'].transform('min').dt.to_period('M')</code>; 2) Считаем лаг: <code>df['l'] = (df['d'].dt.to_period('M') - df['c']).apply(lambda x: x.n)</code>; 3) Сводная таблица с делением: <code>p = df.pivot_table(index='c', columns='l', values='u', aggfunc='nunique'); p.div(p[0], axis=0) * 100</code>».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что является строками, а что столбцами в когортной матрице удержания?</b></p><p>Строки — когорты по времени первого действия; столбцы — возраст когорты (Lifetime) в днях, неделях или месяцах.</p></li>
+        <li><p><b>Почему нулевой столбец (Lifetime = 0) всегда равен 100%?</b></p><p>Потому что это базовый размер когорты: все пользователи когорты были активны в период своего прихода.</p></li>
+        <li><p><b>Как интерпретировать падение значений по диагонали матрицы?</b></p><p>Падение по диагонали отражает влияние конкретного календарного месяца (например, сезонный спад или авария серверов).</p></li>
+        <li><p><b>Какая агрегатная функция применяется к ID пользователей при построении когортной таблицы?</b></p><p>nunique() для исключения повторных действий одного и того же клиента.</p></li>
+        <li><p><b>Как визуализировать полученную матрицу в отчете?</b></p><p>С помощью тепловой карты <code>sns.heatmap(retention_matrix, annot=True, cmap='Blues')</code>.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_arpu_ltv_pandas" data-interview="5">
+  <div class="name" id="practise_arpu_ltv_pandas">
+    Практика: Расчет ARPU и когортного LTV в Pandas
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Расчет монетизационных метрик продукта на языке Python: вычисление ARPU, ARPPU и Paying Share по месяцам, а также построение когортного накопительного LTV (Cumulative LTV) по поколениям пользователей.</p>
+<p>Если совсем простыми словами: <b>это скрипт, показывающий, сколько чистых денег накапливает каждый привлеченный клиент к 1, 3, 6 и 12 месяцу жизни в сервисе</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика расчета накопительного LTV:</p>
+<ol>
+<li>Для каждой когорты определяем исходный размер аудитории в месяц 0: $N_{\text{cohort}}$.</li>
+<li>Для каждого месяца жизни $t \ge 0$ суммируем выручку когорты: $\mathrm{Rev}_{\text{cohort}}(t)$.</li>
+<li>Накопительный LTV к возрасту $T$:
+<p>$$\mathrm{LTV}(T) = \sum_{t=0}^T \frac{\mathrm{Rev}_{\text{cohort}}(t)}{N_{\text{cohort}}}$$</p>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Дан датасет транзакций пользователей с суммой <code>revenue_rub</code> и датой оплаты.
+Требуется рассчитать:
+1. ARPU и ARPPU за последний месяц.
+2. Матрицу кумулятивного LTV по месяцам жизненного цикла когорт.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# 1. Генерация транзакционных данных
+np.random.seed(42)
+n_tx = 50000
+
+user_ids = np.random.randint(100, 2000, size=n_tx)
+dates = pd.date_range("2026-01-01", "2026-06-30", freq="h")
+tx_dates = np.random.choice(dates, size=n_tx)
+revenue = np.random.exponential(scale=1200, size=n_tx) + 100
+
+df = pd.DataFrame({"user_id": user_ids, "tx_date": tx_dates, "revenue": revenue})
+
+# 2. Расчет когорт
+df["period"] = df["tx_date"].dt.to_period("M")
+df["cohort"] = df.groupby("user_id")["period"].transform("min")
+df["lifetime"] = (df["period"] - df["cohort"]).apply(lambda x: x.n)
+
+# 3. Исходный размер когорты (покупатели в M0)
+cohort_sizes = df[df["lifetime"] == 0].groupby("cohort")["user_id"].nunique()
+
+# 4. Сводная выручка по когорте и возрасту
+revenue_pivot = df.pivot_table(
+    index="cohort",
+    columns="lifetime",
+    values="revenue",
+    aggfunc="sum"
+).fillna(0)
+
+# 5. Средняя выручка на одного пользователя когорты в месяц t
+arpu_cohort = revenue_pivot.divide(cohort_sizes, axis=0)
+
+# 6. Кумулятивный накопительный LTV
+cumulative_ltv = arpu_cohort.cumsum(axis=1)
+
+print("КУМУЛЯТИВНЫЙ КОГОРТНЫЙ LTV (РУБ.):")
+print(cumulative_ltv.round(1))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Деление выручки месяца t на активных пользователей месяца t вместо исходного размера когорты.</b> Это дает ARPU активных пользователей, а не накопительный LTV когорты! Знаменатель LTV обязан быть зафиксирован на размере когорты в день $0$.</li>
+        <li><b>Забывание о нулях для месяцев без покупок.</b> Пропуски в сводной таблице обязаны заполняться нулями через <code>fillna(0)</code> перед кумулятивным суммированием <code>cumsum()</code>.</li>
+        <li><b>Игнорирование себестоимости.</b> LTV по выручке без умножения на Gross Margin завышает реальную ценность клиента.</li>
+        <li><b>Сравнение когорт разного возраста.</b> Когорта января прожила 6 месяцев, а когорта мая — только 2 месяца. Сравнивать их можно только на одинаковом срезе (напр., LTV M2).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем разница между кривой удержания (Retention) и кривой когортного LTV во времени?»</i> Ответ: <i>«Кривая Retention — монотонно убывающая (доля активных пользователей со временем падает или выходит на плато). Кривая кумулятивного LTV — строго монотонно возрастающая (выручка только накапливается с каждой новой покупкой). Наклон кривой LTV отражает текущую силу монетизации старых клиентов».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что показывает кумулятивный когортный LTV?</b></p><p>Накопленную среднюю сумму выручки (или валовой прибыли), принесенную одним пользователем когорты к возрасту N месяцев.</p></li>
+        <li><p><b>Какая функция Pandas используется для расчета накопительного итога вдоль строки?</b></p><p>Метод .cumsum(axis=1).</p></li>
+        <li><p><b>Почему знаменатель при расчете LTV когорты фиксируется на размере когорты в период 0?</b></p><p>Чтобы учесть вклад всей первоначальной когорты, включая тех пользователей, кто уже оттек.</p></li>
+        <li><p><b>Как с помощью матрицы кумулятивного LTV определить точку окупаемости CAC?</b></p><p>Найти месяц Lifetime, в котором значение ячейки LTV впервые превышает стоимость привлечения CAC.</p></li>
+        <li><p><b>Что означает, если кривая кумулятивного LTV становится совершенно плоской?</b></p><p>Это означает, что пользователи когорты полностью прекратили совершать повторные покупки (100% Churn).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_funnel_calc" data-interview="4">
+  <div class="name" id="practise_funnel_calc">
+    Практика: Анализ узких мест в воронке
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Аналитический разбор воронки мобильного приложения с расчетом потенциального прироста выручки при устранении «узкого горлышка» (Bottleneck). Оценка эластичности макроконверсии к изменениям микроконверсий отдельных шагов.</p>
+<p>Если совсем простыми словами: <b>это математический расчет ответа на вопрос: «Сколько миллионов рублей заработает компания, если починить один кривой шаг в приложении?»</b></p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика расчета потенциала воронки:</p>
+<ol>
+<li>Сквозная конверсия воронки из $K$ шагов равна произведению поэтапных конверсий:
+<p>$$\mathrm{CR}_{\text{total}} = \prod_{i=1}^{K-1} \mathrm{CR}_{i \to i+1}$$</p>
+</li>
+<li>Если конверсия шага $j$ вырастет в $1 + \delta$ раз, вся сквозная конверсия вырастет ровно в $1 + \delta$ раз:
+<p>$$\Delta \mathrm{Revenue} = \mathrm{Revenue}_{\text{base}} \times \delta_j$$</p>
+</li>
+<li><b>Правило максимального рычага:</b> Повысить конверсию слабого шага с 10% до 15% ($+50\%$ относительного роста) в разы проще и прибыльнее, чем выжимать крохи из шага с конверсией 95%.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Входной трафик: $200\,000$ пользователей в месяц.
+Шаг 1 (Установка $\to$ Регистрация): $60\%$ ($120\,000$).
+Шаг 2 (Регистрация $\to$ Просмотр каталога): $80\%$ ($96\,000$).
+Шаг 3 (Каталог $\to$ Корзина): $15\%$ ($14\,400$).
+Шаг 4 (Корзина $\to$ Оплата): $25\%$ ($3\,600$).
+Средний чек: $3\,000$ руб. Текущая месячная выручка: $10.8$ млн руб.
+Аналитик предлагает оптимизировать Шаг 3 (поиск и фильтры) и поднять его конверсию с $15\%$ до $20\%$.
+Требуется рассчитать новый объем заказов и финансовый инкремент выручки.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Моделирование влияния оптимизации шага воронки на выручку
+traffic = 200000
+cr_1_2 = 0.60
+cr_2_3 = 0.80
+cr_3_4_base = 0.15 # шаг Каталог -> Корзина (база)
+cr_3_4_opt  = 0.20 # оптимизированный вариант
+cr_4_5 = 0.25
+aov = 3000.0 # руб.
+
+# Базовый сценарий
+orders_base = traffic * cr_1_2 * cr_2_3 * cr_3_4_base * cr_4_5
+revenue_base = orders_base * aov
+
+# Оптимизированный сценарий
+orders_opt = traffic * cr_1_2 * cr_2_3 * cr_3_4_opt * cr_4_5
+revenue_opt = orders_opt * aov
+
+increment_orders = orders_opt - orders_base
+increment_revenue = revenue_opt - revenue_base
+relative_growth = increment_revenue / revenue_base
+
+print(f"Базовые заказы:   {orders_base:8,.0f} | Выручка: {revenue_base:12,.0f} руб.")
+print(f"Новые заказы:     {orders_opt:8,.0f} | Выручка: {revenue_opt:12,.0f} руб.")
+print(f"Прирост заказов:  {increment_orders:+8,.0f} заказов/мес.")
+print(f"Инкремент выручки:{increment_revenue:+12,.0f} руб./мес. ({relative_growth:+.1%})")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Оптимизация шагов с высокой базовой конверсией.</b> Пытаться поднять конверсию с 95% до 98% требует колоссальных сил при минимальном финансовом выхлопе.</li>
+        <li><b>Игнорирование снижения среднего чека.</b> Упрощение добавления в корзину может привлечь мелкие покупки, снизив средний чек AOV.</li>
+        <li><b>Игнорирование качества аудитории.</b> Привлечение неплатежеспособного трафика раздует верх воронки, но срежет конверсию на этапе оплаты.</li>
+        <li><b>Забывание о capacity инфраструктуры.</b> Резкий рост заказов может парализовать складскую логистику.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Если мы улучшим конверсию шага воронки с 20% до 25%, как изменится итоговая выручка сервиса при неизменном среднем чеке?»</i> Ответ: <i>«Так как итоговая конверсия мультипликативна, она вырастет ровно пропорционально относительному росту шага: $(25 - 20) / 20 = +25\%$. Следовательно, число заказов и общая выручка сервиса увеличатся ровно на $+25\%$».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Каково математическое свойство мультипликативности продуктовой воронки?</b></p><p>Сквозная конверсия равна произведению конверсий всех промежуточных шагов воронки.</p></li>
+        <li><p><b>Что такое эффект узкого горлышка (Bottleneck)?</b></p><p>Этап воронки с наименьшей относительной конверсией или наибольшим абсолютным оттоком пользователей.</p></li>
+        <li><p><b>Как относительный прирост конверсии одного шага влияет на сквозную конверсию?</b></p><p>Сквозная конверсия увеличивается строго на тот же относительный процент.</p></li>
+        <li><p><b>Почему оптимизация слабого звена воронки эффективнее оптимизации сильного?</b></p><p>Потому что слабый шаг имеет наибольший потенциал роста при равных трудозатратах.</p></li>
+        <li><p><b>Какие факторы могут компенсировать рост конверсии воронки в реальном бизнесе?</b></p><p>Падение среднего чека (AOV) или рост возвратов товара (Refund Rate).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_retention_cohort_calc" data-interview="4">
+  <div class="name" id="practise_retention_cohort_calc">
+    Практика: Интерпретация когортной матрицы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Проведение аналитического аудита когортной матрицы продукта. Анализ динамики удержания по трем направлениям (горизонталь, вертикаль, диагональ), выявление эффекта релиза и локализация сезонных шоков.</p>
+<p>Если совсем простыми словами: <b>это навык чтения когортной таблицы как открытой книги</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Правила аналитического чтения когортной матрицы:</p>
+<ol>
+<li><b>Горизонтальный анализ (Lifetime Trend):</b> Скорость затухания кривой удержания конкретной когорты. Ищем наличие горизонтального плато.</li>
+<li><b>Вертикальный анализ (Release Impact):</b> Сравнение ячеек одинакового возраста ($M_1$) между разными когортами. Рост $M_1$ по вертикали вниз означает, что новые релизы улучшают продукт для новичков.</li>
+<li><b>Диагональный анализ (Calendar Shock):</b> Ячейки с одинаковой календарной датой ($i + t = \text{const}$). Если просадка видна на всей диагонали — в этот календарный месяц произошел внешний сбой (баг, санкции, падение серверов).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Дана матрица Retention (%) по месяцам:
+<table class="task-table">
+<thead><tr><th>Когорта</th><th>M0</th><th>M1</th><th>M2</th><th>M3</th></tr></thead>
+<tbody>
+<tr><td><b>Январь</b></td><td>100%</td><td>25%</td><td>18%</td><td>15%</td></tr>
+<tr><td><b>Февраль</b></td><td>100%</td><td>26%</td><td>19%</td><td>—</td></tr>
+<tr><td><b>Март (Релиз V2)</b></td><td>100%</td><td><b>38%</b></td><td><b>29%</b></td><td>—</td></tr>
+<tr><td><b>Апрель</b></td><td>100%</td><td>39%</td><td>—</td><td>—</td></tr>
+</tbody>
+</table>
+Требуется сделать строгие аналитические выводы.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Интерпретация когортной динамики
+matrix_data = {
+    "Jan": [100.0, 25.0, 18.0, 15.0],
+    "Feb": [100.0, 26.0, 19.0, None],
+    "Mar": [100.0, 38.0, 29.0, None],
+    "Apr": [100.0, 39.0, None, None]
+}
+
+m1_jan = matrix_data["Jan"][1]
+m1_mar = matrix_data["Mar"][1]
+relative_m1_lift = (m1_mar - m1_jan) / m1_jan
+
+print("=== АНАЛИТИЧЕСКИЙ АУДИТ КОГОРТНОЙ МАТРИЦЫ ===")
+print(f"1. Вертикальный срез M1: рост с {m1_jan:.1f}% до {m1_mar:.1f}% (относительно {relative_m1_lift:+.1%})")
+print("   ВЫВОД: Релиз V2 в марте совершил качественный прорыв в активации новичков.")
+print("2. Горизонтальный срез Марта: M2 удерживается на уровне 29.0% (против 18-19% у старых).")
+print("   ВЫВОД: Рост удержания устойчив во времени и формирует новое высокое плато ценности.")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Игнорирование незаполненных диагоналей.</b> Попытка усреднять столбцы матрицы с включением еще не наступивших месяцев.</li>
+        <li><b>Путаница между абсолютными процентными пунктами и относительным ростом.</b> Рост с 25% до 38% — это +13 п.п., но +52% относительного роста!</li>
+        <li><b>Ошибочное приписывание диагонального шока качеству продукта.</b> Если в апреле просели все когорты разом, виноват не мартовский релиз, а внешний апрельский инцидент.</li>
+        <li><b>Игнорирование изменений маркетингового микса.</b> Рост Retention может быть вызван не релизом, а переходом маркетинга на более дорогую качественную аудиторию.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Если в когортной таблице все ячейки на одной диагонали внезапно покраснели (упали на 10%), что произошло?»</i> Ответ: <i>«Это классический календарный шок. В конкретный календарный месяц произошло общее внешнее или инфраструктурное событие, затронувшее всех пользователей независимо от их возраста в продукте (например, массовый сбой платежей, блокировка приложения в App Store или сезонный майский спад)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что означает анализ когортной матрицы по вертикали?</b></p><p>Сравнение метрик пользователей разных поколений в одном и том же возрасте их жизненного цикла.</p></li>
+        <li><p><b>Что отражает диагональ в когортной таблице?</b></p><p>Показатели активности разных когорт в один и тот же календарный временной промежуток.</p></li>
+        <li><p><b>Как обнаружить успешный продуктовый релиз на когортной матрице?</b></p><p>По резкому ступенчатому росту показателей по вертикали вниз, начиная с когорты месяца релиза.</p></li>
+        <li><p><b>В чем различие между процентными пунктами (п.п.) и процентами прироста?</b></p><p>п.п. — абсолютная разность долей ($P_2 - P_1$); проценты — относительное изменение ($(P_2 - P_1) / P_1 	imes 100\%$).</p></li>
+        <li><p><b>Почему когортная матрица всегда имеет треугольную форму?</b></p><p>Потому что более молодые когорты физически прожили меньше временных интервалов, чем старые.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_unit_economics_calc" data-interview="5">
+  <div class="name" id="practise_unit_economics_calc">
+    Практика: Расчет юнит-экономики и окупаемости
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Полный расчет финансовой юнит-экономики подписочного B2C продукта: расчет Fully Loaded CAC, валовой маржи (Gross Margin), Lifetime в месяцах, LTV, соотношения LTV/CAC и точного срока окупаемости в месяцах (Payback Period).</p>
+<p>Если совсем простыми словами: <b>это скрипт инвестиционного аудита стартапа</b>. Мы проверяем, сойдется ли бизнес, если влить в рекламу 100 млн рублей.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Формулы юнит-экономики:</p>
+<ol>
+<li>$\mathrm{CAC} = \frac{\text{Бюджет маркетинга} + \text{ФОТ маркетинга}}{\text{Новые платящие клиенты}}$.</li>
+<li>$\mathrm{Monthly\ Gross\ Profit} = \mathrm{ARPU} \times \mathrm{Margin\ \%}$.</li>
+<li>$\mathrm{Customer\ Lifetime} = \frac{1}{\mathrm{Monthly\ Churn\ Rate}}$.</li>
+<li>$\mathrm{LTV} = \mathrm{Monthly\ Gross\ Profit} \times \mathrm{Lifetime}$.</li>
+<li>$\mathrm{Payback\ Period} = \frac{\mathrm{CAC}}{\mathrm{Monthly\ Gross\ Profit}}$.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Маркетинговый бюджет: $12\,000\,000$ руб./мес.
+ФОТ команды привлечения: $3\,000\,000$ руб./мес.
+Привлечено новых платящих клиентов: $5\,000$ человек.
+Стоимость месячной подписки: $1\,500$ руб.
+Переменные расходы (эквайринг, сервера, лицензии): $450$ руб. на пользователя в месяц ($\text{Margin} = 70\%$).
+Месячный отток клиентов (Monthly Churn): $5.0\%$.
+Требуется рассчитать все ключевые показатели и вынести вердикт об инвестиционной привлекательности.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Полный финансовый расчет юнит-экономики
+marketing_budget = 12000000.0
+marketing_salaries = 3000000.0
+new_paying_users = 5000
+
+subscription_price = 1500.0
+variable_costs = 450.0
+monthly_churn = 0.05
+
+# 1. Fully Loaded CAC
+total_acquisition_cost = marketing_budget + marketing_salaries
+cac = total_acquisition_cost / new_paying_users
+
+# 2. Маржинальность и валовая прибыль
+gross_profit_per_user_monthly = subscription_price - variable_costs
+margin_pct = gross_profit_per_user_monthly / subscription_price
+
+# 3. Lifetime и LTV
+lifetime_months = 1.0 / monthly_churn
+ltv = gross_profit_per_user_monthly * lifetime_months
+
+# 4. Метрики окупаемости
+ltv_to_cac = ltv / cac
+payback_months = cac / gross_profit_per_user_monthly
+
+print("=== РЕЗУЛЬТАТЫ АУДИТА ЮНИТ-ЭКОНОМИКИ ===")
+print(f"CAC (Fully Loaded):     {cac:8,.0f} руб.")
+print(f"Валовая маржа (Margin): {margin_pct:8.1%}")
+print(f"Срок жизни клиента:     {lifetime_months:8.1f} месяцев")
+print(f"LTV клиента:            {ltv:8,.0f} руб.")
+print(f"Отношение LTV / CAC:    {ltv_to_cac:8.2f}x (Бенчмарк: >= 3.0x)")
+print(f"Срок окупаемости:       {payback_months:8.1f} месяцев (Бенчмарк: <= 12 мес.)")
+print("---------------------------------------")
+if ltv_to_cac >= 3.0 and payback_months <= 12:
+    print("ВЕРДИКТ: Бизнес-модель здорова и готова к масштабированию!")
+else:
+    print("ВЕРДИКТ: Экономика сходится со скрипом, высокий риск.")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Расчет CAC только по рекламному бюджету без ФОТ.</b> Занижает реальный CAC на 20-40%.</li>
+        <li><b>Игнорирование себестоимости подписки.</b> Расчет окупаемости по выручке вместо валовой прибыли приводит к кассовым разрывам.</li>
+        <li><b>Предположение о нулевом оттоке.</b> Ни один продукт не имеет нулевой Churn Rate в долгосрочной перспективе.</li>
+        <li><b>Забывание о налогах и комиссиях магазинов (Apple / Google 15-30%).</b> Комиссии сторов обязаны вычитаться из чистой выручки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Что лучше для инвестора: LTV/CAC = 2.5x при окупаемости 4 месяца или LTV/CAC = 5.0x при окупаемости 24 месяца?»</i> Ответ: <i>«В большинстве случаев предпочтительнее первый вариант (окупаемость за 4 месяца). Быстрая оборачиваемость капитала позволяет реинвестировать прибыль 3 раза за год, обеспечивая экспоненциальный рост. Окупаемость в 24 месяца создает гигантский кассовый разрыв и риск банкротства до возврата инвестиций».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как рассчитывается Fully Loaded CAC?</b></p><p>Делением всех расходов на привлечение (рекламный бюджет, зарплаты маркетологов, комиссии агентств, софт) на число новых привлеченных клиентов.</p></li>
+        <li><p><b>Что такое Gross Margin в юнит-экономике?</b></p><p>Доля выручки, остающаяся после вычета прямых переменных расходов на оказание услуги (эквайринг, сервера, саппорт).</p></li>
+        <li><p><b>Какое значение LTV/CAC считается порогом безубыточности с учетом накладных расходов?</b></p><p>Не менее 3.0x.</p></li>
+        <li><p><b>Как рассчитать срок окупаемости (Payback Period)?</b></p><p>CAC разделить на ежемесячную валовую прибыль с одного клиента.</p></li>
+        <li><p><b>Почему быстрый Payback важнее высокого теоретического LTV?</b></p><p>Потому что он снижает требования к объему оборотного капитала и риски изменения рыночной конъюнктуры.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_churn_calc" data-interview="4">
+  <div class="name" id="practise_churn_calc">
+    Практика: Моделирование оттока и LTV
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Математическое моделирование динамики клиентской базы подписочного сервиса во времени. Расчет точки равновесия (Equilibrium / Plateau), при которой приток новых пользователей полностью уравновешивается оттоком старых, и расчет упущенной выручки от Churn.</p>
+<p>Если совсем простыми словами: <b>это скрипт, показывающий, когда ваш продукт упрется в «стеклянный потолок» и перестанет расти</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика динамического равновесия:</p>
+<p>Пусть ежемесячно в продукт приходит $N_{\text{new}}$ новых клиентов, а ежемесячный отток составляет долю $c$.
+Размер активной базы в месяц $t$ описывается разностным уравнением:</p>
+<p>$$S_t = S_{t-1} \cdot (1 - c) + N_{\text{new}}$$</p>
+<p>В точке динамического равновесия ($S_t = S_{t-1} = S^*$):</p>
+<p>$$S^* = \frac{N_{\text{new}}}{c}$$</p>
+<p>Снижение оттока в 2 раза увеличивает максимальный размер бизнеса ровно в 2 раза при том же рекламном бюджете!</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+Ежемесячный приток: $2\,000$ новых подписчиков.
+Тариф: $1\,000$ руб./мес.
+Сценарий A: отток $8\%$ в месяц.
+Сценарий B: снизили отток до $4\%$ в месяц за счет улучшений онбординга.
+Требуется рассчитать потолок базы подписчиков и годовую выручку в обоих сценариях.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Моделирование равновесия базы подписчиков
+inflow = 2000
+price = 1000.0
+
+churn_a = 0.08
+churn_b = 0.04
+
+# Потолок базы пользователей
+ceiling_a = inflow / churn_a
+ceiling_b = inflow / churn_b
+
+mrr_a = ceiling_a * price
+mrr_b = ceiling_b * price
+
+arr_a = mrr_a * 12
+arr_b = mrr_b * 12
+
+print(f"Сценарий A (Churn = {churn_a:.0%}): Потолок = {ceiling_a:8,0f} юзеров | Годовая выручка: {arr_a:13,.0f} руб.")
+print(f"Сценарий B (Churn = {churn_b:.0%}): Потолок = {ceiling_b:8,0f} юзеров | Годовая выручка: {arr_b:13,.0f} руб.")
+print(f"Инкремент от снижения оттока:     +{ceiling_b - ceiling_a:8,0f} юзеров | +{arr_b - arr_a:13,.0f} руб./год!")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Ожидание бесконечного линейного роста при постоянном маркетинге.</b> Любой продукт с ненулевым оттоком асимптотически упирается в потолок $N_{\text{new}} / c$.</li>
+        <li><b>Игнорирование когортной вариации оттока.</b> В реальности отток первого месяца в 3-4 раза выше оттока десятого месяца.</li>
+        <li><b>Попытка компенсировать растущий отток увеличением рекламного бюджета.</b> Приводит к резкому росту CAC и ускорению банкротства.</li>
+        <li><b>Путаница между абсолютным числом ушедших и процентом оттока.</b> При росте базы число уходящих клиентов неизбежно растет даже при стабильном проценте оттока.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Мы привлекаем 10 000 пользователей в месяц, наш отток 5% в месяц. Каков максимальный размер нашей аудитории?»</i> Ответ: <i>«Максимальный размер аудитории в точке равновесия равен $S^* = N_{\text{new}} / c = 10\,000 / 0.05 = 200\,000$ активных пользователей. Достигнув 200 тысяч, продукт полностью прекратит расти, так как каждый месяц 10 000 ушедших будут в точности равны 10 000 пришедших».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как рассчитать максимальный размер активной базы пользователей при постоянном притоке?</b></p><p>По формуле динамического равновесия: $S^* = \mathrm{Inflow} / \mathrm{Churn}$.</p></li>
+        <li><p><b>Во сколько раз вырастет потолок базы клиентов при снижении месячного оттока с 10% до 2%?</b></p><p>В $10 / 2 = 5$ раз.</p></li>
+        <li><p><b>Что происходит с бизнесом, когда объем оттока сравнивается с объемом нового привлечения?</b></p><p>Рост полностью останавливается, наступает плато зрелости базы.</p></li>
+        <li><p><b>Почему удержание существующих клиентов считается главным драйвером роста подписок?</b></p><p>Потому что оно экспоненциально расширяет емкость базы без роста маркетинговых затрат.</p></li>
+        <li><p><b>Что такое Revenue Churn в отличие от User Churn?</b></p><p>Процент потерянной регулярной выручки (MRR) с учетом даунгрейдов и потерь тарифов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_metric_drop_mix" data-interview="5">
+  <div class="name" id="practise_metric_drop_mix">
+    Практика: Разбор инцидента падения конверсии
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Решение реального инцидент-кейса с собеседования: общая конверсия маркетплейса внезапно упала с $5.0\%$ до $3.8\%$. При этом конверсия внутри мобильного приложения выросла, и конверсия на десктопе тоже выросла! Требуется объяснить парадокс Симпсона (Simpson's Paradox) и локализовать причину сдвига микса трафика.</p>
+<p>Если совсем простыми словами: <b>это разбор математической загадки, когда на каждом отдельном устройстве всё стало лучше, а общий график в дашборде обвалился</b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика эффекта изменения структуры (Mix Shift / Simpson's Paradox):</p>
+<p>Общая конверсия является средневзвешенной суммой конверсий по сегментам:</p>
+<p>$$\mathrm{CR}_{\text{total}} = w_{\text{desktop}} \cdot \mathrm{CR}_{\text{desktop}} + w_{\text{mobile}} \cdot \mathrm{CR}_{\text{mobile}}$$</p>
+<p>Если доля мобильного трафика $w_{\text{mobile}}$ (у которого конверсия исторически ниже) резко возрастает (например, маркетинг запустил рекламу в TikTok), общая конверсия падает, даже если $\mathrm{CR}_{\text{desktop}}$ и $\mathrm{CR}_{\text{mobile}}$ по отдельности выросли!</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+<i>Прошлая неделя:</i>
+- Desktop: $100\,000$ визитов, $8\,000$ заказов ($\mathrm{CR} = 8.0\%$).
+- Mobile: $100\,000$ визитов, $2\,000$ заказов ($\mathrm{CR} = 2.0\%$).
+- Итого: $200\,000$ визитов, $10\,000$ заказов ($\mathrm{CR}_{\text{total}} = 5.0\%$).
+<i>Текущая неделя (маркетинг запустил TikTok):</i>
+- Desktop: $50\,000$ визитов, $4\,250$ заказов ($\mathrm{CR} = 8.5\%$, рост!).
+- Mobile: $250\,000$ визитов, $6\,250$ заказов ($\mathrm{CR} = 2.5\%$, рост!).
+- Итого: $300\,000$ визитов, $10\,500$ заказов ($\mathrm{CR}_{\text{total}} = 3.5\%$, обвал на 1.5 п.п.!).</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+
+# Демонстрация Парадокса Симпсона (Mix Shift) в коде
+data_prev = {"channel": ["Desktop", "Mobile"], "visits": [100000, 100000], "orders": [8000, 2000]}
+data_curr = {"channel": ["Desktop", "Mobile"], "visits": [50000, 250000],  "orders": [4250, 6250]}
+
+df_prev = pd.DataFrame(data_prev)
+df_prev["cr"] = df_prev["orders"] / df_prev["visits"]
+
+df_curr = pd.DataFrame(data_curr)
+df_curr["cr"] = df_curr["orders"] / df_curr["visits"]
+
+total_cr_prev = df_prev["orders"].sum() / df_prev["visits"].sum()
+total_cr_curr = df_curr["orders"].sum() / df_curr["visits"].sum()
+
+print("Прошлая неделя:")
+print(df_prev[["channel", "visits", "orders", "cr"]])
+print(f"ОБЩАЯ КОНВЕРСИЯ: {total_cr_prev:.2%}\n")
+
+print("Текущая неделя:")
+print(df_curr[["channel", "visits", "orders", "cr"]])
+print(f"ОБЩАЯ КОНВЕРСИЯ: {total_cr_curr:.2%}\n")
+print(f"ПАРАДОКС: На Desktop CR вырос на {(df_curr.loc[0,'cr'] - df_prev.loc[0,'cr']):+.2%}")
+print(f"          На Mobile  CR вырос на {(df_curr.loc[1,'cr'] - df_prev.loc[1,'cr']):+.2%}")
+print(f"          А ОБЩИЙ CR ОБВАЛИЛСЯ НА {(total_cr_curr - total_cr_prev):+.2%} из-за сдвига долей трафика!")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Попытка чинить продукт, когда проблема лежит в маркетинговом миксе.</b> Продукт стал работать лучше на обеих платформах, а падение вызвано притоком мобильного трафика.</li>
+        <li><b>Анализ только агрегированных показателей без разрезов.</b> Агрегированные дашборды скрывают противоположные тренды внутри страт.</li>
+        <li><b>Обвинение разработчиков в падении конверсии.</b> Разработчики подняли конверсию кода, но изменение весов перекрыло этот успех.</li>
+        <li><b>Игнорирование абсолютного числа заказов.</b> Несмотря на падение общего процента, число заказов выросло с 10 000 до 10 500.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как называется этот парадокс и как провести факторный анализ, чтобы доказать его руководству?»</i> Ответ: <i>«Это парадокс Симпсона (Mix Shift effect). Для доказательства мы проводим факторный анализ отклонений: декомпозируем изменение общей конверсии на два слагаемых: 1) Вклад изменения конверсий внутри сегментов при фиксированных старых долях; 2) Вклад изменения структуры долей сегментов при фиксированных старых конверсиях. Мы наглядно покажем, что продуктовый вклад строго положителен, а весь минус обусловлен перекосом долей трафика маркетинга».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое парадокс Симпсона в продуктовой аналитике?</b></p><p>Ситуация, при которой тренд в агрегированных данных противоположен трендам в каждой отдельной подгруппе из-за изменения весовых долей этих подгрупп.</p></li>
+        <li><p><b>Что такое Mix Shift (сдвиг структуры трафика)?</b></p><p>Изменение пропорций различных каналов или сегментов аудитории в общем объеме трафика.</p></li>
+        <li><p><b>Как математически декомпозировать изменение агрегированной метрики?</b></p><p>На эффект изменения внутренних ставок (Rate Effect) и эффект изменения весов (Weight / Mix Effect).</p></li>
+        <li><p><b>Означает ли падение общей конверсии с 5% до 3.5% падение бизнеса в данном кейсе?</b></p><p>Нет, абсолютное число заказов выросло с 10 000 до 10 500, бизнес вырос в объеме.</p></li>
+        <li><p><b>Какой вывод должен сделать продуктовый аналитик из кейса с Mix Shift?</b></p><p>Всегда сегментировать ключевые метрики по платформам и источникам до вынесения вердикта о деградации продукта.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_logging_dau_quality" data-interview="4">
+  <div class="name" id="practise_logging_dau_quality">
+    Практика: Аудит качества данных DAU
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Практическая задача:</b> Проведение аналитического расследования аномального скачка суточной аудитории (DAU $+40\%$ за 1 день) на предмет выявления дефектов логирования, спам-ботов, фоновых пушей или ошибок дедупликации первичных ключей.</p>
+<p>Если совсем простыми словами: <b>это скрипт детекции фейкового трафика</b>. Мы проверяем, действительно ли в продукт пришли живые люди или аналитику надули сломанные логи.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Диагностический чек-лист валидации скачка DAU:</p>
+<ol>
+<li><b>Проверка сессионности:</b> Сколько событий приходится на одного «нового» пользователя? (Если у 100 000 пользователей ровно по 1 событию — признак фонового пинга).</li>
+<li><b>Проверка User-Agent и версий ОС:</b> Нет ли концентрации трафика на одной устаревшей версии браузера или дата-центра (IP-пулы AWS/DigitalOcean — признак краулера).</li>
+<li><b>Проверка целевых действий:</b> Совершают ли эти пользователи глубокие события (просмотр каталога, скролл, добавление в корзину)? Если конверсия в шаг 2 равна нулю — трафик мертв.</li>
+<li><b>Проверка первичных ключей на NULL:</b> Не схлопнулись ли миллионы анонимов в один <code>user_id = NULL</code> или <code>user_id = 'undefined'</code>.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Условие кейса:</b>
+В среду DAU подскочил со $150\,000$ до $210\,000$ ($+40\%$).
+Маркетинг празднует победу.
+Аналитик выполнил аудит и выгрузил распределение:
+- $60\,000$ добавленных пользователей сгенерировали ровно 1 событие <code>app_open</code> в 04:00 утра.
+- У всех $60\,000$ пользователей отсутствуют клики и просмотры экранов.
+- Версия ОС: Android, свойство <code>is_background_launch = true</code>.
+Инцидент раскрыт: ночной маркетинговый пуш разбудил приложение в фоне без согласия пользователя. Люди даже не брали телефон в руки. Настоящий DAU не изменился.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Скрипт аудита качества данных активности DAU
+def audit_traffic_surge(df_events):
+    print("=== АУДИТ КАЧЕСТВА ДАННЫХ ВСПЛЕСКА DAU ===")
+    
+    # 1. Проверка на NULL и undefined идентификаторы
+    null_users = df_events["user_id"].isnull().sum()
+    undef_users = (df_events["user_id"] == "undefined").sum()
+    print(f"1. Мусорные ID: NULL = {null_users}, 'undefined' = {undef_users}")
+    
+    # 2. Среднее число событий на пользователя
+    events_per_user = df_events.groupby("user_id").size()
+    single_event_users_pct = (events_per_user == 1).mean() * 100
+    print(f"2. Доля пользователей с ровно 1 событием: {single_event_users_pct:.1f}% (Норма: < 15%)")
+    
+    # 3. Доля фоновых запусков
+    bg_share = df_events["is_background"].mean() * 100
+    print(f"3. Доля фоновых событий: {bg_share:.1f}%")
+    
+    # Вердикт
+    if single_event_users_pct > 50 or bg_share > 40:
+        print("ВЕРДИКТ: Всплеск фейковый! Вызван техническими фоновыми пингами или ботами.")
+    else:
+        print("ВЕРДИКТ: Трафик похож на органический всплеск живых людей.")
+
+# Пример вызова с подозрительными данными
+import pandas as pd
+df_suspicious = pd.DataFrame({
+    "user_id": [f"u_{i}" for i in range(1000)],
+    "is_background": [True] * 800 + [False] * 200
+})
+audit_traffic_surge(df_suspicious)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Признание фонового пробуждения за активного пользователя.</b> Пользователь не видел экран, ценность не получена.</li>
+        <li><b>Отсутствие фильтрации внутренних IP-адресов компании и нагрузочных тестов.</b> QA-инженеры перед релизом запустили нагрузочный тест на 50 000 виртуальных ботов, исказив суточный отчет.</li>
+        <li><b>Игнорирование идентификатора '0' или 'null'.</b> Если неавторизованные пользователи логируются с <code>user_id = 0</code>, <code>COUNT(DISTINCT user_id)</code> посчитает их за одного человека.</li>
+        <li><b>Празднование роста без проверки конверсий.</b> Рост трафика без роста целевых действий всегда подозрителен.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как отличить живой всплеск аудитории от наплыва ботов или бага логирования?»</i> Ответ: <i>«Живой всплеск сопровождается естественным распределением глубины сессий (люди кликают, скроллят, переходят по страницам) и ростом конверсий по воронке. Аномалия ботов или логов характеризуется аномальной концентрацией: 90%+ пользователей совершают ровно 1 событие, приходят с одного User-Agent или пула IP, имеют <code>is_background = true</code> и показывают нулевую конверсию в следующий шаг».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое фантомный DAU (Ghost DAU)?</b></p><p>Искусственно завышенное число активных пользователей, вызванное фоновыми системными процессами, спам-ботами или ошибками сбора логов.</p></li>
+        <li><p><b>Какое событие должно служить критерием активного пользователя?</b></p><p>Осознанное взаимодействие человека с интерфейсом на переднем плане (Foreground interaction).</p></li>
+        <li><p><b>Почему пользователи с ровно одним событием в логах вызывают подозрение?</b></p><p>Потому что живой человек при использовании приложения почти всегда генерирует цепочку из нескольких последовательных действий.</p></li>
+        <li><p><b>Что происходит, если в поле user_id попадает значение 'null' как строка?</b></p><p>Все такие пользователи объединяются в один профиль, занижая реальную аудиторию.</p></li>
+        <li><p><b>Какие метаданные устройства помогают выявить ботов?</b></p><p>User-Agent, разрешение экрана, наличие WebGL/Canvas и принадлежность IP-адреса к диапазонам хостинг-провайдеров.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

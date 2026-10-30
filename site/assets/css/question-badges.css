@@ -1,0 +1,402 @@
+/* ===== Badges v2 (tint + border + dot) ===== */
+:root {
+  --badge-radius: 999px;
+  --badge-font: 11px;
+  --badge-pad-y: 4px;
+  --badge-pad-x: 10px;
+  --badge-border: rgba(15, 23, 42, 0.12);
+  --badge-text: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme="dark"] {
+  --badge-border: rgba(226, 232, 240, 0.16);
+  --badge-text: rgba(241, 245, 249, 0.92);
+}
+
+/* Бейдж — один цветной кружок; текст — в title/aria-label и в легенде
+   фильтров над списком. */
+.question-badge {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--badge-accent, #64748b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--badge-accent) 18%, transparent);
+  vertical-align: middle;
+  cursor: default;
+}
+
+.question-badge.required {
+  --badge-accent: #ef4444; /* red */
+}
+
+.question-badge.additional {
+  --badge-accent: #f59e0b; /* amber */
+}
+
+.question-badge.later {
+  --badge-accent: #94a3b8; /* slate */
+}
+
+.question-badge.research {
+  --badge-accent: #8b5cf6; /* violet */
+}
+
+.question-delivery-badge {
+  --badge-accent: #0ea5e9;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--badge-pad-y) var(--badge-pad-x);
+  border: 1px solid
+    color-mix(in srgb, var(--badge-accent) 28%, var(--badge-border));
+  border-radius: var(--badge-radius);
+  background: color-mix(in srgb, var(--badge-accent) 12%, transparent);
+  color: var(--badge-text);
+  font-size: var(--badge-font);
+  font-weight: 650;
+  line-height: 1.2;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.question-delivery-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--badge-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--badge-accent) 18%, transparent);
+}
+
+.question .name .question-badge {
+  margin: 0 3px;
+}
+
+/* Легенда «↗ — источник» в строке фильтров */
+.filters-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+
+.filters-hint .question-title-link__indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--link-color, #2563eb) 13%, transparent);
+  color: var(--link-color, #2563eb);
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--link-color, #2563eb) 28%, transparent);
+}
+
+/* Badge filter controls - Modern Design */
+.badge-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(248, 250, 252, 0.98) 100%
+  );
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.badge-filters-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.badge-filters-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.badge-filters::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--brand),
+    var(--primary-2),
+    var(--brand-secondary)
+  );
+  opacity: 0.6;
+}
+
+.badge-filters:hover {
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.08),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  transform: translateY(-1px);
+}
+
+[data-theme="dark"] .badge-filters {
+  background: linear-gradient(
+    135deg,
+    rgba(30, 41, 59, 0.95) 0%,
+    rgba(15, 23, 42, 0.98) 100%
+  );
+  border-color: rgba(51, 65, 85, 0.6);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.3),
+    0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .badge-filters:hover {
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.4),
+    0 4px 6px -2px rgba(0, 0, 0, 0.3);
+}
+
+.badge-filters .filter-label {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+
+.badge-filters .question-count {
+  font-size: 14px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+[data-theme="dark"] .badge-filters .filter-label {
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .badge-filters .question-count {
+  color: #94a3b8;
+}
+
+.badge-filters-buttons label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  transition: all 0.2s ease;
+}
+
+.badge-filters-buttons label:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(148, 163, 184, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .badge-filters-buttons label {
+  background: rgba(51, 65, 85, 0.4);
+  border-color: rgba(71, 85, 105, 0.5);
+}
+
+[data-theme="dark"] .badge-filters-buttons label:hover {
+  background: rgba(51, 65, 85, 0.6);
+  border-color: rgba(100, 116, 139, 0.6);
+}
+
+.badge-filters-buttons input[type="checkbox"] {
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--brand);
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.badge-filters input[type="checkbox"]:checked {
+  transform: scale(1.1);
+}
+
+.badge-filters input[type="checkbox"]:hover {
+  transform: scale(1.05);
+}
+
+.badge-filters label:has(input:checked) {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+[data-theme="dark"] .badge-filters label:has(input:checked) {
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+/* Question count styling */
+.badge-filters .question-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  padding: 6px 12px;
+  background: rgba(241, 245, 249, 0.8);
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="dark"] .badge-filters .question-count {
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(51, 65, 85, 0.5);
+}
+
+/* Hide questions when filtered */
+.question.hidden-by-filter {
+  display: none;
+}
+
+.question .name > a {
+  display: inline;
+}
+
+/* ===== Сложность (data-difficulty или класс .name) ===== */
+.question-difficulty-pill {
+  --pill: #64748b;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--badge-pad-y) var(--badge-pad-x);
+  border: 1px solid color-mix(in srgb, var(--pill) 32%, var(--badge-border));
+  border-radius: var(--badge-radius);
+  background: color-mix(in srgb, var(--pill) 12%, transparent);
+  color: color-mix(in srgb, var(--pill) 82%, #000);
+  font-size: var(--badge-font);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  vertical-align: middle;
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+}
+
+.question-difficulty-pill--easy {
+  --pill: #16a34a;
+}
+
+.question-difficulty-pill--medium {
+  --pill: #d97706;
+}
+
+.question-difficulty-pill--hard {
+  --pill: #dc2626;
+}
+
+[data-theme="dark"] .question-difficulty-pill {
+  color: color-mix(in srgb, var(--pill) 80%, #fff);
+}
+
+/* ===== Как часто спрашивают на собеседованиях (data-interview, 1–5) =====
+   Пять точек, закрашено N; цвет шкалы от красного к зелёному. */
+.question-interview {
+  --meter: #eab308;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--badge-pad-y) 9px;
+  border: 1px solid color-mix(in srgb, var(--meter) 36%, var(--badge-border));
+  border-radius: var(--badge-radius);
+  background: color-mix(in srgb, var(--meter) 10%, transparent);
+  vertical-align: middle;
+  line-height: 1;
+  user-select: none;
+  cursor: default;
+}
+
+.question-interview[data-level="1"] {
+  --meter: #ef4444;
+}
+
+.question-interview[data-level="2"] {
+  --meter: #f97316;
+}
+
+.question-interview[data-level="3"] {
+  --meter: #eab308;
+}
+
+.question-interview[data-level="4"] {
+  --meter: #84cc16;
+}
+
+.question-interview[data-level="5"] {
+  --meter: #22c55e;
+}
+
+.question-interview__label {
+  margin-right: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--badge-text);
+  opacity: 0.7;
+}
+
+.question-interview i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--meter) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--meter) 40%, transparent);
+}
+
+.question-interview[data-level="1"] i:nth-of-type(-n + 1),
+.question-interview[data-level="2"] i:nth-of-type(-n + 2),
+.question-interview[data-level="3"] i:nth-of-type(-n + 3),
+.question-interview[data-level="4"] i:nth-of-type(-n + 4),
+.question-interview[data-level="5"] i:nth-of-type(-n + 5) {
+  background: var(--meter);
+  box-shadow: none;
+}
+
+/* Английская страница /en/…: у вопроса ещё нет перевода foo.en.md, показан
+   русский оригинал (md-to-html.js, английский манифест). */
+li.question[data-untranslated] > .name::after {
+  content: "Not translated yet";
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  vertical-align: middle;
+}

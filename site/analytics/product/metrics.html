@@ -1,0 +1,1084 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Продуктовые метрики (AARRR, LTV, Retention)</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Продуктовые метрики</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Product Metrics</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">12 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Продуктовые метрики (AARRR, LTV, Retention)</h1>
+        <p class="section-shell__desc">Система продуктовых метрик: расчет DAU/MAU, Stickiness, кривые удержания (Retention), воронки конверсий, когортный анализ, Unit-экономика и North Star Metric.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="dau_mau_stickiness" data-interview="5">
+  <div class="name" id="dau_mau_stickiness">
+    DAU, WAU, MAU и Stickiness Ratio
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Метрики активной аудитории (Audience Volume Metrics)</b> — это базовые показатели масштаба и регулярности использования цифрового продукта за фиксированные временные окна:</p>
+<ul>
+<li><b>DAU (Daily Active Users):</b> Количество уникальных пользователей, совершивших хотя бы одно целевое активное действие в течение календарных суток.</li>
+<li><b>WAU (Weekly Active Users):</b> Количество уникальных пользователей за скользящее 7-дневное окно.</li>
+<li><b>MAU (Monthly Active Users):</b> Количество уникальных пользователей за календарный месяц или скользящее 30-дневное окно.</li>
+<li><b>Stickiness Ratio (Коэффициент «липкости»):</b> Отношение суточной аудитории к месячной: $\mathrm{Stickiness} = \frac{\mathrm{DAU}}{\mathrm{MAU}} \times 100\%$.</li>
+</ul>
+<p>Если совсем простыми словами: <b>DAU и MAU показывают размер вашего продукта, а Stickiness показывает, насколько он вошел в привычку</b>. Если Stickiness равен 50%, типичный пользователь открывает сервис через день (15 дней в месяц), как мессенджер или соцсеть.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика агрегации и дедупликации аудитории:</p>
+<ol>
+<li><b>Неаддитивность метрик активности:</b> $MAU \neq \sum_{i=1}^{30} DAU_i$. Поскольку один и тот же человек пользуется сервисом каждый день, простое суммирование DAU даст завышение в десятки раз. Агрегация требует строгой операции <code>COUNT(DISTINCT user_id)</code>.</li>
+<li><b>Смысл показателя Stickiness:</b> Величина $\frac{\mathrm{DAU}}{\mathrm{MAU}}$ показывает математическое ожидание доли дней в месяце, когда пользователь активен:
+<p>$$\text{Число активных дней в месяц} \approx 30 \times \frac{\mathrm{DAU}}{\mathrm{MAU}}$$</p>
+</li>
+<li><b>Бенчмарки Stickiness по индустриям:</b>
+    <ul>
+    <li><i>Соцсети и мессенджеры (Telegram, WhatsApp, VK):</i> $50-60\%$+ (ежедневная привычка).</li>
+    <li><i>Стриминговые сервисы и медиа (Кинопоиск, Spotify):</i> $25-35\%$.</li>
+    <li><i>E-commerce и маркетплейсы (Ozon, Wildberries):</i> $15-25\%$.</li>
+    <li><i>Банки и финтех (Тинькофф, Сбер):</i> $20-30\%$.</li>
+    <li><i>B2B SaaS и путешествия (Aviasales, Booking):</i> $5-10\%$ (потребность возникает периодически).</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-приложения:</b>
+Маркетинг запустил агрессивную рекламную кампанию и отчитался: <i>«MAU вырос на 40% (с 1 млн до 1.4 млн)!»</i>
+Однако продуктовый аналитик проверил DAU и Stickiness:
+DAU остался на уровне $200\,000$ пользователей.
+Stickiness обвалился с $20.0\%$ ($200k / 1M$) до $14.3\%$ ($200k / 1.4M$).
+Причина: маркетинг нагнал дешевый нецелевой трафик через розыгрыш призов. Пользователи зашли один раз забрать бонус и больше не открывали приложение. Продукт не получил долгосрочного прироста ценности.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Расчет DAU, MAU и Stickiness в ClickHouse / PostgreSQL
+WITH daily_activity AS (
+    SELECT
+        toDate(event_time) AS event_date,
+        user_id
+    FROM events
+    WHERE event_name IN ('app_open', 'transaction_completed', 'view_feed')
+    GROUP BY event_date, user_id
+),
+daily_metrics AS (
+    SELECT
+        event_date,
+        count(user_id) AS dau
+    FROM daily_activity
+    GROUP BY event_date
+),
+monthly_metrics AS (
+    SELECT
+        d.event_date,
+        d.dau,
+        -- Скользящее окно 30 дней для расчета честного MAU
+        (
+            SELECT uniqExact(user_id)
+            FROM daily_activity AS sub
+            WHERE sub.event_date BETWEEN d.event_date - INTERVAL 29 DAY AND d.event_date
+        ) AS rolling_mau_30d
+    FROM daily_metrics AS d
+)
+SELECT
+    event_date,
+    dau,
+    rolling_mau_30d AS mau,
+    round(dau / rolling_mau_30d * 100, 2) AS stickiness_pct
+FROM monthly_metrics
+ORDER BY event_date DESC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Определение «активности» через фоновые пуши и технические пинги.</b> Если приложение присылает пуш в фоне и шлет лог, клиент не является активным пользователем. Активность — строго осознанное действие человека.</li>
+        <li><b>Сравнение Stickiness для продуктов с разной естественной частотностью.</b> Требовать от сервиса покупки авиабилетов Stickiness как у TikTok — грубая некомпетентность.</li>
+        <li><b>Календарный месяц вместо скользящего окна 30 дней.</b> Календарный расчет дает скачки на стыке месяцев и ломается в феврале (28 дней vs 31 день).</li>
+        <li><b>Игнорирование ботов и спам-аккаунтов.</b> Накрутка ботов искусственно раздувает DAU, маскируя реальный отток живой базы.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В компании вырос MAU, но DAU остался прежним. Что произошло?»</i> Ответ: <i>«Это означает резкий приток «одноразовых» пользователей (например, от разовой маркетинговой кампании или вирусного инфоповода) на фоне низкого удержания, либо рост оттока ядра при компенсации новым трафиком. Stickiness при этом падает. Необходимо декомпозировать когорты и посмотреть Retention первого дня».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое DAU, WAU и MAU?</b></p><p>Количество уникальных пользователей, совершивших хотя бы одно целевое действие за сутки, 7 дней и 30 дней соответственно.</p></li>
+        <li><p><b>Что показывает показатель Stickiness (DAU/MAU)?</b></p><p>Долю месячной аудитории, пользующейся продуктом ежедневно; отражает силу сформированной привычки.</p></li>
+        <li><p><b>Почему нельзя просто просуммировать 30 значений DAU для получения MAU?</b></p><p>Потому что метрики активности неаддитивны: уникальный пользователь учитывается в DAU каждый день своего захода, а в MAU — ровно один раз.</p></li>
+        <li><p><b>Какой уровень Stickiness считается отличным для социальных сетей и мессенджеров?</b></p><p>Более 50%.</p></li>
+        <li><p><b>Что такое скользящий MAU (Rolling MAU)?</b></p><p>Количество уникальных пользователей за последние 30 дней относительно каждой даты, устраняющее проблемы календарных месяцев.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="retention" data-interview="5">
+  <div class="name" id="retention">
+    Retention Rate и кривые удержания
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Retention Rate (Коэффициент удержания)</b> — это ключевая фундаментальная метрика жизнеспособности продукта, измеряющая долю пользователей из когорты, вернувшихся в продукт и совершивших целевое действие спустя фиксированный интервал времени $N$ после первого визита (установки, регистрации или первой покупки):</p>
+<p>$$\mathrm{Retention}(N) = \frac{\text{Пользователи когорты, активные в день } N}{\text{Исходный размер когорты в день } 0} \times 100\%$$</p>
+<p>Если совсем простыми словами: <b>это проверка того, нужен ли ваш продукт людям вообще</b>. Если Retention через месяц падает в ноль — продукт представляет собой «дырявое ведро»: сколько бы миллионов рублей вы ни вливали в рекламу, все пользователи уйдут.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методологии расчета Retention:</p>
+<ol>
+<li><b>Classic / Strict Retention (N-day Retention):</b> Пользователь активен <b>строго в конкретный день $N$</b>. Используется для сервисов с ежедневным циклом (игры, соцсети).</li>
+<li><b>Rolling / Unbounded Retention:</b> Пользователь активен <b>в день $N$ или в любой день ПОСЛЕ него</b>. $R_{\text{unbounded}}(N) = \frac{\text{Активны в день } \ge N}{N_{\text{total}}}$. Идеально для продуктов с нерегулярной частотой (туризм, недвижимость).</li>
+<li><b>Bracket / Window Retention:</b> Активность измеряется внутри временного окна (дни 1-7, дни 8-14, дни 15-30). Стандарт для подписочных сервисов и финтеха.</li>
+<li><b>Плато удержания (Retention Plateau / Product-Market Fit):</b> Если кривая Retention выходит на горизонтальное плато ($R(t) \to c > 0$ при $t \to \infty$), продукт обладает доказанным <b>Product-Market Fit</b>. Если кривая стремится к нулю асимптотически — продукт умрет без непрерывного внешнего трафика.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс фитнес-приложения:</b>
+Команда протестировала два онбординга.
+Вариант A: короткий онбординг (1 экран). Day 1 Retention $= 65\%$, но к Day 30 Retention обвалился до $4\%$.
+Вариант B: длинный онбординг с постановкой личных целей (5 экранов). Day 1 Retention $= 45\%$ (часть отсеялась сразу), но к Day 30 кривая вышла на устойчивое плато $22\%$.
+Хотя Day 1 был ниже, Вариант B сформировал ядро лояльной аудитории и обеспечил в 5.5 раз больший LTV.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# Построение классической матрицы когортного удержания (Retention Cohorts)
+np.random.seed(42)
+n_records = 50000
+
+user_ids = np.random.randint(1000, 2500, size=n_records)
+dates = pd.date_range("2026-09-01", periods=30, freq="D")
+activity_dates = np.random.choice(dates, size=n_records)
+
+df = pd.DataFrame({"user_id": user_ids, "activity_date": activity_dates}).drop_duplicates()
+
+# 1. Находим дату первого захода (когорту)
+df["cohort_date"] = df.groupby("user_id")["activity_date"].transform("min")
+df["lifetime_day"] = (df["activity_date"] - df["cohort_date"]).dt.days
+
+# 2. Сводная таблица удержания
+cohort_sizes = df[df["lifetime_day"] == 0].groupby("cohort_date")["user_id"].nunique()
+retention_matrix = df.pivot_table(index="cohort_date", columns="lifetime_day", values="user_id", aggfunc="nunique")
+retention_pct = retention_matrix.divide(cohort_sizes, axis=0) * 100
+
+print("Фрагмент матрицы когортного Retention (%):")
+print(retention_pct.iloc[:5, :8].round(1))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Определение удержания через технический запуск приложения вместо целевого действия.</b> Пользователь открыл приложение по случайному пушу и сразу закрыл. Это ложный Retention. Целевой Retention — совершение смыслового действия (просмотр статьи, перевод денег, заказ).</li>
+        <li><b>Анализ N-day Retention для низкочастотных продуктов.</b> Считать Day 7 Retention для сервиса покупки авиабилетов бессмысленно — здесь нужен Rolling Retention на 90 или 180 дней.</li>
+        <li><b>Сравнение незрелых когорт со старыми.</b> Когорта, пришедшая 3 дня назад, физически не может показать Day 7 или Day 30 Retention.</li>
+        <li><b>Игнорирование органического vs платного трафика.</b> Платный трафик почти всегда имеет более крутое падение Retention, чем сарафанное радио.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Что важнее для стартапа: высокий Day 1 Retention или плоское плато на Day 30?»</i> Ответ: <i>«Категорически важнее плоское плато на Day 30. Day 1 можно поднять оптимизацией онбординга, пушами и интерфейсом. Но если кривая не выходит на горизонтальное плато, у продукта нет Product-Market Fit, и масштабирование платного маркетинга приведет к банкротству».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое N-day Retention?</b></p><p>Доля пользователей когорты, совершивших целевое действие ровно на N-й день после регистрации/установки.</p></li>
+        <li><p><b>В чем отличие Rolling Retention от классического N-day Retention?</b></p><p>Rolling Retention считает пользователя удержанным, если он вернулся в день N или в любой последующий день.</p></li>
+        <li><p><b>Что символизирует выход кривой Retention на горизонтальное плато?</b></p><p>Наличие ядра лояльных пользователей и доказанный Product-Market Fit.</p></li>
+        <li><p><b>Почему когортный Retention предпочтительнее отслеживания валового числа активных пользователей?</b></p><p>Потому что валовые метрики маскируют отток старых клиентов за счет непрерывного притока нового платного трафика.</p></li>
+        <li><p><b>Какое событие должно считаться точкой возврата при расчете ценностного Retention?</b></p><p>Осознанное целевое действие (core value action), приносящее ценность пользователю и бизнесу.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="churn" data-interview="4">
+  <div class="name" id="churn">
+    Отток пользователей (Churn Rate)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Коэффициент оттока (Churn Rate)</b> — это относительный показатель потери аудитории или клиентской базы за определенный период времени. Различают <b>User Churn (логотипический отток пользователей)</b> и <b>Revenue Churn (денежный отток выручки / MRR Churn)</b>.</p>
+<p>$$\mathrm{User\ Churn\ Rate} = \frac{\text{Ушедшие пользователи за период}}{\text{Активные пользователи на начало периода}} \times 100\%$$</p>
+<p>Если совсем простыми словами: <b>это скорость, с которой клиенты покидают ваш продукт</b>. В подписочных сервисах отток напрямую определяет потолок роста компании: когда приток новых клиентов сравнивается с оттоком старых, бизнес полностью прекращает расти.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика оттока и его связь с продолжительностью жизни клиента:</p>
+<ol>
+<li><b>Связь Churn и Customer Lifetime:</b> При постоянном месячном оттоке $c$ средняя продолжительность жизни клиента вычисляется как:
+<p>$$\mathrm{Lifetime} = \frac{1}{\mathrm{Churn\ Rate}}$$</p>
+При месячном оттоке $5\%$ клиент живет в среднем $1 / 0.05 = 20$ месяцев. При снижении оттока до $2.5\%$ срок жизни удваивается до $40$ месяцев, удваивая итоговый LTV!</li>
+<li><b>Net Revenue Retention (NRR) и Отрицательный отток (Negative Churn):</b>
+Если расширение подписок (upsell, cross-sell) текущих клиентов превышает потери от ушедших, возникает <b>Net Negative Churn</b>:
+<p>$$\mathrm{Net\ Revenue\ Churn} = \frac{\mathrm{Churned\ MRR} - \mathrm{Expansion\ MRR}}{\mathrm{Starting\ MRR}} < 0$$</p>
+В этом случае когорта клиентов приносит всё больше денег с каждым годом, даже если часть пользователей отваливается (золотой стандарт B2B SaaS, NRR $> 120\%$).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс SaaS-платформы:</b>
+Компания имеет $10\,000$ подписчиков с тарифом $1\,000$ руб./мес. ($10$ млн руб. MRR).
+Месячный User Churn составляет $6\%$ ($600$ клиентов в месяц).
+Команда разработала алгоритм предиктивного удержания (Proactive CS): при снижении частоты логинов клиенту отправляется персонализированная помощь.
+Отток снизился с $6\%$ до $4\%$.
+Срок жизни вырос с $16.7$ до $25$ месяцев.
+Без единого рубля дополнительных расходов на рекламу LTV каждого клиента вырос на $+50\%$, добавив $50$ млн рублей капитализации компании.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Моделирование потолка роста компании в зависимости от Churn Rate
+monthly_new_users = 1000
+churn_rates = [0.10, 0.05, 0.02] # 10%, 5%, 2% в месяц
+
+print("Месячный отток | Срок жизни (мес.) | Потолок базы пользователей (Max Equilibrium)")
+print("-" * 75)
+for c in churn_rates:
+    lifetime = 1.0 / c
+    ceiling = monthly_new_users / c
+    print(f"Churn = {c:4.1%}   | {lifetime:4.1f} месяцев     | {int(ceiling):,} пользователей")
+# Вывод: снижение оттока с 10% до 2% увеличивает потолок продукта в 5 раз!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Учет новых пользователей в знаменателе Churn Rate.</b> Деление ушедших на сумму старых и новых искажает показатель, занижая реальный отток при взрывном маркетинге.</li>
+        <li><b>Определение оттока в неподписочных сервисах.</b> В e-commerce подписки нет. Оттоком считается отсутствие покупок дольше $X$ месяцев (где $X$ определяется эмпирическим перцентилем межпокупочного интервала, напр. $p95$).</li>
+        <li><b>Игнорирование непроизвольного оттока (Involuntary Churn).</b> До 30-40% оттока в подписках вызвано не желанием клиента, а истечением срока действия банковской карты или нехваткой средств (лечится dunning management и авто-ретраями).</li>
+        <li><b>Ориентация только на User Churn без учета выручки.</b> Потеря 10 бесплатных пользователей не равна потере одного энтерпрайз-клиента.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как определить факт оттока пользователя в маркетплейсе вроде Ozon, где нет подписки?»</i> Ответ: <i>«Через анализ межпокупочных интервалов (Recency distribution). Мы строим кумулятивное распределение времени между покупками для повторных клиентов. Если 90% пользователей совершают следующую покупку в течение 45 дней, то клиент, не купивший ничего за 60 дней, переводится в сегмент риска, а за 90 дней — признается оттекшим».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Churn Rate?</b></p><p>Отношение числа ушедших пользователей (или потерянной выручки) за период к размеру клиентской базы на начало периода.</p></li>
+        <li><p><b>Как математически связаны Churn Rate и Customer Lifetime?</b></p><p>Срок жизни обратно пропорционален коэффициенту оттока: $\mathrm{Lifetime} = 1 / \mathrm{Churn}$.</p></li>
+        <li><p><b>Что такое Net Negative Churn в B2B SaaS?</b></p><p>Ситуация, когда допродажи и апгрейды тарифов (Expansion MRR) превышают потери от оттока подписок.</p></li>
+        <li><p><b>В чем различие между добровольным и непроизвольным оттоком?</b></p><p>Добровольный — осознанный отказ пользователя; непроизвольный — технические сбои списания по банковской карте.</p></li>
+        <li><p><b>Почему удержание текущих клиентов экономически выгоднее привлечения новых?</b></p><p>Потому что стоимость удержания (CRC) обычно в 4-7 раз ниже стоимости привлечения (CAC).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="conversion_rate" data-interview="4">
+  <div class="name" id="conversion_rate">
+    Conversion Rate (CR)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Коэффициент конверсии (Conversion Rate, CR)</b> — процентное отношение числа пользователей, совершивших целевое действие, к общему числу пользователей, имевших возможность это действие совершить за определенный период:</p>
+<p>$$\mathrm{CR} = \frac{\text{Уникальные пользователи с конверсией}}{\text{Уникальные посетители}} \times 100\%$$</p>
+<p>Если совсем простыми словами: <b>это процент тех, кто дошел до победного конца</b>. Если на сайт зашли 1 000 человек, а покупку оплатили 30, ваша конверсия в покупку равна 3%.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Иерархия конверсий в продуктовой воронке:</p>
+<ol>
+<li><b>Макроконверсия (Macro-conversion):</b> Главное бизнес-действие, непосредственно генерирующее выручку (оплата заказа, оформление кредита, оформление платной подписки).</li>
+<li><b>Микроконверсии (Micro-conversions):</b> Промежуточные шаги, подтверждающие прогресс пользователя по воронке (клик по товару, добавление в корзину, заполнение контактных данных, расчет калькулятора).</li>
+<li><b>User CR vs Session CR:</b>
+    <ul>
+    <li><i>User CR:</i> $\frac{\text{Покупатели}}{\text{Уникальные пользователи}}$. Истинная продуктовая метрика эффективности аудитории.</li>
+    <li><i>Session CR:</i> $\frac{\text{Заказы}}{\text{Сессии}}$. Традиционная метрика веб-аналитики, подверженная сильному искажению (если пользователь зашел 5 раз перед покупкой, Session CR равен $20\%$, а User CR равен $100\%$).</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-кредитования:</b>
+На лендинге автокредитов общая конверсия составляла $1.2\%$.
+Аналитик декомпозировал микроконверсии шагов:
+1. Заход на лендинг $\to$ Расчет в калькуляторе: $48\%$ (отлично).
+2. Расчет $\to$ Клик «Подать заявку»: $35\%$ (хорошо).
+3. Клик «Подать заявку» $\to$ Ввод паспортных данных: $8\%$ (катастрофический обрыв воронки!).
+Причина: форма требовала вручную ввести 14 полей паспорта.
+Команда внедрила авторизацию через Госуслуги (автозаполнение в 1 клик). Конверсия шага выросла с $8\%$ до $52\%$, а общая сквозная макроконверсия лендинга утроилась до $3.8\%$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Расчет воронки микроконверсий и выявление узкого горлышка (Bottleneck)
+funnel_steps = [
+    ("1_Landing_Visit", 100000),
+    ("2_Calculator_Use", 48000),
+    ("3_Apply_Click", 16800),
+    ("4_Passport_Input", 2520), # Обрыв!
+    ("5_Approved_Deal", 1200)
+]
+
+print("Шаг воронки          | Пользователи | Конверсия шага (Step CR) | Сквозная CR")
+print("-" * 75)
+for i, (step, count) in enumerate(funnel_steps):
+    step_cr = 1.0 if i == 0 else count / funnel_steps[i - 1][1]
+    overall_cr = count / funnel_steps[0][1]
+    print(f"{step:20s} | {count:12,d} | {step_cr:22.1%} | {overall_cr:10.2%}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование Session CR вместо User CR.</b> Раздувание числа сессий одним пользователем искусственно занижает конверсию.</li>
+        <li><b>Сравнение конверсий разнородных источников трафика.</b> Органический поисковый трафик всегда конвертируется в 3-5 раз лучше, чем холодный таргетинг из соцсетей.</li>
+        <li><b>Игнорирование каннибализации офлайн-каналов.</b> Рост конверсии в приложении может быть простым перетоком клиентов из физических отделений.</li>
+        <li><b>Оптимизация микроконверсий в ущерб качеству макроконверсий.</b> Упрощение первого шага заявки на кредит привлекает миллионы неплатежеспособных заемщиков, которых затем отклоняет скоринг.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему конверсия по пользователям предпочтительнее конверсии по сессиям?»</i> Ответ: <i>«Потому что решение о покупке принимает человек, а не сессия. В сложных продуктах путь клиента занимает несколько сессий на разных устройствах. Сессионный CR штрафует продукт за повторные визиты размышляющего пользователя, тогда как User CR объективно оценивает долю людей, достигших цели».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Conversion Rate?</b></p><p>Отношение числа уникальных пользователей, совершивших целевое действие, к общему числу пользователей воронки.</p></li>
+        <li><p><b>В чем различие между макро- и микроконверсией?</b></p><p>Макроконверсия — ключевая бизнес-цель (покупка); микроконверсии — вспомогательные промежуточные шаги к ней.</p></li>
+        <li><p><b>Почему User CR стабильнее Session CR?</b></p><p>User CR агрегирует путь клиента на уровне личности, исключая влияние числа промежуточных визитов.</p></li>
+        <li><p><b>Что такое Step Conversion Rate (конверсия шага)?</b></p><p>Отношение пользователей текущего шага к пользователям строго предыдущего шага воронки.</p></li>
+        <li><p><b>Как найти «узкое горлышко» (bottleneck) воронки?</b></p><p>По минимальному значению Step CR вдоль всей цепочки шагов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="funnels" data-interview="4">
+  <div class="name" id="funnels">
+    Продуктовые воронки (Funnels)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Продуктовая воронка (Funnel Analysis)</b> — это инструмент визуализации и аналитического моделирования последовательного пути пользователя через цепочку предопределенных событий, ведущих к ключевому продуктовому результату.</p>
+<p>Если совсем простыми словами: <b>это рентгеновский снимок пути клиента</b>. Она показывает, на каком именно шаге спотыкаются и уходят пользователи (например, в корзине отвалилось 50%, а на вводе смс-кода — еще 20%).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Параметры и режимы построения воронок:</p>
+<ol>
+<li><b>Строгие (Strict Order) vs Нестрогие (Any Order) воронки:</b>
+    <ul>
+    <li><i>Strict Order:</i> События должны наступить строго в порядке $A \to B \to C$ без посторонних промежуточных действий.</li>
+    <li><i>Any Order:</i> Допускается совершение побочных действий между шагами (например, $A \to X \to B$). В реальных веб-интерфейсах почти всегда используют Any Order.</li>
+    </ul>
+</li>
+<li><b>Окно конверсии воронки (Holding Period / Conversion Window):</b> Максимально допустимое время прохождения воронки от шага $A$ до шага $Z$ (например, 1 час для оформления заказа, 24 часа для квеста онбординга, 7 дней для B2B сделки).</li>
+<li><b>Закрытые vs Открытые воронки:</b> В закрытой воронке учитываются только те, кто начал строго с первого шага; в открытой пользователь может войти на любом промежуточном этапе.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс воронки бронирования отелей:</b>
+Воронка: Поиск $\to$ Просмотр отеля $\to$ Выбор номера $\to$ Ввод данных гостя $\to$ Оплата.
+Анализ показал просадку на шаге «Ввод данных гостя»: $42\%$ пользователей закрывали вкладку.
+Аналитик исследовал срезы: на Desktop конверсия шага составляла $75\%$, а на Mobile — всего $22\%$.
+Причина: на мобильных устройствах поле ввода номера паспорта вызывало буквенную клавиатуру вместо цифровой, а дата рождения требовала 35 кликов в календаре. После фикса инпутов конверсия шага на смартфонах подскочила до $68\%$.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Расчет воронки в ClickHouse с использованием специализированной функции windowFunnel
+SELECT
+    level,
+    count() AS users_count
+FROM (
+    SELECT
+        user_id,
+        windowFunnel(86400)( -- окно 24 часа (в секундах)
+            event_time,
+            event_name = 'view_catalog',
+            event_name = 'add_to_cart',
+            event_name = 'start_checkout',
+            event_name = 'payment_success'
+        ) AS level
+    FROM events
+    WHERE event_time >= today() - 7
+    GROUP BY user_id
+)
+GROUP BY level
+ORDER BY level ASC;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Слишком широкое окно конверсии.</b> Задание окна в 30 дней для чекаута склеивает совершенно разные независимые визиты пользователя.</li>
+        <li><b>Игнорирование времени прохождения воронки (Time-to-Convert).</b> Важно знать не только долю дошедших, но и медианное время: если оформление занимает 25 минут, клиенты испытывают колоссальное трение.</li>
+        <li><b>Построение воронок без сегментации по платформам.</b> Смешивание веба и мобильных приложений маскирует технические баги конкретных версий ОС.</li>
+        <li><b>Потеря шагов из-за багов логирования.</b> Если на iOS событие add_to_cart логируется с опечаткой, воронка покажет нулевую конверсию.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как устроена функция windowFunnel в ClickHouse под капотом?»</i> Ответ: <i>«Она принимает окно в секундах и цепочку булевых предикатов. Для каждого пользователя события сортируются по времени, и алгоритм жадно ищет максимальную монотонно возрастающую цепочку шагов, укладывающуюся в заданный тайм-аут, возвращая индекс максимального достигнутого уровня (level)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Для чего строится продуктовая воронка?</b></p><p>Для выявления точек максимального оттока пользователей (узких мест) на пути к целевому действию.</p></li>
+        <li><p><b>В чем различие между строгой и нестрогой воронкой?</b></p><p>Строгая требует непрерывной последовательности шагов; нестрогая допускает посторонние действия между этапами.</p></li>
+        <li><p><b>Что такое окно конверсии (Conversion Window) воронки?</b></p><p>Предельный временной интервал, в течение которого пользователь должен пройти все шаги цепочки.</p></li>
+        <li><p><b>Какая специализированная функция ClickHouse используется для сверхбыстрого расчета воронок?</b></p><p>windowFunnel().</p></li>
+        <li><p><b>Почему важно дополнять конверсию воронки метрикой Time-to-Convert?</b></p><p>Она показывает эргономику пути: долгое время прохождения сигнализирует о сложностях интерфейса.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cohort_analysis" data-interview="5">
+  <div class="name" id="cohort_analysis">
+    Когортный анализ
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Когортный анализ (Cohort Analysis)</b> — это метод исследования поведения пользователей, при котором аудитория разбивается на однородные группы (когорты) по общему признаку времени совершения ключевого события (дата регистрации, неделя первой покупки, версия приложения) и отслеживается во времени вдоль оси их жизненного цикла (Lifetime).</p>
+<p>Если совсем простыми словами: <b>это способ сравнивать яблоки с яблоками</b>. Нельзя сравнивать поведение ветеранов продукта, зарегистрированных 3 года назад, и новичков, пришедших вчера. Когортный анализ изолирует поколения пользователей и показывает, становится ли продукт лучше со временем.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Структура и математическая матрица когортного анализа:</p>
+<p>Результаты представляются в виде треугольной когортной матрицы, где:</p>
+<ul>
+<li>По вертикали откладывается <b>Когорта (Cohort Date)</b> — неделя или месяц привлечения.</li>
+<li>По горизонтали откладывается <b>Возраст когорты (Lifetime / Age)</b> — прошедшее количество периодов ($t = 0, 1, 2, \dots$).</li>
+<li>В ячейках матрицы $C_{i, t}$ рассчитываются показатели: Retention, средняя выручка на когорту (LTV), число заказов.</li>
+</ul>
+<p><b>Три ключевых направления чтения когортной матрицы:</b></p>
+<ol>
+<li><b>По горизонтали (Жизненный цикл):</b> Показывает динамику угасания когорты со временем.</li>
+<li><b>По вертикали (Сравнение поколений в одинаковом возрасте):</b> Сравнение ячеек $C_{i, 1}$ для разных когорт показывает качество продуктовых релизов (становится ли продукт привлекательнее для новых поколений).</li>
+<li><b>По диагонали (Календарное время):</b> Ячейки с одинаковым $i + t$ отражают влияние конкретного внешнего календарного события (например, сбой серверов или Черная Пятница).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс продуктового релиза в e-commerce:</b>
+В марте команда выкатила новую программу лояльности.
+При сравнении валового Retention казалось, что ничего не изменилось.
+Аналитик построил когортную матрицу:
+<ul>
+<li>Когорта Января: Retention 1-го месяца $= 18\%$.</li>
+<li>Когорта Февраля: Retention 1-го месяца $= 19\%$.</li>
+<li>Когорта Марта (новый релиз): Retention 1-го месяца $= 28\%$!</li>
+<li>Когорта Апреля: Retention 1-го месяца $= 29\%$.</li>
+</ul>
+Когортный анализ доказал, что программа лояльности совершила прорыв для новых пользователей, что было скрыто в валовых отчетах огромной массой старых клиентов.</p>
+    </div>
+    <div class="code-block" data-lang="sql">
+      <pre><code>-- Когортный анализ Retention по месяцам первого заказа (PostgreSQL / ClickHouse)
+WITH user_first_order AS (
+    SELECT
+        user_id,
+        toStartOfMonth(min(order_date)) AS cohort_month
+    FROM orders
+    GROUP BY user_id
+),
+cohort_activity AS (
+    SELECT
+        u.cohort_month,
+        dateDiff('month', u.cohort_month, toStartOfMonth(o.order_date)) AS month_number,
+        uniqExact(o.user_id) AS active_users
+    FROM orders AS o
+    JOIN user_first_order AS u ON o.user_id = u.user_id
+    GROUP BY cohort_month, month_number
+),
+cohort_base AS (
+    SELECT
+        cohort_month,
+        active_users AS initial_users
+    FROM cohort_activity
+    WHERE month_number = 0
+)
+SELECT
+    a.cohort_month,
+    b.initial_users,
+    a.month_number,
+    a.active_users,
+    round(a.active_users / b.initial_users * 100, 2) AS retention_pct
+FROM cohort_activity AS a
+JOIN cohort_base AS b ON a.cohort_month = b.cohort_month
+ORDER BY a.cohort_month, a.month_number;</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Смешивание когорт разной природы.</b> Объединение в одну когорту пользователей платной рекламы и органического сарафанного радио искажает анализ каналов.</li>
+        <li><b>Игнорирование незавершенных когорт.</b> Ячейки матрицы, которые еще физически не прожили полный период, нельзя отображать как нулевые (Right-censoring).</li>
+        <li><b>Ошибочное определение даты когорты.</b> Привязка когорты к первому заходу вместо первой покупки при анализе монетизационного LTV.</li>
+        <li><b>Забывание о сезонности когорт.</b> Когорта Черной Пятницы (ноябрь) всегда ведет себя иначе, чем когорта июля.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как с помощью когортного анализа отличить проблему качества продукта от проблемы маркетингового трафика?»</i> Ответ: <i>«Если при неизменном продукте у свежих когорт резко падает Day 1 и Day 7 Retention по вертикали матрицы — маркетинг начал привлекать нецелевой или низкокачественный трафик. Если же отток по горизонтали ускоряется у ВСЕХ когорт одновременно в определенную дату (по диагонали) — проблема в продуктовом баге или релизе, сломавшем функционал».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое когорта в продуктовой аналитике?</b></p><p>Группа пользователей, объединенных общим ключевым событием и временным интервалом его совершения.</p></li>
+        <li><p><b>Какие три измерения анализируются в классической когортной таблице?</b></p><p>Жизненный цикл (горизонталь), качество поколений (вертикаль) и календарные шоки (диагональ).</p></li>
+        <li><p><b>Почему валовые показатели продукта могут расти при деградации когорт?</b></p><p>За счет массивного вливания нового платного трафика, маскирующего ускоряющийся отток старых клиентов.</p></li>
+        <li><p><b>В чем преимущество когортного LTV перед расчетным средним чеком?</b></p><p>Когортный LTV показывает реальную динамику накопления выручки с клиента во времени без теоретических допущений.</p></li>
+        <li><p><b>Как когортный анализ помогает оценивать окупаемость маркетинга (CAC Payback)?</b></p><p>Показывает, в какой именно месяц Lifetime накопленный когортный доход сравнивается со стоимостью привлечения этой когорты.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="aarrr" data-interview="4">
+  <div class="name" id="aarrr">
+    Фреймворк AARRR (Pirate Metrics)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Фреймворк AARRR (Пиратские метрики, Дэйв МакКлюр, 500 Startups)</b> — это классическая сквозная модель управления продуктом, декомпозирующая весь жизненный цикл взаимодействия пользователя с бизнесом на пять ключевых стадий: <b>Acquisition (Привлечение)</b>, <b>Activation (Активация)</b>, <b>Retention (Удержание)</b>, <b>Revenue (Монетизация)</b> и <b>Referral (Виральность)</b>.</p>
+<p>Если совсем простыми словами: <b>это карта путешествия клиента от первого клика по рекламе до рекомендации друзьям</b>. Она объединяет маркетинг, продукт и финансы в одну понятную цепочку, позволяя сразу увидеть, на каком именно этапе бизнес теряет деньги.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Стадии фреймворка AARRR и их ключевые метрики:</p>
+<ol>
+<li><b>Acquisition (Привлечение):</b> Как пользователи узнают о продукте и приходят в него.
+    <ul><li><i>Метрики:</i> Трафик, CPC (Cost Per Click), CPA (Cost Per Acquisition), установки, переходы по каналам.</li></ul>
+</li>
+<li><b>Activation (Активация):</b> Первое успешное знакомство с продуктом, достижение <b>Aha-момента</b> (осознание ценности).
+    <ul><li><i>Метрики:</i> Конверсия онбординга, время до первого целевого действия, доля пользователей, заполнивших профиль.</li></ul>
+</li>
+<li><b>Retention (Удержание):</b> Регулярность возвращения в продукт. Фундамент долгосрочной ценности.
+    <ul><li><i>Метрики:</i> N-day Retention, Churn Rate, DAU/MAU Stickiness.</li></ul>
+</li>
+<li><b>Revenue (Монетизация):</b> Как продукт зарабатывает деньги на удержанных пользователях.
+    <ul><li><i>Метрики:</i> ARPU, ARPPU, Paying Share, LTV, средний чек (AOV), Repeat Purchase Rate.</li></ul>
+</li>
+<li><b>Referral (Виральность):</b> Готовность пользователей рекомендовать продукт окружению.
+    <ul><li><i>Метрики:</i> K-фактор виральности ($K = i \times c$), NPS, процент реферальных регистраций.</li></ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-банка (Тинькофф):</b>
+Анализ воронки AARRR показал:
+1. <i>Acquisition:</i> Маркетинг привлекает 500 000 установок в месяц по низкому CAC (отлично).
+2. <i>Activation:</i> Из установивших приложение только 22% привязали карту или пополнили счет (критическое узкое место!).
+Команда сфокусировалась на Активации: внедрила моментальный выпуск виртуальной карты и пополнение через СБП прямо на экране регистрации. Конверсия активации выросла до 61%. Это автоматически утроило выручку (Revenue) без увеличения бюджета на привлечение.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Сквозной дашборд воронки AARRR
+aarrr_funnel = {
+    "1_Acquisition": {"metric": "New Visitors / Installs", "value": 500000, "conversion_to_next": 0.35},
+    "2_Activation":  {"metric": "Aha Moment (First Action)", "value": 175000, "conversion_to_next": 0.40},
+    "3_Retention":   {"metric": "Active Day 30",            "value": 70000,  "conversion_to_next": 0.25},
+    "4_Revenue":     {"metric": "Paying Customers",         "value": 17500,  "conversion_to_next": 0.15},
+    "5_Referral":    {"metric": "Invited Friends",          "value": 2625,   "conversion_to_next": None}
+}
+
+print("=== СКВОЗНОЙ СРЕЗ ПРОДУКТА ПО AARRR ===")
+for stage, data in aarrr_funnel.items():
+    conv_str = f"-> Step CR: {data['conversion_to_next']:.1%}" if data['conversion_to_next'] else ""
+    print(f"{stage:15s} | {data['metric']:28s} | {data['value']:10,d} {conv_str}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Фокус на Acquisition до наладки Retention.</b> Заливать трафик в продукт с низким Retention — сжигание маркетингового бюджета впустую (leaky bucket).</li>
+        <li><b>Определение активации через факт регистрации.</b> Регистрация — это лишь технический шаг. Активация — это осознание ценности (например, отправка первого сообщения или первая поездка).</li>
+        <li><b>Линейное восприятие AARRR.</b> В реальности пользовательский путь цикличен: удержание порождает рефералов, которые становятся новым привлечением.</li>
+        <li><b>Игнорирование себестоимости в стадии Revenue.</b> Рост оборота (GMV) не равен росту чистой прибыли.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«С какой стадии AARRR продуктовая команда должна начинать работу над новым продуктом?»</i> Ответ: <i>«С Удержания (Retention) и Активации (Activation). Если продукт не умеет удерживать первых 100 пользователей и доводить их до ценности, масштабировать Привлечение (Acquisition) бессмысленно — бизнес сгорит от нехватки ликвидности».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что означают буквы в аббревиатуре AARRR?</b></p><p>Acquisition (Привлечение), Activation (Активация), Retention (Удержание), Revenue (Монетизация), Referral (Виральность).</p></li>
+        <li><p><b>Что такое Aha-момент на стадии активации?</b></p><p>Момент, когда пользователь впервые на собственном опыте ощущает ключевую ценность продукта.</p></li>
+        <li><p><b>Какое соотношение стадий считается главным правилом стартапа?</b></p><p>Retention First, Acquisition Second.</p></li>
+        <li><p><b>Что такое K-фактор виральности на стадии Referral?</b></p><p>Среднее число новых пользователей, которых приводит один текущий активный пользователь.</p></li>
+        <li><p><b>Чем фреймворк RARRA отличается от классического AARRR?</b></p><p>Он ставит Retention на первое место, подчеркивая критичность удержания над привлечением.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="arpu_arppu" data-interview="5">
+  <div class="name" id="arpu_arppu">
+    ARPU, ARPPU и Paying Share
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Метрики монетизационной эффективности (Unit Revenue Metrics)</b> — это система показателей, оценивающая способность продукта извлекать выручку как со всей аудитории, так и исключительно с платящего ядра:</p>
+<ul>
+<li><b>ARPU (Average Revenue Per User):</b> Средняя выручка в расчете на одного активного пользователя за период:
+<p>$$\mathrm{ARPU} = \frac{\text{Общая выручка}}{\text{Все активные пользователи (Active Users)}}$$</p></li>
+<li><b>ARPPU (Average Revenue Per Paying User):</b> Средняя выручка в расчете на одного <b>платящего</b> пользователя за период:
+<p>$$\mathrm{ARPPU} = \frac{\text{Общая выручка}}{\text{Платящие пользователи (Paying Users)}}$$</p></li>
+<li><b>Paying Share (Conversion to Paying, CR to Pay):</b> Доля платящих пользователей среди всей активной аудитории:
+<p>$$\mathrm{Paying\ Share} = \frac{\text{Платящие пользователи}}{\text{Все активные пользователи}} \times 100\%$$</p></li>
+</ul>
+<p>Если совсем простыми словами: <b>фундаментальная связь метрик выражается формулой: $\mathbf{ARPU = ARPPU \times Paying\ Share}$</b>. Чтобы вырастить общую выручку с пользователя (ARPU), вы можете либо заставить платить больший процент людей (Paying Share), либо брать больше денег с тех, кто уже платит (ARPPU).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Декомпозиция ARPPU и структура монетизации:</p>
+<p>ARPPU можно дополнительно разложить на средний чек (Average Order Value, AOV) и частоту покупок на платящего (Orders Per Paying User, $OPU$):</p>
+<p>$$\mathrm{ARPPU} = \mathrm{AOV} \times \frac{\text{Число заказов}}{\text{Платящие пользователи}}$$</p>
+<p>Таким образом, полное монетизационное дерево выглядит как:</p>
+<p>$$\mathrm{ARPU} = \mathrm{Paying\ Share} \times \mathrm{AOV} \times \mathrm{OPU}$$</p>
+<p><b>Экономический смысл расхождения ARPU и ARPPU:</b></p>
+<ul>
+<li>В бесплатных моделях (Free-to-Play игры, классифайды, Freemium SaaS) Paying Share обычно составляет $2-5\%$. В этом случае ARPPU в 20-50 раз превосходит ARPU.</li>
+<li>В чисто платных подписках (Netflix) Paying Share близок к $100\%$, и ARPU практически равен ARPPU.</li>
+</ul>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс геймдева и супераппа:</b>
+Месячный срез: $1\,000\,000$ MAU, выручка $120\,000\,000$ рублей.
+Платящих клиентов: $40\,000$ человек.
+$\mathrm{ARPU} = 120\,000\,000 / 1\,000\,000 = 120$ рублей.
+$\mathrm{Paying\ Share} = 40\,000 / 1\,000\,000 = 4.0\%$.
+$\mathrm{ARPPU} = 120\,000\,000 / 40\,000 = 3\,000$ рублей.
+Команда ввела дешевую микро-подписку за 199 рублей.
+Paying Share вырос до $8.0\%$ ($80\,000$ платящих).
+Из-за притока дешевых платежей средний чек платящего размылся: ARPPU упал с $3\,000$ до $2\,100$ рублей.
+Однако итоговый $\mathrm{ARPU} = 2\,100 \times 0.08 = 168$ рублей ($+40\%$ общего дохода)! Общая выручка выросла до 168 млн рублей.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Аналитическая декомпозиция монетизации продукта
+def analyze_monetization(total_revenue, active_users, paying_users, total_orders):
+    arpu = total_revenue / active_users
+    arppu = total_revenue / paying_users
+    paying_share = paying_users / active_users
+    aov = total_revenue / total_orders
+    orders_per_paying = total_orders / paying_users
+    
+    print(f"ARPU:         {arpu:8.2f} руб.")
+    print(f"ARPPU:        {arppu:8.2f} руб.")
+    print(f"Paying Share: {paying_share:8.2%}")
+    print(f"AOV:          {aov:8.2f} руб.")
+    print(f"Заказов/платящего: {orders_per_paying:4.2f}")
+    print(f"Проверка: ARPU == ARPPU * Paying_Share: {np.isclose(arpu, arppu * paying_share)}")
+
+analyze_monetization(120000000, 1000000, 40000, 95000)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Падение ARPPU трактуется как катастрофа.</b> Классическая ошибка: при привлечении низкочековых платящих пользователей ARPPU падает из-за размытия базы, но совокупный доход (ARPU) резко растет.</li>
+        <li><b>Сравнение ARPU за разные периоды (месячный vs дневной).</b> ARPU всегда должен привязываться к строгому окну (Day, Week, Month).</li>
+        <li><b>Учет возвратов и возвращенных платежей (Refunds).</b> Выручка должна считаться Net of Refunds, иначе ARPU будет завышен.</li>
+        <li><b>Смешение валового оборота (GMV) и чистой выручки (Net Revenue).</b> В маркетплейсах ARPU считается от комиссии платформы (Take Rate), а не от всей стоимости проданных чужих товаров.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В A/B тесте Paying Share вырос на 30%, а ARPPU упал на 15%. Это хороший результат?»</i> Ответ: <i>«Да, великолепный! Так как $\mathrm{ARPU} = \mathrm{ARPPU} \times \mathrm{Paying\ Share}$, итоговый мультипликатор ARPU составит $0.85 \times 1.30 = 1.105$ ($+10.5\%$ чистой выручки на пользователя). Продукт стал зарабатывать больше за счет расширения базы платящих клиентов».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между ARPU и ARPPU?</b></p><p>ARPU считается на всю активную аудиторию; ARPPU — строго на платящих пользователей.</p></li>
+        <li><p><b>Какова фундаментальная математическая связь между ARPU, ARPPU и Paying Share?</b></p><p>$\mathrm{ARPU} = \mathrm{ARPPU} 	imes \mathrm{Paying\ Share}$.</p></li>
+        <li><p><b>Как ARPPU раскладывается на средний чек и частоту покупок?</b></p><p>$\mathrm{ARPPU} = \mathrm{AOV} 	imes \mathrm{Frequency}$.</p></li>
+        <li><p><b>Почему рост конверсии в покупку часто сопровождается падением ARPPU?</b></p><p>Потому что новые платящие клиенты обычно совершают небольшие пробные платежи, размывая средний чек ядра.</p></li>
+        <li><p><b>В каких продуктах ARPU практически совпадает с ARPPU?</b></p><p>В продуктах со строгой платной подпиской (SaaS без бесплатного тарифа, Netflix).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ltv" data-interview="5">
+  <div class="name" id="ltv">
+    Lifetime Value (LTV / CLV)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Пожизненная ценность клиента (Customer Lifetime Value, LTV / CLV)</b> — это совокупная чистая прибыль (или валовая маржа), которую один клиент генерирует бизнесу на протяжении всей истории своих взаимоотношений с продуктом до момента окончательного оттока.</p>
+<p>Если совсем простыми словами: <b>это предельная сумма, которую пользователь принесет в кассу вашей компании за всю свою жизнь</b>. Знание точного LTV определяет, сколько денег вы имеете право потратить на привлечение одного клиента (CAC) и остаться в плюсе.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методологии расчета LTV:</p>
+<ol>
+<li><b>Простая формула для подписочных сервисов (SaaS):</b>
+<p>$$\mathrm{LTV} = \frac{\mathrm{ARPU} \times \mathrm{Gross\ Margin\ \%}}{\mathrm{Churn\ Rate}} = \mathrm{ARPU} \times \mathrm{Margin} \times \mathrm{Lifetime}$$</p>
+</li>
+<li><b>Когортный интегральный метод (Исторический LTV):</b> Суммирование накопленной валовой прибыли когорты на пользователя к возрасту $T$:
+<p>$$\mathrm{LTV}(T) = \sum_{t=0}^T \mathrm{ARPU}_t$$</p>
+</li>
+<li><b>Прогностический LTV (Predictive LTV / ML-модели):</b>
+    <ul>
+    <li><i>Модель BG/NBD (Beta-Geometric / Negative Binomial Distribution):</i> Моделирует вероятность того, что клиент еще «жив» ($P(\text{Alive})$) и частоту его будущих транзакций.</li>
+    <li><i>Модель Gamma-Gamma:</i> Оценивает среднюю стоимость будущей транзакции.</li>
+    <li><i>Градиентный бустинг (CatBoost / LightGBM):</i> Регрессионный прогноз 365-day LTV на основе признаков первых 3-7 дней активности.</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-банка (Кредитные карты):</b>
+Привлечение клиента по рекламе обходится в $4\,500$ руб. (CAC).
+В первый месяц банк зарабатывает на клиенте всего $800$ руб. комиссии (кажется, что маркетинг убыточен!).
+Однако когортный расчет показал: средний срок жизни держателя карты — $36$ месяцев, ежемесячный доход банка от интерчейнджа и процентов по кредиту составляет $650$ руб., маржинальность $75\%$.
+$\mathrm{LTV} = 36 \times 650 \times 0.75 = 17\,550$ рублей.
+Отношение $\mathrm{LTV} / \mathrm{CAC} = 17\,550 / 4\,500 \approx 3.9$ (отличная окупаемость). Банк уверенно масштабирует маркетинг.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+# Расчет когортного кумулятивного LTV по месяцам
+cohort_size = 10000
+monthly_retention = [1.0, 0.45, 0.35, 0.30, 0.27, 0.25, 0.24, 0.23, 0.22, 0.21, 0.20, 0.19]
+arppu = 1500.0 # руб.
+paying_share_of_active = 0.15 # 15% активных совершают покупку каждый месяц
+gross_margin = 0.70 # маржинальность 70%
+
+cumulative_ltv = 0.0
+print("Месяц | Retention | Активных | Выручка когорты | Накопленный LTV (руб.)")
+print("-" * 75)
+for m, ret in enumerate(monthly_retention):
+    active = cohort_size * ret
+    paying = active * paying_share_of_active
+    revenue = paying * arppu * gross_margin
+    cumulative_ltv += revenue / cohort_size
+    print(f"M{m:2d}  | {ret:8.1%} | {int(active):8,d} | {revenue:13,.0f} руб. | {cumulative_ltv:8.1f} руб.")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Расчет LTV по выручке вместо валовой прибыли (Gross Margin).</b> Если маржинальность маркетплейса составляет 15%, а LTV посчитан по 100% оборота, компания обанкротится на привлечении клиентов.</li>
+        <li><b>Предположение о постоянном оттоке в простой формуле.</b> В реальности Churn Rate максимален в первые месяцы и затухает к концу года. Простая формула занижает или завышает LTV старых когорт.</li>
+        <li><b>Бесконечный горизонт планирования.</b> Оценивать LTV на 10 лет вперед бессмысленно (дисконтирование денег и изменение рынка). Стандарт — LTV на 1, 2 или 3 года (LTV 12m / 24m / 36m).</li>
+        <li><b>Игнорирование органического трафика.</b> Смешивание LTV платных и органических клиентов искажает unit-экономику рекламных каналов.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как предсказать годовой LTV клиента, если он зарегистрировался всего неделю назад?»</i> Ответ: <i>«Через предиктивные ML-модели или когортные коэффициенты дожития. Мы строим модель (CatBoost) по поведению первых 7 дней (число сессий, глубина просмотра, факт первой покупки, категория товаров) с таргетом 365-day LTV на исторических когортах, либо используем вероятностные модели BG/NBD + Gamma-Gamma».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Customer Lifetime Value (LTV)?</b></p><p>Совокупная чистая прибыль, получаемая компанией от одного клиента за весь период его жизненного цикла.</p></li>
+        <li><p><b>Как рассчитывается базовый LTV для подписочного бизнеса?</b></p><p>$\mathrm{LTV} = (\mathrm{ARPU} 	imes \mathrm{Gross\ Margin}) / \mathrm{Churn\ Rate}$.</p></li>
+        <li><p><b>Почему LTV необходимо рассчитывать на основе маржи, а не валовой выручки?</b></p><p>Потому что привлечение клиентов окупается из чистой прибыли, остающейся после вычета переменных затрат (себестоимость, эквайринг, серверы).</p></li>
+        <li><p><b>Какие статистические модели являются стандартом для прогнозирования LTV в e-commerce?</b></p><p>Вероятностные модели Buy-Till-You-Die (BTYD): BG/NBD и Gamma-Gamma.</p></li>
+        <li><p><b>Что такое ограниченный LTV (LTV 12m / 24m)?</b></p><p>Расчет ценности клиента, ограниченный фиксированным временным горизонтом (1 или 2 года) для снижения финансовой неопределенности.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="unit_economics_cac" data-interview="5">
+  <div class="name" id="unit_economics_cac">
+    Юнит-экономика и CAC
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Юнит-экономика (Unit Economics)</b> — это метод моделирования прибыльности бизнеса в расчете на один базовый атомарный «юнит» (обычно один привлеченный клиент, один заказ или одна поездка). Центральными метриками являются соотношение <b>LTV к CAC</b> и <b>срок окупаемости привлечения (CAC Payback Period)</b>.</p>
+<p><b>CAC (Customer Acquisition Cost):</b> Совокупные затраты на маркетинг и продажи, необходимые для привлечения одного нового платящего клиента:</p>
+<p>$$\mathrm{CAC} = \frac{\text{Все маркетинговые расходы и зарплаты продаж}}{\text{Количество новых привлеченных клиентов}}$$</p>
+<p>Если совсем простыми словами: <b>юнит-экономика отвечает на вопрос: «Мы зарабатываем с каждого проданного пирожка больше, чем тратим на его выпечку и рекламу, или чем больше продаем, тем быстрее банкротимся?»</b></p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Ключевые бенчмарки и правила здоровой юнит-экономики:</p>
+<ol>
+<li><b>Отношение LTV / CAC:</b>
+    <ul>
+    <li><i>$< 1.0$:</i> Бизнес гарантированно генерирует убыток с каждого клиента. Смерть стартапа.</li>
+    <li><i>$1.0 - 2.0$:</i> Еле сводит концы с концами. Нет запаса прочности под накладные расходы.</li>
+    <li><i>$3.0 - 5.0$:</i> Золотой индустриальный стандарт здорового масштабируемого бизнеса.</li>
+    <li><i>$> 5.0$:</i> Недоинвестирование в маркетинг. Компания растет слишком медленно и отдает долю рынка конкурентам.</li>
+    </ul>
+</li>
+<li><b>Срок окупаемости CAC (Payback Period):</b> Время, за которое накопленная валовая прибыль с клиента полностью возвращает затраты на его привлечение:
+<p>$$\mathrm{CAC\ Payback} = \frac{\mathrm{CAC}}{\mathrm{ARPU} \times \mathrm{Gross\ Margin\ \%}}$$</p>
+Здоровый бенчмарк для B2C — до 6 месяцев, для B2B SaaS — до 12-14 месяцев.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс каршеринга (Ситидрайв / Делимобиль):</b>
+CAC водителя по контекстной рекламе: $3\,200$ руб.
+Средняя поездка: $450$ руб., маржинальность поездки после бензина, страховки и лизинга: $25\%$ ($112.5$ руб. валовой прибыли).
+Частота поездок: 6 поездок в месяц ($675$ руб. маржи в месяц).
+$\mathrm{CAC\ Payback} = 3\,200 / 675 \approx 4.7$ месяца.
+Средний Lifetime водителя: 18 месяцев.
+$\mathrm{LTV} = 18 \times 675 = 12\,150$ руб.
+$\mathrm{LTV} / \mathrm{CAC} = 12\,150 / 3\,200 \approx 3.8$.
+Юнит-экономика сходится с отличным запасом прочности.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Калькулятор юнит-экономики и CAC Payback
+def unit_economics_audit(cac, monthly_arpu, margin_pct, monthly_churn):
+    monthly_margin_per_user = monthly_arpu * margin_pct
+    lifetime_months = 1.0 / monthly_churn
+    ltv = monthly_margin_per_user * lifetime_months
+    
+    ltv_to_cac = ltv / cac
+    payback_months = cac / monthly_margin_per_user
+    
+    print(f"CAC:            {cac:8,.0f} руб.")
+    print(f"LTV:            {ltv:8,.0f} руб.")
+    print(f"LTV / CAC:      {ltv_to_cac:8.2f}x")
+    print(f"CAC Payback:    {payback_months:8.1f} месяцев")
+    
+    if ltv_to_cac >= 3.0 and payback_months <= 12:
+        print("ВЕРДИКТ: Экономика масштабируема (Зеленая зона).")
+    else:
+        print("ВЕРДИКТ: Требуется оптимизация привлечения или удержания.")
+
+unit_economics_audit(cac=3500, monthly_arpu=1200, margin_pct=0.70, monthly_churn=0.04)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Blended CAC вместо Paid CAC.</b> Деление рекламного бюджета на сумму платных и бесплатных органических клиентов занижает реальную стоимость платного привлечения.</li>
+        <li><b>Забывание про зарплаты маркетологов и комиссии агентств в формуле CAC.</b> Fully Loaded CAC обязан включать ФОТ команды маркетинга, стоимость софта и накладные расходы.</li>
+        <li><b>Игнорирование оттока до момента окупаемости.</b> Если срок окупаемости 12 месяцев, а 40% клиентов отваливаются к 6 месяцу, когорта никогда не окупится.</li>
+        <li><b>Путаница между выручкой и маржинальной прибылью в формуле окупаемости.</b> Деление CAC на выручку создает опасную иллюзию быстрой окупаемости.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем разница между Blended CAC и Paid CAC и почему инвесторы смотрят на Paid CAC?»</i> Ответ: <i>«Blended CAC делит расходы на всех новых клиентов, включая сарафанное радио и органику. Это маскирует убыточность рекламных каналов. Paid CAC считает стоимость привлечения строго внутри платной когорты. Если Paid CAC превышает LTV, масштабирование рекламы разорит компанию, даже если Blended CAC выглядит красивым за счет органики».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое юнит-экономика?</b></p><p>Моделирование доходов и переменных расходов в расчете на одного клиента или транзакцию.</p></li>
+        <li><p><b>Что такое Customer Acquisition Cost (CAC)?</b></p><p>Совокупные расходы компании на привлечение одного нового платящего клиента.</p></li>
+        <li><p><b>Какое соотношение LTV к CAC считается золотым стандартом для масштабируемого бизнеса?</b></p><p>От 3:1 до 5:1.</p></li>
+        <li><p><b>Что такое CAC Payback Period?</b></p><p>Период времени, необходимый для того, чтобы валовая прибыль от клиента полностью возместила стоимость его привлечения.</p></li>
+        <li><p><b>Что такое Fully Loaded CAC?</b></p><p>Расчет стоимости привлечения с учетом не только прямого рекламного бюджета, но и зарплат команды маркетинга, комиссий и стоимости инструментов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="north_star_metric" data-interview="4">
+  <div class="name" id="north_star_metric">
+    North Star Metric (NSM)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>North Star Metric (Метрика Полярной Звезды, NSM)</b> — это ключевая единая продуктовая метрика, наилучшим образом отражающая центральную ценность продукта для пользователя, служащая главным фокусом для всех продуктовых команд и являющаяся ведущим опережающим индикатором долгосрочного финансового успеха компании.</p>
+<p>Если совсем простыми словами: <b>это главный компас продукта</b>. Выручка — это запаздывающий результат вчерашних решений. NSM показывает, сколько реальной пользы получают ваши клиенты прямо сейчас: если клиенты счастливы сегодня, завтра компания будет с прибылью.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Критерии идеальной North Star Metric (Sean Ellis, Amplitude framework):</p>
+<ol>
+<li><b>Отражение ценности для клиента (Value Delivery):</b> Метрика фиксирует момент, когда пользователь получает реальную пользу (не просто визит на сайт).</li>
+<li><b>Опережающий характер (Leading Indicator):</b> Предсказывает будущее удержание и выручку, а не констатирует прошлые бухгалтерские доходы.</li>
+<li><b>Понятность и действенность (Actionable):</b> Любой инженер и дизайнер понимает, как его фича влияет на этот показатель.</li>
+<li><b>Примеры канонических NSM мировых гигантов:</b>
+    <ul>
+    <li><i>Airbnb:</i> Число забронированных ночей (Nights Booked).</li>
+    <li><i>Spotify:</i> Время прослушивания музыки (Time Spent Listening).</li>
+    <li><i>Uber:</i> Число успешно завершенных поездок (Rides Completed).</li>
+    <li><i>Slack:</i> Число сообщений, отправленных внутри команды (Messages Sent).</li>
+    <li><i>Amazon:</i> Число покупок на подписчика Prime в месяц.</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-сервиса переводов:</b>
+Изначально руководство выбрало NSM: <i>«Выручка от комиссий за переводы»</i>.
+Команда начала повышать комиссии и прятать платные опции. Краткосрочно выручка подросла, но клиенты начали массово уходить к конкурентам (СБП).
+Аналитики сменили NSM на <i>«Число успешных переводов между пользователями в месяц»</i>.
+Фокус сместился на скорость проведения платежа, поиск контактов по телефонной книге и надежность шлюза. Рост удобства привел к взрывному органическому росту транзакций, и выручка выросла в 4 раза естественным путем.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Моделирование влияния North Star Metric на будущую выручку (Leading Indicator)
+import pandas as pd
+import statsmodels.api as sm
+
+# Данные: NSM (минуты прослушивания в первый месяц) и выручка через 12 месяцев
+data = pd.DataFrame({
+    "user_id": range(1, 11),
+    "nsm_listening_hours_m1": [2.5, 8.0, 15.0, 25.0, 4.0, 35.0, 18.0, 50.0, 1.0, 22.0],
+    "revenue_12m":            [0,   1200, 2400, 3600, 0,   4800, 2400, 4800, 0,   3600]
+})
+
+X = sm.add_constant(data["nsm_listening_hours_m1"])
+y = data["revenue_12m"]
+model = sm.OLS(y, X).fit()
+
+print(f"R-squared связи NSM с будущей выручкой: {model.rsquared:.2%}")
+print(f"Каждый дополнительный час в первый месяц приносит: {model.params['nsm_listening_hours_m1']:+.1f} руб. LTV")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Выбор чистой выручки в качестве NSM.</b> Выручка — запаздывающая метрика (Lagging Indicator). Ее можно накачать краткосрочными агрессивными скидками, убив доверие к бренду.</li>
+        <li><b>Метрика тщеславия (Vanity Metric) в качестве NSM.</b> Выбор числа зарегистрированных пользователей или просмотров страниц ни о чем не говорит о реальном потреблении ценности.</li>
+        <li><b>Отсутствие декомпозиции NSM на уровни команд.</b> Если разработчик не знает, как его задача влияет на абстрактный NSM, фокус теряется.</li>
+        <li><b>Статичность NSM на всех стадиях зрелости продукта.</b> На этапе стартапа NSM фокусируется на активации, на этапе зрелости — на удержании и монетизации.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Почему выручка — плохая North Star Metric?»</i> Ответ: <i>«Выручка отражает результат монетизации в прошлом (Lagging Indicator). Она не объясняет, довольны ли пользователи продуктом. Повышение цен или агрессивная реклама могут временно поднять выручку при катастрофическом падении ценности для клиента. Истинная NSM отражает объем создаваемой пользы (Leading Indicator), который гарантирует органический приток денег в будущем».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое North Star Metric?</b></p><p>Главная опережающая метрика продукта, фиксирующая создание ключевой ценности для клиента и направляющая стратегию всех команд.</p></li>
+        <li><p><b>В чем различие между опережающими (Leading) и запаздывающими (Lagging) метриками?</b></p><p>Опережающие предсказывают будущие исходы на ранней стадии; запаздывающие лишь констатируют свершившиеся факты.</p></li>
+        <li><p><b>Назовите North Star Metric для Airbnb и Spotify.</b></p><p>Airbnb — число забронированных ночей; Spotify — время прослушивания музыки.</p></li>
+        <li><p><b>Почему количество зарегистрированных пользователей является метрикой тщеславия (Vanity Metric)?</b></p><p>Потому что регистрация не отражает удержание и регулярное извлечение ценности из продукта.</p></li>
+        <li><p><b>Как команды связывают свою ежедневную работу с North Star Metric?</b></p><p>Через декомпозицию NSM в аналитическое Дерево Метрик (Metric Tree).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="metric_tree" data-interview="5">
+  <div class="name" id="metric_tree">
+    Иерархия и дерево метрик (Metric Tree)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Дерево метрик (Metric Tree / KPI Hierarchy)</b> — это древовидная математическая модель декомпозиции глобальной цели бизнеса и North Star Metric на операционные, продуктовые и технические драйверы нижних уровней, связывающая стратегию компании с конкретными задачами продуктовых команд.</p>
+<p>Если совсем простыми словами: <b>это схема разборки сложного двигателя на винтики</b>. Если падает общая выручка, вы открываете дерево метрик и сразу видите математическую формулу: выручка = трафик $\times$ конверсия $\times$ средний чек. Вы сразу понимаете, какая именно ветка дала сбой.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Уровни и архитектура дерева метрик:</p>
+<ol>
+<li><b>Уровень 0 (Стратегический / North Star / Net Profit):</b> Главная цель бизнеса (например, Выручка маркетплейса).</li>
+<li><b>Уровень 1 (Фундаментальные драйверы):</b>
+<p>$$\mathrm{Revenue} = \mathrm{MAU} \times \mathrm{Conversion\ Rate} \times \mathrm{AOV} \times \mathrm{Order\ Frequency}$$</p>
+Каждый фактор закрепляется за отдельным направлением (Трафик, Чекаут, Каталог, Лояльность).</li>
+<li><b>Уровень 2 (Продуктовые драйверы команд):</b>
+    <ul>
+    <li>$\mathrm{Conversion\ Rate} = \mathrm{Search\ CR} \times \mathrm{Cart\ Completion\ Rate} \times \mathrm{Payment\ Success\ Rate}$.</li>
+    <li>$\mathrm{MAU} = \mathrm{New\ Users} + \mathrm{Retained\ Users} + \mathrm{Resurrected\ Users}$.</li>
+    </ul>
+</li>
+<li><b>Уровень 3 (Операционные и технические метрики спринтов):</b> Время ответа API поиска (Latency), глубина скролла фильтров, процент отказов платежного шлюза.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс декомпозиции выручки онлайн-кинотеатра:</b>
+Цель: увеличить выручку подписок на $+20\%$.
+Команда построила дерево:
+$\mathrm{Subscription\ Revenue} = \mathrm{New\ Subs} \times \mathrm{Price} + \mathrm{Active\ Subs} \times (1 - \mathrm{Churn}) \times \mathrm{Price}$.
+Анализ показал:
+1. Потенциал снижения Churn исчерпан (держится на мировом уровне 3.5%).
+2. Увеличение цены вызовет отток.
+3. Главная точка роста — воронка триалов: конверсия из бесплатной недели в платную подписку составляла всего $24\%$.
+Фокусировка на ветке онбординга триалов подняла конверсию до $36\%$, выполнив годовую цель холдинга.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Математическая симуляция чувствительности дерева метрик
+def simulate_revenue_tree(traffic, cr, aov, frequency):
+    orders = traffic * cr * frequency
+    revenue = orders * aov
+    return {"orders": orders, "revenue": revenue}
+
+baseline = simulate_revenue_tree(traffic=1000000, cr=0.03, aov=2500, frequency=1.5)
+# Сценарий A: подняли трафик на 10%
+sim_traffic = simulate_revenue_tree(traffic=1100000, cr=0.03, aov=2500, frequency=1.5)
+# Сценарий B: подняли конверсию на 10%
+sim_cr = simulate_revenue_tree(traffic=1000000, cr=0.033, aov=2500, frequency=1.5)
+
+print(f"Базовая выручка:              {baseline['revenue']:12,.0f} руб.")
+print(f"+10% трафика дает:            {sim_traffic['revenue']:12,.0f} руб. (рост {sim_traffic['revenue']/baseline['revenue'] - 1:+.1%})")
+print(f"+10% конверсии дает:          {sim_cr['revenue']:12,.0f} руб. (рост {sim_cr['revenue']/baseline['revenue'] - 1:+.1%})")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Построение дерева из несогласованных метрик.</b> Связи между узлами дерева должны быть строго математическими (умножение, сложение, деление), а не абстрактно-корреляционными.</li>
+        <li><b>Перегрузка дерева сотнями микро-метрик.</b> Дерево с 500 ветками становится нечитаемым и бесполезным для оперативного управления.</li>
+        <li><b>Отсутствие закрепленных ответственных за узлы.</b> Если за конкретную ветку дерева никто не отвечает в продуктовой иерархии, метрика деградирует.</li>
+        <li><b>Игнорирование каннибализации соседних веток.</b> Оптимизация одной ветки (например, цены) может резко обвалить другую ветку (конверсию).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как связать работу backend-разработчика, оптимизирующего базу данных, с прибылью компании?»</i> Ответ: <i>«Через дерево метрик: ускорение запросов к БД снижает задержку ответа API (p95 Latency) $\to$ уменьшение Latency повышает скорость загрузки каталога $\to$ рост скорости каталога снижает отказы и повышает Search-to-Cart Conversion $\to$ рост конверсии умножает число заказов $\to$ число заказов умножается на средний чек и увеличивает чистую прибыль компании».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое дерево метрик (Metric Tree)?</b></p><p>Иерархическая математическая модель декомпозиции глобальной цели бизнеса на взаимно согласованные продуктовые и технические драйверы.</p></li>
+        <li><p><b>Какое базовое уравнение декомпозирует выручку e-commerce продукта?</b></p><p>$\mathrm{Revenue} = \mathrm{Traffic} 	imes \mathrm{Conversion\ Rate} 	imes \mathrm{AOV} 	imes \mathrm{Frequency}$.</p></li>
+        <li><p><b>Почему связи между уровнями дерева должны быть математическими, а не интуитивными?</b></p><p>Чтобы можно было точно рассчитать факторный анализ и чувствительность итоговой цели к каждому узлу.</p></li>
+        <li><p><b>Как дерево метрик помогает локализовать падение бизнес-показателей?</b></p><p>Позволяет методом исключения спуститься по веткам дерева к узлу, показавшему максимальное отклонение от нормы.</p></li>
+        <li><p><b>Какую роль играет дерево метрик в планировании OKR продуктовых команд?</b></p><p>Оно позволяет декомпозировать глобальные цели компании на измеримые и автономные цели для каждого продуктового юнита.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

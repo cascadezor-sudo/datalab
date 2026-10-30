@@ -1,0 +1,89 @@
+{
+  "id": "mlops:cloud:block-2",
+  "title": "Cloud · Блок 2: облако для ML, стоимость и безопасность",
+  "description": "Проверка перед блоком 3: базовый cloud-набор для ML, типичный cloud-пайплайн, скрытые расходы, cost- и security-минимум.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_gpu_only",
+      "type": "single",
+      "q": "Какую самую частую ошибку в ML-облаке называет материал?",
+      "options": [
+        "Использовать object storage вместо дисков",
+        "Думать только про GPU, хотя стоимость часто определяют storage, egress, простаивающие инстансы, notebooks, логи и снапшоты",
+        "Хранить Docker-образы в registry",
+        "Запускать inference в Kubernetes"
+      ],
+      "answer": [1],
+      "explain": "Деньги утекают не только через GPU, но и через всё, что забыли выключить или почистить."
+    },
+    {
+      "id": "b2_registry",
+      "type": "single",
+      "q": "Зачем в cloud-наборе для ML нужен Container Registry?",
+      "options": [
+        "Для метаданных экспериментов",
+        "Для асинхронных задач и events",
+        "Для доступов к данным и секретам",
+        "Для хранения Docker-образов"
+      ],
+      "answer": [3],
+      "explain": "Метаданные — managed DB, события — очереди, доступы — IAM/Secrets, а образы лежат в Container Registry."
+    },
+    {
+      "id": "b2_security",
+      "type": "multi",
+      "q": "Что входит в security-минимум для облака? Выберите все верные.",
+      "options": [
+        "Least privilege для IAM",
+        "Один admin-ключ на все пайплайны, чтобы не путаться",
+        "Секреты в secret manager",
+        "Private networks для БД и внутренних сервисов",
+        "Публичные buckets для удобства обмена данными"
+      ],
+      "answer": [0, 2, 3],
+      "explain": "Нужны отдельные service accounts, секреты вне кода, закрытые сети и запрет публичных buckets без явной причины."
+    },
+    {
+      "id": "b2_spot",
+      "type": "single",
+      "q": "Какая практика из cost-минимума снижает цену вычислений там, где задачу можно прервать?",
+      "options": [
+        "Spot/preemptible-инстансы",
+        "Шифрование данных at rest",
+        "Разделение dev/stage/prod",
+        "Аудит действий"
+      ],
+      "answer": [0],
+      "explain": "Spot/preemptible дешевле обычных инстансов, но могут быть отозваны; остальные пункты — про безопасность."
+    },
+    {
+      "id": "b2_two_risks",
+      "type": "single",
+      "q": "Какие два главных риска облака для ML Engineer выделяет материал?",
+      "options": [
+        "Задержки сети и нехватка GPU",
+        "Vendor lock-in и сложность документации",
+        "Деньги и данные",
+        "Скорость обучения и качество модели"
+      ],
+      "answer": [2],
+      "explain": "Деньги — GPU, диски, egress, забытые notebooks; данные — публичные buckets, лишние IAM-права, секреты в коде."
+    },
+    {
+      "id": "b2_pipeline",
+      "type": "single",
+      "q": "Где в типичном cloud-пайплайне из материала лежат сырые данные?",
+      "options": [
+        "В container registry",
+        "В object storage",
+        "На GPU VM",
+        "В monitoring"
+      ],
+      "answer": [1],
+      "explain": "Сырые данные — в object storage, preprocessing — batch job, обучение — GPU VM, inference — Kubernetes, метрики — monitoring."
+    }
+  ]
+}

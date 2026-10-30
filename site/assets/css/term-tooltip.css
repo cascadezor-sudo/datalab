@@ -1,0 +1,282 @@
+/* ===== TERM TOOLTIP SYSTEM ===== */
+
+/* Base styles for terms with definitions */
+.term-tooltip {
+  position: relative;
+  display: inline;
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--term-tooltip-color, var(--brand));
+  text-underline-offset: 3px;
+  /* Явный цвет — иначе внутри <b> наслоение цветов, слово не видно */
+  color: var(--term-tooltip-color, var(--brand));
+  -webkit-text-fill-color: var(--term-tooltip-color, var(--brand));
+  transition:
+    color 0.2s ease,
+    text-decoration-color 0.2s ease;
+}
+
+.term-tooltip:hover {
+  text-decoration-color: var(--term-tooltip-hover-color, var(--brand-hover));
+  color: var(--term-tooltip-hover-color, var(--brand-hover));
+  -webkit-text-fill-color: var(--term-tooltip-hover-color, var(--brand-hover));
+}
+
+/* Внутри <b>/<strong> — принудительно переопределяем цвет, иначе не видно в обеих темах */
+b .term-tooltip,
+strong .term-tooltip {
+  color: var(--term-tooltip-color, var(--brand)) !important;
+  -webkit-text-fill-color: var(--term-tooltip-color, var(--brand)) !important;
+}
+b .term-tooltip:hover,
+strong .term-tooltip:hover {
+  color: var(--term-tooltip-hover-color, var(--brand-hover)) !important;
+  -webkit-text-fill-color: var(
+    --term-tooltip-hover-color,
+    var(--brand-hover)
+  ) !important;
+}
+
+/* Tooltip container - initially hidden */
+.term-tooltip-popup {
+  position: fixed;
+  z-index: 10000;
+  display: none;
+  min-width: 280px;
+  max-width: 400px;
+  padding: 16px 18px;
+  background: var(--tone-bg);
+  border: 1px solid var(--tone-ring);
+  border-radius: 12px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  pointer-events: none; /* По умолчанию не принимает события */
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--tone-fg);
+}
+
+/* Show tooltip on hover */
+.term-tooltip-popup.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto; /* Когда видим, принимаем события мыши */
+}
+
+/* Tooltip arrow */
+.term-tooltip-popup::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 20px;
+  width: 12px;
+  height: 12px;
+  background: var(--tone-bg);
+  border-left: 1px solid var(--tone-ring);
+  border-top: 1px solid var(--tone-ring);
+  transform: rotate(45deg);
+}
+
+/* Бейдж раздела в тултипе (Classic ML, Deep Learning, …) */
+.term-tooltip-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--term-tooltip-color, var(--brand));
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+[data-theme="dark"] body .term-tooltip-badge {
+  color: var(--term-tooltip-color, var(--link-color));
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+/* Tooltip title */
+.term-tooltip-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--tone-fg);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--tone-ring);
+}
+
+/* Tooltip content */
+.term-tooltip-content {
+  color: var(--tone-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.term-tooltip-content p {
+  margin: 0 0 8px 0;
+}
+
+.term-tooltip-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Links in tooltip */
+.term-tooltip-content a,
+.term-tooltip-link {
+  color: var(--brand);
+  text-decoration: underline;
+  font-weight: 500;
+  transition: color 0.2s ease;
+  display: inline;
+  margin: 0;
+}
+
+.term-tooltip-content a:hover,
+.term-tooltip-link:hover {
+  color: var(--brand-hover);
+  text-decoration: underline;
+}
+
+[data-theme="dark"] body .term-tooltip-content a,
+[data-theme="dark"] body .term-tooltip-link {
+  color: var(--link-color);
+}
+
+[data-theme="dark"] body .term-tooltip-content a:hover,
+[data-theme="dark"] body .term-tooltip-link:hover {
+  color: var(--brand);
+}
+
+/* Dark theme support */
+[data-theme="dark"] body .term-tooltip {
+  text-decoration-color: var(--term-tooltip-color, var(--link-color));
+  color: var(--term-tooltip-color, var(--link-color));
+  -webkit-text-fill-color: var(--term-tooltip-color, var(--link-color));
+}
+
+[data-theme="dark"] body .term-tooltip:hover {
+  text-decoration-color: var(--term-tooltip-hover-color, var(--brand));
+  color: var(--term-tooltip-hover-color, var(--brand));
+  -webkit-text-fill-color: var(--term-tooltip-hover-color, var(--brand));
+}
+
+[data-theme="dark"] body b .term-tooltip,
+[data-theme="dark"] body strong .term-tooltip {
+  color: var(--term-tooltip-color, var(--link-color)) !important;
+  -webkit-text-fill-color: var(
+    --term-tooltip-color,
+    var(--link-color)
+  ) !important;
+}
+[data-theme="dark"] body b .term-tooltip:hover,
+[data-theme="dark"] body strong .term-tooltip:hover {
+  color: var(--term-tooltip-hover-color, var(--brand)) !important;
+  -webkit-text-fill-color: var(
+    --term-tooltip-hover-color,
+    var(--brand)
+  ) !important;
+}
+
+[data-theme="dark"] body .term-tooltip-popup {
+  background: var(--tone-bg);
+  border-color: var(--tone-ring);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] body .term-tooltip-popup::before {
+  background: var(--tone-bg);
+  border-color: var(--tone-ring);
+}
+
+/* Positioning variants */
+.term-tooltip-popup.top {
+  bottom: calc(100% + 12px);
+  top: auto;
+}
+
+.term-tooltip-popup.top::before {
+  top: auto;
+  bottom: -6px;
+  border-left: none;
+  border-top: none;
+  border-right: 1px solid var(--tone-ring);
+  border-bottom: 1px solid var(--tone-ring);
+}
+
+.term-tooltip-popup.bottom {
+  top: calc(100% + 12px);
+  bottom: auto;
+}
+
+.term-tooltip-popup.left {
+  right: 0;
+  left: auto;
+}
+
+.term-tooltip-popup.left::before {
+  left: auto;
+  right: 20px;
+}
+
+.term-tooltip-popup.right {
+  left: 0;
+  right: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .term-tooltip-popup {
+    min-width: 240px;
+    max-width: 320px;
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+
+  .term-tooltip-title {
+    font-size: 14px;
+  }
+
+  .term-tooltip-content {
+    font-size: 13px;
+  }
+}
+
+/* Без тултипов в навигации, заголовках вопросов и блоках кода — только текст */
+.questions-toc .term-tooltip,
+.question .name .term-tooltip,
+.code-block .term-tooltip,
+.section-shell .term-tooltip,
+#navbar .term-tooltip {
+  cursor: default;
+  text-decoration: none;
+  color: inherit;
+  -webkit-text-fill-color: inherit;
+}
+.questions-toc .term-tooltip:hover,
+.question .name .term-tooltip:hover,
+.code-block .term-tooltip:hover,
+.section-shell .term-tooltip:hover,
+#navbar .term-tooltip:hover {
+  text-decoration: none;
+  color: inherit;
+  -webkit-text-fill-color: inherit;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .term-tooltip,
+  .term-tooltip-popup {
+    transition: none;
+  }
+}

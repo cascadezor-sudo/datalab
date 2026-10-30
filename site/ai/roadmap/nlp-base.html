@@ -1,0 +1,459 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>NLP Base</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet">
+    <script defer="" src="../../assets/js/core.js"></script>
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        renderMathInElement(document.body, {
+          // customised options
+          // • auto-render specific keys, e.g.:
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          // • rendering keys, e.g.:
+          throwOnError: false
+        });
+      });
+    </script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">NLP Base</h1>
+            <p class="subtitle">Базовые понятия и методы обработки естественного языка</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../../roadmap/index.html" class="page-header-button">Назад к карте разделов</a>
+          </div>
+        </div>
+      </header>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <h2>Классические подходы</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:1:start -->
+          <li class="roadmap-from-md" data-md-id="nlp-tasks-desc"><a href="../../ai/ml/nlp/base.html#nlp-tasks-desc" target="_blank" rel="noopener">Задачи NLP</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="text_preprocessing"><a href="../../ai/ml/nlp/base.html#text_preprocessing" target="_blank" rel="noopener">Предобработка текста</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="one-hot"><a href="../../ai/ml/nlp/base.html#one-hot" target="_blank" rel="noopener">One-hot представление</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bow"><a href="../../ai/ml/nlp/base.html#bow" target="_blank" rel="noopener">Bag of Words</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="distributional_semantics"><a href="../../ai/ml/nlp/base.html#distributional_semantics" target="_blank" rel="noopener">Дистрибутивная семантика</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="count-based"><a href="../../ai/ml/nlp/base.html#count-based" target="_blank" rel="noopener">Count-based методы</a>
+          </li>
+          <!-- roadmap-md:block:1:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:2:start -->
+          <li class="roadmap-from-md" data-md-id="co-occurrence-counts"><a href="../../ai/ml/nlp/base.html#co-occurrence-counts" target="_blank" rel="noopener">Подсчет совместной встречаемости</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="ppmi"><a href="../../ai/ml/nlp/base.html#ppmi" target="_blank" rel="noopener">Positive Pointwise Mutual Information (PPMI)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="lsa"><a href="../../ai/ml/nlp/base.html#lsa" target="_blank" rel="noopener">Latent Semantic Analysis (LSA)</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tf-idf"><a href="../../ai/ml/nlp/base.html#tf-idf" target="_blank" rel="noopener">TF-IDF</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bm25"><a href="../../ai/ml/nlp/base.html#bm25" target="_blank" rel="noopener">BM25</a>
+          </li>
+          <!-- roadmap-md:block:2:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:3:start -->
+          <li class="roadmap-from-md" data-md-id="word2vec"><a href="../../ai/ml/nlp/base.html#word2vec" target="_blank" rel="noopener">Word2Vec</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="skip-gram-cbow"><a href="../../ai/ml/nlp/base.html#skip-gram-cbow" target="_blank" rel="noopener">Skip-Gram и CBOW</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="glove"><a href="../../ai/ml/nlp/base.html#glove" target="_blank" rel="noopener">GloVe</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="fasttext"><a href="../../ai/ml/nlp/base.html#fasttext" target="_blank" rel="noopener">FastText</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="classic-vectorizers-comparison"><a href="../../ai/ml/nlp/base.html#classic-vectorizers-comparison" target="_blank" rel="noopener">Сравнение классических векторизаторов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="evaluation-of-embeddings"><a href="../../ai/ml/nlp/base.html#evaluation-of-embeddings" target="_blank" rel="noopener">Оценка качества эмбеддингов</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="analysis_interpretation"><a href="../../ai/ml/nlp/base.html#analysis_interpretation" target="_blank" rel="noopener">Анализ и интерпретация</a>
+          </li>
+          <!-- roadmap-md:block:3:end --></ul>
+      </div>
+      <h2>Нейросетевые подходы</h2>
+      <div class="block">
+        <ul><!-- roadmap-md:block:4:start -->
+          <li class="roadmap-from-md" data-md-id="text_classification"><a href="../../ai/ml/nlp/base.html#text_classification" target="_blank" rel="noopener">Классификация текстов</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/nlp.html#nlp-text-classification1" target="_blank" rel="noopener">Классификация твиттов I: классические методы</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gen-dis-models"><a href="../../ai/ml/nlp/base.html#gen-dis-models" target="_blank" rel="noopener">Генеративные и дискриминативные модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="multilabel"><a href="../../ai/ml/nlp/base.html#multilabel" target="_blank" rel="noopener">Multilabel классификация</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="rnn-lstm-gru-nlp"><a href="../../ai/ml/nlp/base.html#rnn-lstm-gru-nlp" target="_blank" rel="noopener">Рекуррентные нейросети</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="birnn"><a href="../../ai/ml/nlp/base.html#birnn" target="_blank" rel="noopener">Двунаправленные рекуррентные нейросети</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="elmo"><a href="../../ai/ml/nlp/base.html#elmo" target="_blank" rel="noopener">ELMo</a>
+          </li>
+          <!-- roadmap-md:block:4:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:5:start -->
+          <li class="roadmap-from-md" data-md-id="lm-what"><a href="../../ai/ml/nlp/base.html#lm-what" target="_blank" rel="noopener">Языковое моделирование</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="lm-framework"><a href="../../ai/ml/nlp/base.html#lm-framework" target="_blank" rel="noopener">Вероятность текста и левосторонние LM</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="markov"><a href="../../ai/ml/nlp/base.html#markov" target="_blank" rel="noopener">N-грамм модели генерации текста</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="neural-lm"><a href="../../ai/ml/nlp/base.html#neural-lm" target="_blank" rel="noopener">Нейронные языковые модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="training-lm"><a href="../../ai/ml/nlp/base.html#training-lm" target="_blank" rel="noopener">Обучение языковых моделей</a>
+          </li>
+          <!-- roadmap-md:block:5:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:6:start -->
+          <li class="roadmap-from-md" data-md-id="generation-strategies"><a href="../../ai/ml/nlp/base.html#generation-strategies" target="_blank" rel="noopener">Стратегии генерации текста</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="seq2seq"><a href="../../ai/ml/nlp/base.html#seq2seq" target="_blank" rel="noopener">Seq2Seq</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bpe"><a href="../../ai/ml/nlp/base.html#bpe" target="_blank" rel="noopener">Byte Pair Encoding</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="wordpiece"><a href="../../ai/ml/nlp/base.html#wordpiece" target="_blank" rel="noopener">WordPiece</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="unigram"><a href="../../ai/ml/nlp/base.html#unigram" target="_blank" rel="noopener">Unigram</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sentencepiece"><a href="../../ai/ml/nlp/base.html#sentencepiece" target="_blank" rel="noopener">SentencePiece</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="tokenizers-comparison"><a href="../../ai/ml/nlp/base.html#tokenizers-comparison" target="_blank" rel="noopener">Сравнение методов токенизации</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/nlp.html#nlp-tokenizers-comparison" target="_blank" rel="noopener">Сравнение токенизаторов</a>
+            </span>
+          </li>
+          <!-- roadmap-md:block:6:end --></ul>
+      </div>
+      <div class="block">
+        <ul>
+          <li>
+            <span class="topic-badge">DL</span> <a href="../../ai/ml/dl.html#transformer">Архитектура трансформера</a>,
+            <a href="../../ai/ml/dl.html#attention">механизм внимания</a>
+          </li>
+          <li>
+            <span class="topic-badge">DL</span> <a href="../../ai/ml/dl.html#positional-encoding">Позиционное кодирование</a>
+          </li>
+          <li>
+            <span class="topic-badge">DL</span> <a href="../../ai/ml/dl.html#attention-complexity">Алгоритмическая сложность внимания</a>
+          </li>
+          <li>
+            <span class="topic-badge">DL</span> <a href="../../ai/ml/dl.html#long-context">Увеличение контекста LLM</a>
+          </li>
+        </ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:8:start -->
+          <li class="roadmap-from-md" data-md-id="bert"><a href="../../ai/ml/nlp/base.html#bert" target="_blank" rel="noopener">BERT</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="bert-like"><a href="../../ai/ml/nlp/base.html#bert-like" target="_blank" rel="noopener">BERT-подобные модели</a>
+            <span class="boxed">
+              Задачка:
+              <a href="../../ai/practise/nlp.html#nlp-text-classification2" target="_blank" rel="noopener">Классификация твиттов II: трансформеры</a>
+            </span>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gpt"><a href="../../ai/ml/nlp/base.html#gpt" target="_blank" rel="noopener">GPT</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="gpt-like"><a href="../../ai/ml/nlp/base.html#gpt-like" target="_blank" rel="noopener">GPT-подобные модели</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="sentence-transformers"><a href="../../ai/ml/nlp/base.html#sentence-transformers" target="_blank" rel="noopener">Sentence Transformer</a>
+          </li>
+          <!-- roadmap-md:block:8:end --></ul>
+      </div>
+      <div class="block">
+        <ul><!-- roadmap-md:block:9:start -->
+          <li class="roadmap-from-md" data-md-id="generation_metrics"><a href="../../ai/ml/nlp/base.html#generation_metrics" target="_blank" rel="noopener">Метрики оценки качества генерации</a>
+          </li>
+          <li class="roadmap-from-md" data-md-id="llm-training-pipeline"><a href="../../ai/ml/nlp/base.html#llm-training-pipeline" target="_blank" rel="noopener">Этапы обучения LLM</a>
+          </li>
+          <!-- roadmap-md:block:9:end --></ul>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../authGuard.js"></script>
+
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

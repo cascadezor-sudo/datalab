@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A/B-тестирование I (Статистика и теория)</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">A/B-тестирование I</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">A/B Testing</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">14 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">A/B-тестирование I (Статистика и теория)</h1>
+        <p class="section-shell__desc">Фундаментальные основы сплит-тестирования, проверка статистических гипотез, p-value, ошибки I и II рода, критерии согласия и оценка эффектов.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="ab_experiment_basics" data-interview="4">
+  <div class="name" id="ab_experiment_basics">
+    Основы A/B экспериментов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>A/B-тестирование (сплит-тест, рандомизированный контролируемый эксперимент, RCT)</b> — это научно обоснованный метод проверки причинно-следственной связи (causality) между внесением изменения в продукт и поведением пользователей. Генеральная совокупность случайным образом разделяется на две (или более) репрезентативные группы: контрольную группу $A$, взаимодействующую с текущей версией продукта (baseline), и тестовую группу $B$, взаимодействующую с модифицированной версией.</p>
+<p>Если совсем простыми словами: <b>это единственный надёжный способ доказать, что метрика выросла именно благодаря нашей новой фиче, а не из-за погоды, рекламы, праздников или курса доллара</b>. Обе группы живут в абсолютно одинаковых внешних условиях в одно и то же время, поэтому единственная разница между ними — тестируемое изменение.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический фундамент A/B-тестирования опирается на <b>модель потенциальных исходов Рубина (Rubin Causal Model, RCM)</b>. Для каждого пользователя $i$ существуют два потенциальных исхода: $Y_i(0)$ — результат без воздействия (контроль) и $Y_i(1)$ — результат при воздействии (тритмент). Фундаментальная проблема каузального вывода заключается в том, что для одного и того же пользователя в один момент времени мы можем наблюдать только один исход:</p>
+<p>$$Y_i = W_i Y_i(1) + (1 - W_i) Y_i(0), \quad W_i \in \{0, 1\}$$</p>
+<p>Благодаря идеальной физической рандомизации ($W_i \perp (Y_i(0), Y_i(1))$), распределения скрытых факторов и характеристик пользователей в группах $A$ и $B$ становятся идентичными. Это позволяет оценить <b>Average Treatment Effect (ATE)</b> как разность средних значений наблюдаемых метрик:</p>
+<p>$$\mathrm{ATE} = \mathbb{E}[Y(1) - Y(0)] = \mathbb{E}[Y \mid W=1] - \mathbb{E}[Y \mid W=0]$$</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-приложения:</b> Команда инвестиций тестирует новый онбординг с интерактивным квизом по риск-профилю. Если просто запустить его на всех с 1 сентября и сравнить с августом (подход «до/после»), метрика конверсии в первую сделку вырастет с 4.2% до 5.8%. Однако в сентябре началась выплата дивидендов крупными эмитентами и стартовала федеральная ТВ-кампания. В A/B тесте контрольная группа $A$ в сентябре показала конверсию 5.5% (фон рынка), а тестовая группа $B$ — 5.9%. Истинный каузальный инкремент составил всего $+0.4\\%$ процентных пункта, а не $+1.6\\%$, как показал бы наивный анализ «до/после».</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Симуляция честного A/B теста с одновременным внешним шоком рынка
+np.random.seed(42)
+n_users = 50000
+
+# 1. Рандомизация пользователей 50/50
+treatment_assignment = np.random.binomial(1, 0.5, n_users)
+
+# 2. Базовый уровень конверсии 5.0%, внешний шок +0.5%, эффект фичи +0.4%
+baseline_cr = 0.050
+market_shock = 0.005
+true_effect = 0.004
+
+prob_control = baseline_cr + market_shock # 5.5%
+prob_treatment = baseline_cr + market_shock + true_effect # 5.9%
+
+conv_control = np.random.binomial(1, prob_control, np.sum(treatment_assignment == 0))
+conv_treatment = np.random.binomial(1, prob_treatment, np.sum(treatment_assignment == 1))
+
+cr_a = conv_control.mean()
+cr_b = conv_treatment.mean()
+abs_lift = cr_b - cr_a
+rel_lift = (cr_b - cr_a) / cr_a
+
+print(f"Контроль (A): CR = {cr_a:.4f} (n={len(conv_control)})")
+print(f"Тест (B):     CR = {cr_b:.4f} (n={len(conv_treatment)})")
+print(f"Истинный каузальный аплифт: {abs_lift:+.4f} ({rel_lift:+.2%})")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Сравнение «до и после» (Pre-Post analysis).</b> Главная методическая ошибка бизнеса. Любой тренд, сезонность или релиз соседней команды искажает оценку эффекта.</li>
+        <li><b>Отсутствие параллельного контроля.</b> Попытка раскатить тест на 100% пользователей на неделю, а потом выключить. Поведение пользователей в понедельник и воскресенье принципиально различно.</li>
+        <li><b>Пренебрежение внешней валидностью.</b> Результаты теста, проведенного во время Черной Пятницы или новогодних распродаж, никогда не воспроизводятся в спокойные месяцы (февраль-март).</li>
+        <li><b>Нарушение предпосылки SUTVA.</b> Предпосылка Stable Unit Treatment Value Assumption гласит, что воздействие на одного пользователя не должно влиять на исходы других (критично для соцсетей, маркетплейсов и такси).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании вас обязательно спросят: <i>«Почему нельзя просто запустить фичу на 100% пользователей и посмотреть на график в дашборде?»</i> Отвечайте через призму ненаблюдаемых конфаундеров (confounders), естественных трендов, сезонных циклов (день недели, день зарплаты) и необходимости параллельного контроля для устранения систематического смещения (bias).</p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое A/B тестирование с точки зрения доказательной статистики?</b></p><p>Рандомизированный контролируемый эксперимент (RCT), позволяющий изолировать эффект конкретного продуктового изменения от всех внешних и внутренних факторов.</p></li>
+        <li><p><b>В чём заключается фундаментальная проблема каузального вывода?</b></p><p>Для одного и того же объекта (пользователя) в один момент времени невозможно одновременно наблюдать исход под воздействием и без него.</p></li>
+        <li><p><b>Какую роль играет рандомизация в эксперименте?</b></p><p>Она балансирует наблюдаемые и ненаблюдаемые характеристики пользователей между группами, гарантируя независимость распределения тритмента от потенциальных исходов.</p></li>
+        <li><p><b>Что такое Average Treatment Effect (ATE)?</b></p><p>Математическое ожидание разности потенциальных исходов: разница между средним метрики в группе воздействия и средним метрики в контрольной группе.</p></li>
+        <li><p><b>Что такое предпосылка SUTVA?</b></p><p>Отсутствие интерференции между объектами: вариант, полученный одним пользователем, никак не влияет на отклик и поведение других пользователей.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ab_randomization_unit" data-interview="5">
+  <div class="name" id="ab_randomization_unit">
+    Единица рандомизации
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Единица рандомизации (Unit of Randomization)</b> — это атомарный объект или сущность, которая независимо от остальных случайным образом распределяется в контрольную или тестовую группу (например, пользователь <code>user_id</code>, устройство <code>device_id</code>, сессия <code>session_id</code>, страница, магазин или географический кластер).</p>
+<p>Если совсем простыми словами: <b>это то, монетку для чего мы подбрасываем</b>. Если подбрасывать монетку для каждого захода на сайт (сессии), один и тот же человек утром увидит синюю кнопку, а вечером красную — это запутает пользователя и уничтожит валидность эксперимента.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Выбор единицы рандомизации определяет статистическую структуру данных и применимость стандартных тестов:</p>
+<ul>
+<li><b>Unit of Randomization $\neq$ Unit of Analysis:</b> Если рандомизируются пользователи ($user\_id$), а анализируются сессии ($session\_id$) или клики ($click\_id$), наблюдения внутри одного пользователя <b>кластеризованы и зависимы</b>. Нарушается базовое требование i.i.d. (independent and identically distributed). Обычный t-тест или Z-тест по кликам занизит стандартную ошибку в $2-5$ раз, что приведет к колоссальному взрыву ошибок I рода (False Positive Rate достигает $30-50\\%$ вместо $5\\%$).</li>
+<li><b>Постоянство пользовательского опыта:</b> Рандомизация по пользователю гарантирует целостность сценария на протяжении всего жизненного цикла теста.</li>
+<li><b>Cookie vs User ID:</b> Использование <code>cookie_id</code> приводит к фрагментации одного человека на разные устройства (телефон, рабочий ноутбук, домашний ПК) и сбросу кук при очистке браузера.</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс стримингового сервиса:</b> Аналитик решил протестировать новый алгоритм рекомендаций на главной странице. Чтобы «быстрее собрать выборку», единицей рандомизации выбрали <code>session_id</code>. Пользователь Иван зашел с утра на 5 минут: попал в группу $B$ (новые рекомендации), ничего не понял, ушел. Вечером зашел на час: попал в группу $A$ (старые рекомендации), нашел сериал и посмотрел 3 серии. При анализе сессий группа $A$ получила ложный триумф, а на самом деле алгоритм $B$ вызвал отторжение. Кроме того, кэш рекомендаций на бэкенде перемешался, создав технические аномалии.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+
+# Иллюстрация проблемы зависимости наблюдений при сплитовании по сессиям
+np.random.seed(42)
+n_users = 1000
+sessions_per_user = np.random.poisson(lam=5, size=n_users) + 1
+
+user_ids = []
+session_ids = []
+for uid, n_sess in enumerate(sessions_per_user):
+    user_ids.extend([f"u_{uid}"] * n_sess)
+    session_ids.extend([f"s_{uid}_{s}" for s in range(n_sess)])
+
+df = pd.DataFrame({'user_id': user_ids, 'session_id': session_ids})
+
+# ОШИБКА: рандомизация по сессиям
+df['variant_session_split'] = np.random.choice(['A', 'B'], size=len(df))
+
+# Подсчет пользователей, видевших ОБА варианта (User Leakage / Experience Contamination)
+users_in_both = df.groupby('user_id')['variant_session_split'].nunique()
+contaminated = (users_in_both > 1).mean()
+print(f"Доля пользователей, попавших одновременно в обе группы: {contaminated:.1%}")
+# Вывод: свыше 90% пользователей увидят оба варианта!r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Сплитование по session_id при анализе пользовательских метрик.</b> Ведет к заражению опыта (treatment pollution) и делает невозможным расчет когортного Retention и LTV.</li>
+        <li><b>Игнорирование кластеризации данных.</b> Если сплитуем по пользователям, нельзя считать дисперсию по строкам заказов без кластерной поправки, дельта-метода или бутстрепа по пользователям.</li>
+        <li><b>Смена ID пользователя при авторизации.</b> Анонимный <code>client_id</code> сменяется на авторизованный <code>user_id</code>. Если механизм хэширования не склеивает профили, пользователь меняет группу в середине воронки.</li>
+        <li><b>Сетевые эффекты в двусторонних платформах.</b> В Uber/Яндекс Go сплитование по пассажирам приводит к конкуренции за одних и тех же водителей. Нужна кластеризация по гео-зонам (гео-сплит) или временным слотам (time-switchback).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании классический капкан: <i>«Мы провели тест по кликам (единица — клик). В тесте 10 млн кликов, p-value = 0.0001, раскатываем?»</i> Грамотный ответ: <i>«Нет, сначала проверим единицу рандомизации. Если один активный пользователь генерирует 100 000 кликов, наблюдения не независимы. Тест некорректен из-за кластеризации. Нужно аггрегировать метрику на уровень единицы рандомизации (пользователя) или применить дельта-метод/кластерный бутстреп».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое единица рандомизации?</b></p><p>Элемент генеральной совокупности, которому случайным образом назначается вариант эксперимента.</p></li>
+        <li><p><b>В чём отличие единицы рандомизации от единицы анализа?</b></p><p>Единица рандомизации — то, что сплитуется (напр., user_id); единица анализа — уровень расчета метрики (напр., session_id, order_id).</p></li>
+        <li><p><b>Почему нельзя использовать обычный t-тест, если единица анализа мельче единицы рандомизации?</b></p><p>Нарушается предпосылка о независимости наблюдений (i.i.d.), дисперсия оценивается некорректно, резко возрастает вероятность ошибки I рода.</p></li>
+        <li><p><b>Когда оправдана рандомизация по сессиям?</b></p><p>В сценариях абсолютной анонимности без повторных визитов и при независимом характере задачи (например, SEO-тесты посадочных страниц).</p></li>
+        <li><p><b>Что такое гео-рандомизация и зачем она нужна?</b></p><p>Разбиение по городам или регионам, применяемое при сильных сетевых эффектах, физической логистике или маркетинговых ТВ-кампаниях.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ab_hypotheses" data-interview="4">
+  <div class="name" id="ab_hypotheses">
+    Формулирование гипотез H0 и H1
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Статистическая гипотеза</b> — это формализованное утверждение о параметрах распределения исследуемой случайной величины в генеральной совокупности. Процедура A/B тестирования строится на конкуренции двух взаимоисключающих гипотез:</p>
+<ul>
+<li><b>Нулевая гипотеза ($H_0$):</b> Утверждает отсутствие эффекта от внесенного изменения ($\mu_B - \mu_A = 0$ или $p_B - p_A = 0$). Различия в выборках обусловлены исключительно случайным шумом.</li>
+<li><b>Альтернативная гипотеза ($H_1$):</b> Утверждает наличие реального эффекта ($\mu_B \neq \mu_A$ для двустороннего теста, либо $\mu_B > \mu_A$ для одностороннего).</li>
+</ul>
+<p>Если совсем простыми словами: <b>$H_0$ — это презумпция невиновности</b>. Мы считаем, что наша новая фича — полная пустышка, пока данные эксперимента не предоставят настолько сокрушительные доказательства обратного, что поверить в случайность станет статистически невозможно.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>В продуктовой аналитике критически важно математически разделять <b>односторонние (one-tailed)</b> и <b>двусторонние (two-tailed)</b> гипотезы:</p>
+<ul>
+<li><b>Двусторонняя гипотеза:</b> $H_0: \Delta = 0 \quad \text{vs} \quad H_1: \Delta \neq 0$. Критическая область разбивается на два хвоста: $\alpha/2$ слева и $\alpha/2$ справа. Позволяет зафиксировать как победу, так и катастрофическую просадку метрики.</li>
+<li><b>Односторонняя гипотеза:</b> $H_0: \Delta \le 0 \quad \text{vs} \quad H_1: \Delta > 0$. Вся критическая область сосредоточена в одном хвосте ($\alpha$). Обладает большей мощностью в сторону ожидаемого эффекта при том же объеме выборки, но <b>категорически слепа к ухудшению</b>.</li>
+</ul>
+<p>В индустриальном стандарте (Google, Microsoft, Meta, Яндекс, Тинькофф) <b>практически всегда используются двусторонние критерии</b>, так как продуктовые изменения регулярно приносят скрытые негативные сайд-эффекты.</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс крупного маркетплейса:</b> Команда корзины разработала новый яркий попап с предложением сопутствующих товаров перед оформлением заказа. Продакт-менеджер был уверен в росте среднего чека и настоял на односторонней гипотезе ($H_1: \mathrm{AOV}_B > \mathrm{AOV}_A$). В реальности средний чек действительно вырос у тех, кто завершил заказ (на $+3\\%$), но назойливый попап уронил общую конверсию в оформление заказа на $-7\\%$. Двусторонний дизайн с параллельным мониторингом Guardrail-метрик спас компанию от потери 120 млн рублей квартальной выручки.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import scipy.stats as stats
+import numpy as np
+
+# Сравнение критических значений для одностороннего и двустороннего Z-теста
+alpha = 0.05
+
+z_crit_two_tailed = stats.norm.ppf(1 - alpha / 2)
+z_crit_one_tailed = stats.norm.ppf(1 - alpha)
+
+print(f"Критическое Z (двусторонний тест, alpha={alpha}): {z_crit_two_tailed:.4f}")
+print(f"Критическое Z (односторонний тест, alpha={alpha}): {z_crit_one_tailed:.4f}")
+
+# Расчет p-value для наблюдаемой статистики Z_stat = 1.82
+z_stat = 1.82
+p_val_two_tailed = 2 * (1 - stats.norm.cdf(abs(z_stat)))
+p_val_one_tailed = 1 - stats.norm.cdf(z_stat)
+
+print(f"При Z = {z_stat}:")
+print(f"p-value (двусторонний): {p_val_two_tailed:.4f} -> H0 НЕ отвергается (нет статзначимости)")
+print(f"p-value (односторонний): {p_val_one_tailed:.4f} -> H0 отвергается (ложный триумф)")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование одностороннего теста ради искусственного занижения p-value.</b> Это форма p-hacking: переход от двустороннего к одностороннему тесту постфактум, когда Z-статистика оказалась между 1.645 и 1.96.</li>
+        <li><b>Формулирование гипотезы после сбора данных (HARKing).</b> Hypothesizing After Results are Known разрушает контролируемую вероятность ошибки первого рода.</li>
+        <li><b>Смешение продуктовой и статистической гипотезы.</b> Продуктовая: «Красная кнопка привлечет внимание зумеров». Статистическая: «Доля кликов в тестовой группе превысит контроль минимум на 0.5 п.п. при alpha=0.05, power=0.8».</li>
+        <li><b>Отсутствие фиксации минимально ожидаемого эффекта (MDE).</b> Без явного задания MDE невозможно определить необходимый размер выборки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании спросят: <i>«Когда допустимо использовать односторонний критерий?»</i> Ответ senior-аналитика: <i>«Строго в ситуациях, когда отрицательный эффект физически невозможен либо когда при отрицательном эффекте управленческое решение тождественно нулевому эффекту (например, тест оптимизации серверного сжатия, где нас интересует только выигрыш в скорости, а при замедлении код моментально выбрасывается без анализа). Во всех продуктовых задачах де-факто стандартом является двусторонний тест».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что утверждает нулевая гипотеза H0?</b></p><p>Отсутствие эффекта воздействия; наблюдаемые между выборками различия носят чисто случайный характер.</p></li>
+        <li><p><b>Почему в большинстве продуктовых A/B тестов используют двусторонний тест?</b></p><p>Потому что любое изменение может как улучшить, так и непредвиденно ухудшить целевую или смежные метрики.</p></li>
+        <li><p><b>Что такое HARKing?</b></p><p>Практика формулирования гипотезы после того, как стали известны результаты эксперимента, что ведет к обесцениванию статистических выводов.</p></li>
+        <li><p><b>Как связаны критические области одностороннего и двустороннего критериев?</b></p><p>При одинаковом уровне alpha критическое значение одностороннего теста ближе к нулю, что повышает мощность в заданном направлении ценой полной слепоты к противоположному хвосту.</p></li>
+        <li><p><b>Что такое продуктовая гипотеза в отличие от статистической?</b></p><p>Продуктовая описывает бизнес-механизм и изменение ценности для клиента; статистическая фиксирует математические параметры распределения метрик.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="p_value" data-interview="5">
+  <div class="name" id="p_value">
+    p-value: Смысл, интерпретация и ошибки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>p-value (вероятностное значение, probability value)</b> — это вероятность получить наблюдаемое (или ещё более экстремальное) значение тестовой статистики при условии, что нулевая гипотеза $H_0$ абсолютно верна:</p>
+<p>$$p\text{-value} = P(T(D) \ge t_{\text{obs}} \mid H_0)$$</p>
+<p>Если совсем простыми словами: <b>p-value показывает, насколько наши данные удивительны для мира, в котором никакого эффекта нет</b>. Чем меньше p-value, тем сложнее списать наблюдаемый результат на банальную случайность.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Ключевые теоретические свойства $p$-value:</p>
+<ul>
+<li><b>Распределение $p$-value при верной $H_0$:</b> Если нулевая гипотеза верна, $p$-value представляет собой случайную величину, распределенную <b>строго равномерно на отрезке $[0, 1]$</b>: $p \sim U(0, 1)$. Именно поэтому правило «отвергать $H_0$, если $p \le \alpha$» гарантирует частоту ложных срабатываний ровно $\alpha$ (например, $5\\%$).</li>
+<li><b>Распределение $p$-value при верной $H_1$:</b> Если альтернативная гипотеза верна (эффект существует), плотность распределения $p$-value скошена влево к нулю. Доля значений $p \le \alpha$ в этом случае равна <b>мощности критерия (Statistical Power, $1 - \beta$)</b>.</li>
+<li><b>Чего $p$-value НЕ означает:</b>
+    <ul>
+    <li>$p$-value — это НЕ вероятность того, что $H_0$ верна ($P(H_0 \mid D) \neq P(D \mid H_0)$).</li>
+    <li>$1 - p\text{-value}$ — это НЕ вероятность того, что новая фича успешна.</li>
+    <li>Маленький $p$-value НЕ означает большой размер эффекта (на выборке в 50 млн пользователей даже прирост конверсии на $0.001\\%$ даст $p = 10^{-8}$).</li>
+    </ul>
+</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс рекламного кабинета:</b> Аналитик получил $p\text{-value} = 0.03$ при $\alpha = 0.05$. Менеджер заявляет на синке: <i>«Значит, с вероятностью 97% наш новый баннер лучше старого!»</i> Аналитик объясняет ошибку: вероятность $97\\%$ относится не к гипотезе, а к данным. Значение $p = 0.03$ лишь говорит, что если бы баннер не работал вообще, шанс случайно увидеть такой перекос в кликах составлял бы $3\\%$. Чтобы оценить реальную апостериорную вероятность превосходства баннера $P(H_1 \mid D)$, нужно привлекать теорему Байеса с априорным знанием об успехе аналогичных гипотез.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+
+# Эмпирическая демонстрация равномерного распределения p-value при верной H0 (A/A тест)
+np.random.seed(42)
+n_experiments = 10000
+sample_size = 500
+
+p_values_h0 = []
+for _ in range(n_experiments):
+    group_a = np.random.normal(loc=100, scale=15, size=sample_size)
+    group_b = np.random.normal(loc=100, scale=15, size=sample_size)
+    stat, p_val = stats.ttest_ind(group_a, group_b)
+    p_values_h0.append(p_val)
+
+p_values_h0 = np.array(p_values_h0)
+false_positive_rate = (p_values_h0 < 0.05).mean()
+
+print(f"Частота ложных отклонений H0 при пороге alpha=0.05: {false_positive_rate:.4f}")
+# Тест Колмогорова-Смирнова на равномерность распределения:
+ks_stat, ks_pval = stats.kstest(p_values_h0, 'uniform')
+print(f"KS-test на равномерность p-value при H0: stat={ks_stat:.4f}, p-value={ks_pval:.4f}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Путаница между $P(D \mid H_0)$ и $P(H_0 \mid D)$.</b> Грубейшая логическая ошибка инверсии условной вероятности (Transposition Fallacy).</li>
+        <li><b>Отождествление статзначимости с практической значимостью.</b> Статистически значимый результат ($p < 0.001$) может иметь микроскопический экономический эффект, не окупающий стоимость поддержки кода.</li>
+        <li><b>Остановка эксперимента в момент, когда $p < 0.05$ (Peeking).</b> Непрерывный мониторинг графика p-value приводит к инфляции ошибки I рода в разы.</li>
+        <li><b>Утверждение «p = 0.06 означает, что есть тенденция к эффекту».</b> Порог $lpha$ задается строго до эксперимента. Если $p > lpha$, у нас нет оснований отвергнуть $H_0$.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На интервью на вопрос <i>«Дайте точное определение p-value»</i> отвечайте строго по определению через вероятность наблюдаемых или более экстремальных данных при условии истинности $H_0$. Обязательно добавьте, как ведет себя $p$-value в A/A тесте ($p \sim U(0,1)$), и предостерегите от смешения размера выборки с размером эффекта.</p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Каково строгое математическое определение p-value?</b></p><p>Вероятность получить значение тестовой статистики, равное или более экстремальное, чем фактически наблюдавшееся, при условии истинности нулевой гипотезы.</p></li>
+        <li><p><b>Как распределено p-value, если нулевая гипотеза верна?</b></p><p>Строго равномерно на отрезке [0, 1].</p></li>
+        <li><p><b>Означает ли p = 0.02, что вероятность истинности альтернативной гипотезы равна 98%?</b></p><p>Нет, это ошибка инверсии условной вероятности; p-value не является вероятностью какой-либо гипотезы.</p></li>
+        <li><p><b>Как размер выборки влияет на p-value при фиксированном реальном эффекте?</b></p><p>С ростом объема выборки стандартная ошибка стремится к нулю, поэтому p-value стремится к нулю при любом ненулевом эффекте.</p></li>
+        <li><p><b>В чем разница между статистической и практической значимостью?</b></p><p>Статистическая значимость показывает устойчивость эффекта к случайному шуму; практическая — приносит ли этот эффект достаточную бизнес-выручку.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ab_power_alpha" data-interview="5">
+  <div class="name" id="ab_power_alpha">
+    Ошибки I и II рода, мощность теста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p>При принятии решений на основе выборочных данных неизбежно возникают два взаимоисключающих типа статистических ошибок:</p>
+<table class="task-table">
+<thead><tr><th>Реальность \\ Решение</th><th>Принять H0 (Эффекта нет)</th><th>Отвергнуть H0 (Зафиксировать эффект)</th></tr></thead>
+<tbody>
+<tr><td><b>H0 истинна (эффекта нет)</b></td><td>Верное решение ($1 - \alpha$)</td><td><b>Ошибка I рода ($\alpha$, False Positive)</b> — ложная тревога</td></tr>
+<tr><td><b>H1 истинна (эффект есть)</b></td><td><b>Ошибка II рода ($\beta$, False Negative)</b> — пропуск цели</td><td><b>Мощность теста ($1 - \beta$, Power)</b> — верное обнаружение</td></tr>
+</tbody>
+</table>
+<p>Если совсем простыми словами: <b>Ошибка I рода — это внедрить бесполезную или вредную фичу, ошибочно приняв шум за победу. Ошибка II рода — это выбросить классную прибыльную фичу, потому что нам не хватило выборки разглядеть эффект</b>.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический баланс ошибок первого и второго рода:</p>
+<ul>
+<li><b>Уровень значимости ($\alpha$, Type I Error Rate):</b> Верхняя граница вероятности отвергнуть $H_0$, когда она истинна. Стандарт индустрии: $\alpha = 0.05$ ($5\\%$).</li>
+<li><b>Вероятность ошибки II рода ($\beta$, Type II Error Rate):</b> Вероятность принять $H_0$ при наличии реального эффекта заданной величины (MDE).</li>
+<li><b>Статистическая мощность ($1 - \beta$, Statistical Power):</b> Вероятность корректно отклонить $H_0$ при наличии эффекта. Стандарт индустрии: $1 - \beta = 0.80$ ($80\\%$) или $0.90$.</li>
+<li><b>Трейдофф $\alpha$ и $\beta$:</b> При фиксированном объеме выборки $N$ невозможно одновременно снизить $\alpha$ и $\beta$. Снижение $\alpha$ сдвигает критическую границу вправо, увеличивая площадь под кривой ошибки II рода ($\beta$). Единственный способ одновременно снизить обе ошибки — <b>увеличить размер выборки или снизить дисперсию метрики</b>.</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс антифрод-системы:</b> При тестировании новой модели машинного обучения для блокировки подозрительных переводов ошибка I рода означает блокировку честного платежа добросовестного клиента (раздражение пользователя, нагрузка на саппорт). Ошибка II рода означает пропуск транзакции мошенника (прямой финансовый ущерб банку). Аналитик балансирует порог отсечения скоринга исходя из цены каждого типа ошибки в рублях, а не абстрактных статистических догм.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+
+# Расчет мощности критерия (Power) в зависимости от размера выборки
+alpha = 0.05
+std = 100.0
+effect_delta = 5.0 # MDE = 5 руб.
+z_alpha = stats.norm.ppf(1 - alpha / 2)
+
+sample_sizes = [5000, 10000, 25000, 50000, 100000]
+
+print("Размер выборки (на группу) | Мощность (1 - beta)")
+print("-" * 50)
+for n in sample_sizes:
+    se_diff = np.sqrt(2 * (std ** 2) / n)
+    z_stat_target = effect_delta / se_diff
+    # Мощность двустороннего теста:
+    power = stats.norm.cdf(z_stat_target - z_alpha) + stats.norm.cdf(-z_stat_target - z_alpha)
+    print(f"n = {n:6d}                   | {power:.1%}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск тестов с недостаточной мощностью (Underpowered tests).</b> При мощности 40% вы выбрасываете 6 из 10 реально работающих продуктовых фичей, теряя прибыль.</li>
+        <li><b>Вера в то, что мощность равна 80% всегда.</b> Мощность рассчитывается строго под конкретный эффект $\Delta$ (MDE). Для эффекта в два раза меньше запланированного мощность упадет катастрофически.</li>
+        <li><b>Игнорирование асимметрии потерь.</b> В критических инфраструктурных сервисах ошибка I рода может стоить миллионы (падение бэкенда), поэтому $\alpha$ ужесточают до 0.01 или 0.001.</li>
+        <li><b>Пост-экспериментальный расчет мощности (Post-hoc Power).</b> Расчет мощности после завершения теста по фактически полученному p-value является математически бессмысленным преобразованием того же p-value.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании частый вопрос: <i>«Почему стандартная мощность в индустрии 80%, а не 99%?»</i> Ответ: <i>«Из-за квадратичной зависимости размера выборки от критических квантилей ($n \sim (z_\alpha + z_\beta)^2$). Поднятие мощности с 80% до 99% требует увеличения выборки более чем в 2 раза, что означает затягивание теста на месяцы и заморозку скорости продуктовой разработки».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое ошибка I рода (False Positive)?</b></p><p>Отклонение истинной нулевой гипотезы (принятие решения о наличии эффекта, когда его нет).</p></li>
+        <li><p><b>Что такое ошибка II рода (False Negative)?</b></p><p>Неспособность отклонить ложную нулевую гипотезу (пропуск реально существующего эффекта).</p></li>
+        <li><p><b>Что называется статистической мощностью критерия?</b></p><p>Вероятность обнаружить реальный эффект заданной величины, то есть $1 - \beta$.</p></li>
+        <li><p><b>Как изменится необходимый размер выборки при увеличении мощности с 80% до 90%?</b></p><p>Увеличится примерно на 25–30% из-за роста квантили $Z_{1-\beta}$ с 0.842 до 1.282.</p></li>
+        <li><p><b>Почему post-hoc power считается антипаттерном в аналитике?</b></p><p>Потому что апостериорная мощность не несет никакой новой информации сверх наблюдаемого p-value и вводит в заблуждение исследователя.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="z_test_proportions" data-interview="4">
+  <div class="name" id="z_test_proportions">
+    Z-тест для долей и конверсий
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Двухвыборочный Z-тест для долей (Two-proportion Z-test)</b> — это параметрический статистический критерий, предназначенный для проверки гипотезы о равенстве вероятностей бинарного события в двух независимых генеральных совокупностях: $H_0: p_1 = p_2$. Используется для оценки конверсий (Conversion Rate), кликабельности (CTR), долей оттока (Churn Rate) и любых других метрик бернуллиевского типа.</p>
+<p>Если совсем простыми словами: <b>это классический и самый быстрый способ проверить, действительно ли процент оформивших заказ на новом сайте выше, чем на старом</b>. Он опирается на нормальное приближение биномиального распределения благодаря центральной предельной теореме.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математическая основа Z-критерия:</p>
+<p>Пусть $X_1 \sim \mathrm{Binom}(n_1, p_1)$ и $X_2 \sim \mathrm{Binom}(n_2, p_2)$ — независимые биномиальные случайные величины. При верной нулевой гипотезе ($p_1 = p_2 = p$) объединяющая выборочная оценка доли равна:</p>
+<p>$$\hat{p} = \frac{x_1 + x_2}{n_1 + n_2}$$</p>
+<p>Дисперсия разности долей $\hat{p}_1 - \hat{p}_2$ при $H_0$ равна $\mathrm{Var}(\hat{p}_1 - \hat{p}_2) = \hat{p}(1 - \hat{p})\left(\frac{1}{n_1} + \frac{1}{n_2}\right)$. Тогда статистика Z-теста вычисляется как:</p>
+<p>$$Z = \frac{\hat{p}_1 - \hat{p}_2}{\sqrt{\hat{p}(1 - \hat{p})\left(\frac{1}{n_1} + \frac{1}{n_2}\right)}} \xrightarrow{d} \mathcal{N}(0, 1)$$</p>
+<p><b>Условие применимости нормальной аппроксимации:</b> Правило успешных/неуспешных исходов требует, чтобы для обеих групп $n_i \hat{p}_i \ge 10$ и $n_i (1 - \hat{p}_i) \ge 10$. При редких конверсиях ($p < 0.001$) требуется точный тест Фишера или критерий пуассоновской регрессии.</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс подписочного сервиса:</b> На странице оформления подписки тестируется оплата в один клик через SberPay/T-Pay. В группе A: $n_A = 40\,000$, конверсий $x_A = 1\,840$ ($\hat{p}_A = 4.60\\%$). В группе B: $n_B = 40\,000$, конверсий $x_B = 2\,030$ ($\hat{p}_B = 5.075\\%$). Объединенная доля: $\hat{p} = 0.04838$. Статистика $Z = 3.197$, $p\text{-value} = 0.00139$. Эффект статистически значим на уровне $\alpha = 0.05$.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+from statsmodels.stats.proportion import proportions_ztest
+
+# Данные эксперимента
+count = np.array([2030, 1840]) # Успехи: [B, A]
+nobs = np.array([40000, 40000]) # Пользователи: [B, A]
+
+# Расчет через statsmodels
+z_stat, p_val = proportions_ztest(count, nobs, alternative='two-sided')
+
+# Расчет доверительного интервала для разности долей
+p1 = count[0] / nobs[0]
+p2 = count[1] / nobs[1]
+se_diff = np.sqrt(p1 * (1 - p1) / nobs[0] + p2 * (1 - p2) / nobs[1])
+z_crit = stats.norm.ppf(0.975)
+ci_lower = (p1 - p2) - z_crit * se_diff
+ci_upper = (p1 - p2) + z_crit * se_diff
+
+print(f"Конверсия B: {p1:.4%}, Конверсия A: {p2:.4%}")
+print(f"Разность: {(p1 - p2):.4%} (95% CI: [{ci_lower:.4%}, {ci_upper:.4%}])")
+print(f"Z-статистика: {z_stat:.4f}, p-value: {p_val:.6f}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Применение Z-теста к зависимым наблюдениям.</b> Если пользователь может совершить несколько конверсий (например, клики), это уже не бернуллиевская величина. Нужно считать конверсию юзера (купил хотя бы раз: 0/1) либо использовать дельта-метод.</li>
+        <li><b>Использование при малом числе конверсий.</b> Если в редком событии всего 3-5 конверсий на группу, нормальная аппроксимация дает заниженное p-value. Нужен точный тест Фишера (Fisher's Exact Test).</li>
+        <li><b>Неравенство пулинговой и непулинговой дисперсий.</b> При расчете Z-статистики дисперсию объединяют (pooled), а при построении доверительного интервала для разности долей — считают раздельно (unpooled).</li>
+        <li><b>Пренебрежение сплит-неравенством.</b> Размер выборки может отличаться (40k vs 60k), Z-тест это учитывает, но нужно предварительно проверить тест на SRM.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании спросят: <i>«В чем разница между Z-тестом для долей и критерием Хи-квадрат Пирсона для таблицы сопряженности 2х2?»</i> Ответ: <i>«Они математически эквивалентны: статистика Хи-квадрат Пирсона для таблицы 2х2 с двусторонней альтернативой в точности равна квадрату Z-статистики ($X^2 = Z^2$), и получаемые p-value абсолютно одинаковы».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Для каких типов метрик применяется двухвыборочный Z-тест?</b></p><p>Для бинарных (бернуллиевских) метрик на уровне уникального пользователя: конверсии, кликабельность (1/0), отток.</p></li>
+        <li><p><b>Какое условие применимости нормальной аппроксимации в Z-тесте?</b></p><p>Число успехов и неудач в каждой группе должно быть не менее 10: $n p \ge 10$ и $n (1-p) \ge 10$.</p></li>
+        <li><p><b>В чем разница между пулинговой и непулинговой дисперсией?</b></p><p>Пулинговая рассчитывается под предположением равенства долей в H0 для Z-статистики, непулинговая — для доверительного интервала.</p></li>
+        <li><p><b>Что делать, если в выборке конверсий меньше 10?</b></p><p>Использовать точный тест Фишера (Fisher Exact Test) или бутстреп.</p></li>
+        <li><p><b>Как связан Z-тест с тестом Хи-квадрат для таблицы 2х2?</b></p><p>Критерий Хи-квадрат дает точно такое же p-value, а его статистика равна $Z^2$.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="welch_t_test_ab" data-interview="5">
+  <div class="name" id="welch_t_test_ab">
+    t-тест Уэлча для непрерывных метрик
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>t-критерий Уэлча (Welch's t-test, Unequal Variances t-test)</b> — это параметрический статистический критерий для проверки гипотезы о равенстве средних значений двух независимых выборок $H_0: \mu_1 = \mu_2$ в условиях <b>неравенства их генеральных дисперсий ($\sigma_1^2 \neq \sigma_2^2$, гетероскедастичность)</b>. Является модификацией классического t-теста Стьюдента.</p>
+<p>Если совсем простыми словами: <b>это золотой стандарт для непрерывных метрик (средний чек, доход на пользователя ARPU, время в приложении)</b>. Классический тест Стьюдента требует строго одинакового разброса данных в группах, а тест Уэлча работает надежно, даже если новая фича увеличила разброс сумм платежей в несколько раз.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математический аппарат критерия Уэлча:</p>
+<p>Статистика критерия строится на выборочных средних $\bar{X}_1, \bar{X}_2$ и несмещенных выборочных дисперсиях $s_1^2, s_2^2$:</p>
+<p>$$t = \frac{\bar{X}_1 - \bar{X}_2}{\sqrt{\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}}}$$</p>
+<p>Число степеней свободы $\nu$ аппроксимируется по формуле <b>Уэлча-Саттертуэйта (Welch–Satterthwaite equation)</b>:</p>
+<p>$$\nu \approx \frac{\left(\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}\right)^2}{\frac{(s_1^2/n_1)^2}{n_1 - 1} + \frac{(s_2^2/n_2)^2}{n_2 - 1}}$$</p>
+<p><b>Почему тест Стьюдента опасен:</b> Если размеры групп неравны ($n_1 \neq n_2$) и дисперсии различаются ($s_1^2 \neq s_2^2$), классический t-тест с пулинговой дисперсией грубо нарушает уровень ошибки I рода: реальный $\alpha$ может подскакивать до $15-20\\%$ вместо заявленных $5\\%$. Тест Уэлча полностью устойчив к гетероскедастичности и по умолчанию рекомендуется в современной литературе (Delacre et al., 2017).</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтеха (ARPU):</b> В группе A (текущий интерфейс кредитов) средний чек составил $12\,400$ руб. со стандартным отклонением $4\,200$ руб. ($n_A = 15\,000$). В группе B ввели гибкий калькулятор срока: появились крупные займы, и разброс вырос до $8\,900$ руб. при среднем чеке $13\,100$ руб. ($n_B = 15\,000$). Тест Стьюдента дал бы искаженную оценку, в то время как тест Уэлча корректно скорректировал число степеней свободы с $29\,998$ до $21\,340$ и подтвердил устойчивость прироста ARPU.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Генерация выборок с разной дисперсией (гетероскедастичность)
+np.random.seed(42)
+n_a, n_b = 5000, 7000
+group_a = np.random.normal(loc=100.0, scale=15.0, size=n_a)
+group_b = np.random.normal(loc=101.5, scale=35.0, size=n_b) # дисперсия в 5.4 раза выше!
+
+# Классический Стьюдент (equal_var=True) vs Уэлч (equal_var=False)
+t_student, p_student = stats.ttest_ind(group_b, group_a, equal_var=True)
+t_welch, p_welch = stats.ttest_ind(group_b, group_a, equal_var=False)
+
+print(f"Student t-test: t = {t_student:.4f}, p-value = {p_student:.5f}")
+print(f"Welch t-test:   t = {t_welch:.4f}, p-value = {p_welch:.5f}")
+# В продакшене ВСЕГДА передаем equal_var=False!r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск t-теста Стьюдента по умолчанию (equal_var=True).</b> В scipy.stats по умолчанию стоит equal_var=True, что является историческим пережитком и ведет к ошибкам.</li>
+        <li><b>Применение к распределениям с тяжелыми хвостами без предобработки.</b> Выбросы (киты, миллиардные покупки) раздувают выборочную дисперсию $s^2$, ослепляя t-тест. Необходимы отсечения (trimming), винзоризация или CUPED.</li>
+        <li><b>Зависимость наблюдений.</b> Один пользователь сделал 10 покупок. Нельзя отдавать в t-тест строки заказов: сначала группируем сумму покупок на каждого пользователя (user-level aggregation).</li>
+        <li><b>Тестирование равенства дисперсий критерием Левена перед t-тестом.</b> Двухэтапная процедура (тест на равенство дисперсий, затем выбор критерия) искажает финальный $\alpha$. Рекомендуется ВСЕГДА сразу использовать критерий Уэлча.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании вопрос: <i>«Почему мы используем t-тест для среднего чека, если распределение выручки явно ненормальное и скошено вправо?»</i> Ответ: <i>«Благодаря Центральной предельной теореме (ЦПТ). При размерах выборок в тысячи и десятки тысяч пользователей распределение выборочного среднего $\bar{X}$ асимптотически сходится к нормальному, независимо от формы исходного распределения, если дисперсия конечна».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем t-тест Уэлча отличается от классического t-теста Стьюдента?</b></p><p>Уэлч не требует предположения о равенстве дисперсий в генеральных совокупностях и корректирует степени свободы.</p></li>
+        <li><p><b>Какое значение параметра equal_var нужно передавать в scipy.stats.ttest_ind?</b></p><p>Строго equal_var=False.</p></li>
+        <li><p><b>Почему t-тест применим к ненормальным данным на больших выборках?</b></p><p>В силу Центральной Предельной Теоремы выборочные средние распределены асимптотически нормально.</p></li>
+        <li><p><b>Что происходит с мощностью t-теста при наличии ультра-выбросов?</b></p><p>Дисперсия резко возрастает, знаменатель дроби увеличивается, t-статистика падает, мощность теста стремительно снижается к нулю.</p></li>
+        <li><p><b>Нужно ли проверять равенство дисперсий тестом Левена перед тестом Уэлча?</b></p><p>Нет, современные статистические консенсусы рекомендуют сразу применять тест Уэлча без предварительных тестов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mann_whitney_ab" data-interview="4">
+  <div class="name" id="mann_whitney_ab">
+    Критерий Манна-Уитни
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>U-критерий Манна-Уитни (Mann-Whitney U-test, Wilcoxon rank-sum test)</b> — это непараметрический статистический критерий, проверяющий гипотезу о стохастическом равенстве двух независимых распределений. Проверяет гипотезу $H_0: P(X > Y) = P(Y > X) = 0.5$.</p>
+<p>Если совсем простыми словами: <b>это критерий, который сравнивает не средние суммы в рублях, а ранги (места в рейтинге)</b>. Он сортирует всех пользователей от меньшего к большему и проверяет, чаще ли пользователи группы B оказываются выше пользователей группы A. Он абсолютно не боится диких выбросов.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Механика рангового анализа:</p>
+<p>Все наблюдения из двух групп $A$ ($n_1$) и $B$ ($n_2$) объединяются в один ряд и ранжируются от $1$ до $n_1 + n_2$. Статистика $U$ вычисляется через сумму рангов $R_1$ первой группы:</p>
+<p>$$U_1 = R_1 - \frac{n_1(n_1 + 1)}{2}, \quad U = \min(U_1, n_1 n_2 - U_1)$$</p>
+<p><b>Критическое заблуждение о медианах:</b> Манн-Уитни проверяет равенство медиан <b>только при условии одинаковой формы распределений</b>. Если формы распределений различаются (например, дисперсия группы B шире), Манн-Уитни может отклонить $H_0$ даже при идеально равных медианах. Он проверяет стохастическое доминирование: вероятность того, что случайное наблюдение из B превосходит наблюдение из A.</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс времени загрузки (Latency) и сессий:</b> Аналитик оптимизировал время ответа мобильного API. В распределении было много сетевых тайм-аутов (15-30 секунд), которые ломали t-тест. Тест Манна-Уитни показал $p = 0.002$, так как 65% пользователей группы B получили ответ быстрее, чем медианный пользователь группы A. Эффект подтвержден без удаления выбросов.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Иллюстрация: Манн-Уитни не проверяет средние!
+np.random.seed(42)
+# Контроль: стандартные чеки
+group_a = np.random.exponential(scale=100, size=5000)
+# Тест: 90% пользователей тратят меньше, но 10% китов тратят колоссальные суммы
+group_b = np.concatenate([
+    np.random.exponential(scale=85, size=4500), # большинству стало хуже
+    np.random.exponential(scale=2000, size=500) # киты перекрыли всё
+])
+
+print(f"Среднее A: {group_a.mean():.1f}, Среднее B: {group_b.mean():.1f}") # B намного прибыльнее!
+
+# t-тест фиксирует рост среднего
+t_stat, p_t = stats.ttest_ind(group_b, group_a, equal_var=False)
+# Манн-Уитни отвергает H0 в сторону УХУДШЕНИЯ для типичного юзера!
+u_stat, p_u = stats.mannwhitneyu(group_b, group_a, alternative='two-sided')
+
+print(f"t-test p-value: {p_t:.5f}")
+print(f"Mann-Whitney p-value: {p_u:.5f}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование Манна-Уитни для оценки выручки (ARPU).</b> Опаснейшая ошибка: бизнес живет на сумму выручки, а не на ранги. Фича может уронить ранги большинства пользователей, но утроить общую выручку за счет крупных покупок. Манн-Уитни покажет ухудшение при реальном росте денег.</li>
+        <li><b>Заявление «Манн-Уитни показал, что выросла медиана».</b> Критерий тестирует $P(X > Y) = 0.5$, а не равенство медиан.</li>
+        <li><b>Вычислительная сложность на больших данных.</b> Сортировка и ранжирование миллионов строк в памяти занимает колоссальное время по сравнению со сверткой выборочных средних.</li>
+        <li><b>Проблема повторяющихся значений (ties).</b> При большом количестве нулей (например, 95% пользователей ничего не купили) ранги связываются, что требует корректировки дисперсии статистики $U$.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Можно ли использовать критерий Манна-Уитни для валидации эксперимента по увеличению выручки?»</i> Четкий ответ: <i>«Категорически нет. Манн-Уитни проверяет стохастическое превосходство, переводя значения в ранги. При ранжировании чек в 1 млн рублей превращается просто в следующий ранг за чеком в 10 тыс. рублей. Бизнес теряет чувствительность к деньгам. Для выручки применяют t-тест на средних с CUPED, бутстреп или квантильную регрессию».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какую нулевую гипотезу строго проверяет критерий Манна-Уитни?</b></p><p>Гипотезу о стохастическом равенстве: $P(X > Y) = P(Y > X) = 0.5$.</p></li>
+        <li><p><b>При каком условии Манн-Уитни эквивалентен тесту равенства медиан?</b></p><p>Строго при условии равенства форм и масштабов распределений в обеих генеральных совокупностях.</p></li>
+        <li><p><b>Почему Манн-Уитни нельзя применять к монетизационным метрикам?</b></p><p>Он теряет абсолютные денежные значения при переходе к рангам, искажая итоговую бизнес-оценку выручки.</p></li>
+        <li><p><b>В чем преимущество Манна-Уитни перед параметрическими тестами?</b></p><p>Полная инвариантность к монотонным преобразованиям и абсолютная устойчивость к экстремальным выбросам.</p></li>
+        <li><p><b>Что происходит с критерием при 90% нулей в выборке?</b></p><p>Возникает проблема связанных рангов (ties), снижающая различительную способность критерия.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="chi_square_ab" data-interview="4">
+  <div class="name" id="chi_square_ab">
+    Критерий Хи-квадрат (Chi-Square)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Критерий согласия Хи-квадрат Пирсона ($\chi^2$-test)</b> — непараметрический статистический тест для проверки независимости двух категориальных переменных в таблицах сопряженности (Contingency Tables) или соответствия эмпирического распределения теоретическому: $H_0: O_{ij} = E_{ij}$.</p>
+<p>Если совсем простыми словами: <b>это тест, который сравнивает, насколько фактически увиденные числа в ячейках таблицы отличаются от того, что ожидалось бы по чистой случайности</b>. Идеален для многоклассовых категорий и проверки качества сплитования (SRM).</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика таблицы сопряженности $R \times C$:</p>
+<p>Для каждой ячейки $(i, j)$ ожидаемая частота при гипотезе независимости вычисляется через маргинальные суммы: $E_{ij} = \frac{R_i \cdot C_j}{N}$. Статистика критерия Пирсона:</p>
+<p>$$\chi^2 = \sum_{i=1}^R \sum_{j=1}^C \frac{(O_{ij} - E_{ij})^2}{E_{ij}} \xrightarrow{d} \chi^2_{(R-1)(C-1)}$$</p>
+<p><b>Требования применимости:</b></p>
+<ul>
+<li>Все ожидаемые частоты $E_{ij} \ge 5$ (правило Кокрена допускает не более 20% ячеек с $E_{ij} < 5$, но ни одной с $E_{ij} < 1$).</li>
+<li>Наблюдения должны быть взаимно независимы (один пользователь попадает ровно в одну ячейку).</li>
+<li>Для таблиц $2 \times 2$ на небольших выборках применяют поправку Йейтса на непрерывность (хотя в A/B тестах с десятками тысяч строк она не требуется).</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс многовариантного теста (A/B/C/D):</b> Маркетинг тестирует 4 варианта посадочной страницы. Результаты регистраций: A: 1200/20000, B: 1350/20000, C: 1180/20000, D: 1420/20000. Вместо попарных Z-тестов с раздуванием ошибки I рода аналитик строит таблицу $2 \times 4$ и рассчитывает $\chi^2 = 29.4$, $df = 3$, $p < 0.0001$. Гипотеза об одинаковой конверсии всех четырех вариантов сокрушительно отвергнута.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Таблица сопряженности 2x3 (3 варианта дизайна: A, B, C)
+# Строка 1: купили, Строка 2: не купили
+observed = np.array([
+    [520,  610,  490], # конверсии
+    [9480, 9390, 9510] # отказы
+])
+
+chi2_stat, p_val, dof, expected = stats.chi2_contingency(observed)
+
+print(f"Статистика Хи-квадрат: {chi2_stat:.4f}")
+print(f"Число степеней свободы: {dof}")
+print(f"p-value: {p_val:.5f}")
+print("Ожидаемые частоты при H0:\\n", expected.round(1))r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Применение при зависимых данных.</b> Если один пользователь совершает действия в нескольких категориях, нарушается предпосылка независимости ячеек.</li>
+        <li><b>Множественные попарные сравнения без поправки.</b> После отклонения общего теста Хи-квадрат аналитики начинают попарные тесты без поправки Бонферрони/Тьюки.</li>
+        <li><b>Применение при $E_{ij} < 5$.</b> При редких событиях распределение статистики отклоняется от теоретического $\chi^2$. Требуется точный тест Фишера-Фримана-Холтона.</li>
+        <li><b>Игнорирование упорядоченности категорий.</b> Если категории имеют естественный порядок (напр., оценка от 1 до 5), Хи-квадрат теряет мощность, так как не учитывает тренд (нужен критерий Кокрена-Армитажа).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как проверить Sample Ratio Mismatch (SRM), если мы делили трафик 50/50, а получили 49 100 на 50 900 пользователей?»</i> Ответ: <i>«Критерием согласия $\chi^2$ на одну степень свободы с ожидаемыми частотами $E_A = E_B = 50\,000$. Если $p < 0.001$, зафиксирован критический SRM, и результаты теста анализировать нельзя».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Для каких данных используется критерий Хи-квадрат?</b></p><p>Для анализа таблиц сопряженности с категориальными переменными и проверки соответствия теоретическому распределению.</p></li>
+        <li><p><b>Как рассчитываются ожидаемые частоты в ячейках таблицы сопряженности?</b></p><p>Произведение суммы по строке и суммы по столбцу, деленное на общий объем выборки: $E_{ij} = (R_i C_j) / N$.</p></li>
+        <li><p><b>Сколько степеней свободы у таблицы сопряженности размера R x C?</b></p><p>Число степеней свободы равно $(R - 1) 	imes (C - 1)$.</p></li>
+        <li><p><b>В чем ограничение критерия Хи-квадрат при малых выборках?</b></p><p>Ожидаемые частоты должны быть не менее 5, иначе нормальная аппроксимация полиномиального распределения не работает.</p></li>
+        <li><p><b>Почему критерий Хи-квадрат является стандартом для проверки SRM?</b></p><p>Он идеально сопоставляет фактические объемы групп с заданными пропорциями сплитования.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="bootstrap_ab" data-interview="5">
+  <div class="name" id="bootstrap_ab">
+    Бутстреп (Bootstrap) в A/B тестах
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Бутстреп (Bootstrap)</b> — это универсальный компьютерный метод статистического вывода, основанный на многократном случайном ресемплинге (выборке с возвращением) из исходных эмпирических данных для прямого приближения выборочного распределения любой целевой статистики.</p>
+<p>Если совсем простыми словами: <b>это способ оценить надежность любой сложной метрики (квантили, медианы, отношения средних), не зная никаких теоретических формул</b>. Мы заставляем компьютер 10 000 раз собрать выборку заново из наших же данных и смотрим, как скачет результат.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Алгоритмический фундамент бутстрепа (Efron, 1979):</p>
+<ol>
+<li>Из выборки $X = (x_1, \dots, x_n)$ генерируется $B$ псевдовыборок $X^{*b}$ размера $n$ путем случайного выбора элементов <b>с возвращением</b> (with replacement).</li>
+<li>Для каждого репликата вычисляется целевая статистика $\hat{\theta}^{*b} = f(X^{*b})$ (например, 95-й перцентиль времени ответа, CTR, медианный чек).</li>
+<li>Эмпирическое распределение $\{\hat{\theta}^{*1}, \dots, \hat{\theta}^{*B}\}$ аппроксимирует распределение оценки $\hat{\theta}$.</li>
+</ol>
+<p><b>Методы построения доверительных интервалов:</b></p>
+<ul>
+<li><b>Перцентильный (Percentile CI):</b> $[\hat{\theta}^*_{\alpha/2}, \hat{\theta}^*_{1-\alpha/2}]$. Прост, но смещен при асимметрии распределения.</li>
+<li><b>Базовый (Basic / Empirical CI):</b> $[2\hat{\theta} - \hat{\theta}^*_{1-\alpha/2}, 2\hat{\theta} - \hat{\theta}^*_{\alpha/2}]$.</li>
+<li><b>BCa (Bias-Corrected and Accelerated):</b> Корректирует смещение медианы и асимметрию через оценку параметра ускорения. Обеспечивает точность второго порядка $\mathcal{O}(1/n)$.</li>
+<li><b>Пуассоновский бутстреп (Poisson Bootstrap):</b> Быстрая онлайн-версия. Вместо физического сэмплирования каждому наблюдению присваивается случайный вес $w_i \sim \mathrm{Pois}(1)$, что радикально ускоряет расчеты в Spark/ClickHouse.</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс 95-го перцентиля времени оформления заказа:</b> Команда бэкенда ускорила генерацию PDF-договоров. Метрика — 95-й перцентиль задержки ($p95$). Классические t-тесты неприменимы, так как перцентиль не является средним. С помощью 5 000 бутстреп-реплик построен BCa-доверительный интервал для разности 95-х квантилей: $\Delta p95 = -340$ мс (95% CI: $[-480, -210]$ мс). Ноль не входит в интервал — ускорение доказано строго.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+
+# Векторизованный Пуассоновский бутстреп для разности 90-х перцентилей
+np.random.seed(42)
+n_samples = 20000
+n_boot = 2000
+
+# Исходные данные с тяжелыми хвостами
+data_a = np.random.lognormal(mean=2.0, sigma=1.0, size=n_samples)
+data_b = np.random.lognormal(mean=1.9, sigma=1.0, size=n_samples)
+
+# Генерация пуассоновских весов (размер: n_boot x n_samples)
+weights_a = np.random.poisson(lam=1.0, size=(n_boot, n_samples))
+weights_b = np.random.poisson(lam=1.0, size=(n_boot, n_samples))
+
+# Взвешенные перцентили (или бутстреп разности средних)
+boot_diffs = []
+for i in range(n_boot):
+    # Псевдовыборка через повторение индексов
+    idx_a = np.random.choice(n_samples, size=n_samples, replace=True)
+    idx_b = np.random.choice(n_samples, size=n_samples, replace=True)
+    diff = np.percentile(data_b[idx_b], 90) - np.percentile(data_a[idx_a], 90)
+    boot_diffs.append(diff)
+
+boot_diffs = np.array(boot_diffs)
+ci_lower, ci_upper = np.percentile(boot_diffs, [2.5, 97.5])
+p_val = 2 * min((boot_diffs > 0).mean(), (boot_diffs < 0).mean())
+
+print(f"90-й перцентиль разности: {np.median(boot_diffs):.3f}")
+print(f"95% Бутстреп CI: [{ci_lower:.3f}, {ci_upper:.3f}]")
+print(f"Двусторонний p-value: {p_val:.4f}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Бутстреп зависимых наблюдений.</b> Если сэмплировать отдельные клики пользователя, разрушается внутригрупповая корреляция. Необходим <b>кластерный / блочный бутстреп</b> (ресемплинг целиком пользователей с их корзинами).</li>
+        <li><b>Бутстреп экстремальных квантилей ($p99.9$).</b> Для экстремальных квантилей бутстреп не сходится, так как ресемплинг из эмпирической выборки не может воссоздать ненаблюдаемый хвост распределения.</li>
+        <li><b>Слишком малое число итераций.</b> При $B = 100$ границы доверительного интервала нестабильны от запуска к запуску. Стандарт для 95% CI: $B \ge 2\,000$, для p-value: $B \ge 10\,000$.</li>
+        <li><b>Колоссальные затраты ресурсов CPU.</b> Наивный цикл for в Python на 10 млн пользователей зависнет на часы. Нужно использовать векторизацию, C-расширения или пуассоновские веса в SQL.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как бутстрепом проверить статистическую значимость соотношения кликов к показам (CTR)?»</i> Ответ: <i>«Применяем пользовательский кластерный бутстреп: объектом ресемплинга является пользователь $i$ со своей парой $(clicks_i, views_i)$. На каждой итерации суммируем клики и показы псевдовыборки и вычисляем отношение $\sum clicks / \sum views$. Строим перцентильный доверительный интервал для разности отношений $\Delta CTR$».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем ключевая идея метода бутстреп?</b></p><p>Аппроксимация выборочного распределения статистики через многократный ресемплинг исходных данных с возвращением.</p></li>
+        <li><p><b>В чем разница между перцентильным и BCa бутстреп-интервалами?</b></p><p>Перцентильный берет сырые квантили распределения; BCa корректирует смещение оценки и несимметричность дисперсии.</p></li>
+        <li><p><b>Что такое пуассоновский бутстреп и почему он эффективен?</b></p><p>Замена физического ресемплинга взвешиванием наблюдений случайными весами из распределения Пуассона Pois(1), что легко параллелится в БД.</p></li>
+        <li><p><b>Почему нельзя применять стандартный бутстреп к кликам одного пользователя?</b></p><p>Нарушается независимость наблюдений; требуется кластерный бутстреп по уникальным пользователям.</p></li>
+        <li><p><b>Какое минимальное число реплик B рекомендуется для надежного 95% доверительного интервала?</b></p><p>Не менее 2 000 итераций.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ratio_metrics_delta_method" data-interview="5">
+  <div class="name" id="ratio_metrics_delta_method">
+    Ratio-метрики и дельта-метод
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Ratio-метрика (метрика-отношение)</b> — это продуктовая метрика, представляющая собой отношение сумм двух случайных величин: $R = \frac{\sum_{i=1}^N X_i}{\sum_{i=1}^N Y_i}$ (например, $\mathrm{CTR} = \frac{\text{Клики}}{\text{Показы}}$, $\mathrm{AOV} = \frac{\text{Выручка}}{\text{Заказы}}$, $\mathrm{CPC} = \frac{\text{Затраты}}{\text{Клики}}$).</p>
+<p>Если совсем простыми словами: <b>это метрики, где и в числителе, и в знаменателе стоят случайные величины</b>. Из-за этого обычный t-тест ломается: знаменатель скачет от пользователя к пользователю, и дисперсия дроби считается по сложным нелинейным правилам.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика Дельта-метода (Taylor Expansion):</p>
+<p>Пусть $\bar{X} = \frac{1}{N}\sum X_i$ и $\bar{Y} = \frac{1}{N}\sum Y_i$. Метрика $R = \bar{X} / \bar{Y}$. Функция $g(x, y) = x / y$ нелинейна. Разложим ее в ряд Тейлора первого порядка в окрестности математических ожиданий $(\mu_x, \mu_y)$:</p>
+<p>$$g(\bar{X}, \bar{Y}) \approx \frac{\mu_x}{\mu_y} + \frac{1}{\mu_y}(\bar{X} - \mu_x) - \frac{\mu_x}{\mu_y^2}(\bar{Y} - \mu_y)$$</p>
+<p>Взяв дисперсию от этой линейной комбинации, получаем фундаментальную формулу асимптотической дисперсии ratio-метрики:</p>
+<p>$$\mathrm{Var}\left(\frac{\bar{X}}{\bar{Y}}\right) \approx \frac{1}{\mu_y^2}\mathrm{Var}(\bar{X}) + \frac{\mu_x^2}{\mu_y^4}\mathrm{Var}(\bar{Y}) - 2\frac{\mu_x}{\mu_y^3}\mathrm{Cov}(\bar{X}, \bar{Y})$$</p>
+<p><b>Техника линеаризации (Deng et al., Microsoft):</b> Вместо сложного расчета ковариаций мы сопоставляем каждому пользователю $i$ линеаризованную величину:</p>
+<p>$$L_i = X_i - \hat{R}_{\text{pool}} \cdot Y_i, \quad \text{где } \hat{R}_{\text{pool}} = \frac{\sum X}{\sum Y}$$</p>
+<p>К величинам $L_i$ применим <b>абсолютно стандартный t-тест Уэлча</b>! Это работает молниеносно в обычном SQL.</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс Click-Through Rate (CTR) ленты новостей:</b> $N = 100\,000$ пользователей. Пользователь $i$ просмотрел $Y_i$ карточек и кликнул $X_i$ раз. Аналитик наивно применил Z-тест к сумме кликов и получил $p = 0.0001$. Применив дельта-метод с учетом корреляции между показами и кликами ($\mathrm{Cov}(X, Y) > 0$), выяснилось, что дисперсия отношения выше в 3.8 раза! Истинное $p\text{-value} = 0.082$. Релиз спасен от ложноположительного внедрения.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Реализация линеаризации ratio-метрики (Microsoft approach)
+np.random.seed(42)
+n_users = 25000
+
+# Симуляция: просмотры Y и клики X
+views_a = np.random.poisson(lam=20, size=n_users) + 1
+clicks_a = np.random.binomial(n=views_a, p=0.05) # CTR = 5%
+
+views_b = np.random.poisson(lam=20, size=n_users) + 1
+clicks_b = np.random.binomial(n=views_b, p=0.052) # CTR = 5.2%
+
+# Общий CTR пула для линеаризации
+r_pool = (clicks_a.sum() + clicks_b.sum()) / (views_a.sum() + views_b.sum())
+
+# Линеаризованная переменная для каждого пользователя
+l_a = clicks_a - r_pool * views_a
+l_b = clicks_b - r_pool * views_b
+
+# Применяем стандартный t-тест Уэлча к линеаризованным метрикам!
+t_stat, p_val = stats.ttest_ind(l_b, l_a, equal_var=False)
+
+print(f"CTR группы A: {clicks_a.sum() / views_a.sum():.4%}")
+print(f"CTR группы B: {clicks_b.sum() / views_b.sum():.4%}")
+print(f"Линеаризованный t-stat: {t_stat:.4f}, p-value: {p_val:.5f}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Усреднение CTR по пользователям (Mean of Ratios вместо Ratio of Means).</b> Расчет среднего от $(X_i / Y_i)$ дает равный вес пользователю с 1 показом и пользователю с 10 000 показов, искажая макро-метрику платформы.</li>
+        <li><b>Игнорирование знаменателя в Z-тесте.</b> Трактовка показов как независимых испытаний Бернулли ведет к грубому занижению дисперсии.</li>
+        <li><b>Деление на ноль при расчете пользовательских отношений.</b> Если пользователь не открыл ленту ($Y_i = 0$), $X_i / Y_i$ не существует. Линеаризация идеально решает это: $L_i = 0 - \hat{R} \cdot 0 = 0$.</li>
+        <li><b>Потеря ковариационного члена.</b> Числитель и знаменатель почти всегда положительно скоррелированы. Игнорирование ковариации искажает дисперсию.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>Вопрос на собеседовании: <i>«Как на собеседовании в Яндекс или Авито быстро проверить статзначимость CTR в SQL без Python?»</i> Ответ: <i>«Через линеаризацию Денга: в первом CTE считаем глобальный $K = \sum clicks / \sum views$. Во втором CTE для каждого пользователя считаем метрику $L_i = clicks_i - K \cdot views_i$. Далее в SQL считаем <code>AVG(L_i)</code> и <code>VAR_SAMP(L_i)</code> по группам и подставляем в формулу t-теста Уэлча».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое ratio-метрика?</b></p><p>Отношение двух случайных величин, суммированных по всем пользователям: $R = \sum X_i / \sum Y_i$.</p></li>
+        <li><p><b>Почему к ratio-метрикам нельзя напрямую применить стандартный t-тест?</b></p><p>Потому что знаменатель является случайной величиной, что делает распределение отношения нелинейным.</p></li>
+        <li><p><b>В чем суть дельта-метода для отношений?</b></p><p>Аппроксимация функции отношения разложением в ряд Тейлора первого порядка для вычисления асимптотической дисперсии.</p></li>
+        <li><p><b>Как работает линеаризация ratio-метрик по Денгу?</b></p><p>Каждому объекту сопоставляется линейная величина $L_i = X_i - R \cdot Y_i$, среднее которой равно нулю, а дисперсия сохраняет дисперсию отношения.</p></li>
+        <li><p><b>В чем различие между Ratio of Means и Mean of Ratios?</b></p><p>Ratio of Means — это суммарная бизнес-метрика продукта; Mean of Ratios — невзвешенное среднее долей пользователей.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ab_effect_ci" data-interview="4">
+  <div class="name" id="ab_effect_ci">
+    Доверительные интервалы для эффекта
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Доверительный интервал (Confidence Interval, CI) для размера эффекта</b> — это диапазон значений, построенный по выборочным данным, который с заданной доверительной вероятностью $1 - \alpha$ (обычно $95\\%$) накрывает истинное неизвестное значение эффекта воздействия в генеральной совокупности:</p>
+<p>$$P(\mathrm{CI}_{\text{lower}} \le \Delta_{\text{true}} \le \mathrm{CI}_{\text{upper}}) = 1 - \alpha$$</p>
+<p>Если совсем простыми словами: <b>p-value отвечает на вопрос «Есть ли хоть какой-то эффект?», а доверительный интервал отвечает на вопрос «Сколько конкретно денег мы заработаем или потеряем?»</b>. Это главный инструмент продакт-менеджера для оценки бизнес-рисков.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика построения доверительных интервалов:</p>
+<ul>
+<li><b>Абсолютный эффект (Absolute Lift):</b> $\Delta = \bar{Y}_B - \bar{Y}_A$.
+<p>$$\mathrm{CI}_{1-\alpha} = (\bar{Y}_B - \bar{Y}_A) \pm Z_{1-\alpha/2} \cdot \sqrt{\frac{s_A^2}{n_A} + \frac{s_B^2}{n_B}}$$</p>
+</li>
+<li><b>Относительный эффект (Relative Lift):</b> $\Delta_{\text{rel}} = \frac{\bar{Y}_B - \bar{Y}_A}{\bar{Y}_A} = \frac{\bar{Y}_B}{\bar{Y}_A} - 1$.
+Поскольку отношение $\bar{Y}_B / \bar{Y}_A$ нелинейно, его дисперсия рассчитывается дельта-методом (Fieller's Theorem):
+<p>$$\mathrm{Var}\left(\frac{\bar{Y}_B}{\bar{Y}_A}\right) \approx \frac{1}{\bar{Y}_A^2}\mathrm{Var}(\bar{Y}_B) + \frac{\bar{Y}_B^2}{\bar{Y}_A^4}\mathrm{Var}(\bar{Y}_A)$$</p>
+</li>
+<li><b>Связь с проверкой гипотез:</b> $H_0: \Delta = 0$ отклоняется на уровне $\alpha$ тогда и только тогда, когда $(1-\alpha)$-доверительный интервал для $\Delta$ <b>не содержит ноль</b>.</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс бизнес-планирования:</b> Тест нового тарифа показал прирост ARPU с $p = 0.04$. Точечная оценка: $+15$ руб. на пользователя. 95% доверительный интервал для прироста: $[+0.8, +29.2]$ руб. Хотя результат статистически значим, нижняя граница показывает, что при худшем сценарии прирост составит всего 80 копеек на пользователя, что при затратах на разработку в 5 млн рублей не окупит проект за 2 года. Доверительный интервал предотвратил убыточный релиз.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Расчет 95% доверительного интервала для относительного аплифта (дельта-метод)
+mean_a, std_a, n_a = 1500.0, 450.0, 30000
+mean_b, std_b, n_b = 1545.0, 470.0, 30000
+
+var_mean_a = (std_a ** 2) / n_a
+var_mean_b = (std_b ** 2) / n_b
+
+# Точечный относительный прирост
+rel_lift = (mean_b - mean_a) / mean_a
+
+# Стандартная ошибка относительного эффекта по дельта-методу
+se_rel = np.sqrt(var_mean_b / (mean_a ** 2) + ((mean_b ** 2) / (mean_a ** 4)) * var_mean_a)
+z_crit = stats.norm.ppf(0.975)
+
+ci_rel_lower = rel_lift - z_crit * se_rel
+ci_rel_upper = rel_lift + z_crit * se_rel
+
+print(f"Относительный прирост: {rel_lift:+.2%}")
+print(f"95% CI для относительного прироста: [{ci_rel_lower:+.2%}, {ci_rel_upper:+.2%}]")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Интерпретация: «Истинный эффект лежит в этом интервале с вероятностью 95%».</b> Истинный параметр фиксирован и не случаен. Правильно: если повторить эксперимент 100 раз, 95 из построенных интервалов накроют истинный параметр.</li>
+        <li><b>Наивный расчет относительного интервала.</b> Деление границ абсолютного доверительного интервала на $ar{Y}_A$ игнорирует случайность выборочного среднего контроля $ar{Y}_A$.</li>
+        <li><b>Игнорирование ширины интервала.</b> Узкий интервал $[+2.1\%, +2.5\%]$ дает высокую предсказуемость бизнеса. Широкий интервал $[+0.1\%, +14.8\%]$ указывает на колоссальную неопределенность.</li>
+        <li><b>Ошибочное сложение доверительных интервалов двух групп.</b> Проверка перекрытия индивидуальных интервалов групп A и B не эквивалентна проверке интервала для их разности (индивидуальные интервалы могут слабо перекрываться даже при статзначимой разности).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Если 95% доверительные интервалы средних значений групп A и B слегка пересекаются, означает ли это, что разница между ними статистически незначима?»</i> Ответ: <i>«Нет, не означает! Это распространенное заблуждение. Проверка пересечения индивидуальных интервалов является слишком консервативной. Значимость проверяется строго по доверительному интервалу разности $\Delta = \bar{Y}_B - \bar{Y}_A$. Он может не содержать ноль даже при небольшом пересечении интервалов групп».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что показывает доверительный интервал для эффекта?</b></p><p>Диапазон наиболее правдоподобных значений истинного эффекта воздействия при заданном уровне доверия.</p></li>
+        <li><p><b>Как связаны доверительный интервал и p-value?</b></p><p>Если 95% CI для разности не содержит 0, то p-value < 0.05 в двустороннем тесте.</p></li>
+        <li><p><b>Почему нельзя просто разделить границы абсолютного CI на среднее контроля для получения относительного CI?</b></p><p>Потому что среднее контроля само является случайной величиной с ненулевой дисперсией; нужен дельта-метод.</p></li>
+        <li><p><b>В чем ценность доверительного интервала для бизнес-решений?</b></p><p>Позволяет оценить наихудший (пессимистичный) и наилучший (оптимистичный) финансовые сценарии раскатки фичи.</p></li>
+        <li><p><b>Верно ли утверждение: «Если интервалы групп А и Б перекрываются, статзначимости точно нет»?</b></p><p>Нет, это математически неверно; разность может быть значима при умеренном перекрытии.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ab_decision" data-interview="5">
+  <div class="name" id="ab_decision">
+    Принятие решений по результатам A/B
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Фреймворк принятия продуктовых решений (Data-Driven Decision Making)</b> — это формализованный регламент перевода статистических оценок эксперимента в управленческое решение: <b>Rollout (раскатка на 100%)</b>, <b>Discard (откат/закрытие гипотезы)</b> или <b>Iterate (доработка)</b>.</p>
+<p>Если совсем простыми словами: <b>статистика дает цифры, но решение принимает бизнес</b>. Даже если p-value = 0.0001, фичу нельзя раскатывать, если она уронила надежность серверов, вызвала волну жалоб в саппорт или не окупает стоимость серверной инфраструктуры.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Матрица принятия решений и многомерная валидация:</p>
+<table class="task-table">
+<thead><tr><th>Целевая метрика (Primary)</th><th>Guardrail / Смежные метрики</th><th>Действие</th><th>Обоснование</th></tr></thead>
+<tbody>
+<tr><td><b>Значимый рост ($p < \alpha$)</b></td><td>Без просадок (нейтральны)</td><td><b>Full Rollout</b></td><td>Чистая победа: рост ценности без побочных эффектов.</td></tr>
+<tr><td><b>Значимый рост ($p < \alpha$)</b></td><td>Значимое падение ($p < \alpha$)</td><td><b>Trade-off Analysis</b></td><td>Оценка чистого финансового эффекта (Net Benefit vs Cannibalization).</td></tr>
+<tr><td><b>Нейтральный результат ($p > \alpha$)</b></td><td>Без просадок</td><td><b>Discard / Pivot</b></td><td>Правило бритвы Оккама: не усложнять кодовую базу бесполезным кодом.</td></tr>
+<tr><td><b>Значимое падение ($p < \alpha$)</b></td><td>Любое</td><td><b>Immediate Rollback</b></td><td>Фича ухудшила пользовательский опыт.</td></tr>
+</tbody>
+</table>
+<p><b>Концепция Ship Criteria:</b> Правила раскатки должны быть зафиксированы в дизайн-документе <b>ДО старта теста</b> во избежание рационализации неудач после снятия метрик.</p>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс фичи «Умные пуши»:</b> Тест показал рост DAU на $+1.8\%$ ($p = 0.004$). Однако Guardrail-метрика «Отключение уведомлений в настройках ОС» подскочила на $+14\%$, а отток пользователей (Uninstall Rate) вырос на $+0.6\%$. Аналитик доказал, что краткосрочный всплеск активности через 3 месяца обернется потерей 40 000 клиентов. Команда отклонила раскатку и отправила фичу на переработку частоты рассылок.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Формализованный алгоритм принятия решений по A/B тесту
+def evaluate_experiment(primary_p, primary_lift, guardrail_p, guardrail_lift, mde):
+    print("=== АНАЛИЗ РЕЗУЛЬТАТОВ ЭКСПЕРИМЕНТА ===")
+    
+    # 1. Проверка целевой метрики
+    is_primary_significant = primary_p < 0.05
+    is_above_mde = primary_lift >= mde
+    
+    # 2. Проверка Guardrail метрики
+    is_guardrail_degraded = (guardrail_p < 0.05) and (guardrail_lift < 0)
+    
+    if is_guardrail_degraded:
+        return "BLOCKED: Фича ухудшает ключевые защитные метрики. Откат или доработка."
+    
+    if is_primary_significant and primary_lift > 0:
+        if is_above_mde:
+            return "ROLLOUT: Эффект статзначим и превышает MDE. Рекомендовано к раскатке."
+        else:
+            return "WARN: Эффект статзначим, но меньше MDE. Оценить затраты на поддержку."
+            
+    if is_primary_significant and primary_lift < 0:
+        return "ROLLBACK: Целевая метрика значимо просела. Немедленный откат."
+        
+    return "DISCARD: Статзначимых отличий не обнаружено. Не усложнять кодовую базу."
+
+print(evaluate_experiment(primary_p=0.012, primary_lift=0.045, guardrail_p=0.45, guardrail_lift=-0.002, mde=0.03))r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Раскатка фичи с нейтральным результатом «на всякий случай».</b> Приводит к разрастанию технического долга (Feature Creep) и замедлению кодовой базы без бизнес-выгоды.</li>
+        <li><b>Игнорирование стоимости поддержки (Cost of Maintenance).</b> Фича, приносящая 100 тыс. рублей в год, но требующая отдельного сервера за 500 тыс. рублей в год, убыточна.</li>
+        <li><b>Поиск «успешных сегментов» после провала общего теста (Cherry Picking).</b> Если в тесте нет эффекта в целом, но аналитик находит рост у «пользователей Android из Казани с четным ID», это классическая ошибка множественного тестирования.</li>
+        <li><b>Принятие решений при наличии незавершенных заказов (Order Maturation).</b> Анализ когорт до созревания конверсионного окна искажает итоговый финансовый результат.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Тест показал нейтральный результат (p = 0.42). Продакт говорит: «Фича классная, код уже написан, давайте раскатим!» Ваши действия как аналитика?»</i> Ответ: <i>«Аргументированно отговаривать. Каждая неработающая фича повышает когнитивную нагрузку на пользователя, увеличивает время компиляции/загрузки и создает технический долг. В сильной инженерной культуре код без доказанного эффекта удаляется (ветка закрывается)».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какие три базовых решения принимаются по итогам A/B теста?</b></p><p>Rollout (раскатка на 100%), Discard (закрытие/удаление), Iterate (доработка гипотезы).</p></li>
+        <li><p><b>Что такое Guardrail-метрики и какую роль они играют в принятии решений?</b></p><p>Защитные метрики (техническая стабильность, отток, жалобы), падение которых блокирует раскатку даже при росте целевой метрики.</p></li>
+        <li><p><b>Почему опасно раскатывать нейтральные фичи?</b></p><p>Это генерирует технический долг, размывает продукт и увеличивает затраты на поддержку без бизнес-отдачи.</p></li>
+        <li><p><b>Что такое Ship Criteria?</b></p><p>Заранее зафиксированные в дизайне эксперимента пороговые условия, при выполнении которых фича раскатывается в прод.</p></li>
+        <li><p><b>В чем опасность пост-сегментации неудачных тестов?</b></p><p>При разбиении выборки на десятки подгрупп неизбежно найдутся сегменты с $p < 0.05$ чисто из-за ошибки множественного тестирования.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="multiple_testing" data-interview="5">
+  <div class="name" id="multiple_testing">
+    Проблема множественного тестирования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Проблема множественного тестирования (Multiple Testing Problem, Data Dredging, Look-Elsewhere Effect)</b> — это резкое лавинообразное возрастание вероятности совершить хотя бы одну ошибку I рода (ложноположительное обнаружение) при одновременной проверке нескольких статистических гипотез или анализе нескольких метрик.</p>
+<p>Если совсем простыми словами: <b>если подбросить монетку 1 раз, шанс орла 50%. Но если подбросить ее 20 раз, шанс выпадения орла хотя бы раз превышает 99.999%</b>. Точно так же, если в A/B тесте мониторить 50 метрик при обычном пороге $\alpha = 0.05$, вы практически гарантированно «найдете» фиктивный статзначимый эффект там, где его нет.</p>r
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика групповой ошибки FWER (Family-Wise Error Rate):</p>
+<p>Если проверяется $k$ взаимно независимых истинных нулевых гипотез на уровне $\alpha$, то вероятность найти хотя бы одну ложную значимость составляет:</p>
+<p>$$\mathrm{FWER} = 1 - (1 - \alpha)^k$$</p>
+<p>При $\alpha = 0.05$ и $k = 20$: $\mathrm{FWER} = 1 - (0.95)^{20} \approx 64.2\\%$. При $k = 100$: $\mathrm{FWER} \approx 99.4\\%$.</p>
+<p><b>Методы контроля ошибок:</b></p>
+<ul>
+<li><b>Контроль FWER: Поправка Бонферрони (Bonferroni Correction).</b> Самый жесткий консервативный метод: гипотеза отвергается, если $p_i \le \frac{\alpha}{k}$. Гарантирует $\mathrm{FWER} \le \alpha$, но резко роняет мощность тестов.</li>
+<li><b>Поправка Холма (Holm-Bonferroni):</b> Пошаговый нисходящий метод. $p$-value сортируются по возрастанию: $p_{(1)} \le p_{(2)} \le \dots \le p_{(k)}$. На шаге $i$ сравниваем $p_{(i)}$ с $\frac{\alpha}{k - i + 1}$. Строго превосходит Бонферрони по мощности.</li>
+<li><b>Контроль FDR: Метод Бенджамини-Хохберга (Benjamini-Hochberg, 1995).</b> Контролирует не FWER, а долю ложных открытий среди всех отклоненных гипотез: $\mathrm{FDR} = \mathbb{E}\left[\frac{V}{\max(R, 1)}\right] \le \alpha$. Стандарт для анализа сотен метрик и гетерогенных сегментов.</li>
+</ul>r
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс дашборда на 80 метрик:</b> В e-commerce эксперименте по смене цвета плашки «Скидка» целевая конверсия не изменилась ($p = 0.38$). Однако продакт открыл дашборд с 80 второстепенными метриками и увидел: <i>«Конверсия в покупку носков в приложении на планшетах iPad выросла с $p = 0.008$!»</i> Это классический ложноположительный артефакт. Применение поправки Бенджамини-Хохберга скорректировало этот $p$-value до $0.41$, разоблачив статистическую иллюзию.</p>r
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+from statsmodels.stats.multitest import multipletests
+
+# Симуляция 20 метрик в A/A тесте (все H0 верны!)
+np.random.seed(42)
+k_hypotheses = 20
+p_values = np.random.uniform(0, 1, size=k_hypotheses)
+
+# Сырые значимости при пороге 0.05
+raw_discoveries = p_values < 0.05
+
+# Поправка Бонферрони (строгий контроль FWER)
+reject_bonf, p_bonf, _, _ = multipletests(p_values, alpha=0.05, method='bonferroni')
+
+# Поправка Бенджамини-Хохберга (контроль FDR)
+reject_fdr, p_fdr, _, _ = multipletests(p_values, alpha=0.05, method='fdr_bh')
+
+print(f"Сырые p-values < 0.05 (ложные тревоги): {raw_discoveries.sum()} из {k_hypotheses}")
+print(f"После Бонферрони отклонено: {reject_bonf.sum()}")
+print(f"После Бенджамини-Хохберга отклонено: {reject_fdr.sum()}")r</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Одновременный мониторинг десятков метрик без единого OEC.</b> Размывает фокус и гарантирует нахождение ложных сигналов.</li>
+        <li><b>Применение поправки Бонферрони к коррелирующим метрикам.</b> Метрики в продукте сильно скоррелированы (выручка, GMV, средний чек). Бонферрони предполагает худший сценарий и делает тест чрезмерно консервативным.</li>
+        <li><b>Множественные срезы данных (Subgroup P-hacking).</b> Поиск эффекта по городам, платформам, браузерам и версиям ОС без коррекции порога $\alpha$.</li>
+        <li><b>Непрерывный мониторинг во времени без sequential-поправок.</b> Множественная проверка гипотез возникает не только по метрикам, но и по дням теста (проблема Peeking).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем разница между контролем FWER и FDR и когда какой метод применять?»</i> Ответ: <i>«FWER (Бонферрони, Холм) контролирует вероятность совершить ХОТЯ БЫ ОДНУ ошибку I рода во всем семействе гипотез. Применяется, когда цена любой ошибки критически высока (например, раскатка ядра поискового ранжирования). FDR (Бенджамини-Хохберг) контролирует ДОЛЮ ложных открытий среди отклоненных гипотез. Применяется в разведочном анализе, поиске сегментов и при мониторинге сотен метрик».</i></p>r
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое FWER (Family-Wise Error Rate)?</b></p><p>Вероятность совершить хотя бы одну ошибку первого рода среди всего семейства проверяемых гипотез.</p></li>
+        <li><p><b>Чему равен шанс совершить ошибку I рода при проверке 20 независимых гипотез с alpha=0.05?</b></p><p>$1 - (1 - 0.05)^{20} pprox 64.2\%$.</p></li>
+        <li><p><b>В чем суть поправки Бонферрони?</b></p><p>Каждое индивидуальное p-value сравнивается с ужесточенным порогом $lpha / k$.</p></li>
+        <li><p><b>Что такое FDR (False Discovery Rate)?</b></p><p>Математическое ожидание доли ложноположительных отклонений среди всех отклоненных гипотез.</p></li>
+        <li><p><b>Почему процедура Холма предпочтительнее поправки Бонферрони?</b></p><p>Она контролирует тот же уровень FWER, но обладает строго большей статистической мощностью за счет пошагового убывания штрафа.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

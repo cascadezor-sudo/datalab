@@ -1,0 +1,2282 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Вопросы от HR</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../assets/code-styles.css" rel="stylesheet" />
+    <link href="../assets/css/cards.css" rel="stylesheet" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/pages-modern.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Интервью</span>
+            <span class="pill pill--soft">HR</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Вопросы от HR</h1>
+          <p class="section-shell__desc">Типичные вопросы от HR на собеседованиях.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+
+        <h3 data-md-source="true">Рекомендации</h3>
+        <!-- md:replace:recommendations_answers:start -->
+<li class="question" data-md-source="true" data-md-id="recommendations_answers">
+  <div class="name" id="recommendations_answers">
+    Рекомендации по ответам
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Общие правила, работающие для большинства поведенческих вопросов.</p>
+<p><b>1. Структура важнее содержания.</b> Даже средний по силе кейс, рассказанный структурно, воспринимается лучше, чем отличный, изложенный сумбурно. Базовый каркас — <a href="../bank/hr.html#star" target="_blank" rel="noopener">STAR</a>: ситуация, задача, действия, результат.</p>
+<p><b>2. Числа обязательны.</b> «Стало быстрее» и «8 с → 900 мс» — разные по силе утверждения. Если точных цифр не помните, называйте порядок: «примерно втрое», «десятки тысяч запросов в сутки».</p>
+<p><b>3. «Я» про свою часть, «мы» про командную.</b> Интервьюер почти всегда уточняет вашу роль; несостыковка обнаружится.</p>
+<p><b>4. Тайминг.</b> Основной рассказ — 2–4 минуты. Детали давайте по уточняющим вопросам: это признак хорошей коммуникации, а не скромности.</p>
+<p><b>5. Заканчивайте выводом.</b> Что вы поняли, что изменили в процессе. Именно вывод превращает историю в аргумент.</p>
+<p><b>6. Готовьте кейсы заранее.</b> Достаточно 5–6 историй из опыта, покрывающих типовые вопросы: сложная задача, конфликт, ошибка, работа вне зоны ответственности, влияние на продукт, обучение новому. Одна история может закрывать несколько вопросов под разными углами.</p>
+<p><b>7. Не выдумывайте.</b> Уточняющие вопросы быстро вскрывают вымысел. Слабый, но настоящий кейс лучше сильного, но придуманного.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Рекомендации">
+<p>Ответы <b>нужно давать структурированно</b> там, где это возможно. Для вопросов про конфликты и проблемные ситуации минимальный каркас:</p>
+<ul>
+<li>краткое описание ситуации и сути разногласия;</li>
+<li>что вы сделали и чем всё закончилось;</li>
+<li>как снизить вероятность таких ситуаций в будущем.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Типичные ошибки">
+<p><b>Монолог на десять минут.</b> Внимание теряется, а времени на другие вопросы не остаётся.</p>
+<p><b>Ответы без конкретики.</b> «Я хорошо работаю в команде» — утверждение, которое ничего не доказывает. Нужен случай.</p>
+<p><b>Негатив о бывших коллегах и работодателях.</b> Даже обоснованный. Интервьюер примеряет это на себя: так же вы будете говорить и о них.</p>
+<p><b>Присвоение чужих заслуг.</b> Обнаруживается уточняющими вопросами и обесценивает весь ответ.</p>
+<p><b>Отсутствие вывода.</b> История без урока — просто история.</p>
+<p><b>Заученность.</b> Слишком гладкий, явно отрепетированный текст звучит неискренне. Держите в голове структуру и факты, а формулируйте на месте.</p>
+<p><b>Нарушение NDA.</b> Имена клиентов, точные финансовые показатели, детали инцидентов. Обезличивайте: «крупный ритейлер», «порядка десятков тысяч запросов».</p>
+<p><b>Ответ не на тот вопрос.</b> Если не поняли, о чём спрашивают, — уточните. Это лучше, чем рассказывать подготовленную историю не по теме.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:recommendations_answers:end -->
+
+        <!-- md:replace:star:start -->
+<li class="question" data-md-source="true" data-md-id="star">
+  <div class="name" id="star">
+    Методика STAR: как отвечать на вопросы HR?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>STAR</b> — каркас для ответа на поведенческие вопросы («расскажите о ситуации, когда…»). Он решает главную проблему таких ответов: без структуры рассказ расползается, и интервьюер не понимает, что именно сделали лично вы и чем всё закончилось.</p>
+<p>Четыре части:</p>
+<ul>
+<li><b>S — Situation.</b> Контекст: что за проект, какая обстановка, какие ограничения. Коротко, 2–3 предложения. Достаточно, чтобы стало понятно, почему это было сложно.</li>
+<li><b>T — Task (Target).</b> Задача, которая стояла лично перед вами, и критерий успеха. Часто пропускают — и зря: без цели непонятно, был ли результат хорошим.</li>
+<li><b>A — Action.</b> Что <b>вы</b> сделали. Самая объёмная часть, 50–60 % ответа. Именно здесь говорите «я», а не «мы».</li>
+<li><b>R — Result.</b> Чем закончилось, желательно в числах. Плюс — вывод: что поняли и что изменили в процессе.</li>
+</ul>
+<p>Пропорция по времени: S — 15 %, T — 15 %, A — 50 %, R — 20 %. Общая длительность 2–4 минуты.</p>
+<p>Дополнительная выгода: HR-специалисты сами часто задают вопросы по этой схеме, оценивая лидерство, адаптивность, решение проблем, командную работу, организованность и креативность. Понимая структуру, вы видите, что именно проверяют, и попадаете в ожидание.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Возможные вопросы">
+<ul>
+<li>У тебя написано, что ты отрефакторил приложение. Расскажи, зачем это было нужно бизнесу?</li>
+<li>Ты принёс новую архитектурную практику в команду. Что это дало, кроме лишней сложности?</li>
+<li>Расскажи про свою самую провальную или самую успешную задачу.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>STAR</b> (Situation, Target, Action, Result) — методика структурирования ответа, которая одновременно даёт время подумать и гарантирует, что ответ будет полным и связным.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Расшифровка">
+<ul>
+<li><b>Situation</b> — ситуация, в которой вы оказались.</li>
+<li><b>Target</b> — целевая задача, которую вы перед собой ставили.</li>
+<li><b>Action</b> — действия, предпринятые для достижения цели.</li>
+<li><b>Result</b> — результат, который вы получили.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p><b>Вопрос:</b> У тебя написано, что ты отрефакторил приложение. Расскажи, зачем это надо бизнесу?</p>
+<ul>
+<li><b>S. Situation (ситуация):</b> Из-за обилия legacy внутри приложения мы постоянно попадали в ситуацию, когда спагетти-код приносил непредвиденные поломки.</li>
+<li><b>T. Target (цель):</b> Целью рефакторинга было развязать части кода, сделав зависимости линейными и предсказуемыми.</li>
+<li><b>A. Action (действие):</b> Мы проанализировали последние 100 проблем на предмет причины их появления и пришли к выводу, что самые частые — контракты API на бэкенде и дублирующиеся UI-компоненты с перекрёстной логикой. Внедрили дизайн-систему для компонентов, избавившись от дублей, и внутренний маппер моделей для контрактов бэкенда, который избавил нас от точечных проверок опциональных полей.</li>
+<li><b>R. Result (результат):</b> Рефакторинг занял 2 месяца, количество проблем после его завершения снизилось с 3,8 бага на фичу до 1,1.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что оценивают через STAR">
+<p>Дополнительный профит: научившись отвечать по этой методике, вы начнёте считывать, что HR оценивает теми же вопросами:</p>
+<ul>
+<li><b>Лидерство</b> (Leadership)</li>
+<li><b>Способность адаптироваться</b> (Adaptability)</li>
+<li><b>Решение проблем</b> (Problem Solving)</li>
+<li><b>Работа в команде и коммуникация</b> (Teamwork)</li>
+<li><b>Организационные навыки</b> (Organizational Skills)</li>
+<li><b>Креативность</b> (Creativity)</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Типичные ошибки применения">
+<p><b>Слишком длинная Situation.</b> Половина ответа уходит на описание проекта, а на действия времени не остаётся. Контекст — это 2–3 предложения.</p>
+<p><b>Пропуск Task.</b> Без явной цели непонятно, что считать успехом, и Result повисает в воздухе.</p>
+<p><b>«Мы» вместо «я» в разделе Action.</b> Интервьюер обязательно уточнит вашу личную роль. Говорите «мы» про командный контекст и «я» про свои действия.</p>
+<p><b>Result без чисел.</b> «Стало лучше» — не результат. Если точных цифр нет, назовите порядок или качественное изменение с наблюдаемым признаком.</p>
+<p><b>Заученность.</b> Слишком гладкий текст звучит неискренне. Держите в голове структуру и факты, формулировки рождаются на месте.</p>
+<p><b>Применение STAR ко всем вопросам подряд.</b> Для «как вы относитесь к код-ревью» методика избыточна. Она нужна для вопросов «расскажите о случае, когда…».</p>
+<p><b>Отсутствие подготовленных историй.</b> Заранее подберите 5–6 кейсов, покрывающих типовые темы: сложная задача, конфликт, ошибка, выход за рамки обязанностей, влияние на продукт, освоение нового.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:star:end -->
+
+
+        
+<!-- md:inject:section:Рекомендации:start -->
+<li class="question" data-md-source="true" data-md-id="questions-to-interviewer">
+  <div class="name" id="questions-to-interviewer">
+    Какие вопросы задать компании в конце интервью?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Финальные вопросы — не формальность, а последнее и очень заметное впечатление. Они показывают, что вы оцениваете компанию, а не только просите работу, и что вы понимаете, как устроена инженерная работа.</p>
+<p>Задайте <b>2–4 вопроса</b>, подобранных под собеседника: техлиду — про инженерию, HR — про процессы и команду, руководителю — про цели и метрики.</p>
+<p>Сильные вопросы:</p>
+<ul>
+<li><b>Про ожидания:</b> как измеряют успех сотрудника в первые 3–6 месяцев; какая задача будет первой.</li>
+<li><b>Про инженерию:</b> как устроен путь модели от эксперимента до продакшна; как выглядит цикл выкатки; есть ли мониторинг качества моделей и что делают при деградации.</li>
+<li><b>Про решения:</b> кто принимает архитектурные решения; как проходит code review; как разрешаются технические разногласия.</li>
+<li><b>Про боль:</b> какие главные технические проблемы команда решает сейчас; что мешает двигаться быстрее. Ответ на этот вопрос обычно самый информативный за всё интервью.</li>
+<li><b>Про контекст позиции:</b> почему открыта вакансия — рост команды или замена; как устроены следующие этапы и сроки.</li>
+<li><b>Про долг:</b> сколько времени уходит на новую функциональность против поддержки существующего.</li>
+</ul>
+<p>Отдельная тактика: спросить <b>о том, что вас реально волнует</b> по итогам разговора. Если в ходе интервью прозвучало что-то настораживающее — это лучший момент уточнить.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Задай 2–4 вопроса, которые помогают принять решение и показывают инженерное мышление:</p>
+<ul>
+<li>как измеряют успех сотрудника в первые 3–6 месяцев;</li>
+<li>как устроен путь модели от эксперимента до production;</li>
+<li>кто принимает архитектурные решения и как проходит code review;</li>
+<li>какие главные технические проблемы команда решает сейчас;</li>
+<li>почему открыта позиция и как устроены следующие этапы.</li>
+</ul>
+<p>Не спрашивай то, что легко найти на первой странице сайта компании.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«У меня нет вопросов».</b> Худший из возможных финалов: он читается как отсутствие интереса и часто перевешивает хорошее впечатление от технической части.</p>
+<p><b>Вопросов, ответ на которые есть на сайте.</b> «Чем занимается ваша компания?» после часа разговора — провал.</p>
+<p><b>Вопросов только про льготы.</b> Отпуск, ДМС, график — законные темы, но их место в разговоре с HR на финальном этапе, а не в качестве единственного интереса.</p>
+<p><b>«Когда можно ждать повышения?»</b> на первом интервью — преждевременно и выглядит как приоритет статуса над работой.</p>
+<p><b>Списка из десяти вопросов.</b> У интервьюера ограниченное время; выберите главное.</p>
+<p><b>Вопросов не тому человеку.</b> Спрашивать техлида о политике отпусков или HR о выборе фреймворка — потеря возможности.</p>
+<p><b>Заученных вопросов, не связанных с разговором.</b> Если за час прозвучало что-то важное, ваш вопрос должен это отражать. Ничто так не показывает вовлечённость, как уточнение по сказанному.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Рекомендации:end --><h3 data-md-source="true">Общие вопросы</h3>
+        <!-- md:replace:technical_skills:start -->
+<li class="question" data-md-source="true" data-md-id="technical_skills">
+  <div class="name" id="technical_skills">
+    Расскажи о своем опыте. Как ты оцениваешь свои технические навыки?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Один из самых важных вопросов интервью: он задаёт рамку всему дальнейшему разговору. Интервьюер будет цепляться за то, что вы назовёте, поэтому упоминайте только то, что готовы защищать.</p>
+<p>Структура ответа (3–5 минут, не больше):</p>
+<ol>
+<li><b>Одно предложение о себе:</b> кто вы, сколько лет в профессии, в каких доменах.</li>
+<li><b>Хронология по проектам, а не по технологиям.</b> Для каждого — задача, ваша роль, что сделали, <b>какой результат в числах</b>. Два-три проекта достаточно; выберите самые релевантные этой вакансии.</li>
+<li><b>Обязательно два типа метрик:</b> качества модели или системы (ROC-AUC, latency, uptime) <b>и</b> продуктовые (конверсия, выручка, время обработки, экономия). Связка «мы улучшили recall на 12 %, что сократило ручную проверку на 30 % и сэкономило команде 200 часов в месяц» работает намного сильнее, чем одна ML-метрика.</li>
+<li><b>Оценка уровня.</b> Назовите грейд и обоснуйте: что вы делаете самостоятельно, где нужна поддержка. Честная граница вызывает больше доверия, чем заявка на всеведение.</li>
+<li><b>Связь с вакансией:</b> что из вашего опыта прямо релевантно этой позиции.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Пройдитесь по своей легенде и сделайте акцент на том, что вы делали и какие задачи решали. Обязательно указывайте достигнутые метрики и результаты — желательно как метрики качества модели, сервиса или системы, так и продуктовые метрики.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>У меня сильный технический бэкграунд в машинном обучении и инженерии. Начинал с классического ML — регрессия, классификация, feature engineering на табличных данных. Потом перешёл в DL: NLP и CV-проекты, включая сегментацию 3D-медицинских изображений и разработку RAG-систем.</p>
+<p>Самый показательный проект — RAG-система для внутренней базы знаний: я отвечал за retrieval и ранжирование. Довели точность ответов с 61 % до 84 % на нашем оценочном наборе, а среднее время поиска информации сотрудником сократилось примерно втрое — это и был бизнес-эффект, ради которого проект запускали.</p>
+<p>Умею строить end-to-end пайплайны — от данных до продакшна, включая контейнеризацию, мониторинг и тесты на метрики. Могу самостоятельно разработать модель, обернуть в API, задеплоить и отвечать за качество в проде.</p>
+<p>По грейду оцениваю себя как уверенный Senior ML Engineer с заделом в сторону архитектуры и технического лидства. Самостоятельно закрываю задачу целиком, включая постановку; в глубокой low-level оптимизации (CUDA-ядра) опыта меньше — там мне нужна поддержка.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Пересказа резюме по годам.</b> Интервьюер его читал. Нужны результаты и роль, а не хронология.</p>
+<p><b>Списка технологий без контекста.</b> «PyTorch, Kubernetes, Kafka, Spark» ничего не говорит о глубине. Технология упоминается вместе с задачей, которую она решала.</p>
+<p><b>Отсутствия чисел.</b> Ответ без метрик воспринимается как отсутствие измеримого результата.</p>
+<p><b>«Мы» вместо «я».</b> Обязательно последует уточнение про вашу личную роль.</p>
+<p><b>Упоминания того, что не готовы защищать.</b> Если назвали Kubernetes, будьте готовы к вопросам про ресурсы, probes и деплой. Лучше не упоминать вовсе, чем упомянуть и провалиться.</p>
+<p><b>Крайностей в самооценке.</b> «Я эксперт во всём» вызывает желание проверить и опровергнуть; «я мало что умею» — обесценивает реальный опыт. Точная граница компетенции — самый сильный вариант.</p>
+<p><b>Монолога на пятнадцать минут.</b> Держитесь в 3–5 минутах, детали — по уточняющим вопросам.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:technical_skills:end -->
+        <!-- md:replace:motivation_projects:start -->
+<li class="question" data-md-source="true" data-md-id="motivation_projects">
+  <div class="name" id="motivation_projects">
+    Что тебя мотивирует в работе?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Интервьюер проверяет, сможет ли <b>эта конкретная работа</b> дать вам то, что вас мотивирует. Если ваш драйвер — исследовательская свобода, а позиция про поддержку продакшн-систем, вы уйдёте, и это видно заранее.</p>
+<p>Типичные честные мотиваторы для ML-инженера — выберите один-два основных:</p>
+<ul>
+<li><b>Влияние на продукт:</b> результат работы виден не как метрика в отчёте, а как изменение поведения пользователей или экономики.</li>
+<li><b>Сложность и новизна задач:</b> нужно придумать решение, а не применить готовое.</li>
+<li><b>Масштаб:</b> данные и нагрузка, при которых обычные подходы перестают работать.</li>
+<li><b>Владение системой целиком:</b> от постановки до продакшна и ответственности за него.</li>
+<li><b>Рост и среда:</b> сильные коллеги, у которых есть чему учиться.</li>
+</ul>
+<p>Структура ответа: <b>назвать мотиватор → объяснить через конкретный случай из опыта → связать с этой позицией</b>. Средняя часть — самая ценная: пример «когда именно вам было по-настоящему интересно» звучит достоверно, в отличие от общих слов.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Меня мотивируют задачи, где нужно думать, а не писать код по готовому ТЗ. Особенно когда результат — не просто метрика в отчёте, а измеримое улучшение продукта: сокращение времени обработки, рост конверсии, снижение стоимости.</p>
+<p>Самый запоминающийся случай был, когда мы переделали пайплайн инференса и время ответа упало с 8 секунд до 900 мс. Метрика модели при этом не изменилась вообще, но пользователи впервые начали пользоваться функцией — вот это ощущение влияния для меня важнее, чем плюс процент к ROC-AUC.</p>
+<p>Плюс мне важно, чтобы ML-часть была критичной частью системы, а не украшением, и чтобы была возможность экспериментировать и видеть результат на реальных данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Деньги».</b> Даже если это главный мотив, на этот вопрос так не отвечают: он про содержание работы. Компенсацию обсуждают отдельно.</p>
+<p><b>Шаблонов из вакансий.</b> «Хочу развиваться и решать интересные задачи» — фраза, которую произносят все, и она не сообщает ничего.</p>
+<p><b>Мотиваторов, которых на позиции не будет.</b> «Меня мотивирует публиковать статьи» на продуктовой позиции — прямой сигнал несовпадения.</p>
+<p><b>Абстракций без примера.</b> Один конкретный случай убедительнее трёх абзацев рассуждений.</p>
+<p><b>Только внешнего признания.</b> «Мотивирует, когда хвалят и повышают» ставит вас в зависимую позицию и настораживает.</p>
+<p><b>Слишком узкого мотиватора.</b> «Мотивирует работа с трансформерами» — стек меняется, а вы останетесь. Мотив должен быть про тип работы, а не про инструмент.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:motivation_projects:end -->
+        <!-- md:replace:interesting_tasks:start -->
+<li class="question" data-md-source="true" data-md-id="interesting_tasks">
+  <div class="name" id="interesting_tasks">
+    Какие типы задач тебе наиболее интересны сейчас?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ключевая цель вопроса — понять, <b>совпадают ли ваши интересы с тем, что реально предстоит делать</b>. Даже сильный кандидат, которому неинтересны задачи команды, уйдёт через год, и интервьюер это учитывает.</p>
+<p>Как отвечать:</p>
+<ol>
+<li><b>Назовите тип задач, а не технологию.</b> «Задачи на стыке ретривала и ранжирования, где нужно и качество, и жёсткий latency-бюджет» информативнее, чем «работать с трансформерами».</li>
+<li><b>Объясните, что именно вас в них привлекает</b> — сложность постановки, влияние на продукт, необходимость системного подхода, работа с масштабом.</li>
+<li><b>Подкрепите примером из опыта</b> — что вы уже делали похожего и что понравилось.</li>
+<li><b>Свяжите с вакансией.</b> Если внимательно читали описание позиции, здесь это будет видно.</li>
+</ol>
+<p>Полезно охватить обе стороны роли: исследовательскую (эксперименты, поиск решения) и инженерную (доведение до продакшна). ML-инженера обычно ищут именно на стык, и заявка только на одну половину сужает вас.</p>
+<p>Ответ должен быть <b>честным</b>: если вам действительно не нравится то, что предлагает компания, лучше выяснить это на интервью, чем через полгода.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Интереснее всего задачи, где классический ML, DL и инженерия сходятся вместе. Например:</p>
+<ul>
+<li>RAG и LLM-системы с собственными retrieval и reasoning-компонентами;</li>
+<li>агентные архитектуры и генерация инструментов;</li>
+<li>оптимизация inference, мультимодальные пайплайны (текст + видео + аудио).</li>
+</ul>
+<p>То есть всё, что требует системного подхода — от эксперимента до выкатки. Мне нравится быть не только исследователем, но и тем, кто доводит проект до продакшна и потом отвечает за него в бою.</p>
+<p>В вашей вакансии как раз есть пункт про перевод исследовательских прототипов в сервисы — это ровно то, чем я хочу заниматься.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Перечисления модных технологий.</b> «LLM, агенты, мультимодальность» без объяснения, какая проблема вас там интересует, читается как следование хайпу.</p>
+<p><b>«Мне интересно всё».</b> Отсутствие фокуса на senior-уровне — минус.</p>
+<p><b>Интересов, прямо противоречащих вакансии.</b> Если позиция про табличный ML и продакшн, а вы говорите только про генеративные модели, интервьюер сделает вывод сам.</p>
+<p><b>Только исследовательской части.</b> «Люблю читать статьи и воспроизводить эксперименты» без готовности доводить до прода сужает вас до research-роли, которых на рынке кратно меньше.</p>
+<p><b>Только инженерной части</b> — обратная крайность: на ML-позиции ждут и понимания моделей.</p>
+<p><b>Расхождения с резюме.</b> Если в опыте только CV, а интерес заявлен исключительно к NLP, стоит объяснить переход, а не оставлять вопрос висеть; см. <a href="../bank/hr.html#why_change_direction" target="_blank" rel="noopener">почему решил сменить направление</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:interesting_tasks:end -->
+        <!-- md:replace:other_offers:start -->
+<li class="question" data-md-source="true" data-md-id="other_offers">
+  <div class="name" id="other_offers">
+    Есть ли у тебя другие офферы на руках? Есть ли оффер или параллельные процессы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос из переговорной части интервью. У рекрутера две цели: понять <b>срочность</b> (сколько времени есть на принятие решения) и оценить <b>вашу рыночную позицию</b>.</p>
+<p>Как отвечать:</p>
+<ol>
+<li><b>Не отрицайте наличие процессов</b>, если они есть. Параллельные собеседования — норма, и их наличие говорит о вашей востребованности.</li>
+<li><b>Не называйте конкретные компании и цифры.</b> Это неэтично по отношению к другим работодателям и лишает вас гибкости в переговорах. Достаточно обобщения: «несколько процессов на схожих позициях, часть на финальных стадиях».</li>
+<li><b>Обозначьте сроки, если они реальны.</b> «На следующей неделе жду ответ по одному из процессов» — полезная информация: она мотивирует ускорить решение по вам. Но выдумывать дедлайн не стоит: если блеф вскроется, доверие потеряно.</li>
+<li><b>Переведите разговор на критерии выбора.</b> «Решение принимаю не по цифре, а по задачам, уровню команды и перспективам» — этим вы одновременно отвечаете и показываете, что вас не покупают, а убеждают.</li>
+</ol>
+<p>Если офферов нет — это не проблема. «Активно смотрю рынок, есть несколько процессов на разных стадиях» — корректная и правдивая формулировка.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Да, сейчас веду несколько параллельных процессов — хочу сравнить условия и стек, прежде чем принимать решение. Компании называть не буду, но по одному из них жду ответ примерно через неделю.</p>
+<p>Финальное решение принимаю не по деньгам, а по содержанию задач, техническому уровню команды и перспективам роста. Мне важно, чтобы работа была осмысленной и давала пространство для развития — поэтому я и здесь.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Выдуманных офферов.</b> Блеф — плохая стратегия: рынок узкий, а если попросят подтвердить сроки или конкретику, ситуация станет неловкой. И если оффера нет, а вы сказали, что есть, вы лишаете себя возможности взять паузу на раздумье.</p>
+<p><b>Названий компаний и точных сумм чужих офферов.</b> Это выглядит непрофессионально и снижает доверие: с вашей будущей информацией обойдутся так же.</p>
+<p><b>«Нет, вы единственные».</b> Даже если это правда, формулировка ослабляет вашу позицию. Лучше: «активно смотрю рынок, есть несколько процессов».</p>
+<p><b>Ультиматумов.</b> «У меня оффер на X, дайте больше» превращает переговоры в торг и портит отношения ещё до выхода на работу.</p>
+<p><b>Излишней открытости.</b> Подробный рассказ обо всех процессах, стадиях и суммах — избыточная информация, которая используется против вас.</p>
+<p><b>Игнорирования вопроса о сроках.</b> Если у вас действительно есть дедлайн, сказать о нём полезно: это ускоряет процесс, а не давит на него.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:other_offers:end -->
+        <!-- md:replace:why_change_direction:start -->
+<li class="question" data-md-source="true" data-md-id="why_change_direction">
+  <div class="name" id="why_change_direction">
+    Почему решил сменить направление (например, CV $\to$ NLP)?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Интервьюер проверяет две вещи: <b>осознанность</b> перехода и <b>риск</b> — не уйдёте ли вы дальше через год, когда наскучит и новое направление.</p>
+<p>Как отвечать:</p>
+<ol>
+<li><b>Формулируйте как расширение, а не как бегство.</b> «Расширяю круг компетенций» звучит принципиально иначе, чем «CV мне надоел». Причина ухода <b>от</b> старого — слабая позиция; причина движения <b>к</b> новому — сильная.</li>
+<li><b>Назовите конкретный триггер.</b> Задача, статья, проект, после которых стало ясно, что здесь интереснее. Абстрактное «захотелось попробовать» неубедительно.</li>
+<li><b>Покажите переносимость.</b> Постановка задачи, работа с качеством данных, схема валидации, метрики, продакшн — общая часть для всех направлений. Это объясняет, почему смена домена не означает старт с нуля и почему вы не junior в новой области.</li>
+<li><b>Подтвердите делом.</b> Что вы уже сделали в новом направлении: pet-проекты, рабочие задачи, воспроизведённые статьи, курсы с практикой. Без этого переход остаётся намерением.</li>
+<li><b>Не обесценивайте прошлое.</b> Опыт в CV — актив, а не балласт; особенно ценен в мультимодальных задачах.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Я не меняю направление «просто так» — скорее расширяю круг компетенций. После нескольких лет в CV мне захотелось поработать с языковыми моделями: там сейчас гораздо больше динамики, новые архитектуры, RAG, агентные подходы, задачи на reasoning.</p>
+<p>Триггером стал внутренний проект: мы делали поиск по документации, и я взялся за retrieval-часть. Оказалось, что задачи ранжирования и оценки качества генерации мне интереснее, чем разметка боксов, — и что значительная часть моего опыта переносится напрямую: схема валидации, работа с качеством данных, выбор метрик под бизнес-задачу.</p>
+<p>С тех пор довёл до конца два проекта с LLM в проде и собрал pet-проект с локальным RAG. CV при этом не считаю пройденным этапом — в мультимодальных задачах этот опыт как раз оказывается очень кстати.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Мне интересно развиваться в разных областях. После CV захотелось поработать ближе к языковым моделям и агентным системам: там быстрее развивается стек и больше вызовов в области reasoning и retrieval.</p>
+<p>Опыт в CV при этом помогает: подходы к аугментациям, работе с несбалансированными данными и к оценке качества переносятся практически без изменений.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Негатива про старое направление.</b> «CV — скучная и решённая область» легко опровергается и выдаёт поверхностность. Плюс интервьюер задумается, что вы скажете про новое направление через год.</p>
+<p><b>«Там больше платят» или «там сейчас хайп».</b> Даже если это правда, как единственная причина звучит плохо: следующий хайп уведёт вас дальше.</p>
+<p><b>Перехода без подтверждения делом.</b> Заявка на смену направления без единого проекта в нём — это намерение, а не переход. Работодатель платит за опыт, а не за интерес.</p>
+<p><b>Обесценивания собственного опыта.</b> «Всё, что я делал раньше, теперь неактуально» — вы сами снижаете свою ценность.</p>
+<p><b>Умолчания о пробелах.</b> Честное «в NLP у меня меньше опыта с обучением с нуля, в основном работал с готовыми моделями и дообучением» вызывает больше доверия, чем попытка выглядеть экспертом.</p>
+<p><b>Частой смены направлений в резюме.</b> Если это уже третий разворот, объяснение должно показывать логику всего пути, а не каждого перехода по отдельности.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:why_change_direction:end -->
+        <!-- md:replace:free_time:start -->
+<li class="question" data-md-source="true" data-md-id="free_time">
+  <div class="name" id="free_time">
+    Как ты проводишь свободное время?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Разминочный вопрос, но не бессмысленный: по нему оценивают, живой ли вы человек, есть ли у вас интерес к профессии за пределами рабочих часов и не находитесь ли вы на грани выгорания.</p>
+<p>Рабочая формула — <b>баланс двух половин</b>:</p>
+<ol>
+<li><b>Профессиональная часть.</b> Что читаете, какие pet-проекты ведёте, участвуете ли в соревнованиях или open source. Достаточно одного-двух конкретных примеров: «читаю разборы статей в паре tg-каналов, недавно собрал локального ассистента на Ollama, чтобы разобраться с квантизацией».</li>
+<li><b>Непрофессиональная часть.</b> Спорт, музыка, путешествия, что угодно человеческое. Это важнее, чем кажется: она показывает, что у вас есть способ восстанавливаться, и что вы не выгорите через полгода.</li>
+</ol>
+<p>Ответ должен занимать 30–60 секунд. Это не тот вопрос, где нужна глубина.</p>
+<p>Полезная деталь: если pet-проект или увлечение хоть как-то пересекается с продуктом компании, упомянуть это стоит — получается естественный мостик к разговору о мотивации.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Читаю статьи и разборы по ML и агентным системам, иногда веду небольшие pet-проекты — последний был про локальный RAG над личными заметками, заодно разобрался с квантизацией и векторными БД.</p>
+<p>Из непрофессионального — спорт и плавание несколько раз в неделю, люблю путешествовать. Это хорошо помогает перезагружаться: лучшие идеи по задачам обычно приходят как раз не за монитором.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Работаю».</b> Ответ, который кандидаты считают выигрышным, а интервьюеры читают как признак будущего выгорания или как неискренность.</p>
+<p><b>«Ничем особо не занимаюсь».</b> Пустой ответ, теряющий возможность создать нормальный человеческий контакт.</p>
+<p><b>Слишком длинного рассказа.</b> Пятиминутный монолог про хобби на техническом интервью сместит фокус не туда.</p>
+<p><b>Тем, вызывающих поляризацию</b> — политика, религия, острые общественные вопросы. Не потому что они плохи, а потому что интервью — не место для них.</p>
+<p><b>Выдуманных увлечений.</b> Если сказали, что читаете статьи, будьте готовы назвать последнюю прочитанную и пересказать её суть. Это спрашивают чаще, чем кажется.</p>
+<p><b>Упоминания активностей, которые звучат как конфликт с работой:</b> параллельный собственный бизнес, стабильная подработка на полставки, обязательства, требующие непредсказуемого времени. Если такое есть — лучше обсудить это отдельно и в формате условий, а не в разминочном вопросе.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:free_time:end -->
+        <!-- md:replace:important_more:start -->
+<li class="question" data-md-source="true" data-md-id="important_more">
+  <div class="name" id="important_more">
+    Что для тебя важнее — задачи, команда или компенсация?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Формулировка провоцирует выбрать одно из трёх, но честный ответ всегда про приоритет при выполненном минимуме по остальным. Интервьюер оценивает не «правильность» выбора, а осознанность и совпадение с реальностью позиции.</p>
+<p>Как строить ответ:</p>
+<ol>
+<li><b>Явно расставьте приоритет</b> — например, задачи → команда → компенсация. Уклончивое «всё одинаково важно» звучит как отсутствие позиции.</li>
+<li><b>Обоснуйте через механику, а не через лозунг.</b> «Задачи на первом месте, потому что от них зависит, чему я научусь за год, а это влияет на всё остальное сильнее, чем разница в 10 % компенсации».</li>
+<li><b>Задайте порог по остальным факторам.</b> Компенсация должна быть рыночной, команда — без токсичности. Это гигиенический минимум: при его нарушении никакие интересные задачи не спасают.</li>
+<li><b>Свяжите с вакансией.</b> Что конкретно в этой позиции соответствует вашему приоритету.</li>
+</ol>
+<p>Отдельно стоит помнить: этот вопрос часто идёт <b>перед</b> обсуждением оффера. Ответ «деньги неважны» ослабит вашу позицию на переговорах, поэтому формулировка про «рыночный уровень» полезна и стратегически.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Если кратко — сначала задачи, потом команда, потом деньги. Даже высокая зарплата не мотивирует, если проект скучный или команда токсичная. Лучше чуть меньшая компенсация, но интересный вызов и сильные коллеги, у которых можно учиться: за год это даёт больше, чем разница в 10–15 % в окладе.</p>
+<p>При этом компенсация должна быть на рыночном уровне — я не рассматриваю варианты сильно ниже. Для меня важно, чтобы среда тянула вверх: и по техническому уровню, и по культуре.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Только деньги».</b> Даже если это главный мотив, такой ответ снижает вашу ценность в глазах команды и подсказывает, что вас легко перекупить.</p>
+<p><b>«Деньги вообще не важны».</b> Очевидная неправда, которая подрывает доверие и ослабляет переговорную позицию.</p>
+<p><b>Отказа выбирать.</b> «Всё важно в равной степени» — самый частый и самый слабый вариант.</p>
+<p><b>Приоритета, противоречащего вакансии.</b> Если в описании речь о поддержке и стабилизации системы, а вы говорите, что главное — исследовательская новизна, вы сами объясняете, почему не подходите.</p>
+<p><b>Обоснования через негатив прошлого места.</b> «Команда важна, потому что раньше было ужасно» переводит разговор в жалобу.</p>
+<p><b>Абстрактного «развития».</b> Это слово ничего не значит, пока не сказано, развития в каком направлении и как вы его измеряете.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:important_more:end -->
+        <!-- md:replace:learning:start -->
+<li class="question" data-md-source="true" data-md-id="learning">
+  <div class="name" id="learning">
+    Как ты обучаешься и совершенствуешься?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>В ML устаревание знаний идёт быстро, поэтому вопрос совсем не формальный: интервьюер оценивает, есть ли у вас <b>работающая система</b> обучения, а не декларация о намерениях.</p>
+<p>Что стоит показать:</p>
+<ol>
+<li><b>Источники и фильтрацию.</b> Не «читаю статьи», а как именно вы отбираете, что читать: конкретные каналы, рассылки, конференции, авторы. Умение фильтровать поток — отдельный навык, потому что читать всё невозможно.</li>
+<li><b>Практику.</b> Чтение без применения не работает. Pet-проекты, воспроизведение статей, соревнования, эксперименты на рабочих данных — что-то из этого должно быть.</li>
+<li><b>Систематизацию.</b> Конспекты, заметки, внутренние доклады. Умение объяснить другому — лучший тест на понимание.</li>
+<li><b>Обучение через работу.</b> Самый честный источник роста: разбор чужого кода, ревью, менторство, post-mortem, разговоры с более опытными коллегами.</li>
+<li><b>Конкретный свежий пример.</b> Что вы изучили за последние 2–3 месяца и что с этим сделали. Это единственная часть ответа, которую нельзя выдумать на ходу, — и именно её проверяют уточняющим вопросом.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Постоянно учусь — это часть рутины. Каждую неделю читаю несколько свежих статей и разборов, веду конспекты по ML, NLP и агентным системам, чтобы возвращаться к ним потом.</p>
+<p>Обязательно довожу до практики: пробую новые библиотеки и архитектуры на небольших pet-проектах. Последнее, что разбирал, — квантизация и способы ускорения инференса; собрал локального ассистента, чтобы на практике сравнить int8 и int4 по качеству и скорости.</p>
+<p>Отдельно ценю обучение через работу: разбор чужого кода на ревью, обсуждения архитектурных решений и разборы инцидентов дают больше, чем любая статья.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Читаю свежие статьи, делаю выжимки, экспериментирую с кодом, участвую в хакатонах. Для систематизации знаний веду конспекты по темам ML, NLP и CV, слежу за ML-сообществами, блогами и профильными tg-каналами.</p>
+<p>Раз в пару месяцев беру одну тему целиком и разбираю её вглубь, а не по верхам — так знания остаются, а не забываются через неделю.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Читаю статьи» без конкретики.</b> Первый же уточняющий вопрос — «а какую последнюю прочитали и о чём она?» — обнажит пустоту. Держите наготове одну статью, которую действительно разобрали.</p>
+<p><b>Только пассивного потребления.</b> Курсы и видео без практики не создают навыка, и интервьюер это знает.</p>
+<p><b>Списка курсов из резюме.</b> Сертификаты сами по себе почти ничего не сообщают.</p>
+<p><b>«Учусь на рабочих задачах» как единственного ответа.</b> Верно, но недостаточно: рабочие задачи ограничивают вас тем, что уже используется в компании.</p>
+<p><b>Выдуманной активности.</b> Если сказали про pet-проекты, будьте готовы рассказать про конкретный: что делали, с чем столкнулись, что получилось.</p>
+<p><b>Обещаний в будущем времени.</b> «Планирую изучить» слабее, чем «изучил и применил». Отвечайте прошедшим временем.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:learning:end -->
+        <!-- md:replace:hardest_task:start -->
+<li class="question" data-md-source="true" data-md-id="hardest_task">
+  <div class="name" id="hardest_task">
+    Что считаешь самой сложной задачей в ML-проекте?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос отделяет тех, кто видел ML-проект целиком, от тех, кто работал только с моделью. Ответ «обучить модель» или «подобрать гиперпараметры» немедленно выдаёт узкий опыт: собственно обучение — обычно самая простая и самая автоматизированная часть.</p>
+<p>Реально сложные части ML-проекта:</p>
+<ol>
+<li><b>Постановка задачи.</b> Перевод бизнес-цели («хотим меньше оттока») в ML-задачу с конкретным таргетом, горизонтом, метрикой и определением успеха. Здесь делается больше всего дорогих ошибок, и их цена выше, чем цена неоптимальной архитектуры.</li>
+<li><b>Данные.</b> Сбор, качество разметки, согласованность, утечки, соответствие тому, что будет доступно на инференсе. По времени это обычно бо́льшая часть проекта.</li>
+<li><b>Схема валидации.</b> Split по времени и по сущности, отсутствие утечек, соответствие оффлайн-оценки будущему онлайн-эффекту. Неверная валидация обесценивает всю работу.</li>
+<li><b>Выбор метрики.</b> ML-метрика должна коррелировать с бизнес-метрикой. Оптимизация не той метрики — классический способ сделать формально хорошую и практически бесполезную модель.</li>
+<li><b>Продакшн и жизненный цикл.</b> Стабильность, latency, мониторинг, дрейф, переобучение, откаты.</li>
+</ol>
+<p>Сильный ответ называет <b>одну</b> такую область, объясняет почему и подкрепляет примером из опыта.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Самое сложное — качественно декомпозировать задачу и перевести её с бизнес-языка на язык машинного обучения. Что именно предсказываем, на каком горизонте, что считаем успехом, какие ошибки дороже.</p>
+<p>После построения гипотез, подготовки данных и MVP наступает вторая сложная часть — превратить прототип в сервис, каждую компоненту которого можно отлаживать и настраивать: данные, признаки, модель, постпроцессинг, мониторинг.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Самое сложное — не обучение модели, а сделать так, чтобы она стабильно работала в продакшне: связать её с реальными данными, учесть деградацию, настроить метрики и мониторинг, продумать обновление данных и откаты.</p>
+<p>Плюс диалог между ML и продуктом: успех проекта чаще зависит от правильно выбранных метрик и корректно выставленных ожиданий, чем от точности модели. Модель с ROC-AUC 0,92 может быть бесполезной, если бизнесу нужен recall на редком сегменте, а мы его не мерили.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Подбор гиперпараметров» или «выбор архитектуры».</b> Это наименее сложные и наиболее автоматизируемые части.</p>
+<p><b>«Сложных задач не было».</b> Ответ, который закрывает разговор и ничего не сообщает.</p>
+<p><b>Абстракций без примера.</b> «Самое сложное — работа с данными» верно, но пусто. Нужен конкретный случай: какая именно проблема с данными, как обнаружили, чем закончилось.</p>
+<p><b>Ответа, противоречащего вашему опыту.</b> Если вы всю карьеру занимались исследованиями, рассказ про сложности продакшна будет выглядеть заученным. Отвечайте из своего опыта.</p>
+<p><b>Жалобы вместо анализа.</b> «Сложнее всего работать с продактами, которые не понимают ML» — это не про задачу, а про людей, и звучит как конфликтность.</p>
+<p><b>Слишком общего «всё сложно».</b> Вопрос требует выбора и обоснования — в этом и проверка.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:hardest_task:end -->
+        <!-- md:replace:team_interaction:start -->
+<li class="question" data-md-source="true" data-md-id="team_interaction">
+  <div class="name" id="team_interaction">
+    С какими командами взаимодействовал — backend, DevOps, product?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет, работали ли вы в реальной продуктовой среде или только внутри изолированной ML-команды. Для ML-инженера кросс-функциональное взаимодействие — не бонус, а основная часть работы: модель попадает в прод только через бэкенд, инфраструктуру и продуктовые решения.</p>
+<p>Отвечайте не списком, а <b>предметом взаимодействия</b> — что именно вы согласовывали с каждой командой:</p>
+<ul>
+<li><b>Backend:</b> контракт API (формат запроса и ответа, коды ошибок, идемпотентность), синхронный или асинхронный режим, таймауты и деградация при недоступности модели, версионирование.</li>
+<li><b>DevOps / платформа:</b> сборка и деплой образов, ресурсы (GPU, память), автоскейлинг, мониторинг и алерты, секреты, план отката.</li>
+<li><b>Product:</b> постановка задачи, выбор целевой метрики и её связь с бизнес-метрикой, определение успеха, приоритеты, ожидания по срокам и по качеству.</li>
+<li><b>Аналитика:</b> дизайн A/B-теста, схема логирования, определения метрик, разбор результатов.</li>
+<li><b>Разметка / операционная команда:</b> инструкции, критерии качества, разбор спорных случаев, обратная связь по ошибкам модели.</li>
+<li><b>Data engineering:</b> источники данных, витрины, SLA на свежесть, качество и полнота.</li>
+</ul>
+<p>Сильный ответ включает пример конкретной договорённости и то, как она решила проблему.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Работал в кросс-функциональных командах: ML, backend, DevOps, аналитика, продукт.</p>
+<p>С бэкендом чаще всего согласовывал контракт API и поведение при деградации — что сервис отдаёт, если модель недоступна или не уложилась в таймаут. Один раз это вылилось в отдельную договорённость: JSON-схема, валидатор на обеих сторонах и fallback на упрощённый ответ. После этого инциденты из-за рассогласования формата прекратились.</p>
+<p>С DevOps — ресурсы под GPU-инференс, автоскейлинг и мониторинг; с продуктом — выбор целевой метрики и определение того, что считаем успехом; с аналитикой — дизайн A/B-теста и схему логирования, чтобы потом было что считать.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Простого перечисления команд.</b> «Работал с бэкендом, DevOps и продуктом» ничего не сообщает. Ценность — в предмете взаимодействия.</p>
+<p><b>«Я только обучал модели, остальным занимались другие».</b> Для ML-инженера это существенное ограничение опыта, и оно сразу сужает круг подходящих позиций.</p>
+<p><b>Негатива о смежных командах.</b> «Бэкендеры вечно тормозили» переводит разговор в жалобу и характеризует вас, а не их.</p>
+<p><b>Отсутствия примера.</b> Одна конкретная договорённость (контракт, метрика, регламент) весит больше общего описания.</p>
+<p><b>Игнорирования продукта.</b> Взаимодействие только с инженерными командами — признак того, что вы не участвовали в постановке задач. Для senior это заметный пробел.</p>
+<p><b>Преувеличения.</b> Если вы не участвовали в дизайне A/B-тестов, не говорите, что участвовали: последуют уточняющие вопросы про мощность, MDE и guardrail-метрики.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:team_interaction:end -->
+        <!-- md:replace:growth:start -->
+<li class="question" data-md-source="true" data-md-id="growth">
+  <div class="name" id="growth">
+    Куда хочешь расти — технически или управленчески?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос не про амбиции, а про <b>совпадение с тем, что компания может предложить</b>. Интервьюер прикидывает: есть ли у них такой трек, не уйдёте ли вы, когда упрётесь в потолок, и не ждёте ли повышения в менеджеры через полгода.</p>
+<p>Что стоит понимать про сами треки:</p>
+<ul>
+<li><b>Технический (IC — individual contributor):</b> senior → staff → principal. Влияние растёт через архитектуру, техническое лидерство, кросс-командные решения, а не через число подчинённых.</li>
+<li><b>Управленческий:</b> team lead → engineering manager → head of. Влияние через людей: найм, развитие, процессы, планирование.</li>
+<li><b>Промежуточный — техлид:</b> совмещает архитектурную ответственность с координацией команды, оставаясь hands-on. Для большинства ML-инженеров это самая реалистичная и честная формулировка.</li>
+</ul>
+<p>Структура ответа:</p>
+<ol>
+<li><b>Назовите направление</b> и объясните <b>почему</b> — через то, что вам действительно интересно делать, а не через статус.</li>
+<li><b>Признайте вторую часть</b> как инструмент, а не как цель. Даже на техническом треке нужны коммуникация, менторство и умение продавать решения.</li>
+<li><b>Уточните, есть ли такой трек в компании.</b> Это одновременно и содержательный вопрос, и сигнал зрелости.</li>
+</ol>
+<p>Важно: отвечать надо честно. Если вы скажете «хочу в менеджмент» там, где нужен сильный IC, — либо не возьмут, либо возьмут и вы будете разочарованы.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Вопрос может быть переформулирован как «Как интереснее развиваться: вширь или по вертикали?» — суть та же.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Хочу двигаться в сторону технического лидства. Мне интересен менеджмент через инженерию — когда можно формировать архитектуру, вести менторство и выстраивать процесс, оставаясь при этом hands-on.</p>
+<p>Управленческая часть важна, но как инструмент: я не стремлюсь к роли, где основное время уходит на планирование и встречи в ущерб технической сути. Кстати, хотел уточнить — у вас разделены треки IC и менеджерский, или это один путь?</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Хочу стать менеджером» без объяснения зачем.</b> Особенно если вы никогда не руководили: это звучит как желание статуса, а не понимание работы. Менеджмент — не повышение, а смена профессии.</p>
+<p><b>«Мне всё равно».</b> Отсутствие направления на senior-уровне — тревожный сигнал.</p>
+<p><b>Обещания, в которое вы сами не верите.</b> Сказать «хочу быть чистым IC», чтобы понравиться, — плохая стратегия: расхождение проявится в первый же год.</p>
+<p><b>Слишком быстрых сроков.</b> «Через год хочу вести команду» на позиции, где вы ещё не работали, читается как переоценка себя.</p>
+<p><b>Игнорирования текущей роли.</b> Ответ должен подразумевать, что ближайший год вы всё-таки будете делать ту работу, на которую вас нанимают, — а не рассматривать позицию как трамплин.</p>
+<p><b>Незнания, что такое staff-инженер.</b> Если говорите про технический трек, стоит представлять, чем staff отличается от senior: масштабом влияния и работой над проблемами, не имеющими чёткой постановки.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:growth:end -->
+        <!-- md:replace:grow_next_year:start -->
+<li class="question" data-md-source="true" data-md-id="grow_next_year">
+  <div class="name" id="grow_next_year">
+    Что хочешь прокачать в ближайший год?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет две вещи: есть ли у вас осознанный план развития и <b>совпадает ли он с тем, что даёт эта позиция</b>. Второе важнее — интервьюер прикидывает, не уйдёте ли вы через полгода, потому что здесь не будет того, что вам нужно.</p>
+<p>Структура ответа:</p>
+<ol>
+<li><b>Назовите две-три конкретные области</b>, а не десять. Список из десяти пунктов читается как отсутствие приоритетов.</li>
+<li><b>Объясните, откуда взялся выбор</b> — из реальной задачи, которая упёрлась в ваш пробел. «Столкнулся с тем, что не мог обосновать выбор конфигурации инференса по стоимости, — значит, нужно разбираться в cost-aware оптимизации».</li>
+<li><b>Скажите, как именно собираетесь развиваться:</b> через рабочие задачи, pet-проекты, чтение, менторство. Реалистичный план весит больше амбициозного списка.</li>
+<li><b>Свяжите с вакансией.</b> Если в описании позиции есть то, что вы назвали, — скажите об этом прямо. Это лучший аргумент «почему я хочу к вам».</li>
+</ol>
+<p>Выбирайте области <b>на границе</b> вашей текущей компетенции: то, к чему вы почти готовы. Заявка на что-то принципиально далёкое от опыта выглядит неправдоподобно.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: MLOps/инфраструктура">
+<ul>
+<li><b>Углубить прод-надёжность ML</b>: канареечные выкладки моделей, автоматические регрессионные тесты на метрики (stat-sig алерты), data quality-гейты (Great Expectations), модельная телеметрия (latency, QoS, cost per request).</li>
+<li><b>Освоить продвинутую оптимизацию инференса</b>: TensorRT/ONNX Runtime/KV-cache планирование, профилирование горячих путей, budget-aware autoscaling.</li>
+<li><b>Системный дизайн ML-сервисов</b>: SLO/SLA, graceful degradation, feature stores.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: CV/3D">
+<ul>
+<li><b>Мультивидовые 3D-репрезентации:</b> Gaussian Splatting/NeRF для быстрой реконструкции сцен.</li>
+<li><b>Видео-понимание:</b> temporal transformers, long-context pooling, real-time ускорение.</li>
+<li><b>Качество разметки:</b> active learning + weak supervision, инструменты полуавтоматической разметки.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: таблички/recsys/временные ряды">
+<ul>
+<li><b>Tabular</b> SOTA (TabPFN, FT-Transformer), feature stores, онлайн-обучение.</li>
+<li><b>Временные ряды:</b> state-space (S4/Mamba-TS), вероятностные прогнозы, backtesting/ансимуляции.</li>
+<li><b>Рекомендательные системы:</b> multi-objective ranking, counterfactual/causal uplift.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: агентные системы/LLM">
+<ul>
+<li><b>Агентные системы:</b> Toolformer, AutoAgents, Q-RAG и т.д.</li>
+<li><b>ML-инфраструктура:</b> MLOps, оптимизация inference, system design для LLM.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: инженерия и лидерство">
+<ul>
+<li><b>Low-level ускорение:</b> основы CUDA/Rust для критичных участков пайплайна.</li>
+<li><b>Техлидство:</b> roadmaps, код-стандарты, ревью как процесс, менторинг.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Всё подряд».</b> Список из десяти технологий показывает, что вы не выбирали, а перечисляли модное.</p>
+<p><b>«Ничего конкретного, буду учиться в процессе».</b> Читается как отсутствие направления.</p>
+<p><b>Областей, не связанных с позицией.</b> Если вы идёте на CV-позицию и говорите, что весь следующий год хотите заниматься LLM-агентами, интервьюер сделает очевидный вывод.</p>
+<p><b>Только hard skills.</b> На уровне senior и выше ожидается и что-то про влияние: менторство, техлидство, работа с продуктом, архитектурные решения. Их отсутствие в плане заметно.</p>
+<p><b>Модных слов без содержания.</b> Если назвали «агентные системы», будьте готовы объяснить, какая конкретно проблема вас там интересует и почему.</p>
+<p><b>Обещания уйти учиться.</b> «Хочу пойти на магистратуру / уехать на буткемп» в контексте ближайшего года звучит как предупреждение об уходе.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:grow_next_year:end -->
+        <!-- md:replace:vision_3_5_years:start -->
+<li class="question" data-md-source="true" data-md-id="vision_3_5_years">
+  <div class="name" id="vision_3_5_years">
+    Кем видишь себя через 3-5 лет?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Классический вопрос, у которого одна практическая цель: понять, <b>совместим ли ваш план с этой позицией</b>. Компания вкладывается в найм и онбординг и хочет убедиться, что вы не уйдёте через год, потому что здесь нет того, что вам нужно.</p>
+<p>Как отвечать:</p>
+<ol>
+<li><b>Говорите о роли и уровне влияния, а не о должности.</b> «Хочу отвечать за архитектуру ML-систем и помогать команде принимать технические решения» лучше, чем «хочу быть Head of ML»: должности в разных компаниях называются по-разному, а содержание работы понятно всем.</li>
+<li><b>Обозначьте направление трека:</b> технический (staff/principal) или управленческий, либо промежуточный техлид. Для большинства ML-инженеров честный ответ — техлид: архитектура плюс менторство при сохранении hands-on.</li>
+<li><b>Свяжите с ближайшими шагами.</b> Что вы хотите освоить в первый год на этой позиции, чтобы двигаться в нужную сторону. Это делает план правдоподобным.</li>
+<li><b>Оставьте пространство для неопределённости.</b> Пять лет в ML — большой срок; жёстко зафиксированный план выглядит наивно. «Направление такое, но конкретика будет зависеть от того, куда пойдёт область» — нормальная и зрелая формулировка.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Через 3–5 лет вижу себя техническим лидом или архитектором ML-систем: человеком, который формирует техническую стратегию направления, но при этом остаётся hands-on и понимает код и архитектуру на практике.</p>
+<p>Мне важно совмещать исследовательскую составляющую с инженерной ответственностью — не только придумывать решение, но и отвечать за то, как оно работает в проде.</p>
+<p>В ближайший год для этого хочу углубиться в системный дизайн ML-сервисов и в оптимизацию инференса — это то, чего мне сейчас не хватает, чтобы принимать архитектурные решения уверенно. В вакансии как раз есть задачи в эту сторону.</p>
+<p>При этом понимаю, что за пять лет область изменится, и конкретика может быть другой — но направление именно такое.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Не знаю» или «не думал об этом».</b> Отсутствие направления на senior-уровне читается как отсутствие профессиональной позиции.</p>
+<p><b>«Хочу открыть свой стартап».</b> Честно, но для работодателя это прямое предупреждение о вашем уходе.</p>
+<p><b>Планов, требующих ухода:</b> магистратура за рубежом, смена профессии, годичный перерыв. Если такие планы есть, лучше обсудить их отдельно и в формате условий.</p>
+<p><b>Слишком быстрых сроков.</b> «Через год хочу руководить командой» на позиции, где вы ещё не работали, звучит как переоценка себя.</p>
+<p><b>Заявки на должность, которой в компании нет.</b> Если компания на 30 человек и там нет уровня principal, соответствующий план выглядит нереалистично. Полезно спросить, как устроен карьерный трек.</p>
+<p><b>Шаблонов.</b> «Хочу расти и развиваться» ничего не сообщает.</p>
+<p><b>Плана, не связанного с работой команды.</b> Если из ответа следует, что эта позиция — просто ступенька к чему-то другому, интервьюер это заметит.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:vision_3_5_years:end -->
+        <!-- md:replace:prospective_models:start -->
+<li class="question" data-md-source="true" data-md-id="prospective_models">
+  <div class="name" id="prospective_models">
+    Какие модели ты считаешь перспективными?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет не эрудицию, а <b>умение обосновать</b>. Список названий без объяснения читается как следование хайпу; ценится связка «модель — какую проблему решает — где применима».</p>
+<p>Как строить ответ:</p>
+<ol>
+<li><b>Выберите две-три направления</b>, а не десять. И желательно — близкие к вашей области, чтобы можно было отвечать на уточняющие вопросы.</li>
+<li><b>Объясните через проблему, а не через новизну.</b> «Sparse MoE интересен тем, что позволяет наращивать число параметров без пропорционального роста стоимости инференса — активируется лишь часть экспертов» звучит совсем иначе, чем «MoE сейчас популярен».</li>
+<li><b>Назовите ограничения.</b> Признание слабых сторон — сильнейший сигнал: он показывает, что вы читали не только пресс-релизы. У MoE это сложность обучения и балансировки экспертов, у state-space моделей — меньшая экосистема и не везде подтверждённое качество.</li>
+<li><b>Свяжите с практикой.</b> Что вы уже пробовали или где это применимо в задачах компании.</li>
+</ol>
+<p>Универсально безопасный ход — говорить не только про модели, но и про <b>направления</b>: эффективность инференса, работа с длинным контекстом, мультимодальность, надёжность и оценка качества. Это устойчивее к смене моды.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<ul>
+<li><b>Sparse MoE</b> — масштабирование качества при контролируемой стоимости инференса: параметров много, но на каждый токен активируется лишь часть экспертов. Ограничение — сложная балансировка и высокие требования к памяти при обучении.</li>
+<li><b>State-Space модели</b> (S4, Mamba) — линейная сложность по длине последовательности вместо квадратичной у внимания, что делает их интересными для очень длинного контекста. Оговорка: экосистема пока заметно беднее трансформерной.</li>
+<li><b>Мультимодальные foundation-модели</b> — единое пространство представлений для текста, изображения и аудио; практическая ценность в том, что один бэкбон закрывает несколько задач вместо трёх отдельных пайплайнов.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: CV/3D/графика">
+<ul>
+<li><b>NeRF и 3D Gaussian Splatting</b> — быстрая реконструкция сцен; Splatting интересен тем, что даёт реалтайм-рендеринг, чего у NeRF не было.</li>
+<li><b>Видео-диффузии</b> — генерация и редактирование с временной консистентностью; главное ограничение сейчас — стоимость инференса.</li>
+<li><b>Vision foundation models + адаптеры</b> — один большой бэкбон и узкие адаптеры под домен вместо обучения отдельной модели на каждую задачу.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: таблички">
+<ul>
+<li><b>TabPFN и FT-Transformer</b> — сильные результаты на табличных данных без долгой настройки; при этом на действительно больших выборках бустинг пока остаётся конкурентным, и это стоит проверять.</li>
+<li><b>Causal и counterfactual модели</b> — uplift вместо CTR: предсказание эффекта воздействия, а не вероятности события. Для продуктовых решений это принципиально другой вопрос.</li>
+<li><b>Graph ML (GNN, Graph Transformers)</b> — антифрод, рекомендации, графы знаний: там, где связи между объектами несут больше сигнала, чем сами объекты.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: edge и эффективность">
+<ul>
+<li><b>Квантованные модели</b> (int4–int8) на edge-железе, дистилляция и LoRA-адаптеры — направление, которое чаще даёт бизнес-эффект, чем гонка за качеством.</li>
+<li><b>Retrieval-enhanced подходы</b> не только для текста: поиск по видео- и аудиофрагментам с последующей генерацией.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Списка модных названий без обоснования.</b> Первый же уточняющий вопрос — «а почему именно это?» — покажет глубину.</p>
+<p><b>Утверждений вида «X заменит трансформеры».</b> Категоричные прогнозы в быстро меняющейся области — плохая ставка. Формулировка «интересно как альтернатива в задачах с длинным контекстом» точнее и честнее.</p>
+<p><b>Игнорирования практических ограничений.</b> Перспективность — это не только качество, но и стоимость, latency, зрелость экосистемы, лицензия.</p>
+<p><b>Направлений, далёких от вашего опыта.</b> Если вы никогда не работали с 3D, рассуждения про Gaussian Splatting лучше не начинать: уточняющие вопросы последуют.</p>
+<p><b>Устаревших примеров.</b> Ссылка на состояние области годичной давности как на текущее заметна сразу.</p>
+<p><b>Только моделей.</b> Часто более сильный ответ — про инфраструктурные и методологические направления: оценка качества LLM, надёжность, стоимость инференса. Они меняются медленнее и ближе к реальной работе.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:prospective_models:end -->
+        <li class="question">
+          <div class="name" id="interesting_tasks">Какие задачи тебе интереснее — NLP, CV или ML-инфраструктура?</div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+              Сейчас больше тянет к NLP и ML-инфраструктуре.
+NLP даёт простор для экспериментов с reasoning и memory, а инфраструктура позволяет превращать модель в устойчивую систему.
+CV интересен, но я уже много сделал в этом направлении — хочется большего масштаба и гибкости, которую даёт язык.
+            </div>
+          </div>
+        </li>
+        <!-- md:replace:llm_stack:start -->
+<li class="question" data-md-source="true" data-md-id="llm_stack">
+  <div class="name" id="llm_stack">
+    Что ты знаешь про текущий стек LLM-моделей?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет, следите ли вы за областью и — что важнее — <b>понимаете ли, как выбирать</b> модель под задачу, а не просто помните названия.</p>
+<p>Структура сильного ответа — по слоям стека, а не списком моделей:</p>
+<ol>
+<li><b>Модели.</b> Проприетарные API (GPT, Claude, Gemini) против открытых весов (Llama, Qwen, Mistral, Gemma, DeepSeek). Ключевое различие для инженера — не качество, а контроль: данные не уходят наружу, стоимость предсказуема, можно дообучать и квантовать, но нужна своя инфраструктура.</li>
+<li><b>Адаптация.</b> Промптинг → few-shot → RAG → LoRA/QLoRA → полный fine-tuning → RLHF/DPO. Здесь ценится понимание, что переходить на следующий уровень стоит только когда предыдущий исчерпан: подавляющее большинство задач закрывается промптингом и RAG.</li>
+<li><b>Инференс и оптимизация.</b> vLLM, TensorRT-LLM, llama.cpp; PagedAttention и continuous batching, KV-cache, квантизация (GPTQ, AWQ, GGUF), спекулятивное декодирование.</li>
+<li><b>Обвязка.</b> Векторные БД, оркестрация, кэширование, guardrails, трассировка и оценка качества (LLM-as-judge, offline-наборы).</li>
+</ol>
+<p>Самая ценная часть ответа — <b>критерии выбора</b>: качество на вашей задаче, latency и throughput, стоимость за 1000 запросов, требования к приватности, размер контекста, лицензия.</p>
+<p>Подробнее по конкретным моделям — <a href="../ai/ml/models/nlp.html#llama" target="_blank" rel="noopener">обзор LLM</a>, <a href="../ai/ml/nlp/optimization.html" target="_blank" rel="noopener">методы оптимизации</a>, <a href="../ai/ml/nlp/rag.html" target="_blank" rel="noopener">RAG</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Работал и с API-моделями (GPT-4, Claude), и с открытыми — Llama 3, Mistral, Qwen, в том числе с локальными квантованными версиями в GGUF через llama.cpp и с vLLM для серверного инференса.</p>
+<p>Из адаптации: в основном промптинг и RAG, дообучал через LoRA/QLoRA с PEFT и BitsAndBytes там, где нужен был устойчивый формат ответа и доменная терминология. Для инференса настраивал сервис с continuous batching, кэшированием префиксов и мониторингом latency и стоимости за запрос.</p>
+<p>Выбор модели обычно свожу к трём вопросам: укладываемся ли в latency, сколько стоит тысяча запросов и можно ли выпускать данные за периметр. Уже от ответов зависит, API это или своя развёртка.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Перечисления названий без понимания различий.</b> Список из пятнадцати моделей без критериев выбора — самый слабый вариант ответа.</p>
+<p><b>Устаревшей информации.</b> Область меняется за месяцы; ссылка на актуальное полгода назад состояние как на текущее заметна сразу. Лучше честно сказать: «на момент, когда я последний раз это сравнивал, было так — возможно, уже изменилось».</p>
+<p><b>Преувеличения опыта.</b> «Дообучал Llama 70B» без деталей про железо, датасет и метрики — вопрос, на котором легко провалиться. Уточняющие вопросы последуют обязательно.</p>
+<p><b>Fine-tuning как ответа на всё.</b> Сильный сигнал — понимание, что fine-tuning решает задачи формата и стиля, но не добавляет знаний; для знаний нужен RAG.</p>
+<p><b>Игнорирования стоимости и latency.</b> Для инженерной позиции это половина вопроса. Ответ только про качество моделей выглядит академично.</p>
+<p><b>Отсутствия оценки качества.</b> «Как вы понимаете, что новая версия промпта лучше?» — стандартный follow-up. Ответ «на глаз» звучит плохо; нужен хотя бы небольшой оффлайн-набор с метрикой.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:llm_stack:end -->
+        <!-- md:replace:team_performance:start -->
+<li class="question" data-md-source="true" data-md-id="team_performance">
+  <div class="name" id="team_performance">
+    Что ты делаешь, если команда не справляется?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос про лидерские качества, причём независимо от формальной роли: инициатива в кризисе ожидается и от senior-инженера без подчинённых.</p>
+<p>Порядок действий:</p>
+<ol>
+<li><b>Диагностика перед действием.</b> «Не справляется» — симптом, а не причина. Возможные причины принципиально разные: перегруз, неясные приоритеты, блокирующая внешняя зависимость, недостаток компетенций, сломанные процессы, проблемы в коммуникации, выгорание. Лечение для каждой своё, и начинать с решения без диагноза бессмысленно.</li>
+<li><b>Сделать ситуацию видимой.</b> Часто команда не справляется тихо, и руководство узнаёт постфактум. Прозрачность — первый шаг: что в работе, что заблокировано, где узкое место.</li>
+<li><b>Пересмотреть объём, а не только скорость.</b> Если задач больше, чем ёмкости, «работать быстрее» не решение. Решение — приоритизация: что режем, что переносим, что делаем в упрощённом виде.</li>
+<li><b>Разобрать задачи и убрать блокеры.</b> Часто помогает не добавление людей, а декомпозиция и устранение зависимостей — ожидания доступов, согласований, чужих релизов.</li>
+<li><b>Взять на себя критичный блок.</b> Уместно, но не как основная стратегия: если вы систематически закрываете чужие задачи собой, проблема маскируется, а не решается.</li>
+<li><b>Эскалировать вовремя.</b> Не когда сроки уже сорваны, а когда стало ясно, что своими силами не вытянуть. Формулировка через риск для результата, а не через жалобу.</li>
+<li><b>Ретроспектива после.</b> Разбор без поиска виноватых с конкретными изменениями в процессе.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Сначала выясняю причину — перегруз, непонимание целей, внешние блокеры, нехватка компетенций или проблемы в коммуникации. Без этого любые действия будут наугад.</p>
+<p>Дальше делаю картину прозрачной: что в работе, что заблокировано, где узкое место. Часто уже это меняет ситуацию, потому что становится видно, что половина задач стоит в ожидании чужого решения.</p>
+<p>Потом работаю с объёмом, а не только со скоростью: вместе с продуктом определяем, что режем и что переносим. Сложные блоки могу взять на себя, но стараюсь не делать это системно — иначе проблема просто перестаёт быть видимой.</p>
+<p>Важно не искать виноватых, а выстроить прозрачный процесс, где каждый понимает, зачем делает свою часть. И после — короткая ретроспектива с конкретными выводами, а не с общими словами.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Делаю всё сам».</b> Кратковременно спасает, в долгую разрушает: вы выгораете, команда не растёт, а руководство не видит реальной проблемы.</p>
+<p><b>Немедленной эскалации.</b> Поход к руководителю до попытки разобраться читается как перекладывание ответственности.</p>
+<p><b>Поиска виноватых.</b> «Выясняю, кто не тянет» — тон, после которого команда перестаёт сообщать о проблемах.</p>
+<p><b>Решения без диагноза.</b> «Провожу дейли и ставлю дедлайны» может усугубить ситуацию, если причина — перегруз или блокеры.</p>
+<p><b>Игнорирования выгорания.</b> Если причина в людях, а не в процессе, ужесточение контроля сделает хуже.</p>
+<p><b>Только процессных мер.</b> Иногда нужны конкретные технические действия: убрать блокирующую зависимость, упростить решение, отказаться от части функциональности.</p>
+<p><b>Ответа «это не моя ответственность».</b> Даже без формальной роли инициатива ожидается, и её отсутствие заметно.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:team_performance:end -->
+        <!-- md:replace:onboarding:start -->
+<li class="question" data-md-source="true" data-md-id="onboarding">
+  <div class="name" id="onboarding">
+    Как ты проводишь онбординг новых сотрудников?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос для кандидатов уровня senior и выше: он проверяет, умеете ли вы структурировать чужую работу и думать о команде, а не только о своих задачах.</p>
+<p>Структура хорошего онбординга, которую стоит изложить:</p>
+<ol>
+<li><b>Контекст до кода.</b> Сначала — зачем существует продукт, кто пользователь, какие метрики считаются успехом. Без этого человек будет делать технически корректные, но бессмысленные вещи.</li>
+<li><b>Карта системы.</b> Схема архитектуры, границы ответственности сервисов, где живут данные, как выглядит путь модели от эксперимента до прода. Пятнадцать минут у доски экономят новичку неделю.</li>
+<li><b>Рабочее окружение в первый день.</b> Доступы, репозиторий, запуск проекта локально, прогон тестов. Если человек два дня не может собрать проект, он теряет мотивацию и стесняется спросить.</li>
+<li><b>Первая задача — маленькая, но сквозная.</b> Не «почитай код неделю», а реальная задача, проходящая весь цикл: ветка → изменение → тесты → ревью → выкатка. Она даёт понимание процесса и первое ощущение результата.</li>
+<li><b>Явный контакт.</b> Назначенный бадди, к которому можно обращаться с любым вопросом без стеснения. Отдельно проговаривается: спрашивать — нормально, застрять на час и промолчать — нет.</li>
+<li><b>Обратная связь.</b> Регулярные короткие встречи в первый месяц, в конце — разбор: что было непонятно, что улучшить в самом онбординге.</li>
+</ol>
+<p>Сильный ход — упомянуть, что вы <b>документируете</b> онбординг: каждый новый человек дополняет чек-лист тем, что оказалось неочевидным.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Начинаю с контекста: зачем продукт, кто им пользуется, какие метрики важны. Потом показываю архитектуру и путь модели от эксперимента до прода — обычно рисую схему, это быстрее любой документации.</p>
+<p>В первый день помогаю поднять окружение и убедиться, что проект запускается и тесты проходят. Дальше даю небольшую, но осмысленную задачу, проходящую весь цикл — от ветки до выкатки, чтобы человек прошёл весь процесс и получил первый видимый результат.</p>
+<p>Обязательно проговариваю, что спрашивать — нормально, и что застрять на час и промолчать хуже, чем задать «глупый» вопрос. Раз в неделю в первый месяц собираемся на 15 минут — что непонятно, что мешает. И после каждого онбординга дополняю чек-лист тем, что оказалось неочевидным: так документация поддерживается сама.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Даю доступы и говорю читать код».</b> Самый частый и самый плохой вариант: он перекладывает всю работу на новичка и растягивает выход на продуктивность на месяцы.</p>
+<p><b>Информационной перегрузки в первый день.</b> Пять часов встреч и сто ссылок не запоминаются. Информация даётся дозированно и по мере надобности.</p>
+<p><b>Слишком сложной первой задачи.</b> Она деморализует. Слишком простой — тоже плохо: не даёт понимания системы. Нужна маленькая, но настоящая.</p>
+<p><b>Отсутствия явного контакта.</b> Без назначенного человека новичок будет стесняться отвлекать всех подряд и в итоге не спросит.</p>
+<p><b>Онбординга без обратной связи.</b> Если не спрашивать, что было непонятно, процесс никогда не улучшится.</p>
+<p><b>Ответа, если у вас нет опыта.</b> Не выдумывайте. Честнее сказать: «сам онбординг не проводил, но помню, что мне помогло и чего не хватало» — и изложить это. Такой ответ работает не хуже.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:onboarding:end -->
+        <!-- md:replace:communication_style:start -->
+<li class="question" data-md-source="true" data-md-id="communication_style">
+  <div class="name" id="communication_style">
+    Как ты оцениваешь свой стиль коммуникации?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос кажется абстрактным, но проверяет вполне конкретную вещь: сможете ли вы объяснить сложное простыми словами разным аудиториям. Для ML-инженера это критично — вы постоянно находитесь между продуктом, бэкендом, аналитикой и руководством.</p>
+<p>Что стоит включить в ответ:</p>
+<ol>
+<li><b>Адаптация под аудиторию.</b> С продуктом — на языке пользы и метрик продукта; с инженерами — на языке архитектуры и ограничений; с руководством — на языке рисков, сроков и стоимости. Это самый ценный пункт: он показывает, что вы понимаете разницу.</li>
+<li><b>Перевод спора в проверяемое.</b> «Давай проверим экспериментом» вместо «я считаю, что так лучше». Для ML-роли это профессиональный навык, а не стиль общения.</li>
+<li><b>Письменная коммуникация.</b> Умение зафиксировать решение в документе, написать понятный design doc или post-mortem — часто важнее устного красноречия, особенно в распределённых командах.</li>
+<li><b>Проактивность.</b> Сообщать о проблеме заранее, а не когда дедлайн уже сорван.</li>
+</ol>
+<p>Ответ станет заметно сильнее, если подкрепить одним примером: ситуация, где именно способ коммуникации изменил исход.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Спокойный, структурный, без эмоций. Если есть спор, стараюсь перевести его в конкретику — «давай проверим экспериментом». Умею адаптироваться: с продуктом говорю на языке ценности, с инженерами — на языке данных и метрик.</p>
+<p>Стараюсь фиксировать договорённости письменно — после обсуждения короткое резюме в чате или в задаче. Это снимает большую часть будущих недопониманий.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Набора прилагательных без доказательств.</b> «Открытый, дружелюбный, коммуникабельный» — эти слова пишут все, и они ничего не сообщают. Один конкретный пример весит больше десяти эпитетов.</p>
+<p><b>«Я интроверт, предпочитаю писать код, а не разговаривать».</b> Честно, но для позиции уровня middle и выше это прямой минус: значительная часть работы — согласования и объяснения.</p>
+<p><b>Противоречия между ответом и поведением на интервью.</b> Если вы говорите, что структурны, но отвечаете сбивчиво и на десять минут, интервьюер сделает вывод по наблюдению, а не по декларации.</p>
+<p><b>Заявлений о том, что вы «всегда избегаете конфликтов».</b> Избегание конфликта — не то же самое, что его разрешение; иногда проблему нужно поднять, а не сгладить.</p>
+<p><b>Игнорирования письменной части.</b> Design docs, RFC, post-mortem, комментарии в PR — это тоже коммуникация, и на удалённой работе она основная.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:communication_style:end -->
+        <!-- md:replace:speed_quality:start -->
+<li class="question" data-md-source="true" data-md-id="speed_quality">
+  <div class="name" id="speed_quality">
+    Что для тебя важнее — скорость или качество?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет инженерную зрелость. Правильный ответ — <b>«зависит от контекста»</b>, но только если вы объясняете, от какого именно, и приводите критерии.</p>
+<p>Определяющие факторы:</p>
+<ol>
+<li><b>Стадия.</b> На этапе проверки гипотезы важнее скорость: цель — быстро понять, работает ли идея вообще, и код прототипа, скорее всего, будет выброшен. На продакшн-этапе важнее качество: цена ошибки высока, а код будут поддерживать.</li>
+<li><b>Обратимость решения.</b> Обратимое (флаг, конфиг, эксперимент за одним переключателем) можно делать быстро. Необратимое (схема БД, публичный API, формат хранения данных) — только качественно: переделка обойдётся кратно дороже.</li>
+<li><b>Цена ошибки.</b> Внутренний дашборд и медицинская диагностика требуют разного уровня строгости.</li>
+<li><b>Технический долг как осознанное решение.</b> Взять его можно — но с записанным сроком возврата и договорённостью с командой. Незаписанный долг превращается в постоянный.</li>
+</ol>
+<p>Сильное дополнение — <b>как вы делаете быстро без потери надёжности</b>: минимальный набор тестов на критичный путь, feature flags, постепенная выкатка, возможность быстрого отката. Это позволяет двигаться быстро, не жертвуя качеством там, где оно критично.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Зависит от стадии. На proof-of-concept важнее скорость: цель — за несколько дней понять, работает ли гипотеза вообще, и этот код с большой вероятностью пойдёт в корзину. На продакшне — качество, тесты и стабильность, потому что цена ошибки высока, а код будут читать и менять другие.</p>
+<p>Отдельно смотрю на обратимость: если решение легко откатить — можно двигаться быстро; если это схема данных или публичный контракт API — здесь экономия времени обернётся месяцами миграции.</p>
+<p>И если сознательно берём технический долг, я стараюсь, чтобы он был записан с конкретным сроком возврата, а не растворялся в бэклоге.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Только качество».</b> Звучит благородно, но на практике означает срыв сроков и вылизывание прототипов, которые никому не нужны.</p>
+<p><b>«Только скорость».</b> Читается как готовность оставлять после себя проблемы, которые будут разгребать другие.</p>
+<p><b>«Зависит» без объяснения.</b> Формально верный ответ, но без критериев он пустой. Вся ценность — в том, <b>от чего</b> зависит.</p>
+<p><b>Ложной дилеммы.</b> Хороший инженер часто убирает выбор: тесты на критичный путь и возможность отката позволяют быстро выкатывать и при этом не бояться.</p>
+<p><b>Игнорирования технического долга.</b> Если вы говорите про скорость на PoC, стоит упомянуть, что происходит с этим кодом дальше: переписывается, рефакторится, документируется.</p>
+<p><b>Абстракции без примера.</b> Один конкретный случай, где вы выбрали скорость (или качество) и почему, весит больше рассуждений.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:speed_quality:end -->
+        <!-- md:replace:mentorship:start -->
+<li class="question" data-md-source="true" data-md-id="mentorship">
+  <div class="name" id="mentorship">
+    Как относишься к менторству и обучению младших коллег?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Для senior-позиции это не вопрос о доброжелательности, а проверка <b>готовности масштабировать влияние через других людей</b>. Компании нужен не только сильный исполнитель, но и человек, поднимающий уровень команды.</p>
+<p>Что стоит включить:</p>
+<ol>
+<li><b>Отношение и мотив.</b> Почему это вам полезно, а не только компании: объясняя, сам структурируешь знания; выращенный джун через год снимает с тебя рутину.</li>
+<li><b>Конкретные форматы.</b> Ревью с объяснением «почему», парное программирование, разбор архитектуры, постановка задач с растущей сложностью, внутренние доклады, документация. Перечень форматов показывает опыт лучше, чем декларация.</li>
+<li><b>Подход к обучению.</b> Не давать готовый ответ, а задавать наводящие вопросы; давать задачу чуть сложнее текущего уровня; разбирать ошибки без обвинений.</li>
+<li><b>Баланс.</b> Менторство отнимает время, и это надо признавать: закладывать его в планирование, а не делать «сверху».</li>
+<li><b>Результат.</b> Если есть конкретный пример — человек, который вырос до самостоятельной работы, — это лучший аргумент.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Отношусь положительно и делаю это регулярно: менторю ребят, объясняю архитектурные решения, провожу ревью с разбором «почему так, а не иначе», делюсь материалами.</p>
+<p>Для меня это не нагрузка, а способ самому лучше систематизировать знания — объяснив что-то трижды, начинаешь понимать это иначе. Плюс через полгода в команде появляется человек, которому можно доверить самостоятельный блок.</p>
+<p>Из практики: стараюсь не давать готовый ответ, а задавать вопросы, которые ведут к нему, и давать задачи чуть выше текущего уровня — с подстраховкой, но с реальной ответственностью. И закладываю на менторство время в планировании, иначе оно неизбежно вытесняется срочными задачами.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Отношусь нормально, но времени нет».</b> Честно, но на senior-позиции читается как нежелание.</p>
+<p><b>Позиции сверху.</b> «Объясняю джунам, как надо делать» — тон, который выдаёт отношение. Менторство — про развитие, а не про демонстрацию превосходства.</p>
+<p><b>Декларации без практики.</b> Если говорите, что менторили, будьте готовы к вопросу «расскажите про конкретного человека: с чего начинали, к чему пришли».</p>
+<p><b>Микроменеджмента под видом менторства.</b> «Проверяю каждую строчку и переписываю» — это не развитие, а контроль; он не даёт человеку вырасти.</p>
+<p><b>Игнорирования затрат.</b> Ответ «менторство ничего не стоит» неправдоподобен. Признание, что это требует времени и его надо планировать, добавляет достоверности.</p>
+<p><b>Только формата «отвечаю на вопросы».</b> Реактивная помощь — минимум. Ценится проактивное развитие: постановка задач, разбор кода, обратная связь.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:mentorship:end -->
+        <!-- md:replace:code_review:start -->
+<li class="question" data-md-source="true" data-md-id="code_review">
+  <div class="name" id="code_review">
+    Как ты реагируешь на критику в код-ревью?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос про эмоциональную зрелость и умение работать в команде. Интервьюер хочет понять, не превратится ли каждое ревью в конфликт и способны ли вы отстаивать позицию без перехода на личности.</p>
+<p>Что стоит показать в ответе:</p>
+<ol>
+<li><b>Отделение кода от себя.</b> Ревью — про код, а не про вас. Эта установка проговаривается прямо, потому что именно её и проверяют.</li>
+<li><b>Различение типов замечаний.</b> Есть баг или уязвимость — правим без обсуждения. Есть архитектурный вопрос — обсуждаем аргументами. Есть вкусовщина (порядок импортов, длина строк) — это должен решать линтер, а не человек в комментариях.</li>
+<li><b>Механика разрешения спора.</b> Если аргументы расходятся — переводим в проверяемое: замер, бенчмарк, ссылка на стандарт команды. Если решение всё равно неочевидно — привлекаем третьего или фиксируем в ADR.</li>
+<li><b>Обратную сторону.</b> Полезно упомянуть, как вы <b>пишете</b> ревью: комментарий должен объяснять «почему», а не только «что не так», и различать блокирующие замечания и предложения (<code>nit:</code>).</li>
+</ol>
+<p>Сильный сигнал — конкретный пример, когда критика на ревью изменила ваше решение к лучшему.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Спокойно. Критика по делу помогает расти. Я воспринимаю ревью как командный инструмент, а не как личное суждение. Если аргумент объективен — внедряю правку, если спорный — обсуждаем с фактами: пишу бенчмарк или показываю, как поведёт себя код на граничных данных.</p>
+<p>Стилевые вопросы стараюсь не обсуждать вручную — для этого есть линтер и форматтер, чтобы ревью оставалось про логику и архитектуру.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Я всегда со всем соглашаюсь».</b> Читается как отсутствие технической позиции. Инженер должен уметь аргументированно возразить.</p>
+<p><b>«Меня раздражают придирки».</b> Даже с оговорками эта фраза сигнализирует о трудностях в коммуникации.</p>
+<p><b>Историй о конфликтах, которые закончились ничем.</b> Если приводите пример спора, он должен завершиться решением и, желательно, улучшением процесса — новым правилом в линтере, договорённостью в команде, записанным ADR.</p>
+<p><b>Ответа только про себя как получателя ревью.</b> Умение <b>давать</b> качественное ревью — не менее важный сигнал, особенно на senior-позиции.</p>
+<p><b>Формулировок вроде «объясняю, почему я прав».</b> Цель обсуждения — найти лучшее решение, а не выиграть спор. Разница в формулировке заметна.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:code_review:end -->
+        <!-- md:replace:values:start -->
+<li class="question" data-md-source="true" data-md-id="values">
+  <div class="name" id="values">
+    Какие ценности для тебя важны в команде?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос про культурное совпадение. Интервьюер сопоставляет то, что вы назовёте, с реальностью команды: если ваши ожидания принципиально расходятся с тем, как всё устроено, обеим сторонам будет плохо.</p>
+<p>Как отвечать:</p>
+<ol>
+<li><b>Назовите 2–3 ценности</b>, а не список из восьми. Больше — читается как перечисление общих слов.</li>
+<li><b>Раскройте каждую через поведение</b>, а не через название. «Открытость» ничего не значит; «можно сказать, что решение плохое, и это не воспримут как атаку» — конкретно и проверяемо.</li>
+<li><b>Приведите короткий пример</b> из опыта, где эта ценность (или её отсутствие) сыграла роль.</li>
+<li><b>Задайте встречный вопрос.</b> «А как у вас устроены разборы инцидентов — с поиском причин или с поиском виноватых?» Ответ покажет культуру лучше любых деклараций.</li>
+</ol>
+<p>Ценности, которые стоит рассматривать для инженерной команды: <b>психологическая безопасность</b> (можно признать ошибку и попросить помощи), <b>прямая обратная связь</b> без политики, <b>прозрачность решений</b> (понятно, почему выбрали именно так), <b>ориентация на результат</b>, а не на процесс, <b>уважение к чужому времени</b>, <b>готовность помогать</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Три вещи. Первая — можно говорить прямо: если решение плохое, об этом скажут в лицо и по существу, а не будут обсуждать в кулуарах.</p>
+<p>Вторая — психологическая безопасность: нормально признать ошибку и попросить помощи. Там, где за ошибку наказывают, люди начинают их скрывать, и проблемы всплывают позже и дороже. Разборы инцидентов должны искать причину, а не виноватого.</p>
+<p>Третья — прозрачность решений: понятно, почему выбрали такую архитектуру и такие приоритеты. Не обязательно со всем соглашаться, но обоснование должно существовать.</p>
+<p>Кстати, а как у вас проходят post-mortem после инцидентов?</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Общих слов.</b> «Профессионализм, уважение, командный дух» — набор, который называют все и который ничего не сообщает. Раскрывайте через поведение.</p>
+<p><b>Списка из восьми ценностей.</b> Отсутствие приоритета читается как отсутствие собственной позиции.</p>
+<p><b>Ценностей, противоречащих реальности компании.</b> Если вы говорите, что главное — полная автономия, а в компании жёсткие процессы и регламенты, вы сами объясняете несовпадение. Иногда это полезно — лучше выяснить сейчас.</p>
+<p><b>Обоснования через негатив.</b> «Ценю открытость, потому что на прошлом месте все врали» переводит разговор в жалобу и характеризует вас.</p>
+<p><b>Требований, а не ценностей.</b> «Хочу гибкий график и никаких встреч до полудня» — это условия работы, а не ценности; обсуждать их надо отдельно.</p>
+<p><b>Отсутствия встречного вопроса.</b> Проверить культуру можно только конкретными вопросами: как проходят ретроспективы, что было с последним сорванным сроком, как принимаются архитектурные решения. Декларации на сайте компании об этом не скажут.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:values:end -->
+        <!-- md:replace:improvement:start -->
+<li class="question" data-md-source="true" data-md-id="improvement">
+  <div class="name" id="improvement">
+    Что бы ты хотел улучшить в текущем процессе разработки?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет системное мышление и то, замечаете ли вы проблемы за пределами своих задач. Одновременно это проверка на лояльность: как вы говорите о недостатках предыдущего места.</p>
+<p>Что стоит назвать (выбрав одну-две области, а не список):</p>
+<ul>
+<li><b>Автоматизация ML-цикла:</b> CI/CD для моделей, автотесты на inference, регрессионные тесты на метрики, data quality-гейты.</li>
+<li><b>Воспроизводимость:</b> версионирование данных и моделей, model registry, фиксация окружения. Типичная боль — «эксперимент трёхмесячной давности невозможно повторить».</li>
+<li><b>Мониторинг:</b> не только latency и ошибки, но и качество модели, дрейф данных, доля неизвестных категорий.</li>
+<li><b>Скорость итераций:</b> сокращение цикла «идея → эксперимент → выкатка», меньше длинных ресёрчей без проверяемых гипотез.</li>
+<li><b>Процессы:</b> дизайн-документы перед крупными задачами, ретроспективы, post-mortem без поиска виноватых.</li>
+</ul>
+<p>Формат ответа: <b>проблема → её цена → предлагаемое решение</b>. Ценность именно в средней части: «выкатка занимала две недели, из-за чего мы проверяли одну гипотезу в месяц» объясняет, почему это стоило чинить.</p>
+<p>Сильный ход — рассказать о том, что вы уже <b>улучшили</b>, а не только хотели бы.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Больше автоматизации в ML-цикле: CI/CD для моделей, автотесты на инференс, регрессионные проверки метрик перед выкаткой и мониторинг деградации в проде. На прошлом проекте у нас каждая выкатка была ручной, и один раз это стоило нам ночного инцидента — после него я внедрил smoke-тест инференса и model registry, и число подобных проблем упало до нуля.</p>
+<p>Второе — короткие итерации. Меньше многонедельных ресёрчей без промежуточных результатов, больше конкретных проверяемых гипотез с чётким критерием «работает / не работает».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Критики предыдущей команды.</b> «Там был бардак, никто ничего не документировал» — вопрос про процессы, а не про людей. Говорите о механизмах, а не о том, кто виноват.</p>
+<p><b>Абстракций.</b> «Улучшить коммуникацию» и «больше порядка» ничего не значат. Нужна конкретная практика, которую можно внедрить.</p>
+<p><b>Списка всего подряд.</b> Десять пунктов читаются как отсутствие приоритетов. Выберите то, что реально болело.</p>
+<p><b>Предложений, которые вы не пробовали.</b> Если называете практику, будьте готовы объяснить, как её внедрять и какие у неё издержки. «Давайте всё покроем тестами» без понимания стоимости выглядит наивно.</p>
+<p><b>Ответа «всё было отлично».</b> Читается либо как отсутствие критического взгляда, либо как нежелание отвечать.</p>
+<p><b>Нарушения NDA.</b> Детали внутренних процессов, названия систем, конкретные инциденты стоит обезличивать.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:improvement:end -->
+        <!-- md:replace:choice_company:start -->
+<li class="question" data-md-source="true" data-md-id="choice_company">
+  <div class="name" id="choice_company">
+    Что для тебя важнее при выборе компании — технология, компенсация или культура?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет две вещи: понимаете ли вы, чего хотите, и совпадают ли ваши приоритеты с тем, что компания реально может дать. Ловушка в самой формулировке — она предлагает выбрать одно из трёх, тогда как честный ответ всегда про баланс.</p>
+<p>Рабочая схема ответа:</p>
+<ol>
+<li><b>Назовите приоритет</b> — один, явно. Уклончивое «всё важно» звучит как отсутствие позиции.</li>
+<li><b>Объясните, почему именно он</b> — через конкретику, а не через общие слова. «Технический уровень команды» значит «есть у кого учиться и с кем спорить по существу».</li>
+<li><b>Признайте остальные два фактора</b> как необходимые условия, а не как незначимые. Компенсация должна быть рыночной, культура — не токсичной; это гигиенический минимум, а не предмет выбора.</li>
+<li><b>Свяжите с этой вакансией</b> — что конкретно в описании позиции или в продукте компании отвечает вашему приоритету. Это показывает, что вы готовились.</li>
+</ol>
+<p>Хорошая формулировка приоритета для инженера: <b>содержание задач и технический уровень команды</b>, потому что именно они определяют, как быстро вы растёте, а рост в долгую окупает разницу в компенсации.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Технический уровень команды, культура общения и прозрачность процессов. Важно, чтобы компания не боялась экспериментов, а не жила по принципу &quot;так делали всегда&quot;.</p>
+<p>Компенсация при этом должна быть рыночной — я не готов работать сильно ниже уровня, но и не выбираю место только по цифре: интересные задачи и сильные коллеги окупаются быстрее, чем разница в 10–15 %.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Деньги на первом месте».</b> Даже если это правда, такой ответ снижает переговорную позицию: он сообщает, что вас можно перекупить, и что содержание работы вторично.</p>
+<p><b>«Деньги вообще не важны».</b> Обратная крайность и очевидная неправда — она подрывает доверие ко всему остальному, что вы говорите, и ослабляет вашу позицию на этапе обсуждения оффера.</p>
+<p><b>Общих слов без содержания.</b> «Хорошая команда», «интересные задачи», «развитие» — эти фразы говорят все. Нужна конкретика: какие задачи, какое развитие, что значит хорошая команда именно для вас.</p>
+<p><b>Критики предыдущих работодателей</b> в качестве объяснения приоритетов. «Хочу культуру, потому что на прошлом месте был кошмар» — переводит разговор в негатив.</p>
+<p><b>Приоритетов, которых компания заведомо не может обеспечить.</b> Если в вакансии речь о поддержке легаси, а вы говорите, что главное — исследовательская свобода, вы сами объясняете, почему вам здесь не место.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:choice_company:end -->
+        <!-- md:replace:became_ml_specialist:start -->
+<li class="question" data-md-source="true" data-md-id="became_ml_specialist">
+  <div class="name" id="became_ml_specialist">
+    Как ты стал ML-щиком?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос почти всегда идёт первым и служит разминкой, но по нему складывается первое впечатление. Интервьюер проверяет три вещи: связность вашей истории, осознанность выбора и умение говорить кратко и по делу.</p>
+<p>Рабочая структура ответа — три шага и полторы-две минуты:</p>
+<ol>
+<li><b>Отправная точка.</b> Откуда пришли: математика, физика, разработка, аналитика, смежная предметная область. Достаточно одного предложения.</li>
+<li><b>Поворотный момент.</b> Конкретная задача или проект, после которого стало ясно, что это ваше. Это самая ценная часть: она показывает, что выбор был осознанным, а не «пошёл, потому что модно».</li>
+<li><b>Траектория.</b> Как расширялась зона компетенции — классический ML, затем DL, затем специализация. И чем занимаетесь сейчас.</li>
+</ol>
+<p>Заканчивать полезно связкой с вакансией: «сейчас мне интересно X, и поэтому я здесь». Это превращает биографию в аргумент.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Здесь нужно пройтись по задачам в рамках своей легенды: рассказ должен согласовываться с резюме и с тем, что вы будете говорить в технической части.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Начинал с математики и анализа данных. Сначала классический ML, потом DL, NLP, CV. Главный драйвер — желание не просто анализировать, а строить системы, которые понимают и действуют.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Полного пересказа резюме по годам.</b> Интервьюер его читал. Нужна история, а не хронология.</p>
+<p><b>Ответа длиннее двух минут.</b> Это разминочный вопрос; длинный монолог в начале расходует время, которого потом не хватит на сильные кейсы.</p>
+<p><b>Формулировок «так получилось», «попал случайно», «друг позвал».</b> Даже если так и было, поверх случайности всегда есть осознанный выбор остаться — о нём и стоит говорить.</p>
+<p><b>Расхождений с резюме.</b> Даты, названия проектов и стек должны совпадать. Несостыковка в разминочном вопросе заставляет интервьюера перепроверять всё остальное.</p>
+<p><b>Обесценивания прошлого опыта.</b> «Раньше был обычным аналитиком» звучит хуже, чем «аналитика дала мне навык работы с данными, который до сих пор экономит время».</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:became_ml_specialist:end -->
+        <!-- md:replace:used_technologies:start -->
+<li class="question" data-md-source="true" data-md-id="used_technologies">
+  <div class="name" id="used_technologies">
+    Какие технологии используешь?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос кажется простым, но плохой ответ на него — самая частая ошибка на интервью. Проблема в том, что перечисление тридцати технологий приглашает интервьюера выбрать любую и копнуть — и провал по случайно названной библиотеке испортит впечатление.</p>
+<p>Правильная тактика:</p>
+<ol>
+<li><b>Группируйте по назначению</b>, а не сваливайте в список: обучение и эксперименты, работа с данными, сервинг, инфраструктура, мониторинг.</li>
+<li><b>Разделяйте уровни владения.</b> «Работаю ежедневно», «использовал в проекте», «пробовал на пет-проекте» — три разные категории, и озвучивание этой границы вызывает доверие, а не снижает оценку.</li>
+<li><b>Привязывайте к задаче.</b> Не «использую Kafka», а «через Kafka забирали события для онлайн-признаков, потому что нужна была задержка меньше секунды». Так видно понимание, а не знакомство с названием.</li>
+<li><b>Называйте только то, что готовы защищать.</b> Каждая упомянутая технология — потенциальная тема для десяти минут вопросов.</li>
+</ol>
+<p>Полезно закончить фразой о том, что стек — инструмент: «выбираю по задаче и по тому, что уже есть в команде, а не по новизне». Это признак инженерной зрелости.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Рассказывать нужно по легенде — стек должен согласовываться с проектами, которые вы описываете, и с резюме.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Основной инструмент — PyTorch, вокруг него Transformers и HuggingFace-экосистема; для табличных задач — scikit-learn и CatBoost. Эксперименты трекаю в MLflow.</p>
+<p>Для сервинга — FastAPI и Docker, инференс оптимизировал через ONNX Runtime и TensorRT, для LLM использовал vLLM. Мониторинг — Prometheus и Grafana; из данных — PostgreSQL, Kafka для потоковых событий, S3 для артефактов. Облака — в основном GCP, немного AWS.</p>
+<p>Ежедневно работаю с PyTorch, FastAPI, Docker и MLflow. С Kubernetes работал, но на уровне пользователя — писал манифесты и деплоил, глубокой настройкой кластера не занимался.</p>
+<p>Стек для меня инструмент: выбираю по задаче и по тому, что уже поддерживается в команде, а не по новизне.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Списка из тридцати названий.</b> Он не производит впечатления и создаёт минное поле: любой пункт может стать темой для проверки.</p>
+<p><b>Технологий, которые вы видели один раз.</b> «Работал со Spark» после одного туториала — самый быстрый способ провалить интервью.</p>
+<p><b>Отсутствия структуры.</b> Перечисление вперемешку фреймворков, баз, облаков и языков читается как список из резюме, а не как рассказ.</p>
+<p><b>Технологий без задач.</b> Название без объяснения, зачем оно понадобилось, ничего не сообщает об уровне.</p>
+<p><b>Умолчания о границах.</b> Если вы не уточните уровень владения, интервьюер предположит экспертизу — и разочаруется. Явная граница работает в вашу пользу.</p>
+<p><b>Оценки технологий по моде.</b> «Мы используем X, потому что это современно» — плохой аргумент. Хороший — про требования: latency, объём данных, поддерживаемость, опыт команды.</p>
+<p><b>Расхождения с резюме.</b> Стек в ответе и в резюме должен совпадать.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:used_technologies:end -->
+
+
+
+
+        
+        
+<!-- md:inject:section:Общие вопросы:start -->
+<li class="question" data-md-source="true" data-md-id="company-research-interview">
+  <div class="name" id="company-research-interview">
+    Пользовался ли ты нашим продуктом? Что ты знаешь о компании?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет мотивацию и подготовку — то есть насколько вам действительно интересна <b>эта</b> компания, а не любая работа. Ответ «нет, не пользовался, не успел посмотреть» почти всегда воспринимается как отсутствие интереса.</p>
+<p>Готовиться нужно заранее. Минимальный набор источников: сайт и продукт, описание вакансии, технический блог компании, последние новости и релизы, публичные выступления инженеров, отзывы пользователей, GitHub-организация, вакансии в соседние команды (по ним видно, куда компания растёт).</p>
+<p>Структура ответа — три шага:</p>
+<ol>
+<li><b>Чем компания полезна клиенту.</b> Одно-два предложения о том, какую проблему решает продукт и для кого. Это показывает, что вы понимаете бизнес, а не только технологию.</li>
+<li><b>Что именно вы изучили или попробовали.</b> Конкретика: зарегистрировался и прошёл онбординг, прочитал статью в блоге про их рекомендательную систему, посмотрел доклад с конференции.</li>
+<li><b>Связь с вашим опытом и интересом.</b> Почему то, чем занимается компания, пересекается с тем, что вы умеете и хотите делать дальше.</li>
+</ol>
+<p>Если продукт недоступен (B2B, закрытая платформа, внутренние системы) — не выдумывайте опыт. Скажите, какие открытые материалы изучили, и задайте содержательный вопрос о продукте: это конвертирует пробел в проявление интереса.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Да, зарегистрировался и прошёл онбординг на прошлой неделе. Насколько я понял, основная ценность продукта — сокращение времени на подбор для рекрутера: вместо ручного скрининга сотни резюме система выдаёт ранжированный шорт-лист.</p>
+<p>Из технического блога прочитал статью про переход с эластика на векторный поиск — интересно, что вы столкнулись ровно с той же проблемой рассогласования retrieval и reranking, с которой я работал в предыдущем проекте. Собственно, поэтому и откликнулся: у меня есть опыт в двухэтапных пайплайнах, и мне интересен ваш масштаб.</p>
+<p>Хотел бы уточнить: сейчас ранжирование строится на одном общем реранкере или под разные вертикали используются отдельные модели?</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Нет, не смотрел».</b> Даже честное признание лучше подать конструктивно: «продукт закрытый, но я изучил ваш блог и доклады — вот что понял».</p>
+<p><b>Пересказа страницы «О компании».</b> Интервьюер знает, что там написано. Ценность — в наблюдении или вопросе, который показывает, что вы думали, а не читали.</p>
+<p><b>Лести.</b> «У вас потрясающий продукт, я в восторге» без конкретики звучит фальшиво и не добавляет ничего.</p>
+<p><b>Критики продукта в лоб.</b> «У вас ужасный UX» — плохое начало разговора, даже если вы правы. Наблюдение можно подать как вопрос: «заметил, что поиск иногда даёт нерелевантные результаты на длинных запросах — это известная проблема, над которой команда работает?»</p>
+<p><b>Устаревшей информации.</b> Если ссылаетесь на новость, проверьте дату: упоминание раунда финансирования трёхлетней давности как «недавнего» выглядит хуже, чем отсутствие упоминания.</p>
+<p><b>Одинакового ответа для всех компаний.</b> Он считывается мгновенно.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="interesting_tasks_nlp_cv">
+  <div class="name" id="interesting_tasks_nlp_cv">
+    Какие задачи тебе интереснее — NLP, CV или ML-инфраструктура?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос почти всегда задают, когда команда работает в конкретном домене и хочет понять, надолго ли вы. Ответ должен быть честным, но не сужающим вас до одной ниши.</p>
+<p>Рабочая схема:</p>
+<ol>
+<li><b>Назовите текущий фокус</b> — одно направление, к которому вас тянет сейчас, и объясните <b>почему через содержание задач</b>, а не через моду. «NLP — потому что там интересны задачи на reasoning и работу с памятью» лучше, чем «NLP сейчас на подъёме».</li>
+<li><b>Покажите переносимость навыков.</b> Постановка задачи, работа с данными, метрики, валидация, продакшн — это общая часть для всех направлений. Она объясняет, почему смена домена не означает начало с нуля.</li>
+<li><b>Не закрывайте другие направления.</b> «CV мне тоже интересен, просто в нём я уже много сделал» звучит лучше, чем «CV мне надоел».</li>
+<li><b>Свяжите с вакансией.</b> Если позиция в CV, а вас тянет в NLP — об этом стоит сказать прямо и объяснить, что вас всё равно привлекает в этой роли. Умолчание хуже: несовпадение вскроется позже.</li>
+</ol>
+<p>Инфраструктура — отдельный случай: интерес к ней всегда воспринимается положительно, потому что дефицит людей, умеющих доводить модели до прода, есть везде.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Сейчас больше тянет к NLP и ML-инфраструктуре. NLP даёт простор для задач, где важно не только качество предсказания, но и то, как система рассуждает и удерживает контекст, — а инфраструктура позволяет превращать модель в устойчивый сервис, за который не страшно отвечать в бою.</p>
+<p>CV мне тоже интересен, и опыта там достаточно: сегментация, детекция, работа с видео. Просто в этом направлении я уже прошёл значительную часть пути, и хочется масштаба и гибкости, которые даёт работа с языком.</p>
+<p>При этом значительная часть навыков переносится: постановка задачи, схема валидации, работа с качеством разметки и продакшн — везде одинаковы.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Резкого отрицания направления команды.</b> Если вакансия в CV, а вы говорите «CV мне неинтересен», разговор на этом фактически заканчивается.</p>
+<p><b>«Мне всё равно, чем заниматься».</b> Читается как отсутствие профессиональной позиции.</p>
+<p><b>Обесценивания домена.</b> «CV — это уже решённая область» — утверждение, легко опровергаемое любым практиком, и оно выдаёт поверхностность.</p>
+<p><b>Ответа, продиктованного модой.</b> Интервьюер почти наверняка спросит, какая конкретно задача в названном направлении вас интересует. Без конкретики ответ рассыпется.</p>
+<p><b>Умолчания о несовпадении.</b> Если вас действительно не тянет к тому, чем занимается команда, честнее выяснить это сейчас. Полгода на неинтересных задачах дороже неудачного интервью.</p>
+<p><b>Расхождения с резюме без объяснения.</b> Если опыт весь в одном домене, а интерес заявлен в другом, объясните переход: что уже сделали в новом направлении и почему уверены, что справитесь.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Общие вопросы:end --><h3 data-md-source="true">Ситуативные вопросы</h3>
+        <!-- md:replace:difficult_problem:start -->
+<li class="question" data-md-source="true" data-md-id="difficult_problem">
+  <div class="name" id="difficult_problem">
+    Расскажи о ситуации, когда пришлось решать сложную проблему?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет <b>инженерный подход к диагностике</b>: умеете ли вы локализовать проблему, а не действовать наугад, и доводите ли до измеримого результата.</p>
+<p>Что должно быть в ответе:</p>
+<ol>
+<li><b>Постановка с ограничением.</b> Сложность должна быть объективной: жёсткий SLA, недостижимая метрика, нестабильный прод, ограничение по бюджету или по железу. Формулировка вида «требовалось $\le$ 1 с, а было 8 с» сразу задаёт масштаб.</li>
+<li><b>Гипотезы и их проверка.</b> Ключевой пункт: покажите, что вы не «оптимизировали всё подряд», а <b>измерили</b> и нашли реальное узкое место. Профилирование, логи, эксперименты, A/B — здесь уместны технические детали.</li>
+<li><b>Неочевидная находка.</b> Лучшие истории — когда проблема оказалась не там, где все её искали. Это демонстрирует именно инженерное мышление, а не знание рецептов.</li>
+<li><b>Решение и компромиссы.</b> Что выбрали и от чего отказались. Упоминание сознательного trade-off сильно повышает доверие.</li>
+<li><b>Результат в числах</b> и то, что осталось в процессе после вас.</li>
+</ol>
+<p>Идеальный кейс — тот, где вы работали <b>на стыке</b> зон ответственности: это показывает, что вы видите систему целиком.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: оптимизация inference под SLA">
+<ul>
+<li><b>Ситуация:</b> В одном из проектов inference занимал около <b>8 секунд</b> на один запрос, в то время как SLA требовал <b>$\leq$ 1 секунды</b>. Пользователи жаловались на задержки, а команда бэкенда считала, что проблема на стороне ML. Нужно было доказать, где именно узкое место, и уложиться в ограничения по времени без потери качества модели.</li>
+<li><b>Действия:</b><ul>
+<li>Провёл профилирование всего пайплайна (preprocess $\to$ model $\to$ postprocess) с помощью viztracer, scalene.</li>
+<li>Выяснил, что <b>основной bottleneck — препроцессинг и чтение данных</b> с диска, а не сама модель.</li>
+<li>Совместно с backend-разработчиками вынес часть препроцессинга в <b>C++ модуль</b> и добавил параллельное чтение батчей.</li>
+<li>Реализовал <b>динамический батчинг</b> и кеширование часто встречающихся входов, чтобы избежать повторных вычислений.</li>
+<li>Оптимизировал постпроцессинг: убрал ненужные преобразования, перевёл вычисления на NumPy/Tensor ops.</li>
+</ul>
+</li>
+<li><b>Результат:</b> После оптимизаций время отклика сократилось с <b>8 секунд до 900 мс</b>. Система стабильно укладывается в SLA даже при пиковых нагрузках. Бэкенд и продакт подтвердили, что латентность соответствует требованиям, а пользователи отметили улучшение отзывчивости.</li>
+<li><b>Вывод:</b> Этот кейс научил меня, что <b>узкие места часто вне модели</b>. Эффективный ML-инженер должен уметь смотреть на систему целиком — от данных до сервинга — и общаться с соседними командами, чтобы устранить реальные, а не кажущиеся проблемы.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Сложная задача» без объективной сложности.</b> «Нужно было обучить модель классификации» — это не сложная проблема, а обычная работа. Сложность создаёт ограничение: срок, ресурс, требование к качеству, нестабильность системы.</p>
+<p><b>Рассказа только о решении, без диагностики.</b> «Мы добавили кеш и стало быстрее» — непонятно, почему именно кеш и откуда вы знали, что дело в этом. Половина ценности ответа — в том, <b>как вы нашли</b> причину.</p>
+<p><b>Отсутствия чисел.</b> «Стало значительно быстрее» слабее, чем «8 с → 900 мс». Если точных цифр не помните, назовите порядок.</p>
+<p><b>Присвоения командного результата.</b> Говорите «я» про свою часть и «мы» про командную. Интервьюер почти всегда уточняет вашу роль, и несостыковка обнаружится.</p>
+<p><b>Слишком длинного технического погружения.</b> Держите основной рассказ в 3–4 минутах, детали давайте по уточняющим вопросам — это признак хорошей коммуникации.</p>
+<p><b>Историй, где проблема так и не решилась.</b> Такие кейсы бывают полезны для вопроса про факапы, но не для этого.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:difficult_problem:end -->
+        <!-- md:replace:conflicting_situation:start -->
+<li class="question" data-md-source="true" data-md-id="conflicting_situation">
+  <div class="name" id="conflicting_situation">
+    Расскажи о конфликтной ситуации. Чем это все закончилось?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Интервьюер проверяет не отсутствие конфликтов (их не бывает), а <b>как вы их разрешаете</b>: переходите ли на личности, ищете ли компромисс, меняете ли процесс после.</p>
+<p>Структура сильного ответа:</p>
+<ol>
+<li><b>Суть разногласия</b> — по возможности <b>профессионального</b>, а не личного: разные метрики успеха, разные представления о приоритетах, разные технические подходы. Конфликт «не сошлись характерами» рассказывать не стоит.</li>
+<li><b>Позиции обеих сторон, изложенные честно.</b> Умение сформулировать аргументы оппонента без карикатуры — сильнейший сигнал зрелости.</li>
+<li><b>Ваши действия</b> — что конкретно вы сделали, чтобы сдвинуть ситуацию: собрали данные, провели эксперимент, предложили промежуточный вариант, вынесли на общее обсуждение.</li>
+<li><b>Результат</b> — с числами, если они есть.</li>
+<li><b>Системный вывод</b> — что изменилось в процессе, чтобы такой конфликт не повторялся. Это финальный и самый ценный пункт.</li>
+</ol>
+<p>Лучший тип кейса — конфликт, который <b>привёл к улучшению</b>: новому контракту API, новой метрике, новому регламенту. Тогда история из «жалобы» превращается в демонстрацию влияния.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: метрики продукта vs. метрики модели">
+<ul>
+<li><b>Ситуация:</b> На проекте в медицинской сфере возник конфликт между ML-командой и продуктом. Продукт-менеджер требовал максимизировать <b>F1-score</b>, считая его основной метрикой успеха. Однако бизнес-цель заключалась не в общей точности, а в снижении числа пропущенных критичных кейсов (false negatives), где ошибочный пропуск мог привести к медицинским рискам.</li>
+<li><b>Действия:</b><ul>
+<li>Провёл анализ инцидентов и показал, что модель с высоким F1 всё равно пропускает редкие критичные случаи.</li>
+<li>Предложил перейти на основную метрику <b>Recall@target Precision</b> и оценивать систему по количеству предотвращённых инцидентов.</li>
+<li>Настроил <b>cost-sensitive loss</b>, усилив штрафы за ложные отрицания.</li>
+<li>Запустил ретроспективный анализ прошлых кейсов — визуализировал trade-off между recall и временем ответа.</li>
+</ul>
+</li>
+<li><b>Результат:</b> После апдейта модели количество критически пропущенных случаев снизилось на <b>37%</b> при увеличении времени ответа всего на <b>8%</b>. Продукт признал новую метрику более релевантной, а команда согласовала её как стандарт оценки качества для всех медицинских моделей.</li>
+<li><b>Вывод:</b> Конфликт научил меня, что важно не спорить о числах, а говорить языком бизнеса. ML-метрика сама по себе ничего не значит без понимания её продуктовой ценности.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: API с бэкендом">
+<ul>
+<li><b>Ситуация:</b> Возник спор с backend-командой при интеграции ML-сервиса. Разработчики требовали жёсткий формат синхронного RPC-вызова и строго типизированные схемы, а наша ML-система возвращала результаты асинхронно и с переменной структурой JSON. Из-за расхождения в ожиданиях пайплайн регулярно &quot;падал&quot; при апдейтах моделей.</li>
+<li><b>Действия:</b><ul>
+<li>Вместо попытки &quot;передавить&quot; формат, предложил <b>промежуточный контракт</b> на JSON-schema.</li>
+<li>Добавил <b>валидатор</b> схемы на обеих сторонах, чтобы невалидные ответы не доходили до продакшна.</li>
+<li>Ввёл <b>асинхронный inference-воркер</b> с callback-механизмом и поддержкой <b>idempotency-keys</b> для безопасных повторных запросов.</li>
+<li>Описал API в OpenAPI-спеке, чтобы документация обновлялась автоматически.</li>
+</ul>
+</li>
+<li><b>Результат:</b> После внедрения контракта продакшн-инциденты, связанные со схемой, полностью исчезли. Релизы ускорились примерно на <b>20%</b>, а формат API стал стандартом для всех ML-сервисов компании. Конфликт между командами сменился на продуктивное взаимодействие.</li>
+<li><b>Вывод:</b> Главное в таких ситуациях — не доказывать &quot;чья правда&quot;, а найти <b>общий инженерный язык</b> через контракты и прозрачную документацию. Конфликт стал поводом улучшить процесс и укрепить взаимодействие между командами.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: разметка и качество данных">
+<ul>
+<li><b>Ситуация:</b> В команде по сбору и разметке данных возникло напряжение между ML-инженерами и аннотаторами. Разметчики отклоняли сложные случаи, чтобы не снижать скорость, из-за чего качество данных страдало. Метрики модели начали &quot;скакать&quot;, а разработчики и аннотаторы взаимно обвиняли друг друга.</li>
+<li><b>Действия:</b><ul>
+<li>Организовал совместную встречу ML-команды и лидов разметки, чтобы показать влияние ошибок на итоговые метрики.</li>
+<li>Ввёл <b>чек-листы качества</b> и стандартные примеры сложных кейсов.</li>
+<li>Добавил процесс <b>adjudication</b> — повторная верификация спорных случаев несколькими аннотаторами.</li>
+<li>Запустил <b>active learning</b> для автоматического подбора edge-case примеров.</li>
+<li>Ввёл систему <b>бонусов</b> за корректную разметку сложных примеров.</li>
+</ul>
+</li>
+<li><b>Результат:</b> Уровень согласия аннотаторов ($\kappa$-Коэн, $\kappa$ читается как &quot;каппа&quot;) вырос с <b>0.62 до 0.79</b>. Метрики модели стабилизировались, количество спорных кейсов сократилось вдвое. Конфликт постепенно исчез, команды стали сотрудничать, а процесс разметки — контролируемым и предсказуемым.</li>
+<li><b>Вывод:</b> Этот случай показал, что конфликты часто идут не от людей, а от <b>отсутствия прозрачных критериев качества</b>. После внедрения общих правил и метрик обе стороны начали работать как единая команда.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«У меня не бывает конфликтов».</b> Либо неправда, либо признак того, что вы избегаете сложных разговоров и молча делаете по-своему. И то, и другое — минус.</p>
+<p><b>Личных конфликтов.</b> «Коллега был некомпетентен и всех бесил» — рассказ, после которого интервьюер задумается, что вы скажете о <b>нём</b> в следующей компании.</p>
+<p><b>Позиции «я оказался прав».</b> Ответ должен быть про поиск решения, а не про победу. Формулировка «мы нашли вариант, который устроил обе стороны» сильнее, чем «в итоге сделали, как я говорил».</p>
+<p><b>Историй без разрешения.</b> «Так и не договорились, я ушёл с проекта» — обрывочная история без вывода.</p>
+<p><b>Эскалации как первого шага.</b> «Пошёл к руководителю» до попытки договориться напрямую читается плохо. Эскалация уместна, но как следующий шаг и когда блокируется результат.</p>
+<p><b>Негатива о бывших коллегах и работодателях</b> в любой форме. Даже обоснованного.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:conflicting_situation:end -->
+        <!-- md:replace:experience_without_expertise:start -->
+<li class="question" data-md-source="true" data-md-id="experience_without_expertise">
+  <div class="name" id="experience_without_expertise">
+    Расскажи о ситуации, когда тебе нужно было сделать то, в чем не было опыта
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос про <b>обучаемость и управление риском</b> — два качества, которые в быстро меняющейся области ценятся выше конкретного стека. Интервьюер хочет понять: как быстро вы входите в новое и не берёте ли на себя обязательств, которые не сможете выполнить.</p>
+<p>Сильный ответ содержит:</p>
+<ol>
+<li><b>Контекст и вынужденность.</b> Почему задача досталась именно вам: выбыл человек, горели сроки, никто другой не знал предметную область.</li>
+<li><b>Оценку риска и договорённость.</b> Самый недооценённый пункт: прежде чем браться, вы обсудили с руководителем реалистичный объём («минимальный прототип без сложных частей») и сроки. Это показывает, что вы не обещаете невозможного.</li>
+<li><b>Стратегию обучения.</b> Как именно осваивали: официальные материалы, разбор существующего кода, консультация с экспертом, прототип на маленькой части задачи. Важно показать <b>систему</b>, а не «гуглил».</li>
+<li><b>Перенос имеющихся знаний.</b> Что из вашего опыта помогло: архитектурные принципы, понимание протоколов, навык отладки. Это объясняет, почему вы справились быстро.</li>
+<li><b>Результат и честную границу.</b> Что получилось, и что вы <b>не стали</b> делать, оставив специалисту.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<ul>
+<li><b>Ситуация:</b> на одном стартап-проекте я занимался серверной частью ML-модуля — рекомендательная система для мобильного приложения. До запуска MVP продакт внезапно попросил сделать мобильный клиент на Flutter, потому что фронт-разработчик выбыл, а сроки релиза были жёсткие. У меня опыта во Flutter и Dart тогда не было вообще — только базовое понимание REST и UI-фреймворков.</li>
+<li><b>Действия:</b> Я оценил риски и договорился с руководителем, что попробую собрать минимальный рабочий прототип без сложных анимаций. За первые два дня: прошёл официальный Flutter codelab и пару видеокурсов от Google, собрал базовую архитектуру с Bloc-паттерном и экраном авторизации, подключил API моего ML-сервиса через http-клиент и отладил сериализацию JSON, быстро разобрался с hot-reload, виджетами и responsive layout под Android/iOS. Позже подключил Dio для сетевых запросов и Hive для локального кеша. Помогло знание архитектурных принципов (разделение UI, логики и данных), так что переучиваться было проще, чем ожидал.</li>
+<li><b>Результат:</b> Через полторы недели приложение уже умело авторизоваться, получать рекомендации и показывать карточки контента. MVP успешно прошёл демо у заказчика. После этого к проекту подключился штатный Flutter-разработчик, который отметил, что код написан чисто и легко поддерживается.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Истории про то, как вы «просто разобрались за вечер».</b> Она либо неправдоподобна, либо говорит о том, что задача была тривиальной. Ценность — в том, как вы структурировали освоение.</p>
+<p><b>Отсутствия оценки риска.</b> «Сказали — сделал» без обсуждения объёма и сроков читается как неумение управлять ожиданиями. Особенно важно на senior-уровне.</p>
+<p><b>Слишком мелкой задачи.</b> «Не работал с этой библиотекой, прочитал документацию» — не тот масштаб. Нужна новая область, а не новый пакет.</p>
+<p><b>Умолчания о помощи.</b> Если консультировались с экспертом или использовали чужой код — скажите об этом. Умение быстро найти того, кто знает, — самостоятельный навык, а не признание слабости.</p>
+<p><b>Результата без границ.</b> Хороший ответ включает признание: «я сделал MVP, но продакшн-качество писал уже специалист». Это честно и повышает доверие.</p>
+<p><b>Историй, где всё сорвалось.</b> Для этого вопроса нужен успешный (пусть частично) кейс; неудачи — материал для <a href="../bank/hr.html#biggest_mistake" target="_blank" rel="noopener">вопроса про факап</a>.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:experience_without_expertise:end -->
+        <!-- md:replace:out_of_scope:start -->
+<li class="question" data-md-source="true" data-md-id="out_of_scope">
+  <div class="name" id="out_of_scope">
+    Расскажи о ситуации, когда нужно было сделать то, что не вписывается в рамки твоих обязанностей
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос про <b>ownership</b> — готовность отвечать за результат, а не за формальную зону ответственности. Одновременно это проверка на здравый смысл: интервьюер смотрит, не берёте ли вы всё подряд в ущерб основной работе.</p>
+<p>Что должно быть в ответе:</p>
+<ol>
+<li><b>Почему задача оказалась ничьей.</b> Человек выбыл, роль не закрыта, срочность не позволяла ждать. Контекст объясняет, что это была необходимость, а не самодеятельность.</li>
+<li><b>Осознанное решение взяться.</b> Вы оценили, что без этого пострадает результат команды, и — в идеале — согласовали это с руководителем. Разница между «взял на себя» и «влез не в своё дело» именно здесь.</li>
+<li><b>Что конкретно сделали</b> и на что опирались из своего опыта.</li>
+<li><b>Результат</b> и, что важнее, <b>что осталось после</b>: улучшенный процесс, шаблон, регламент. Разовый подвиг ценится меньше, чем изменение, которое переживёт вас.</li>
+<li><b>Границы.</b> Хорошо, если история включает передачу задачи обратно специалисту — это показывает, что вы не пытаетесь всё замкнуть на себя.</li>
+</ol>
+<p>Лучшие кейсы — из смежных зон: коммуникация с заказчиком, DevOps, аналитика, продуктовые расчёты. Они показывают широту, оставаясь в рамках инженерного контекста.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<ul>
+<li><b>Ситуация:</b> Мы делали ML-модуль для крупного заказчика — система анализа обращений пользователей на естественном языке. Продакт внезапно заболел за неделю до демо, а на встрече нужно было показать результаты, собрать обратную связь и зафиксировать дальнейшие требования. Команда немного растерялась, потому что я был единственным, кто знал и технические детали, и контекст задач.</li>
+<li><b>Действия:</b> Я предложил взять коммуникацию на себя. Подготовил короткую презентацию: описал постановку задачи, текущее решение, ограничения и прогнозы по срокам. На демо показал метрики (accuracy, latency, покрытие категорий), но объяснил их через призму пользы для клиента — как это повлияет на SLA и экономию времени операторов.</li>
+<li><b>Результат:</b> Заказчик оценил прозрачность и вовлечённость. Мы быстро скорректировали приоритеты модели, улучшили recall на нужной подвыборке и заключили расширение контракта. Когда продакт вернулся, сказал, что я сделал всё корректно и аккуратно.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: DevOps-подмена">
+<ul>
+<li><b>Ситуация:</b> За сутки до релиза упал CI/CD-пайплайн, который собирал Docker-образ для модели. DevOps был в отпуске, а без него релиз переносился, что грозило сорвать дедлайн перед инвесторами.</li>
+<li><b>Действия:</b> Ответственность формально не входила в мои задачи, но я понимал, что без пайплайна вся работа команды пропадёт впустую. Поднял временный self-hosted runner, настроил кеширование зависимостей и сборку образов с fallback на локальные артефакты.</li>
+<li><b>Результат:</b> Релиз состоялся вовремя. Пайплайн стал стабильнее и быстрее (~–20% времени на сборку). После инцидента DevOps предложил оставить мои улучшения как часть общего CI-шаблона. Теперь smoke-тест инференса — обязательная стадия в каждом ML-проекте компании.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: финмодель/бюджет">
+<ul>
+<li><b>Ситуация:</b> При запуске новой версии recommendation API менеджмент запросил расчёт бюджета на продакшн-инференс. DevOps занимались инфраструктурой, но у них не было опыта в ML-стоимостях, а продакт просил объяснить, &quot;почему инференс стоит столько&quot;.</li>
+<li><b>Действия:</b> Собрал статистику по запросам, среднему количеству токенов и latency. На основе этого рассчитал cost-per-request и cost-per-user с учётом AWS-инстансов. Дальше провёл sensitivity-анализ — посмотрел, как изменится стоимость при: квантовании модели (float16 $\to$ int8); увеличении батча с 4 до 16; включении autoscaling по загрузке GPU. Построил графики trade-off latency vs cost и нашёл оптимальную конфигурацию.</li>
+<li><b>Результат:</b> После оптимизаций добились –28% стоимости при неизменном SLA (p95 latency ≤ 600 мс). Бюджет прошёл одобрение без споров, а мой расчёт стал основой шаблона для будущих проектов. Позже по моей инициативе внедрили автоматический отчёт по затратам и мониторинг инференса в Prometheus.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Истории про то, как вы делали чужую работу месяцами.</b> Это не ownership, а неумение выстраивать границы. И сигнал, что в вашей команде провалено планирование, а вы это молча компенсировали.</p>
+<p><b>Жалобы на нагрузку.</b> «Пришлось всё делать за всех» переводит рассказ в негатив.</p>
+<p><b>Действий без согласования.</b> Взять на себя чужую зону, не предупредив, — риск конфликта. Упоминание, что вы обсудили это с руководителем, усиливает ответ.</p>
+<p><b>Мелкого масштаба.</b> «Помог коллеге с багом» — это не выход за рамки обязанностей, а нормальная командная работа.</p>
+<p><b>Отсутствия системного следствия.</b> Разовое геройство менее ценно, чем изменение, оставшееся в процессе.</p>
+<p><b>Отказа передавать задачу обратно.</b> Если из истории следует, что вы навсегда замкнули на себя чужую зону, это читается как проблема с делегированием.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:out_of_scope:end -->
+        <!-- md:replace:biggest_mistake:start -->
+<li class="question" data-md-source="true" data-md-id="biggest_mistake">
+  <div class="name" id="biggest_mistake">
+    Расскажи про твой самый большой факап, неудачу
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Интервьюер проверяет не то, ошибались ли вы (ошибались все), а три вещи: <b>берёте ли вы ответственность</b>, <b>умеете ли анализировать причину</b> и <b>изменили ли вы после этого процесс</b>.</p>
+<p>Правильная структура — по <a href="../bank/hr.html#star" target="_blank" rel="noopener">методике STAR</a>, с акцентом на последние два пункта:</p>
+<ol>
+<li><b>Ситуация</b> — коротко, с контекстом: что за проект, какие были ограничения.</li>
+<li><b>Ошибка</b> — конкретно и от первого лица: что именно <b>вы</b> сделали или не сделали. Это ключевой момент: ответственность должна быть личной.</li>
+<li><b>Действия</b> — как обнаружили, как локализовали, как чинили. Здесь уместны технические детали — они показывают уровень.</li>
+<li><b>Результат</b> — с числами, если они есть.</li>
+<li><b>Вывод и системное изменение</b> — что вы поменяли в процессе, чтобы это не повторилось. Именно этот пункт отличает сильный ответ от исповеди.</li>
+</ol>
+<p>Масштаб ошибки должен быть <b>реальным, но не катастрофическим</b>: заметный ущерб, который вы устранили. Слишком мелкая ошибка читается как уклонение от вопроса, слишком крупная — как риск.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: стоимость инференса вышла из бюджета">
+<ul>
+<li><b>Ситуация:</b> Мы запускали ML-модуль для персонализированных рекомендаций в real-time. Предполагалось, что трафик будет умеренным, и бюджет под инференс согласовали &quot;на глаз&quot;. На практике трафик вырос в три раза, а модель работала в float32 без батчинга, из-за чего счёт за облачные GPU вырос на 40% сверх лимита.</li>
+<li><b>Ошибка:</b> Недооценили стоимость инференса и не учли, что без квантования и батчинга нагрузка резко увеличит расходы.</li>
+<li><b>Действия / уроки:</b><ul>
+<li>Проанализировал потребление GPU по компонентам и выявил, что модель не квантована, запросы шли по одному, а autoscaling реагировал с опозданием.</li>
+<li>Перевёл модель в <b>int8-квантование</b> без потери качества.</li>
+<li>Ввёл <b>динамический батчинг</b> в inference-сервисе.</li>
+<li>Настроил autoscaling на основе метрики <b>tokens/sec</b> вместо CPU usage.</li>
+<li>Добавил <b>кеширование</b> популярных рекомендаций.</li>
+</ul>
+</li>
+<li><b>Результат:</b> Стоимость снизили на <b>–35%</b> при той же латентности. Финансовый отдел оценил прозрачность отчёта, а DevOps включили эти метрики в общий дашборд. Теперь перед каждым релизом мы делаем расчёт cost-per-request и стресс-тест на нагрузку.</li>
+<li><b>Вывод:</b> Этот факап научил меня, что ML-продукт — это не только качество модели, но и её <b>экономическая эффективность</b>. Теперь я всегда думаю о &quot;стоимости за точность&quot; и планирую бюджет инференса заранее.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: некорректная разметка в обучающем датасете">
+<ul>
+<li><b>Ситуация:</b> В проекте по классификации медицинских отчётов мы собирали датасет полуавтоматически — модель + люди. Из-за сжатых сроков часть данных размечалась без повторной валидации, и позже оказалось, что 15–20% примеров имеют систематический сдвиг по редким классам.</li>
+<li><b>Ошибка:</b> Полуавтоматическая разметка внесла bias — модель переобучилась на &quot;основные&quot; категории и игнорировала малые, что привело к падению precision на 10–12% после релиза.</li>
+<li><b>Действия / уроки:</b><ul>
+<li>Провёл аудит выборки, визуализировал распределение классов (heatmap) и выявил перекос.</li>
+<li>Ввёл <b>двухступенчатый QA разметки</b>: сначала авторазметка, потом ручная валидация части данных.</li>
+<li>Организовал <b>adjudication</b> — согласование сложных кейсов несколькими экспертами.</li>
+<li>Добавил <b>small-gold выборку</b> (~500 вручную проверенных примеров) для проверки стабильности модели.</li>
+<li>При дообучении использовал <b>noise-robust лоссы</b> и <b>label smoothing</b>.</li>
+</ul>
+</li>
+<li><b>Результат:</b> После исправления и дообучения модель прибавила <b>+5–7%</b> по macro-F1 и recall малых классов. Процесс разметки стал стандартизованным и воспроизводимым. Все новые датасеты теперь проходят QA и контроль качества перед обучением.</li>
+<li><b>Вывод:</b> Этот кейс показал, что <b>качество данных — фундамент</b> любого ML-проекта. Даже лучшая архитектура не спасёт, если обучать на ошибочной разметке. Теперь я всегда планирую ресурсы не только на обучение, но и на проверку данных.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа: неправильная версия модели в проде">
+<ul>
+<li><b>Ситуация:</b> Мы выкатывали обновление модели классификации пользовательских обращений. Всё шло по плану, но релиз был ночью, и я решил быстро залить новую версию чекпоинта, чтобы не откладывать выкатку.</li>
+<li><b>Ошибка:</b> В спешке я задеплоил не тот артефакт — чекпоинт без post-processing-логики. Модель предсказывала корректно, но метрики на проде упали почти вдвое, а API начал отдавать &quot;сырые&quot; ответы. Клиенты пожаловались, что система &quot;сошла с ума&quot;.</li>
+<li><b>Действия / уроки:</b><ul>
+<li>Срочно откатили релиз и восстановили предыдущую версию из S3.</li>
+<li>После инцидента внедрил <b>model registry</b> с артефактами и метаданными (ID модели, дата, версия post-processing).</li>
+<li>Добавил <b>smoke-тест inference</b> — несколько эталонных запросов автоматически проверяются перед релизом.</li>
+<li>Создал <b>checklist релиза</b>, включающий проверку версии модели, pipeline и вспомогательных скриптов.</li>
+<li>Настроили Slack-нотификации об успешных деплоях и rollback-механизм.</li>
+</ul>
+</li>
+<li><b>Результат:</b> Через день всё стабилизировали, клиенты получили официальное объяснение. С тех пор подобных инцидентов не было: релизы стали прозрачными и предсказуемыми, а пайплайн — защищённым от человеческих ошибок.</li>
+<li><b>Вывод:</b> Этот случай показал, насколько важны <b>релиз-процессы и контроль версий</b>. После него я внедрил практику &quot;никаких ручных релизов&quot; и всегда документирую каждый деплой.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«У меня не было серьёзных факапов».</b> Худший из возможных ответов: он читается либо как отсутствие опыта, либо как неспособность к рефлексии, либо как нежелание отвечать.</p>
+<p><b>Перекладывания вины.</b> «Продакт дал плохие требования», «данные были грязные», «DevOps сломал пайплайн». Даже если это правда, ответ должен быть про вашу часть ответственности — что вы могли сделать иначе.</p>
+<p><b>Псевдо-факапов.</b> «Я слишком перфекционист и потратил лишние два дня на качество» — очевидная попытка обойти вопрос, и она считывается сразу.</p>
+<p><b>Ошибки без вывода.</b> Если рассказ заканчивается на «мы всё починили», половина ответа потеряна. Ценность в системном изменении процесса.</p>
+<p><b>Слишком свежей и нерешённой истории.</b> Кейс должен быть завершённым: с результатом и уроком.</p>
+<p><b>Разглашения конфиденциального.</b> Имена клиентов, точные финансовые показатели, детали инцидентов под NDA. Обезличивайте: «крупный ритейлер», «порядка десятков тысяч запросов в сутки».</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:biggest_mistake:end -->
+
+
+
+        
+<!-- md:inject:section:Ситуативные вопросы:start -->
+<li class="question" data-md-source="true" data-md-id="ignored-question-interview">
+  <div class="name" id="ignored-question-interview">
+    Что делать, если на твой вопрос на встрече не отвечают?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос проверяет, умеете ли вы <b>добиваться результата, не создавая конфликта</b>, и понимаете ли, когда уместна эскалация.</p>
+<p>Порядок действий — по возрастанию нажима:</p>
+<ol>
+<li><b>Переформулировать и объяснить, зачем нужен ответ.</b> Часто вопрос просто не поняли или не увидели его важности. «Я спрашиваю, потому что от этого зависит, какой вариант интеграции мы закладываем в спринт».</li>
+<li><b>Свести к выбору.</b> Открытый вопрос легко проигнорировать, закрытый — гораздо труднее: «Нам нужно выбрать A или B. Кто может подтвердить решение?»</li>
+<li><b>Назвать владельца и срок.</b> «Кто принимает это решение и к какой дате мы можем его получить?» Это переводит разговор из обсуждения в договорённость.</li>
+<li><b>Зафиксировать письменно.</b> После встречи — короткое резюме в чате или в задаче: вопрос, владелец, срок, что заблокировано без ответа. Письменная фиксация решает большинство таких ситуаций сама по себе.</li>
+<li><b>Продолжить работу по обратимому варианту</b>, явно обозначив допущение: «пока делаю по варианту A, если решение будет другим, переделка займёт день».</li>
+<li><b>Эскалировать</b> — если ответа нет, а отсутствие решения блокирует результат или создаёт риск. Эскалация формулируется через риск для проекта, а не через личную обиду.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Сначала спокойно переформулирую вопрос и объясню, зачем ответ нужен для решения. Если обсуждение ушло в сторону, возвращаю его к выбору: «Чтобы двигаться дальше, нам нужно выбрать A или B. Кто может подтвердить решение?»</p>
+<p>Если ответа всё равно нет, фиксирую вопрос, владельца и срок письменно и продолжаю работу по обратимому варианту, обозначив допущение. Эскалирую не из-за личной обиды, а когда отсутствие решения реально блокирует результат или создаёт риск — и формулирую это именно так: «без ответа к пятнице релиз сдвигается на неделю».</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Молчаливого ожидания.</b> «Не ответили — значит, не важно» приводит к тому, что через две недели проблема всплывает как ваша.</p>
+<p><b>Немедленной эскалации.</b> Поход к руководителю после первой же неудачной попытки читается как неумение договариваться напрямую.</p>
+<p><b>Повторения вопроса в той же формулировке.</b> Если не поняли с первого раза, повтор не поможет — нужно менять формулировку и объяснять контекст.</p>
+<p><b>Обвинительного тона.</b> «Вы так и не ответили на мой вопрос» настраивает собеседника против. «Давайте вернёмся к вопросу про X — он блокирует Y» решает ту же задачу без конфронтации.</p>
+<p><b>Публичной эскалации в общем чате.</b> Она воспринимается как давление и портит отношения даже при формальной правоте.</p>
+<p><b>Принятия решения молча за других.</b> Если вы выбрали вариант сами и не сообщили, ответственность за последствия будет вашей. Допущение всегда проговаривается вслух и письменно.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Ситуативные вопросы:end --><h3 data-md-source="true">Тонкие вопросы</h3>
+        <!-- md:replace:why_left_previous_job:start -->
+<li class="question" data-md-source="true" data-md-id="why_left_previous_job">
+  <div class="name" id="why_left_previous_job">
+    Почему ты ушел с прошлого места работы? Почему ищешь новую работу?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Один из самых чувствительных вопросов. Интервьюер оценивает риск: не уйдёте ли вы отсюда по той же причине, и как вы говорите о бывшем работодателе — потому что так же будете говорить о нём.</p>
+<p>Правило: <b>причина должна быть про движение вперёд, а не про бегство от чего-то.</b></p>
+<p>Хорошие формулировки:</p>
+<ul>
+<li><b>Проект завершён</b> — гипотезы проверены, метрики достигнуты, дальше поддержка. Самая безопасная и часто самая правдивая причина.</li>
+<li><b>Потолок роста</b> — задачи стали повторяться, новых вызовов в обозримом будущем не предвидится.</li>
+<li><b>Смена направления</b> — хочу работать с другим типом задач, которых в компании нет.</li>
+<li><b>Изменения в компании</b> — реорганизация, смена приоритетов, закрытие направления. Излагайте фактически, без оценок.</li>
+<li><b>Масштаб</b> — хочу работать с данными и нагрузками другого порядка.</li>
+</ul>
+<p>Формула ответа: <b>одно предложение о причине → сразу переход к тому, что ищете → связка с этой вакансией.</b> Не задерживайтесь на прошлом; основная часть ответа должна быть про будущее.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Проект, на котором я работал, закончился: все гипотезы проверили, целевые метрики достигли, система стабильно работает в проде, и дальше это в основном поддержка. Мне же интереснее фаза, где ещё много неопределённости.</p>
+<p>Сейчас ищу команду, где можно заниматься архитектурой ML-систем и агентными подходами — и где решения принимаются на уровне инженеров, а не спускаются сверху. В вашей вакансии как раз есть и то, и другое, поэтому я откликнулся.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>Критики бывшего работодателя, руководителя или коллег.</b> Даже если всё было объективно плохо. Интервьюер не может проверить вашу версию и делает единственный доступный вывод — о вашей склонности к негативу.</p>
+<p><b>«Мало платили» как единственной причины.</b> Компенсация — законный мотив, но как основной он сообщает, что вас легко перекупить. Если это действительно главная причина, формулируйте через рынок: «моя ценность выросла, и хочу, чтобы компенсация ей соответствовала».</p>
+<p><b>Длинных подробностей конфликта.</b> Даже если вы были правы, детальный рассказ портит впечатление. Одно предложение, нейтрально, без эмоций.</p>
+<p><b>«Устал», «выгорел».</b> Понятная человеческая причина, но она вызывает вопрос об устойчивости. Если это правда, лучше сказать про «интенсивный период, после которого хочу проект с другим ритмом».</p>
+<p><b>Расплывчатого «просто захотелось перемен».</b> Читается как отсутствие направления.</p>
+<p><b>Вранья.</b> Рынок узкий, рекомендации собирают. Всегда есть нейтральная правдивая формулировка.</p>
+<p><b>Длинного ответа.</b> Тридцать секунд про причину и минута про то, что вы ищете. Не наоборот.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:why_left_previous_job:end -->
+        <!-- md:replace:rework:start -->
+<li class="question" data-md-source="true" data-md-id="rework">
+  <div class="name" id="rework">
+    Как относишься к переработкам?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос двусмысленный: иногда его задают, чтобы проверить гибкость, иногда — чтобы прощупать, готовы ли вы к системным переработкам как норме. Хороший ответ должен закрывать оба прочтения: показать готовность к авралу и обозначить границу.</p>
+<p>Рабочая формула:</p>
+<ol>
+<li><b>Разделите разовые и системные переработки.</b> Разовые — часть работы: релиз, инцидент, дедлайн перед клиентом. Здесь готовность естественна и её стоит подтвердить.</li>
+<li><b>Назовите системные переработки признаком проблемы в процессе,</b> а не в людях: недооценка сроков, отсутствие приоритизации, нехватка людей. Формулировка через процесс звучит конструктивно, а не как отказ.</li>
+<li><b>Сместите фокус на результат.</b> «Важно, что сделано, а не сколько часов проведено» — позиция, с которой трудно спорить.</li>
+<li><b>Приведите пример.</b> Ситуация, где вы задерживались ради результата, и — если было — как потом устранили причину, чтобы аврал не повторялся.</li>
+</ol>
+<p>Полезно <b>задать встречный вопрос</b>: как часто в команде случаются авралы и что стало причиной последнего. Ответ многое скажет о реальном положении дел.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>К коротким авралам отношусь спокойно — перед релизом или во время инцидента без этого не обойтись, и это нормальная часть работы. Сам не раз оставался, когда нужно было довести релиз или разобрать сбой в проде.</p>
+<p>Но если переработки становятся системными, для меня это сигнал проблемы в планировании или в приоритизации, а не в людях. Тогда правильнее разобраться с причиной, чем компенсировать её часами: выгорание обходится команде дороже, чем сдвиг срока.</p>
+<p>Я за эффективность и результат — важно, что сделано, а не сколько часов на это ушло. Кстати, интересно: как часто у вас случаются такие периоды и что было причиной последнего?</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Готов работать сколько угодно».</b> Либо неправда, либо готовность к эксплуатации. Ни то, ни другое не улучшает вашу позицию, а компания может воспринять это как разрешение.</p>
+<p><b>«Категорически против переработок».</b> Звучит негибко: авралы бывают у всех, и полный отказ настораживает.</p>
+<p><b>Обвинительного тона.</b> «Переработки — признак плохого менеджмента» верно по сути, но в такой формулировке звучит как конфликтность. Мягче: «системные переработки обычно означают, что что-то не так с планированием, и это стоит чинить».</p>
+<p><b>Историй о том, как вы выгорели.</b> Даже если это правда, интервью — не то место; тема вызовет вопросы о вашей устойчивости.</p>
+<p><b>Игнорирования компенсации.</b> Если в компании переработки регулярны, уместно уточнить, как они компенсируются — отгулами, оплатой, гибким графиком. Это деловой вопрос, а не проявление меркантильности.</p>
+<p><b>Отсутствия встречного вопроса.</b> Он и уместен, и информативен: реакция интервьюера скажет больше, чем формальный ответ.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:rework:end -->
+
+<!-- 
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+        <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li> -->
+        <!-- <li class="question">
+          <div class="name" id=""></div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Вопрос" data-type="definition">
+            </div>
+            <div class="info-card-auto" data-title="Пример ответа" data-type="example">
+            </div>
+          </div>
+        </li>
+<!-- md:inject:section:Тонкие вопросы:start -->
+<li class="question" data-md-source="true" data-md-id="relocation-interview">
+  <div class="name" id="relocation-interview">
+    Готов ли ты к релокации и какой вариант тебе подходит?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Вопрос практический: компании нужно понять, реализуем ли ваш выход вообще, и не сорвётся ли процесс на визовых или семейных ограничениях. Здесь ценится <b>конкретность</b>, а не гибкость на словах.</p>
+<p>Что стоит включить в ответ:</p>
+<ol>
+<li><b>Прямой ответ:</b> готов / готов при условиях / не готов. Уклончивость затягивает процесс и всё равно вскроется.</li>
+<li><b>География:</b> конкретные страны или регионы, которые вам подходят, и те, что не подходят.</li>
+<li><b>Сроки:</b> реалистичный горизонт переезда с учётом документов, окончания текущих обязательств, поиска жилья и школы. Обычно 2–3 месяца минимум.</li>
+<li><b>Юридические условия:</b> нужна ли визовая поддержка, есть ли уже разрешение на работу, какое гражданство и какие ограничения по нему.</li>
+<li><b>Семейные обстоятельства</b> — без подробностей, но с фактом: переезжаете один или с семьёй, нужна ли поддержка для супруга и детей.</li>
+<li><b>Переходный период:</b> готовы ли работать удалённо до переезда — это часто снимает проблему сроков.</li>
+</ol>
+<p>Если вы <b>не готовы</b> к релокации, скажите об этом прямо и сразу. Это экономит время обеим сторонам, а иногда обнаруживается, что для роли достаточно удалённого формата.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Готов к релокации в ЕС после получения оффера. Гражданство РФ, поэтому потребуется визовая поддержка со стороны компании — без неё вариант нереализуем.</p>
+<p>Реалистичный срок переезда — 2–3 месяца: месяц на документы, месяц на завершение текущих обязательств и организацию переезда. До переезда могу работать удалённо в полном объёме, если это подходит.</p>
+<p>Переезжаю с семьёй, поэтому будет важна поддержка по визам для супруги. По странам: ЕС и Великобритания подходят, по Азии и США пока не рассматриваю.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Готов ехать куда угодно».</b> Звучит гибко, но неправдоподобно и создаёт риск: если после оффера выяснится, что конкретная страна не подходит, доверие потеряно.</p>
+<p><b>Уклончивого «надо подумать».</b> На этапе интервью это нормальный ответ, только если вы сразу говорите, когда дадите определённость.</p>
+<p><b>Умолчания об ограничениях.</b> Проблемы с документами, обязательства, отсутствие загранпаспорта — всё это всплывёт. Лучше сказать заранее и обсудить.</p>
+<p><b>Согласия из страха отказа.</b> Если вы не готовы, а скажете «да», процесс дойдёт до оффера и сорвётся — с потерей времени и репутации.</p>
+<p><b>Отсутствия вопросов про условия.</b> Кто оплачивает переезд, есть ли релокационный пакет, помогают ли с визой и жильём, что с налогами — эти вопросы уместны и показывают, что вы подходите к решению серьёзно.</p>
+<p><b>Обсуждения только своей стороны.</b> Уточните, есть ли у компании опыт релокации сотрудников и юрист или подрядчик, который этим занимается. Отсутствие такого опыта — существенный риск для вас.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="salary-expectations-interview">
+  <div class="name" id="salary-expectations-interview">
+    Какие у тебя зарплатные ожидания?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ключевой вопрос переговоров, и к нему нужно готовиться заранее — импровизация здесь стоит денег.</p>
+<p><b>Подготовка до интервью:</b></p>
+<ol>
+<li><b>Исследуйте рынок.</b> Зарплатные обзоры (Хабр Карьера, «Мой Круг», getmatch), вакансии с вилками, разговоры с коллегами. Определите диапазон для вашего грейда, стека и региона.</li>
+<li><b>Определите три числа:</b> желаемое (верх диапазона), целевое (реалистичное) и <b>минимальное</b> — сумма, ниже которой вы откажетесь. Последнее важнее всего: без него легко согласиться на невыгодные условия под давлением.</li>
+</ol>
+<p><b>Как отвечать:</b></p>
+<ul>
+<li><b>Называйте диапазон</b>, а не точку, и <b>уточняйте формат</b>: gross или net, валюта, период, входит ли премия.</li>
+<li><b>Нижняя граница диапазона — это то, на что вы реально готовы согласиться.</b> Работодатель почти всегда ориентируется на неё, а не на середину.</li>
+<li><b>Свяжите с содержанием:</b> «итог зависит от задач, уровня ответственности и полного пакета» — это оставляет пространство для обсуждения и показывает, что вы смотрите на компенсацию целиком.</li>
+<li><b>Спрашивайте про весь пакет:</b> премии и их реальную выплачиваемость, опционы, ДМС, обучение, оплату техники, компенсацию удалёнки.</li>
+</ul>
+<p>Если просят назвать сумму первым — назовите. Попытка полностью переложить это на работодателя обычно затягивает процесс и не даёт преимущества.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ответа">
+<p>Ориентируюсь на 250–300 тысяч рублей net в месяц. Итог зависит от задач, уровня ответственности и полного компенсационного пакета — премий, ДМС, бюджета на обучение.</p>
+<p>Уточню: у вас указанная вилка — это gross или net, и входит ли в неё годовой бонус?</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего избегать">
+<p><b>«Сколько предложите».</b> Уступка инициативы: почти гарантированно получите нижнюю границу их вилки. И это выглядит как отсутствие понимания своей ценности.</p>
+<p><b>Слишком широкого диапазона.</b> «От 200 до 400» означает, что вы согласны на 200. Разумная ширина — 15–20 %.</p>
+<p><b>Занижения из страха.</b> Поднять зарплату внутри компании потом гораздо труднее, чем договориться на входе. Разрыв в 20–30 % сохраняется годами.</p>
+<p><b>Названия суммы без формата.</b> Gross и net различаются на 13 % и более; несогласованность обнаружится на этапе оффера и создаст неловкость.</p>
+<p><b>Обоснования через личные обстоятельства.</b> «Мне нужно 300, потому что ипотека» — не аргумент для работодателя. Аргумент — рынок и ваш опыт.</p>
+<p><b>Противоречивых минимумов.</b> Если в начале разговора вы назвали 250, а потом согласились на 200, доверие к остальным вашим утверждениям падает.</p>
+<p><b>Согласия сразу.</b> Даже если сумма устраивает, нормально сказать: «спасибо, мне нужно день на решение». Это стандартная практика, а не проявление сомнений.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Тонкие вопросы:end --> -->
+      </ol>
+    </main>
+    <script src="../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+    </div>
+  </body>
+</html>

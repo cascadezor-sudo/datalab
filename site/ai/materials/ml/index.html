@@ -1,0 +1,599 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Machine Learning</title>
+    <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <script src="../../../assets/js/init-head.js"></script>
+    <script src="../../../assets/js/components/navigation.js"></script>
+    <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../../assets/js/components/anchor-scroll.js"></script>
+<script src="../../../assets/js/components/config-loader.js"></script>
+    <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../materials/index.html">Материалы</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Machine Learning</span></li>
+        </ol>
+      </nav>
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="../../../assets/icons/ml.svg" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Machine Learning</h1>
+            <p class="subtitle">Полезные ресурсы для изучения машинного обучения</p>
+          </div>
+          <div class="page-header-cta">
+            <a href="../../../materials/index.html" class="page-header-button">К разделу Материалы</a>
+          </div>
+        </div>
+      </header>
+
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/book.svg" alt="Базовые курсы" />
+            </div>
+            <h3 class="card-title">Базовые курсы</h3>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>
+                Курс Воронцова:
+                <a href="https://youtube.com/playlist?list=PLk4h7dmY2eYHHTyfLyrl7HmP-H3mMAW08">
+                  теория
+                </a>
+                ,
+                <a href="https://andriygav.github.io/MachineLearningSeminars">семинары</a>
+              </li>
+              <div class="callout warning">
+                Воронцов не подходит для начала,
+                <em>много математики</em>
+                . Имеет смысл посмотреть
+                <em>с крепким мат. бекграундом</em>
+              </div>
+              <li><a href="https://education.yandex.ru/handbook/ml">Яндекс ML Handbook</a></li>
+              <div class="callout warning">
+                Много математики, иногда излишне. Полезно для
+                <em>альтернативного взгляда</em>
+                , для
+                <em>интерпретации</em>
+                и
+                <em>картинок</em>
+                .
+                <em>Углубляться в формулы</em>
+                handbook-а не нужно.
+              </div>
+              <li>
+                <a href="https://mlu-explain.github.io/">MLU Explain</a>
+                - ML теория и богатые визуализации
+              </li>
+              <li>
+                <a href="https://mlcourse.ai/book/index.html">ODS</a>
+                - DS/ML сообщество
+              </li>
+              <li>
+                <a href="https://stepik.org/course/209247/promo">Добрый, добрый ИИ</a>
+                - курс на stepik
+              </li>
+              <li>
+                🔥
+                <a href="https://udlbook.github.io/udlbook/#Understanding">
+                  Understanding DL, теория + ноутбуки
+                </a>
+              </li>
+              <li><a href="https://dlcourse.ai/">Deep Learning на пальцах</a></li>
+              <li><a href="http://d2l.ai/index.html">Dive into Deep Learning</a></li>
+              <li>
+                <a
+                  href="https://github.com/ChristosChristofidis/awesome-deep-learning?tab=readme-ov-file#books"
+                >
+                  Awesome Deep Learning
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/nlp.svg" alt="NLP Базовое" />
+            </div>
+            <h3 class="card-title">NLP Базовое</h3>
+          </div>
+          <div class="card-content">
+            <div class="callout">
+              <a href="https://llmresourceshub.vercel.app/">Все необходимые знания по NLP</a>
+              (на момент 2024) - единая страница со всеми ссылками
+            </div>
+            <ul>
+              <li>
+                🔥
+                <a href="https://lena-voita.github.io/nlp_course.html">NLP Lena Voita</a>
+              </li>
+              <li>
+                <a href="https://github.com/yandexdataschool/nlp_course">Yandex NLP course</a>
+              </li>
+              <li><a href="https://github.com/Hannibal046/Awesome-LLM">Awesome-LLM</a></li>
+              <li>
+                <a
+                  href="https://amatria.in/blog/transformer-models-an-introduction-and-catalog-2d1e9039f376/"
+                >
+                  Список трансформеров: Transformer models: an introduction and catalog — 2023
+                  Edition
+                </a>
+              </li>
+              <li>
+                🔥
+                <a href="https://jalammar.github.io/illustrated-transformer/">
+                  Принцип работы трансформеров: The Illustrated Transformer
+                </a>
+              </li>
+              <li>
+                🔥
+                <a href="https://habr.com/ru/companies/just_ai/articles/733110/">
+                  Зоопарк трансформеров
+                </a>
+              </li>
+              <li>
+                🔥
+                <a href="https://habr.com/ru/articles/780116/">
+                  О методах позиционного кодирования в Transformer
+                </a>
+              </li>
+              <li>
+                🔥
+                <a href="https://habr.com/ru/articles/773312/">
+                  Оптимизация механизма внимания — как обрабатывать длинные тексты
+                </a>
+              </li>
+              <li>
+                <a href="https://huggingface.co/learn/nlp-course/en/chapter1/1">HF NLP Course</a>
+                — платиновая база. Это надо прочитать, чтобы научиться делать свои минимальные штуки
+                на уровне инженера. Курс больше прикладной, не теоретический, учит взаимодействию с
+                <code>transformers</code>
+              </li>
+              <li>
+                <a href="https://www.youtube.com/playlist?list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ">
+                  Плейлист с лекциями Карпатого
+                </a>
+                и его же
+                <a href="https://github.com/karpathy">гитхаб</a>
+                — Ещё более платиновая и ещё более база
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        
+      </div>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/rocket.svg" alt="NLP Advanced" />
+            </div>
+            <h3 class="card-title">NLP Advanced</h3>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>
+                <a href="https://huggingface.co/spaces/mteb/leaderboard">MTEB</a>
+                — Рейтинг эмбеддеров. Чем выше, тем лучше
+              </li>
+              <li>
+                <a href="https://github.com/vllm-project/vllm">vLLM</a>
+                ,
+                <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>
+                ,
+                <a href="https://huggingface.co/docs/text-generation-inference/en/index">TGI</a>
+                ,
+                <a href="https://github.com/sgl-project/sglang">sglang</a>
+                ,
+                <a href="https://github.com/turboderp-org/exllamav2">exllamav2</a>
+                ,
+                <a href="https://github.com/michaelfeil/infinity">Infinity Embeddings</a>
+                ,
+                <a href="https://github.com/OpenNMT/CTranslate2">CTranslate2</a>
+                — Движки для инференса.
+                <code>vLLM</code>
+                ,
+                <code>TGI</code>
+                ,
+                <code>exllamav2</code>
+                и
+                <code>sglang</code>
+                для быстрого инференса декодеров на GPU,
+                <code>llama.cpp</code>
+                - CPU.
+                <code>Infinity Embeddings</code>
+                это движок для энкодеров,
+                <code>CTranslate2</code>
+                - для энкодер-декодеров
+              </li>
+              <li>
+                <a href="https://sersavvov.com/blog/7-frameworks-for-serving-llms">
+                  Сравнение фреймворков ускорения инференса LLM
+                </a>
+              </li>
+              <li>
+                <a href="https://hyper.ai/en/sota">
+                  SOTA AI benchmarks
+                </a>: NLP, CV, speech, time series и т.д. с большим количеством подпунктов, а также лидерборды по каждому бенчу
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/rocket.svg" alt="NLP Advanced+" />
+            </div>
+            <h3 class="card-title">NLP Advanced+</h3>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>
+                🔥
+                <a href="https://huggingface.co/spaces/nanotron/ultrascale-playbook">
+                  Ultra-Scale Playbook
+                </a>
+                - книга по распределённой тренировке от Huggingface
+              </li>
+              <li>
+                🔥
+                <a href="https://habr.com/ru/companies/yandex/articles/800945/">
+                  Quantization Deep Dive
+                </a>
+                — хабрапост от Яндекса, где расписывают математическую базу квантизации и про типы
+                данных
+              </li>
+              <li>
+                🔥
+                <a href="https://habr.com/ru/companies/yandex/articles/878230/">
+                  Ускорение LLM: универсальные методы для популярных архитектур
+                </a>
+                — хабрапост от Яндекса, где расписывают варианты ускорения инференса
+              </li>
+              <li>
+                <a href="https://habr.com/ru/users/cointegrated/">Статьи от Давида Дале на Хабре</a>
+                — все очень увлекательны и прекрасны.
+                <a href="https://habr.com/ru/articles/677618/">
+                  Про декодирование из эмбеддингов LaBSE
+                </a>
+                ,
+                <a href="https://habr.com/ru/articles/581932/">про прунинг токенизатора у mt5</a>
+                и
+                <a href="https://habr.com/ru/articles/562064/">про дистилляцию BERT</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/nlp.svg" alt="RAG" />
+            </div>
+            <h3 class="card-title">RAG</h3>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li><a href="https://youtu.be/22tkx79icy4">Краткое объяснение</a></li>
+              <li>🔥<a href="https://teletype.in/@abletobetable/rag_techniques">Обзор техник RAG: Retrieval Augmented Generation</a> - пост на телетайпе</li>
+              <li><a href="https://habr.com/ru/articles/779526/">Хабропост про RAG</a></li>
+              <li><a href="https://habr.com/ru/articles/961972/">Сравнение эмбеддеров для Retrieval</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../../../assets/icons/question.svg" alt="Другое" />
+            </div>
+            <h3 class="card-title">Другое</h3>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>
+                <a
+                  href="https://dynamic-epoch-4bb.notion.site/100-questions-about-NLP-549ccde0d81a4689b5635888b9d0d7e6"
+                >
+                  100 questions about NLP
+                </a>
+                — универсальный список вопросов для подготовки к собесам. Не на все вопросы есть
+                ответы, но все вопросы хорошие
+              </li>
+              <li>
+                <a href="https://youtu.be/KJtZARuO3JY">Прикольный видос</a>
+                от 3b1b на тему трансформеров и внимания
+              </li>
+              <li><a href="https://youtu.be/wjZofJX0v4M">3b1b про LLMки</a></li>
+              <li><a href="https://youtu.be/ewjlmLQI9kc">BERT vs GPT</a></li>
+              <li>
+                <a
+                  href="https://www.kaggle.com/code/faressayah/natural-language-processing-nlp-for-beginners#%F0%9F%93%91-Text-Pre-processing"
+                >
+                  NLP на примере ноутбука Kaggle
+                </a>
+                , предобработка и тд, можно пройтись и посмотреть
+              </li>
+              <li>
+                <a href="https://www.kaggle.com/discussions/general/329870">
+                  Идеи для NLP-проектов на Kaggle
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://www.kaggle.com/code/tanulsingh077/deep-learning-for-nlp-zero-to-transformers-bert"
+                >
+                  Ноутбук вводный
+                </a>
+                , тут от RNN до BERT вкратце
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+
+    <!-- Подключение authGuard -->
+    <script src="../../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        fill="none"
+        stroke="white"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../../assets/js/init-page.js"></script>
+  </body>
+</html>

@@ -1,0 +1,649 @@
+.sr-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.sr-overview {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, var(--border-color));
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand) 8%, transparent),
+      transparent 45%
+    ),
+    color-mix(in srgb, var(--card-bg) 88%, transparent);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.08);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.sr-toolbar,
+.sr-card,
+.sr-empty,
+.sr-stats {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+
+.sr-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.sr-filters {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 0.8fr)
+    minmax(170px, 0.9fr)
+    minmax(170px, 0.9fr)
+    minmax(230px, 1.25fr)
+    minmax(220px, 1.3fr);
+  gap: 10px;
+  align-items: center;
+  flex: 1 1 620px;
+}
+
+.sr-block-filter {
+  display: grid;
+  grid-template-columns: auto minmax(72px, 1fr) auto minmax(72px, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.sr-select,
+.sr-search {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 82%, #fff);
+  color: var(--text-primary);
+  padding: 0 12px;
+  font: inherit;
+  outline: none;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.sr-select:focus,
+.sr-search:focus {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--border-color));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+/* Контур фокуса подавлялся для всех способов фокусировки, включая клавиатуру.
+   :focus-visible перебивает подавление, а мышиный клик рамку по-прежнему
+   не рисует. */
+.sr-select:focus-visible,
+.sr-search:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+.sr-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.sr-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.sr-stat {
+  min-width: 0;
+  padding: 16px;
+  background: color-mix(in srgb, var(--card-bg) 92%, var(--brand) 4%);
+}
+
+.sr-stat-accent {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand) 20%, transparent),
+      color-mix(in srgb, var(--brand-secondary) 10%, transparent)
+    ),
+    var(--card-bg);
+}
+
+.sr-stat-value {
+  display: block;
+  font-size: clamp(1.35rem, 2.2vw, 1.9rem);
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.sr-stat-label {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.sr-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 380px;
+  padding: 24px;
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.12);
+}
+
+.sr-progress-track {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: color-mix(in srgb, var(--border-color) 74%, transparent);
+}
+
+.sr-progress-fill {
+  height: 100%;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, var(--brand), var(--brand-secondary));
+  transition: width 0.24s ease;
+}
+
+.sr-card-top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sr-card-title-block {
+  min-width: 0;
+}
+
+.sr-card-kicker {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.sr-card-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(1.18rem, 2.2vw, 1.55rem);
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.sr-open-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border-color));
+  border-radius: 10px;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.sr-open-link:hover {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--brand) 13%, transparent);
+}
+
+.sr-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.sr-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  max-width: 100%;
+  min-height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--card-bg) 90%, var(--brand) 5%);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sr-chip b {
+  color: var(--text-primary);
+  font-weight: 750;
+}
+
+.sr-flip-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 260px;
+  border: 0;
+  border-radius: 16px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  perspective: 1200px;
+  text-align: left;
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+.sr-flip-card:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.sr-flip-side {
+  display: grid;
+  align-content: center;
+  box-sizing: border-box;
+  min-height: 260px;
+  padding: 26px;
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--border-color));
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--brand) 7%, transparent),
+      transparent
+    ),
+    color-mix(in srgb, var(--card-bg) 96%, #fff);
+  color: var(--text-primary);
+  font-size: clamp(1.12rem, 2vw, 1.35rem);
+  line-height: 1.55;
+  transition:
+    transform 0.3s ease,
+    opacity 0.2s ease,
+    border-color 0.2s ease;
+  backface-visibility: hidden;
+}
+
+.sr-flip-back {
+  position: absolute;
+  inset: 0;
+  border-color: color-mix(in srgb, #22c55e 18%, var(--border-color));
+  background: color-mix(in srgb, #22c55e 7%, var(--card-bg));
+  transform: rotateY(180deg);
+  opacity: 0;
+}
+
+.sr-card.is-answer-visible .sr-flip-front {
+  display: none;
+}
+
+.sr-card.is-answer-visible .sr-flip-back {
+  position: relative;
+  inset: auto;
+  transform: rotateY(0);
+  opacity: 1;
+}
+
+.sr-side-label {
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sr-card.is-answer-visible .sr-side-label {
+  color: #15803d;
+}
+
+.sr-side-content {
+  display: block;
+  min-width: 0;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.sr-side-content p {
+  margin: 0 0 10px;
+}
+
+.sr-side-content p:last-child {
+  margin-bottom: 0;
+}
+
+.sr-side-content .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+
+.sr-side-content .katex {
+  max-width: 100%;
+}
+
+.sr-flip-hint {
+  display: block;
+  margin-top: 18px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.sr-quick-actions,
+.sr-grade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.sr-grade-actions {
+  display: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sr-card.is-answer-visible .sr-grade-actions {
+  display: grid;
+}
+
+.sr-card.is-answer-visible .sr-quick-actions {
+  display: none;
+}
+
+.sr-btn,
+.sr-grade-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.sr-btn {
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.sr-grade-btn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: center;
+  justify-items: start;
+  min-width: 0;
+  min-height: 76px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.sr-grade-btn span,
+.sr-grade-btn small {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.sr-grade-btn kbd {
+  grid-row: span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  opacity: 0.72;
+}
+
+.sr-grade-btn small {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.sr-btn:hover:not(:disabled),
+.sr-grade-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border-color));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+/* Кольцо здесь рисует box-shadow, но в режиме высокой контрастности Windows
+   тени не рисуются вовсе. Прозрачный контур система перекрашивает в свой
+   цвет — вид не меняется, а фокус остаётся видимым. */
+.sr-btn:focus-visible,
+.sr-grade-btn:focus-visible,
+.sr-open-link:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
+.sr-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.sr-btn-primary {
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  background: var(--gradient-primary);
+  color: #fff;
+}
+
+.sr-btn-ghost {
+  background: color-mix(in srgb, var(--card-bg) 92%, var(--border-color));
+  color: var(--text-secondary);
+}
+
+.sr-btn-again {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.sr-btn-hard {
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.sr-btn-good {
+  border-color: rgba(34, 197, 94, 0.38);
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.sr-btn-easy {
+  border-color: rgba(59, 130, 246, 0.38);
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.sr-keys {
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+/* На тач-экранах клавиатуры нет — подсказка только шумит. */
+@media (hover: none) {
+  .sr-keys {
+    display: none;
+  }
+}
+
+.sr-save-error {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.07);
+  color: #dc2626;
+  font-weight: 650;
+}
+
+.sr-empty {
+  padding: 46px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.sr-empty strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 1.14rem;
+}
+
+.sr-done {
+  border-color: color-mix(in srgb, #22c55e 30%, var(--border-color));
+  background: color-mix(in srgb, #22c55e 7%, var(--card-bg));
+}
+
+[data-theme="dark"] body .sr-overview {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand) 12%, transparent),
+      transparent 45%
+    ),
+    rgba(18, 20, 28, 0.82);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] body .sr-select,
+[data-theme="dark"] body .sr-search,
+[data-theme="dark"] body .sr-flip-side {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+[data-theme="dark"] body .sr-select {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] body .sr-select option {
+  background: #1f2937;
+  color: #f8fafc;
+}
+
+[data-theme="dark"] body .sr-select option:checked {
+  background: var(--brand);
+  color: #fff;
+}
+
+[data-theme="dark"] body .sr-flip-back {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+[data-theme="dark"] body .sr-card.is-answer-visible .sr-side-label {
+  color: #86efac;
+}
+
+@media (max-width: 900px) {
+  .sr-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .sr-toolbar {
+    align-items: stretch;
+  }
+
+  .sr-btn,
+  .sr-btn-ghost {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .sr-stat {
+    padding: 12px 10px;
+  }
+
+  .sr-card {
+    min-height: 0;
+    padding: 18px;
+  }
+
+  .sr-card-top {
+    display: grid;
+  }
+
+  .sr-open-link {
+    width: 100%;
+  }
+
+  .sr-flip-card {
+    min-height: 0;
+  }
+
+  .sr-flip-side {
+    min-height: 96px;
+  }
+
+  .sr-flip-side {
+    padding: 18px;
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  .sr-card.is-answer-visible .sr-grade-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sr-card.is-answer-visible .sr-flip-card {
+    height: auto;
+  }
+
+  .sr-card.is-answer-visible .sr-flip-back {
+    display: grid;
+    width: 100%;
+  }
+
+  .sr-grade-btn {
+    grid-template-columns: 28px minmax(0, 1fr);
+    min-height: 60px;
+    padding: 10px 12px;
+  }
+}

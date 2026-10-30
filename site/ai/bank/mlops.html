@@ -1,0 +1,1328 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Вопросы по MLOps</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/code-styles.css" rel="stylesheet" />
+    <link href="../../assets/css/cards.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Интервью</span>
+            <span class="pill pill--soft">MLOps</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Вопросы по MLOps</h1>
+          <p class="section-shell__desc">Вопросы по MLOps и эксплуатации ML-систем с собеседований.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Основы MLOps</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-definition-interview">
+  <div class="name" id="mlops-definition-interview">
+    Что такое MLOps и какую проблему он решает?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>MLOps — это практики, которые делают изменения ML-системы <b>повторяемыми, проверяемыми и управляемыми</b>. Отличие от классического DevOps в том, что артефактов у нас три, а не один: код, данные и модель. Обычный CI/CD умеет версионировать и тестировать код; в ML нужно версионировать ещё и датасет, схему, препроцессинг, конфигурацию обучения и веса, а «тестировать» — не только сборку, но и качество на срезах.</p>
+<p>Полный жизненный цикл: данные → обучение → валидация → регистрация в model registry → деплой → мониторинг → переобучение. MLOps отвечает за то, чтобы каждый переход был автоматизирован, воспроизводим и откатываем.</p>
+<p>Ключевая проблема, которую это решает: ML-система деградирует <b>сама по себе</b>, без единого коммита. Мир меняется, распределения уезжают, и модель, которая была хороша три месяца назад, сегодня работает хуже. Классический DevOps такой сценарий не рассматривает вовсе.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как отвечать сильно">
+<p>Слабый ответ — перечислить инструменты («MLflow, Airflow, Kubeflow, DVC»). Сильный — начать с рисков и артефактов: что именно ломается в ML-системах и какой контроль это закрывает. Полезно назвать конкретные вопросы, на которые MLOps даёт ответ: какая модель сейчас в проде и на каких данных она обучена; кто и когда её одобрил; можно ли повторить этот результат через полгода; как понять, что она деградировала; за сколько минут её откатить.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про ownership">
+<p>Частый follow-up: «кто отвечает за качество модели после релиза?». Хороший ответ описывает разделение: DS отвечает за качество модели и её валидацию, MLE — за пайплайн и воспроизводимость, платформенная команда — за инфраструктуру и paved road, SRE — за доступность сервиса. У модели, датасета и сервиса должны быть явные владельцы и SLO, а решение об откате принимает дежурный по заранее описанному runbook, а не по переписке в чате. Ответ «за всё отвечает вся команда» — красный флаг.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-reproducibility-interview">
+  <div class="name" id="mlops-reproducibility-interview">
+    Что нужно зафиксировать, чтобы эксперимент был воспроизводимым?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Формулировка задачи: коллега должен повторить ваш результат через полгода. Значит зафиксировать надо всё, что влияет на число в отчёте.</p>
+<p><b>Код:</b> git commit и чистое рабочее дерево (незакоммиченные правки — самая частая причина «у меня не воспроизводится»).</p>
+<p><b>Окружение:</b> образ контейнера по digest, а не по тегу; lock-файл зависимостей; версии CUDA, cuDNN и драйвера; тип GPU/CPU.</p>
+<p><b>Данные:</b> версия или снапшот датасета (DVC, дельта-таблица с версией, снапшот в объектном хранилище), схема, код препроцессинга и <b>точный split</b> — сохранённые идентификаторы объектов, а не только seed.</p>
+<p><b>Конфигурация запуска:</b> все гиперпараметры, seed для всех источников случайности (Python, NumPy, фреймворк, DataLoader), число воркеров.</p>
+<p><b>Результаты:</b> метрики, логи, веса модели и lineage — от какого датасета и коммита получен артефакт.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему одного random seed мало">
+<p>Seed фиксирует псевдослучайные генераторы, но не фиксирует: порядок выдачи данных при многопоточном DataLoader, недетерминированные CUDA-ядра (atomicAdd в свёртках и pooling даёт разный порядок суммирования float), автотюнинг cuDNN, изменения в версии библиотеки, порядок редукции при распределённом обучении. Полный детерминизм на GPU достижим (<code>torch.use_deterministic_algorithms(True)</code>, фиксация <code>CUBLAS_WORKSPACE_CONFIG</code>), но стоит 10–30 % скорости. На практике чаще требуют <b>статистической</b> воспроизводимости: результат должен повторяться в пределах доверительного интервала по нескольким запускам, и это надо явно проговорить.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Красный флаг">
+<p>Ответ «сохраняю requirements.txt и seed». Он не покрывает данные и препроцессинг — то есть ровно то, что в ML меняется чаще всего. Датасет пересобрали по новой логике фильтрации, и та же самая команда обучения выдаёт другую метрику; без версионирования данных отладить это невозможно.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Контейнеры</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-docker-image-interview">
+  <div class="name" id="mlops-docker-image-interview">
+    Как уменьшить размер и время сборки Docker-образа для ML-сервиса?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Размер.</b> Multi-stage build: тяжёлые build-зависимости (компиляторы, dev-заголовки) остаются в стадии сборки, в финальный образ копируется только результат. Базовый образ — slim или distroless вместо полного. Удалять кэши пакетных менеджеров в том же слое, где ставили (<code>pip install --no-cache-dir</code>, <code>rm -rf /var/lib/apt/lists/*</code> в одной инструкции RUN — иначе файлы останутся в нижнем слое). CPU-версия PyTorch вместо CUDA-сборки, если инференс на CPU: разница в несколько гигабайт.</p>
+<p><b>Скорость.</b> Порядок инструкций подчинён кэшу слоёв: сначала копируем файлы зависимостей и ставим их, потом копируем исходный код. Тогда правка кода не инвалидирует слой с зависимостями. Точный <code>.dockerignore</code> (без него в контекст сборки уезжают <code>.git</code>, датасеты и чекпоинты). BuildKit с cache mounts для кэша pip и общий remote cache в CI.</p>
+<p><b>Безопасность и предсказуемость.</b> Непривилегированный пользователь, версии зафиксированы (никаких <code>latest</code>), никаких секретов в слоях, сканирование на CVE и генерация SBOM в пайплайне.</p>
+<p><b>Веса модели</b> обычно <b>не</b> кладут в образ: они меняются чаще кода, раздувают образ и мешают промоушену «один образ — много версий модели». Исключение — жёсткое требование к времени холодного старта или изоляции от сети.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему порядок слоёв решает всё">
+<p>Docker кэширует по слоям, и инвалидация одного слоя инвалидирует все последующие. Если <code>COPY . .</code> стоит перед <code>pip install</code>, то любая правка одной строки кода заставляет пересобирать зависимости — минуты вместо секунд. Правильный порядок: базовый образ → системные пакеты → файл зависимостей → установка зависимостей → код приложения. Это самая дешёвая оптимизация CI, которую при этом чаще всего забывают.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Секреты в слоях">
+<p>Даже если вы сделали <code>RUN echo $TOKEN &gt; /tmp/t &amp;&amp; ... &amp;&amp; rm /tmp/t</code>, файл остаётся в промежуточном слое и извлекается из образа. Секреты в сборку передаются только через BuildKit secret mounts (<code>RUN --mount=type=secret</code>) или подставляются в рантайме. Токен в <code>ARG</code> тоже виден в истории образа.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-container-vs-vm-interview">
+  <div class="name" id="mlops-container-vs-vm-interview">
+    Чем контейнер отличается от виртуальной машины на уровне Linux?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Виртуальная машина — это отдельное ядро и эмулируемое железо поверх гипервизора. Контейнер — это <b>обычный процесс</b> на хостовом ядре, которому ограничили видимость и ресурсы двумя механизмами ядра Linux:</p>
+<p><b>Namespaces — что процесс видит.</b> <code>pid</code> (свой список процессов, свой PID 1), <code>net</code> (свой сетевой стек, интерфейсы, таблицы маршрутизации), <code>mnt</code> (своё дерево монтирования), <code>uts</code> (своё имя хоста), <code>ipc</code>, <code>user</code> (маппинг UID: root внутри может быть непривилегированным снаружи), <code>cgroup</code>.</p>
+<p><b>Cgroups — сколько процесс может потребить.</b> Ограничения по CPU (квота и период), памяти (при превышении — OOM-kill), I/O, PIDs, устройствам.</p>
+<p>Плюс <b>union filesystem</b> (OverlayFS) для слоёв образа и <b>capabilities/seccomp/AppArmor</b> для ограничения набора системных вызовов.</p>
+<p>Практические следствия: контейнер стартует за миллисекунды (это просто fork+exec), не тратит память на второе ядро, но <b>делит ядро с хостом</b> — уязвимость ядра означает возможный побег из контейнера, а изоляция слабее, чем у ВМ. Отсюда gVisor, Kata Containers и Firecracker для мультиарендных сценариев.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему &lt;code&gt;top&lt;/code&gt; внутри контейнера врёт">
+<p>Утилиты вроде <code>top</code>, <code>free</code> и <code>nproc</code> читают <code>/proc</code>, который монтируется с хоста и не знает про cgroup-лимиты. Поэтому внутри контейнера с лимитом 2 ГБ <code>free</code> покажет всю память хоста, а <code>nproc</code> — все ядра. Это приводит к классическому багу: JVM или пул воркеров создаёт число потоков по числу ядер хоста, упирается в CPU-квоту и начинает троттлиться. Решения: читать лимиты из <code>/sys/fs/cgroup</code>, использовать <code>lscpu</code>-aware библиотеки или явно задавать параллелизм переменной окружения.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-image-layers-interview">
+  <div class="name" id="mlops-image-layers-interview">
+    Как работают слои образа и OverlayFS?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Образ — это упорядоченный набор неизменяемых слоёв, каждый из которых является дельтой файловой системы после одной инструкции Dockerfile. При запуске контейнера поверх них монтируется тонкий <b>writable-слой</b>, а всё вместе объединяется драйвером OverlayFS в единое дерево.</p>
+<p>Механика OverlayFS: нижние слои — <code>lowerdir</code> (только чтение), верхний — <code>upperdir</code> (запись), результат — <code>merged</code>. При чтении файл ищется сверху вниз. При записи в файл из нижнего слоя срабатывает <b>copy-up</b>: файл целиком копируется в верхний слой и правится уже там. Удаление файла из нижнего слоя реализуется через <b>whiteout</b> — специальную запись, скрывающую файл, но не удаляющую его физически.</p>
+<p>Практические следствия: слои переиспользуются между образами (общий базовый слой скачивается один раз), но образ никогда не уменьшается от удаления файлов в поздних слоях, а запись в большой файл из нижнего слоя стоит его полного копирования — поэтому данные и логи держат на volume, а не в writable-слое.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это влияет на скорость деплоя">
+<p>При обновлении сервиса нода скачивает только изменившиеся слои. Если тяжёлые зависимости лежат в нижних слоях и не менялись, обновление кода тянет мегабайты вместо гигабайт. Если же Dockerfile написан так, что <code>pip install</code> идёт после <code>COPY . .</code>, каждый деплой заставляет каждую ноду скачивать заново весь слой с зависимостями — на кластере из сотни нод это десятки минут и заметный трафик. Отсюда же практика единого базового ML-образа для всех сервисов команды: он кэшируется на нодах один раз.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про writable-слой">
+<p>Запись в контейнер идёт через copy-on-write и медленнее, чем в volume; при этом данные исчезают вместе с контейнером. Логи, чекпоинты и кэши моделей нельзя писать в writable-слой — заполнение диска ноды через раздутые writable-слои является типовой причиной <code>DiskPressure</code> и вытеснения подов.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-pid1-interview">
+  <div class="name" id="mlops-pid1-interview">
+    Почему PID 1 и graceful shutdown важны в контейнере?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Процесс с PID 1 в Linux особенный: он не получает сигналы, для которых не установлен явный обработчик (ядро не применяет к нему действия по умолчанию), и он обязан «усыновлять» осиротевшие процессы и вызывать <code>wait()</code> на них.</p>
+<p>Отсюда две классические проблемы в контейнерах:</p>
+<p><b>Сигналы не доходят.</b> Kubernetes при остановке пода посылает <code>SIGTERM</code> процессу с PID 1 и через <code>terminationGracePeriodSeconds</code> (по умолчанию 30 с) добивает <code>SIGKILL</code>. Если приложение запущено через shell-форму <code>CMD python app.py</code>, PID 1 — это <code>/bin/sh</code>, который не пробрасывает <code>SIGTERM</code> дочернему процессу. Приложение не узнаёт об остановке и умирает по <code>SIGKILL</code>, обрывая запросы в полёте. Лечение: exec-форма <code>CMD [&quot;python&quot;, &quot;app.py&quot;]</code> или явный init-процесс (<code>tini</code>, <code>dumb-init</code>).</p>
+<p><b>Зомби-процессы.</b> Если приложение порождает дочерние процессы (воркеры, subprocess) и не собирает их, они накапливаются как зомби и исчерпывают лимит PID. Лечение то же — init-процесс, который делает <code>wait()</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как выглядит корректное завершение сервиса">
+<p>Полная последовательность: под получает <code>SIGTERM</code> → приложение помечает readiness-пробу как неготовую, чтобы из Endpoints его убрали → перестаёт принимать новые запросы → <b>дожидается</b> завершения текущих (in-flight) → закрывает соединения с БД и сбрасывает буферы → выходит с кодом 0. Дополнительно нужен <code>preStop</code>-хук со <code>sleep</code> на несколько секунд: удаление из Endpoints распространяется по kube-proxy и ingress асинхронно, и без паузы часть трафика продолжает идти на уже закрывающийся под. Это самый частый источник ошибок 502 при обычной раскатке.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про долгую загрузку модели">
+<p>ML-сервис может грузить веса минуты. Если на это время назначить <code>livenessProbe</code>, kubelet решит, что контейнер завис, и перезапустит его — получится бесконечный <code>CrashLoopBackOff</code>. Правильная схема: <code>startupProbe</code> с большим <code>failureThreshold</code> покрывает загрузку, <code>readinessProbe</code> управляет трафиком, <code>livenessProbe</code> включается только после успеха startup и проверяет реальное зависание.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Kubernetes</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-requests-limits-interview">
+  <div class="name" id="mlops-requests-limits-interview">
+    Как задавать requests и limits для CPU, RAM и GPU?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Requests</b> влияют на планирование: scheduler ищет ноду, где свободно не меньше запрошенного, и резервирует это количество. <b>Limits</b> — это ограничение cgroup в рантайме, и ведут они себя для CPU и памяти по-разному.</p>
+<p><b>CPU</b> — сжимаемый ресурс. Превышение лимита не убивает под, а вызывает <b>троттлинг</b>: cgroup CFS даёт квоту на период (по умолчанию 100 мс), и когда она исчерпана, процесс замирает до следующего периода. Симптом — растущий <code>container_cpu_cfs_throttled_seconds_total</code> и всплески latency при нормальной средней утилизации.</p>
+<p><b>Память</b> — несжимаемый. Превышение лимита означает мгновенный <code>OOMKilled</code> без предупреждения и без шанса освободить память.</p>
+<p><b>GPU</b> — выдаётся device plugin целыми устройствами: <code>nvidia.com/gpu: 1</code>. Дробные значения не поддерживаются, request обязан равняться limit. Разделение GPU между воркладами делается через MIG (аппаратное разбиение), time-slicing или MPS — каждый вариант со своими компромиссами по изоляции.</p>
+<p>Значения выбираются по профилированию и нагрузочному тесту, а не на глаз: requests — по типичному потреблению плюс запас, limits по памяти — по пиковому.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="QoS-классы и вытеснение">
+<p>Kubernetes выводит класс QoS из соотношения requests и limits: <b>Guaranteed</b> (requests равны limits для всех ресурсов), <b>Burstable</b> (requests заданы и меньше limits), <b>BestEffort</b> (ничего не задано). При нехватке памяти на ноде kubelet вытесняет поды в порядке BestEffort → Burstable, превысившие requests → Guaranteed. Поэтому для критичных сервисов инференса ставят Guaranteed: это и защита от вытеснения, и доступ к эксклюзивным ядрам через CPU Manager.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Спорный вопрос про CPU limit">
+<p>Существует обоснованная практика <b>не ставить CPU limit</b> вовсе (оставив request): троттлинг латентно-чувствительного сервиса вреднее, чем временное потребление свободного CPU, а requests уже гарантируют минимум и защищают соседей. Контраргумент — без лимита один под может съесть весь свободный CPU ноды и испортить соседям p99. Правильный ответ на собеседовании — не выбрать сторону, а описать компромисс: для латентно-чувствительных сервисов чаще оставляют без CPU limit при заданном request, для батчевых задач лимит ставят.</p>
+<p>Отдельно: <code>OOMKilled</code> (лимит cgroup исчерпан, контейнер убит ядром) и <code>CUDA out of memory</code> (кончилась память GPU, процесс живёт и бросает исключение) — разные события с разными причинами и разной диагностикой.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-gpu-serving-interview">
+  <div class="name" id="mlops-gpu-serving-interview">
+    Как безопасно развернуть GPU-инференс в Kubernetes?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Планирование.</b> GPU Operator или device plugin публикует ресурс <code>nvidia.com/gpu</code>. GPU-ноды помечаются taint&#39;ом, чтобы обычные поды на них не приземлялись, а GPU-поды получают toleration и nodeAffinity по типу карты (A100, L4, T4 — у них разная память и разная пропускная способность, и модель должна попасть на подходящую).</p>
+<p><b>Пробы.</b> Загрузка весов занимает минуты, поэтому <code>startupProbe</code> с большим <code>failureThreshold</code>, <code>readinessProbe</code> — только после прогрева (включая warmup-инференс, чтобы CUDA-контексты и ядра были скомпилированы), <code>livenessProbe</code> — включается после startup и проверяет реальное зависание.</p>
+<p><b>Обновление.</b> <code>PodDisruptionBudget</code>, чтобы drain ноды не снял сразу все реплики; rolling с <code>maxUnavailable: 0</code> и достаточным <code>maxSurge</code> — но GPU дорогие, и лишняя реплика может просто не поместиться, поэтому иногда нужен явный запас мощности или canary на отдельной ноде. Graceful shutdown с preStop-паузой обязателен.</p>
+<p><b>Автомасштабирование</b> — по глубине очереди запросов, времени ожидания или p95-latency (через KEDA или custom metrics), а не по CPU: у GPU-сервиса CPU почти не загружен, и HPA по нему не сработает никогда.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему масштабирование GPU-сервиса — отдельная боль">
+<p>Новый под GPU-сервиса поднимается минуты: планирование, скачивание образа в несколько гигабайт, загрузка весов, прогрев. Cluster Autoscaler добавляет к этому время создания ноды — ещё несколько минут. Значит, реактивное масштабирование по нагрузке опаздывает всегда. Практические решения: держать тёплый резерв реплик, использовать предиктивное масштабирование по расписанию под известный профиль нагрузки, держать «пустые» ноды через low-priority pause-поды (overprovisioning), кэшировать образ и веса на ноде, грузить веса из локального SSD или PVC вместо объектного хранилища.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Фрагментация и утилизация GPU">
+<p>Типичная ситуация: GPU занята «на 30 %» по <code>nvidia-smi</code>, но выделена целиком одному поду. Здесь важно понимать, что utilization в <code>nvidia-smi</code> — это доля времени, когда на GPU было хоть одно активное ядро, а не доля вычислительной мощности. Реальные рычаги повышения загрузки: динамический батчинг на стороне сервера (Triton, vLLM), MIG для аппаратного разделения карты, MPS или time-slicing для нескольких процессов, объединение нескольких мелких моделей в один сервис.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-kubectl-apply-interview">
+  <div class="name" id="mlops-kubectl-apply-interview">
+    Что происходит после kubectl apply до запуска пода?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Цепочка выглядит так:</p>
+<ol>
+<li><b>kubectl</b> отправляет манифест в <b>API server</b> по HTTPS.</li>
+<li>API server проводит аутентификацию, авторизацию (RBAC) и прогоняет <b>admission</b>-цепочку: mutating webhook&#39;и (подстановка sidecar, дефолтов), затем валидация схемы и validating webhook&#39;и (политики OPA/Kyverno). Объект записывается в <b>etcd</b> — единственный источник истины.</li>
+<li><b>Deployment controller</b> видит новый Deployment и создаёт ReplicaSet; <b>ReplicaSet controller</b> создаёт нужное число объектов Pod — пока без назначенной ноды (<code>nodeName</code> пуст).</li>
+<li><b>Scheduler</b> для каждого такого пода выполняет фильтрацию (хватает ли ресурсов, проходят ли taints/tolerations, affinity, topology constraints) и скоринг, выбирает ноду и делает <b>binding</b> — записывает <code>nodeName</code> в объект.</li>
+<li><b>Kubelet</b> на этой ноде получает под из watch API, запрашивает у CRI создание sandbox, у CNI — сетевой namespace и IP, у CSI — монтирование томов, скачивает образ, запускает init-контейнеры, затем основные.</li>
+<li><b>Пробы</b> переводят под в <code>Ready</code>; endpoint controller добавляет его в Endpoints/EndpointSlice, и kube-proxy (или ingress) начинает слать на него трафик.</li>
+</ol>
+<p>Ключевая идея всей системы — <b>reconciliation loop</b>: контроллеры непрерывно сравнивают желаемое состояние в etcd с фактическим и устраняют разницу.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это спрашивают">
+<p>Вопрос проверяет, понимаете ли вы, <b>где искать проблему</b>. Под в <code>Pending</code> — значит дело до kubelet не дошло, смотрим scheduler (<code>kubectl describe pod</code> покажет <code>FailedScheduling</code> и причину: нет ресурсов, taint, volume node affinity). Под создан, но контейнер не стартует — это kubelet: <code>ImagePullBackOff</code>, ошибка монтирования, <code>CreateContainerConfigError</code>. Под <code>Running</code>, но не <code>Ready</code> — это пробы. Под <code>Ready</code>, но трафика нет — это Service, селекторы и EndpointSlice. Такая карта диагностики ценится выше, чем пересказ схемы.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про декларативность">
+<p>Отсюда же следует, почему в Kubernetes нельзя «выполнить команду и забыть»: если вы удалите под вручную, ReplicaSet немедленно создаст новый, потому что желаемое состояние не изменилось. Чтобы что-то изменить по-настоящему, надо менять спецификацию, а не факт. Это же обоснование GitOps: если желаемое состояние живёт в git, то дрейф детектируется и устраняется автоматически.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-pod-troubleshooting-interview">
+  <div class="name" id="mlops-pod-troubleshooting-interview">
+    Как диагностировать Pending, CrashLoopBackOff и зависший Terminating?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Pending</b> — под не назначен на ноду. Смотреть <code>kubectl describe pod</code> и событие <code>FailedScheduling</code>. Причины: не хватает ресурсов под requests; taints без соответствующих tolerations; nodeSelector/affinity не находит подходящих нод; PVC не привязан или его зона не совпадает с доступными нодами; исчерпан ResourceQuota namespace; нет GPU-нод под запрошенный extended-ресурс.</p>
+<p><b>CrashLoopBackOff</b> — контейнер стартует и падает, kubelet перезапускает его с экспоненциальной задержкой. Диагностика: <code>kubectl logs --previous</code> (логи упавшего экземпляра — самая важная команда здесь), код завершения в <code>describe</code>. Код 137 — SIGKILL, чаще всего OOMKilled; 143 — SIGTERM; 1 — исключение в приложении. Типичные причины: нехватка памяти, отсутствующая конфигурация или секрет, недоступная зависимость на старте, слишком агрессивная liveness-проба при долгой инициализации.</p>
+<p><b>Terminating надолго</b> — под не может завершиться. Причины: приложение игнорирует SIGTERM и ждёт <code>terminationGracePeriodSeconds</code>; финализаторы на объекте, которые никто не снимает; зависшее размонтирование тома; недоступная нода (тогда под висит, пока node controller не отработает таймаут). Смотреть финализаторы в <code>kubectl get pod -o yaml</code>, состояние ноды и события volume attach/detach.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Порядок диагностики">
+<p>Универсальная последовательность: <code>kubectl get pod -o wide</code> (какой статус, на какой ноде, сколько рестартов) → <code>kubectl describe pod</code> (события — они говорят больше, чем статус) → <code>kubectl logs --previous</code> → проверка ноды (<code>kubectl describe node</code>: DiskPressure, MemoryPressure, готовность) → <code>kubectl get events --sort-by=.lastTimestamp</code> по namespace. Если нужен доступ внутрь работающего пода без shell в образе — <code>kubectl debug</code> с ephemeral-контейнером; это правильный ответ на вопрос про distroless-образы.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про рестарты как метрику">
+<p><code>kubectl get pod</code> показывает счётчик рестартов, но он обнуляется при пересоздании пода, поэтому по нему нельзя судить о стабильности сервиса за период. Для этого нужен <code>kube_pod_container_status_restarts_total</code> в Prometheus с алертом на скорость роста, а не на абсолютное значение: два рестарта за месяц и два за минуту — это разные ситуации, а счётчик в обоих случаях покажет двойку.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-autoscaling-interview">
+  <div class="name" id="mlops-autoscaling-interview">
+    Как взаимодействуют HPA, VPA и Cluster Autoscaler?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три автоскейлера работают на разных осях:</p>
+<p><b>HPA</b> меняет <b>число реплик</b> по метрике: утилизация CPU/памяти относительно requests, либо кастомная метрика (RPS на под, глубина очереди, p95-latency) через Prometheus Adapter или KEDA. Формула простая: желаемое число реплик равно текущему, умноженному на отношение текущей метрики к целевой, с порогом нечувствительности и окном стабилизации против «дребезга».</p>
+<p><b>VPA</b> меняет <b>requests и limits</b> одного пода, подгоняя их под фактическое потребление. В режиме <code>Auto</code> он пересоздаёт под с новыми значениями.</p>
+<p><b>Cluster Autoscaler</b> меняет <b>число нод</b>: добавляет ноду, когда есть Pending-под, который поместился бы на новую, и убирает недозагруженные ноды, если их поды можно переселить.</p>
+<p>Взаимодействие: HPA добавляет реплики → им не хватает места → они висят в Pending → Cluster Autoscaler поднимает ноду. То есть HPA и CA работают в связке и дополняют друг друга.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Конфликт HPA и VPA">
+<p>HPA по CPU и VPA нельзя включать на один и тот же воркладу одновременно: VPA меняет requests, HPA считает утилизацию <b>в долях от requests</b>, и они начинают гонять друг друга — VPA поднимает requests, утилизация в процентах падает, HPA снимает реплики, нагрузка на оставшиеся растёт, VPA снова поднимает requests. Допустимая комбинация — VPA по памяти и HPA по кастомной метрике (не по CPU), либо только один из них.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что мешает Cluster Autoscaler убрать ноду">
+<p>Частая жалоба «ноды не схлопываются» почти всегда объясняется одной из причин: на ноде есть под без контроллера (созданный напрямую), под с локальным хранилищем (<code>emptyDir</code> с данными), под, который нельзя вытеснить из-за PodDisruptionBudget, под из системного namespace без соответствующей аннотации, или под с жёстким nodeSelector, для которого нет другой подходящей ноды. Проверяется это в логах Cluster Autoscaler — он явно пишет, почему нода признана нескейлдаунабельной.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про latency масштабирования">
+<p>Полная цепочка «нагрузка выросла → трафик обслуживается» складывается из окна сбора метрик (15–60 с), периода опроса HPA (15 с) и стабилизационного окна, времени создания ноды (1–5 мин у облачного провайдера), скачивания образа и старта приложения. Для ML-сервисов это легко даёт 5–10 минут, поэтому автоскейлинг проектируют с запасом: тёплый резерв, overprovisioning через low-priority pause-поды и предиктивное масштабирование по расписанию.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">CI/CD и Continuous Training</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-ci-checks-interview">
+  <div class="name" id="mlops-ci-checks-interview">
+    Какие проверки должны быть в CI для ML-проекта?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Проверки делятся на три уровня, и это разделение стоит проговорить явно.</p>
+<p><b>Код.</b> Линтер, типы, unit-тесты на препроцессинг и фичи, тесты на контракт inference API (вход/выход, схема, обработка ошибок), сканирование зависимостей на уязвимости, сборка образа.</p>
+<p><b>Данные.</b> Валидация схемы (типы, обязательные поля), диапазоны и допустимые значения, доля пропусков, свежесть (данные не старше N часов), объём (не упал ли внезапно), проверка на дубли, проверка на утечку — например, что признак не коррелирует с таргетом подозрительно сильно.</p>
+<p><b>Модель.</b> Smoke-обучение на маленькой выборке (проверка, что пайплайн вообще проходит), проверка сериализации и загрузки артефакта, тест инференса на фиксированном наборе входов с эталонными выходами, сравнение метрик с baseline и с текущей production-моделью, метрики <b>по срезам</b> (по сегментам пользователей, по регионам, по классам), проверка latency и размера модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нельзя требовать точного совпадения метрики">
+<p>Метрика — случайная величина: она зависит от seed, от порядка данных, от недетерминизма GPU. Требование «AUC ровно как вчера» сделает пайплайн вечно красным. Правильный порог формулируется статистически: «AUC не ниже baseline минус $2\sigma$», где $\sigma$ оценена по нескольким прогонам или бутстрапом на тестовой выборке. И проверять надо не только среднее: модель может сохранить общий AUC и при этом развалиться на важном сегменте, поэтому пороги ставятся и на срезы.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что гонять на merge, а что ночью">
+<p>На каждый PR — быстрые проверки: линт, типы, unit-тесты, валидация схемы данных, smoke-обучение на 1 % выборки, инференс-контракт. Это должно укладываться в 10–15 минут, иначе разработчики начнут обходить CI. Ночью или по расписанию — полное обучение, сравнение с baseline на полном тесте, метрики по срезам, нагрузочное тестирование, проверка на дрейф. Разделение по времени выполнения — обязательная часть хорошего ответа.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-promotion-interview">
+  <div class="name" id="mlops-promotion-interview">
+    Как организовать promotion модели между средами (build once, promote many)?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Базовый принцип: <b>артефакт собирается один раз и продвигается неизменным</b>. Ни модель, ни контейнер не пересобираются при переходе из staging в production — иначе вы тестировали одно, а выкатили другое.</p>
+<p>Практически это значит:</p>
+<ul>
+<li>Модель регистрируется в <b>model registry</b> с неизменяемой версией и хэшем весов; контейнер адресуется по <b>digest</b>, а не по тегу.</li>
+<li>Все различия между средами вынесены в <b>конфигурацию</b>: адреса БД, лимиты, фича-флаги, параметры батчинга. Артефакт про среду ничего не знает.</li>
+<li>Registry хранит <b>lineage</b> (какой датасет, какой коммит, какой запуск), результаты валидации, подписи и запись об одобрении: кто, когда и на основании чего перевёл версию в <code>Production</code>.</li>
+<li>Деплой выполняется декларативно — GitOps или контролируемый pipeline, — чтобы «что сейчас в проде» было видно в git, а не выяснялось запросом в кластер.</li>
+<li>Раскатка через canary или shadow, автоматические guardrails и <b>однозначный rollback</b>: заранее известно, какая версия предыдущая и как за минуту вернуться к ней.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Красные флаги">
+<p>Переобучение модели в production-пайплайне «чтобы была свежее» — вы получаете артефакт, который никто не валидировал. Перезапись артефакта по тому же URI (<code>model_latest.pkl</code>) — вы теряете возможность отката и воспроизведения инцидента. Тег <code>latest</code> у образа — на разных нодах может оказаться разный образ. Ручное изменение конфигурации прямо в кластере — дрейф, который вернётся при следующем деплое.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что именно откатывается">
+<p>Хороший уточняющий вопрос на собеседовании: «модель, код сервиса и препроцессинг — это один артефакт или три?». Если три и они версионируются независимо, то откат модели может оставить несовместимый препроцессинг. Поэтому либо препроцессинг вшивается в артефакт модели (pipeline целиком, ONNX с препроцессингом в графе), либо версии связываются явным манифестом, и откатывается <b>набор</b>, а не отдельная деталь. Ответ «откатим модель» без этого уточнения считается неполным.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-continuous-training-interview">
+  <div class="name" id="mlops-continuous-training-interview">
+    Чем continuous training отличается от CI/CD и когда оно нужно?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>CI/CD запускается <b>изменением кода</b>. Continuous training (CT) запускается <b>изменением данных или мира</b>: по расписанию, по обнаруженному дрейфу, по накоплению достаточного объёма новых меток или по бизнес-событию (запуск нового региона, смена ассортимента).</p>
+<p>Пайплайн CT: триггер → сборка свежего датасета → валидация данных → обучение кандидата → сравнение с текущим champion на <b>фиксированном</b> историческом срезе и на свежем срезе → проверки fairness, latency, размера и стоимости → регистрация в registry → и только потом деплой, который не обязан быть автоматическим.</p>
+<p>Ключевая идея: автоматизировать надо <b>обучение и проверку</b>, а не обязательно выкатку. Для низкорисковых моделей (рекомендации, ранжирование) допустим автодеплой при прохождении всех гейтов; для высокорисковых (скоринг, медицина, антифрод) обязателен человек в контуре.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Когда переобучение делает хуже">
+<p>Автоматическое переобучение на любых новых данных — прямой путь к катастрофе. Сценарии: сломался upstream-источник, данные пришли пустыми или искажёнными, и модель обучилась на мусоре. Или в данных уже отразилась <b>петля обратной связи</b> — новые метки порождены прошлыми решениями самой модели, и переобучение усиливает её собственные ошибки. Или произошёл разовый выброс (чёрная пятница, инцидент), и модель выучила аномалию как норму.</p>
+<p>Защита: валидация данных перед обучением как жёсткий гейт, сравнение с champion на фиксированном эталонном срезе (а не только на свежем), карантин кандидата в shadow-режиме, ограничение на частоту деплоев, автоматический откат по guardrail-метрикам.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как выбирать триггер">
+<p>Расписание — самый простой и предсказуемый вариант, годится, когда данные меняются равномерно. Дрейф как триггер уместен там, где изменения резкие и редкие, но требует настроенной детекции и порогов, иначе алерт будет срабатывать от шума. Объём новых меток — естественный триггер при отложенной разметке. На практике часто комбинируют: базовое расписание плюс внеочередной запуск по дрейфу, с обязательным ограничением «не чаще, чем раз в N часов».</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-deployment-strategies-interview">
+  <div class="name" id="mlops-deployment-strategies-interview">
+    Сравните rolling, blue-green, canary и shadow для выкатки модели
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Rolling</b> — реплики заменяются постепенно. Дёшево по ресурсам, но во время раскатки в проде живут обе версии одновременно, а откат — это ещё одна медленная раскатка. Требует обратной совместимости API и данных.</p>
+<p><b>Blue-green</b> — поднимается полный второй стек, трафик переключается разом. Мгновенный откат (переключить обратно), но нужен двойной запас мощности — для GPU-сервисов это дорого.</p>
+<p><b>Canary</b> — новая версия получает малую долю реального трафика (1–5 %), метрики сравниваются, доля постепенно растёт. Ограничивает радиус поражения и даёт настоящие продовые данные. Требует нормального разделения трафика и автоматических гейтов на метрики.</p>
+<p><b>Shadow (dark launch)</b> — новая модель получает копию реального трафика, но её ответы <b>не показываются</b> пользователям. Нулевой риск, идеально для сравнения предсказаний и замера ресурсов, но не измеряет влияние на поведение пользователя и удваивает стоимость инференса.</p>
+<p><b>A/B-тест</b> — не стратегия раскатки, а метод измерения: разделение по пользователям, статистически корректная оценка бизнес-эффекта. Canary отвечает на вопрос «не сломалось ли», A/B — «стало ли лучше».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Разница между canary и A/B — любимый вопрос">
+<p>Canary — это про <b>безопасность выкатки</b>: смотрим на технические и качественные метрики (ошибки, latency, распределение предсказаний), раскатываем за часы, решение принимается автоматически по порогам. A/B — про <b>бизнес-эффект</b>: смотрим на выручку, конверсию, retention, идёт неделями, нужен расчёт мощности и рандомизация по пользователю. Их часто путают, а в зрелом процессе они идут последовательно: сначала shadow, потом canary, потом A/B, потом полная раскатка.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Специфика моделей">
+<p>У ML-релиза есть особенность: сломаться может не сервис, а <b>качество</b>, причём молча — latency и коды ответов останутся нормальными. Поэтому гейты canary должны включать не только технические метрики, но и распределение предсказаний (сдвиг среднего скоринга, доля предсказаний выше порога), совпадение с прежней моделью на пересечении трафика и, если возможно, ранние прокси-метрики качества. Раскатка только по «5xx и latency» для модели недостаточна.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-gitops-interview">
+  <div class="name" id="mlops-gitops-interview">
+    Что такое GitOps и как его устроить для нескольких кластеров?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>GitOps — модель доставки, в которой <b>желаемое состояние инфраструктуры описано в git</b>, а агент в кластере (Argo CD, Flux) непрерывно сравнивает его с фактическим и устраняет расхождение. Ключевые свойства: git — единственный источник истины, изменения проходят через PR с ревью, история изменений и откат — это обычные git-операции, а дрейф (кто-то поправил ресурс руками) обнаруживается и автоматически откатывается.</p>
+<p>Важное архитектурное отличие от классического push-CD: агент <b>тянет</b> состояние из репозитория, а CI не имеет доступа к кластеру. Это сильно упрощает безопасность — не нужно раздавать кластерные креды раннерам CI.</p>
+<p>Для нескольких кластеров стандартная схема: репозиторий с базовыми манифестами (Helm-чарты или Kustomize base) плюс оверлеи на среду и кластер, где отличаются только реплики, лимиты, домены и фича-флаги. Argo CD ApplicationSet генерирует Application для каждого кластера из одного шаблона. Продвижение по средам — это PR, меняющий версию образа в оверлее следующей среды.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Где GitOps сложнее, чем кажется">
+<p><b>Секреты.</b> Их нельзя класть в git в открытом виде; используют Sealed Secrets, SOPS с KMS или External Secrets Operator, подтягивающий значения из Vault по ссылке.</p>
+<p><b>Артефакты моделей.</b> Веса в git не хранят — в git лежит ссылка на версию в model registry или объектном хранилище, и именно её меняет PR.</p>
+<p><b>Дрейф, который нужен.</b> HPA меняет число реплик, VPA — requests; если эти поля описаны в git, агент будет их постоянно откатывать. Нужны явные исключения (<code>ignoreDifferences</code>) — типичный практический вопрос на собеседовании.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про монорепозиторий или отдельный репозиторий">
+<p>Общая рекомендация — держать код приложения и манифесты деплоя в <b>разных</b> репозиториях. Иначе коммит с обновлением версии образа, который делает CI, вызывает новый прогон CI, и легко получить петлю. Разделение также разводит права доступа: изменить код может разработчик, изменить продовый манифест — только с апрувом ответственного.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Данные и feature pipelines</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-data-leakage-interview">
+  <div class="name" id="mlops-data-leakage-interview">
+    Как обнаружить и предотвратить data leakage в пайплайне?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Data leakage — попадание в обучающие признаки информации, недоступной в момент предсказания. Результат всегда одинаков: прекрасные офлайн-метрики и провал в проде.</p>
+<p>Основные виды:</p>
+<p><b>Временная утечка.</b> Случайный split на временных данных: модель обучается на будущем и предсказывает прошлое. Лечится разбиением по времени с разрывом, равным реальному лагу.</p>
+<p><b>Утечка через препроцессинг.</b> <code>StandardScaler</code>, кодировщики категорий, отбор признаков или импутация, обученные <b>до</b> разбиения на train/test, — статистика теста просачивается в обучение. Лечится тем, что все обучаемые преобразования лежат внутри <code>Pipeline</code> и фитятся только на train внутри каждого фолда.</p>
+<p><b>Утечка через признак, недоступный в момент предсказания.</b> Классика: «сумма итогового платежа» при предсказании дефолта, «был ли возврат» при предсказании покупки, агрегат, посчитанный по всему периоду.</p>
+<p><b>Утечка через группу.</b> Один и тот же пользователь, пациент или устройство есть и в train, и в test. Лечится GroupKFold по идентификатору сущности.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как искать утечку, а не ждать провала в проде">
+<p>Три практических приёма. Первый — <b>подозрительно высокая метрика</b>: AUC 0.99 на реальной бизнес-задаче почти всегда означает утечку, а не гениальную модель. Второй — <b>feature importance</b>: если один признак объясняет почти всё, надо выяснить, откуда он берётся и когда становится известен. Третий, самый системный — для каждого признака в явном виде ответить на вопрос: <em>в какой момент времени это значение доступно в проде и с какой задержкой?</em> Признаки, для которых нет ответа, в модель не попадают. Это же требование реализуется технически через point-in-time join в feature store.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Утечка и training-serving skew — разные вещи">
+<p>Утечка: модель обучалась на информации, которой в проде не существует. Skew: информация есть, но вычисляется по-другому (другая версия кода, другой порядок агрегации, другая нормализация). Симптомы похожи — офлайн хорошо, в проде плохо, — но лечение разное: от утечки спасает пересборка выборки, от skew — единый код признаков для обучения и инференса.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-idempotent-pipeline-interview">
+  <div class="name" id="mlops-idempotent-pipeline-interview">
+    Как сделать пайплайн идемпотентным и безопасным для backfill?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Идемпотентность означает: повторный запуск задачи за тот же период даёт тот же результат и не создаёт дублей. Это обязательное свойство — retry случается всегда, а backfill за 30 дней должен быть рутинной операцией, а не спецоперацией.</p>
+<p>Что для этого нужно:</p>
+<p><b>Детерминированные партиции.</b> Задача параметризуется периодом (<code>--date=2026-09-01</code>) и пишет строго в свою партицию. Не «дозаписать к текущим данным», а «перезаписать партицию за дату».</p>
+<p><b>Атомарная запись.</b> Писать во временное место и атомарно подменять партицию (<code>INSERT OVERWRITE PARTITION</code>, запись во временный префикс с последующим переименованием, MERGE по ключу в транзакционной таблице). Полузаписанная партиция не должна быть видна читателям.</p>
+<p><b>Ключи и дедупликация.</b> У каждой записи стабильный бизнес-ключ; повторная запись обновляет, а не добавляет.</p>
+<p><b>Разделение event time и processing time.</b> Окна определяются по времени события, а не по времени запуска, иначе перезапуск задачи через неделю соберёт другой набор данных.</p>
+<p><b>Валидация после записи.</b> Read-after-write проверка объёма и схемы, чтобы частичный успех не остался незамеченным.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про частичный успех DAG">
+<p>Если DAG состоит из десяти задач и упал на седьмой, повторный запуск должен корректно пройти первые шесть заново — а это возможно только при идемпотентности каждой из них. Именно поэтому в Airflow и подобных оркестраторах задачи проектируют как «перезаписать результат за период», а не «добавить к тому, что есть». Побочный эффект правильного дизайна: retry становится безопасным по умолчанию, и не нужно вручную чистить результаты перед повтором — а ручная чистка перед retry как раз и есть главный признак неидемпотентного пайплайна.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Backfill не должен ломать текущий SLA">
+<p>Пересчёт за 30 дней запускает 30 параллельных задач, которые могут выесть весь кластер и уронить регулярный ежедневный расчёт. Практика: отдельный пул ресурсов или очередь для backfill, ограничение параллелизма, пониженный приоритет, запуск в окно низкой нагрузки. И отдельный вопрос — <b>late data</b>: события, пришедшие с опозданием после закрытия окна. Их обрабатывают либо периодическим пересчётом последних N дней, либо watermark-логикой с явно заданной допустимой задержкой.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-feature-store-interview">
+  <div class="name" id="mlops-feature-store-interview">
+    Когда нужен feature store и каких проблем он не решает?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Feature store решает три конкретные задачи:</p>
+<ol>
+<li><b>Единое определение признака</b> для обучения и инференса — одна формула, а не два независимых куска кода на SQL и на Python, которые расходятся через месяц.</li>
+<li><b>Point-in-time correctness</b> — при сборке обучающей выборки для каждого события подставляется значение признака, актуальное <b>на тот момент</b>, а не текущее. Это единственный надёжный способ не занести утечку.</li>
+<li><b>Два хранилища с разными свойствами</b>: офлайн (историческое, для обучения, оптимизировано под объём) и онлайн (последние значения, для инференса, оптимизировано под p99-latency в единицы миллисекунд).</li>
+</ol>
+<p>Плюс переиспользование признаков между командами, версионирование определений и мониторинг статистик признаков.</p>
+<p>Нужен он, когда: несколько моделей используют одни и те же признаки; есть онлайн-инференс со строгим бюджетом latency; расхождение обучения и прода уже случалось; в командах больше нескольких ML-инженеров. Одной модели с батчевым скорингом раз в сутки feature store не нужен — это лишняя инфраструктура.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Чего feature store не делает">
+<p>Он <b>не</b> делает данные качественными: мусорный источник останется мусорным, просто теперь мусор будет консистентно доставляться и в обучение, и в прод. Он не заменяет валидацию данных и мониторинг дрейфа. Он не решает проблему отсутствующих меток и отложенной разметки. Он не гарантирует свежесть — это свойство upstream-пайплайна, а не витрины. И он добавляет собственную операционную сложность: ещё одно хранилище, которое надо мониторить, масштабировать и обновлять, а его отказ кладёт весь онлайн-инференс.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про latency онлайн-части">
+<p>Ключевое требование к онлайн-хранилищу — предсказуемый p99, потому что признаки запрашиваются в критическом пути запроса. Отсюда практики: батчевый запрос всех признаков одним обращением вместо N последовательных; локальный кэш редко меняющихся признаков в процессе сервиса; таймаут с дефолтным значением на каждый признак, чтобы отказ хранилища деградировал качество, а не отваливал сервис; разделение признаков по частоте обновления, чтобы медленные не тормозили быстрые.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Эксперименты и Model Registry</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-experiment-tracking-interview">
+  <div class="name" id="mlops-experiment-tracking-interview">
+    Как устроить experiment tracking и что именно логировать?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Минимальный набор компонентов: <b>сервер трекинга</b> с API и UI (MLflow, ClearML, Aeternum-подобные self-hosted решения или W&amp;B как SaaS), <b>база метаданных</b> (PostgreSQL) для запусков, параметров и метрик и <b>артефактное хранилище</b> (S3-совместимое) для весов, графиков и датасетов. Разделение метаданных и артефактов принципиально: база должна оставаться маленькой и быстрой, а гигабайты весов лежат в объектном хранилище.</p>
+<p>Что логировать на каждый запуск: git commit и diff незакоммиченного, все гиперпараметры, версию датасета, digest образа, метрики по эпохам и финальные, метрики <b>по срезам</b>, кривые обучения, размер модели и время инференса, потреблённые ресурсы и стоимость, а также ссылку на артефакт и его хэш.</p>
+<p>Организационно: сквозной <code>run_id</code> от эксперимента до продовой модели, теги команды и задачи, ретеншн-политика (эксперименты старше N месяцев чистятся, кроме помеченных), доступ по ролям.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как честно сравнивать эксперименты">
+<p>Это самый содержательный follow-up. Правила: <b>фиксированный тестовый набор</b>, который не меняется между экспериментами и не используется для подбора; <b>одинаковый бюджет</b> тюнинга — сравнивать модель после 200 итераций подбора с моделью после 5 нечестно; <b>несколько seed</b> и сравнение с учётом дисперсии, а не одной точки; <b>одинаковый препроцессинг и splits</b>; <b>метрики по срезам</b>, а не только агрегат; и отдельный <b>holdout</b>, который трогают один раз перед выкаткой. Заявление «новая модель лучше на 0.3 % AUC» без оценки разброса по seed — не результат.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про self-hosted">
+<p>Если трекинг разворачивается внутри, надо сразу заложить: бэкапы базы метаданных (потеря её означает потерю всей истории экспериментов), политику ретеншна артефактов (S3 растёт быстрее, чем кажется, а веса LLM-чекпоинтов измеряются десятками гигабайт), аутентификацию и разграничение доступа (по умолчанию MLflow открыт всем) и мониторинг самого сервиса — если трекинг лежит, обучение либо падает, либо теряет метрики.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-model-registry-interview">
+  <div class="name" id="mlops-model-registry-interview">
+    Какие метаданные и политики нужны model registry в регулируемой среде?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Registry — это не «папка с весами», а реестр с состояниями и правилами перехода между ними (<code>Staging</code> → <code>Production</code> → <code>Archived</code>).</p>
+<p><b>Метаданные версии модели:</b> неизменяемая версия и хэш артефакта; lineage до датасета, кода и запуска обучения; отчёт о валидации с метриками, в том числе по срезам и по защищённым группам; описание входной и выходной схемы (контракт); требования к окружению (версии библиотек, CUDA); замеренные latency и размер; известные ограничения и границы применимости (model card); дата обучения и дата окончания срока действия.</p>
+<p><b>Политики:</b> переход в <code>Production</code> только через approval с записью, кто и когда одобрил; обязательный набор пройденных проверок как условие перехода; неизменяемость артефакта после регистрации; аудит-лог всех переходов; подпись артефакта для проверки целостности; ретеншн — предыдущие версии хранятся столько, сколько требует регулятор, чтобы можно было воспроизвести любое историческое решение.</p>
+<p>В регулируемых доменах (кредитный скоринг, медицина, страхование) добавляются: обоснование выбора признаков, документация об отсутствии запрещённых атрибутов, отчёт о справедливости модели и возможность объяснить конкретное решение постфактум.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Зачем нужен срок годности модели">
+<p>Явная дата, после которой модель считается устаревшей, — недооценённая практика. Без неё модели живут в проде годами: «работает же». С ней возникает регулярный ритуал пересмотра: перепроверить метрики, актуальность признаков, соответствие текущим требованиям. Это дёшево и предотвращает самый частый вид инцидента — тихую деградацию модели, о которой никто не вспоминал, потому что её не мониторили.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что должно быть возможно через год после инцидента">
+<p>Проверочный вопрос к вашей системе: «клиент оспаривает решение, принятое 14 месяцев назад — сможете ли вы воспроизвести его?». Для этого нужно знать, какая версия модели работала в тот момент, какие признаки были поданы на вход, каково было их значение на тот момент и какое решение было принято. Значит, надо логировать не только предсказание, но и <b>входные признаки</b> (или их хэш и ссылку на снапшот) вместе с версией модели. Если этого нет — ответ на вопрос отрицательный, и в регулируемом домене это серьёзная проблема.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Serving и производительность</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-serving-modes-interview">
+  <div class="name" id="mlops-serving-modes-interview">
+    Когда выбрать online, batch или streaming inference?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Выбор определяется тремя вопросами: когда нужен ответ, известен ли вход заранее и сколько это стоит.</p>
+<p><b>Batch.</b> Предсказания считаются по расписанию для всех сущностей и складываются в таблицу или кэш; сервис только читает готовое. Дёшево (можно использовать спот-инстансы и утилизировать железо на 100 %), просто, легко пересчитать и отладить. Подходит, когда вход меняется медленно: скоринг оттока, сегментация клиентов, ежедневные рекомендации, рассылки. Ограничение — предсказание устаревает между прогонами и невозможно учесть контекст запроса.</p>
+<p><b>Online (real-time).</b> Модель отвечает на запрос синхронно за десятки-сотни миллисекунд. Нужен там, где вход появляется только в момент запроса: антифрод по транзакции, ранжирование выдачи с учётом текущей сессии, ответ ассистента. Дороже: требуется постоянно поднятая мощность под пик, SLO по latency, автоскейлинг, graceful degradation.</p>
+<p><b>Streaming.</b> Предсказания считаются по потоку событий асинхронно (Kafka + обработчик), результат складывается или уходит дальше по конвейеру. Подходит, когда события приходят непрерывно, а ответ нужен «скоро», но не синхронно: обновление признаков, детекция аномалий, обогащение событий.</p>
+<p>Частая правильная архитектура — <b>гибрид</b>: тяжёлые эмбеддинги и агрегаты считаются батчем, лёгкая модель поверх них работает онлайн.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про cost и утилизацию">
+<p>Батч-инференс на порядок дешевле онлайна при том же объёме предсказаний, потому что железо загружено полностью и можно использовать прерываемые инстансы, тогда как онлайн-сервис держит запас под пиковую нагрузку и в среднем утилизирован на 20–40 %. Отсюда практическое правило: <b>всё, что можно посчитать заранее, считается заранее</b>. Прежде чем строить онлайн-сервис, стоит проверить, действительно ли вход неизвестен до момента запроса — часто оказывается, что меняется только малая часть признаков.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про кэширование в онлайне">
+<p>Промежуточный вариант — онлайн с кэшем: предсказание считается по запросу, но результат кладётся в кэш с TTL. Для популярных сущностей это снимает основную нагрузку. Важно правильно выбрать TTL и ключ кэша (он должен включать версию модели, иначе после деплоя пользователи будут получать предсказания старой версии) и заранее решить, что делать при cold start кэша после деплоя, чтобы не получить всплеск нагрузки.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-latency-p99-interview">
+  <div class="name" id="mlops-latency-p99-interview">
+    Как диагностировать высокий p95/p99 при нормальном среднем времени ответа?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Среднее скрывает хвост: если 99 % запросов отвечают за 20 мс, а 1 % — за 2 секунды, среднее будет около 40 мс и выглядит прекрасно. Поэтому SLO всегда формулируют по перцентилям.</p>
+<p>Основные источники длинного хвоста:</p>
+<p><b>Очередь и всплески.</b> По формуле массового обслуживания время ожидания растёт нелинейно при приближении утилизации к единице: при загрузке 80 % хвост уже заметен, при 90 % — взрывается. Диагностика: смотреть длину очереди и utilization, а не только время обработки.</p>
+<p><b>Сборка мусора и аллокации.</b> Паузы GC или крупные аллокации дают редкие, но длинные задержки.</p>
+<p><b>CPU-троттлинг</b> из-за cgroup-лимита: процесс замирает до конца периода квоты. Смотреть <code>container_cpu_cfs_throttled_seconds_total</code>.</p>
+<p><b>Холодные пути.</b> Первый запрос после деплоя или после автоскейла: прогрев кэшей, компиляция CUDA-ядер, ленивая загрузка. Лечится warmup-запросами до включения readiness.</p>
+<p><b>Внешние зависимости.</b> Поход в feature store, в БД, в другой сервис; их хвост становится вашим хвостом. Особенно опасны retry без jitter — они синхронизируют нагрузку.</p>
+<p><b>Батчинг.</b> Динамический батчинг снижает стоимость, но добавляет к latency время ожидания набора батча. Параметр <code>max_delay</code> — это прямой обмен throughput на p99.</p>
+<p><b>Неравномерные запросы.</b> В NLP и CV длина/размер входа сильно варьируется, и «хвост» — это просто самые большие запросы. Смотреть latency в разрезе размера входа.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Порядок диагностики">
+<p>Сначала разложить общее время по стадиям через distributed tracing: сеть, ожидание в очереди, препроцессинг, forward, постпроцессинг, внешние вызовы. Затем построить гистограмму, а не только перцентиль, — бимодальное распределение сразу указывает на два разных пути выполнения (например, попадание и промах кэша). Потом посмотреть корреляцию хвоста с временем (всплески раз в минуту — это чей-то cron или скрейп метрик), с конкретной репликой (проблема ноды) и с размером входа.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про усреднение перцентилей">
+<p>Нельзя усреднять p99 по репликам или по времени: перцентиль — не аддитивная величина, среднее из перцентилей ничего не значит. Считать надо по объединённой гистограмме (<code>histogram_quantile</code> по сумме бакетов в Prometheus). Ошибка встречается часто и легко даёт заниженную оценку хвоста.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-gpu-throughput-interview">
+  <div class="name" id="mlops-gpu-throughput-interview">
+    Как повысить throughput GPU-инференса?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Порядок действий — от бесплатного к дорогому.</p>
+<p><b>Батчинг.</b> Основной рычаг: GPU эффективна только при достаточном параллелизме, одиночный запрос утилизирует её на единицы процентов. Динамический батчинг на сервере (Triton, vLLM, TorchServe) собирает запросы за окно в несколько миллисекунд и обрабатывает их вместе. Для LLM — continuous batching, где новый запрос подхватывается на следующем шаге генерации, а не ждёт завершения всего батча.</p>
+<p><b>Точность.</b> FP16 или BF16 вместо FP32 — обычно двукратное ускорение почти без потери качества. INT8 и FP8 — ещё быстрее, но требуют калибровки и проверки качества.</p>
+<p><b>Компиляция и оптимизация графа.</b> TensorRT, ONNX Runtime, <code>torch.compile</code>: слияние операций (fusion), устранение лишних копирований, подбор оптимальных ядер под конкретную карту. Для трансформеров — FlashAttention и paged KV-cache.</p>
+<p><b>Устранение лишней работы.</b> Препроцессинг и постпроцессинг на CPU часто занимают больше времени, чем сам forward; их выносят на GPU (DALI, nvJPEG) или в отдельные потоки. Копирование данных между хостом и устройством делают асинхронным с pinned memory.</p>
+<p><b>Размещение.</b> Несколько моделей на одной карте (MPS, MIG), CUDA-графы для устранения накладных расходов на запуск ядер, отдельные очереди под разные размеры входа.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Throughput против latency — это компромисс, а не общая цель">
+<p>Больший батч всегда повышает пропускную способность и всегда ухудшает latency отдельного запроса. Поэтому оптимизировать «производительность» вообще нельзя — надо зафиксировать SLO по p99 и максимизировать throughput при этом ограничении. Практический метод: построить кривую «размер батча → throughput и p99» под реальной нагрузкой и выбрать точку, где p99 ещё укладывается в бюджет. Ответ без упоминания этого компромисса выглядит поверхностно.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что на самом деле значит GPU utilization">
+<p>Метрика <code>utilization.gpu</code> в <code>nvidia-smi</code> показывает долю времени, когда на карте выполнялось хотя бы одно ядро, а не долю использованной вычислительной мощности. Карта может показывать 100 % при загрузке тензорных ядер в несколько процентов. Настоящие показатели — достигнутый FLOPS относительно пикового, occupancy и доля времени, проведённого в ожидании памяти; их смотрят через Nsight или DCGM-метрики. Ссылка на «utilization 30 %, значит есть запас» без этого уточнения — типичная ошибка.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Мониторинг и наблюдаемость</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-monitoring-levels-interview">
+  <div class="name" id="mlops-monitoring-levels-interview">
+    Какие уровни мониторинга нужны ML-сервису?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Четыре уровня, снизу вверх по «скорости появления сигнала»:</p>
+<p><b>1. Инфраструктура и сервис.</b> RPS, latency по перцентилям, коды ошибок, насыщение (CPU, память, GPU, очередь), рестарты подов. Это классические RED/USE-метрики — они говорят, работает ли сервис, но ничего не говорят о качестве модели.</p>
+<p><b>2. Данные на входе.</b> Схема (не появились ли новые значения категорий, не изменились ли типы), доля пропусков по каждому признаку, распределение числовых признаков в сравнении с обучающим (PSI, KS-тест), доля запросов с дефолтными значениями признаков из-за таймаута feature store.</p>
+<p><b>3. Предсказания.</b> Распределение выходов модели, средний скоринг, доля предсказаний выше рабочего порога, доля «уверенных» предсказаний, распределение по классам. Доступно мгновенно и часто первым показывает, что что-то не так.</p>
+<p><b>4. Качество.</b> Метрики на пришедших метках, метрики <b>по срезам</b>, бизнес-метрики (конверсия, потери от фрода, доля ручных проверок). Появляется с задержкой, но это единственный настоящий ответ на вопрос «модель работает?».</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему все четыре уровня обязательны">
+<p>Каждый уровень ловит свой класс отказов и ни один не заменяет другие. Ошибка в препроцессинге даст нормальные метрики сервиса, нормальные входные данные и <b>сдвинутое распределение предсказаний</b> — уровень 3. Сломавшийся upstream-источник даст рост пропусков — уровень 2. Постепенное устаревание модели не даст ничего на уровнях 1–3 и проявится только на уровне 4. Утечка памяти видна только на уровне 1. Поэтому вопрос на собеседовании «как мониторить модель» с ответом «смотрим accuracy» — неполный.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что должно быть в алертах, а что на дашборде">
+<p>Алертить стоит на симптомы, влияющие на пользователя: рост ошибок, нарушение SLO по latency, обвал числа предсказаний, резкий сдвиг распределения выходов, отсутствие обновления модели или признаков дольше ожидаемого. На дашборде — всё остальное для расследования. Алерты на каждую метрику дрейфа быстро приводят к alert fatigue: дрейф — это повод посмотреть, а не всегда повод будить дежурного, поэтому его чаще заводят в ежедневный отчёт, а не в пейджер.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-delayed-labels-interview">
+  <div class="name" id="mlops-delayed-labels-interview">
+    Как мониторить качество модели, если метки приходят через недели?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Проблема (label delay) типична: в кредитном скоринге дефолт виден через месяцы, в оттоке — через недели, в рекомендациях товаров длительного пользования — через месяцы. Ждать метки, чтобы узнать о поломке, нельзя.</p>
+<p>Стратегия — многослойная:</p>
+<p><b>Прокси-метрики без меток.</b> Дрейф входных признаков (PSI, KS), дрейф предсказаний, доля предсказаний у порога, согласие с прежней версией модели на пересечении трафика, доля запросов с дефолтными признаками.</p>
+<p><b>Ранние прокси-метки.</b> Частичный сигнал, приходящий раньше окончательного: просрочка 30 дней вместо дефолта 90 дней, клик вместо покупки, отказ от продления после первого месяца. Он смещён, но коррелирует и приходит вовремя.</p>
+<p><b>Отложенная разметка выборки.</b> Сэмплировать небольшую долю трафика и размечать вручную с фиксированным лагом — это даёт медленный, но честный сигнал.</p>
+<p><b>Reconciliation-пайплайн.</b> Задание, которое по мере поступления настоящих меток дописывает их к сохранённым предсказаниям и пересчитывает метрики задним числом за соответствующие когорты.</p>
+<p><b>Когортный анализ.</b> Метрики считаются по когортам «дата предсказания», а не по дате поступления метки, иначе свежие неполные когорты будут искажать картину.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушка неполных когорт">
+<p>Если считать accuracy «по всем меткам, пришедшим за последнюю неделю», то в выборку попадут преимущественно быстрые исходы — а они систематически другие (быстрый дефолт не похож на дефолт через полгода). Метрика будет смещена и будет колебаться от того, сколько прошло времени, а не от качества модели. Правильно: фиксировать окно наблюдения (например, «дефолт в течение 90 дней от выдачи») и включать в отчёт только те когорты, у которых окно закрылось полностью.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что делать с моделями, где меток нет в принципе">
+<p>Иногда истинной метки не будет никогда: заблокированную транзакцию нельзя проверить на самом деле фрод это или нет, отклонённому заявителю не выдали кредит и исход неизвестен. Это <b>selective labels problem</b>. Частичные решения: небольшая доля случайных одобрений (осознанная цена за данные, как рандомизированный трафик в рекомендациях), ручная проверка выборки отклонённых, reject inference с явными допущениями. Признание этой проблемы и предложение контролируемой рандомизации — сильный ответ на собеседовании.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-slo-alerting-interview">
+  <div class="name" id="mlops-slo-alerting-interview">
+    Как проектировать SLO и алертинг без alert fatigue?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>SLI</b> — измеримый показатель пользовательского опыта (доля успешных запросов, доля запросов быстрее 300 мс). <b>SLO</b> — целевое значение SLI за окно (99.9 % успешных за 30 дней). <b>Error budget</b> — допустимая доля нарушений, то есть 0.1 % за 30 дней; это и есть валюта, которой команда расплачивается за риск релизов.</p>
+<p>Алертинг строится не по мгновенным порогам, а по <b>скорости сжигания бюджета</b> (burn rate): отношение текущей скорости расхода бюджета к той, при которой он был бы израсходован ровно к концу окна. Стандартная схема multi-window: быстрый алерт при burn rate 14.4 на окнах 5 минут и 1 час (бюджет сгорит за двое суток — будим дежурного) и медленный при burn rate 3 на окнах 6 часов и сутки (тикет, не пейджер). Два окна нужны, чтобы алерт не срабатывал на короткий всплеск и быстро гас после устранения.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему пороги на «CPU &amp;gt; 80 %» — плохие алерты">
+<p>Они срабатывают на <b>причину</b>, а не на симптом. Высокий CPU может быть нормальным (сервис работает эффективно), а низкий — сопровождать полную деградацию (все запросы висят на внешнем вызове). Алертить надо на то, что чувствует пользователь: ошибки, задержка, отсутствие результата. Метрики насыщения полезны на дашборде для диагностики и в прогнозных алертах («диск заполнится за 4 часа»), но не как основной пейджер. Это правило Google SRE о symptom-based alerting, и его формулировка на собеседовании сразу выделяет ответ.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="SLO для ML-сервиса">
+<p>К обычным SLI доступности и latency для модели добавляются специфические: свежесть модели и признаков («признаки не старше 15 минут»), доля запросов, обслуженных без дефолтных значений, стабильность распределения предсказаний. И отдельный вопрос — <b>на что должен быть настроен пейджер по качеству</b>: обычно не на сам факт дрейфа, а на подтверждённое падение бизнес-метрики или на комбинацию сигналов, потому что качество восстанавливают переобучением, а не ночным вмешательством дежурного.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-observability-signals-interview">
+  <div class="name" id="mlops-observability-signals-interview">
+    Когда использовать метрики, логи и distributed traces?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три сигнала отвечают на разные вопросы и не заменяют друг друга.</p>
+<p><b>Метрики</b> — числовые агрегаты по времени. Дёшевы, хранятся долго, годятся для алертов и дашбордов. Отвечают на вопрос <b>«что-то не так и насколько сильно?»</b>. Ограничение — низкая кардинальность: нельзя завести метрику с меткой <code>user_id</code>.</p>
+<p><b>Логи</b> — дискретные события с контекстом. Отвечают на <b>«что именно произошло с этим конкретным запросом?»</b>. Дороги в хранении и поиске, поэтому структурируются (JSON), семплируются и имеют ретеншн-политику.</p>
+<p><b>Traces</b> — путь одного запроса через все сервисы с таймингами каждого шага. Отвечают на <b>«где именно потерялось время и какой сервис виноват?»</b>. Обычно семплируются (1–10 % запросов) плюс всегда сохраняются трейсы ошибок и медленных запросов (tail-based sampling).</p>
+<p>Практический рабочий процесс: алерт по <b>метрике</b> → находим по ней аномальное окно и сервис → <b>трейс</b> показывает, на каком шаге растёт время → <b>логи</b> этого шага объясняют причину. Связывает всё сквозной <code>trace_id</code>, который обязателен во всех логах.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что специфично для ML">
+<p>К стандартным трём сигналам добавляется <b>логирование предсказаний</b>: версия модели, входные признаки (или их хэш и ссылка на снапшот), выход, время. Это не метрика и не лог в обычном смысле — это данные, которые потом нужны для расчёта качества, расследования жалоб и переобучения. Их обычно пишут в отдельное хранилище (объектное или аналитическую БД), а не в общий лог-стек: объём другой, ретеншн другой, и требования к приватности другие.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про кардинальность">
+<p>Главная причина падения Prometheus — взрывной рост кардинальности: каждая уникальная комбинация меток создаёт отдельный временной ряд. Метка с <code>user_id</code>, <code>request_id</code>, полным URL с параметрами или <code>model_input_hash</code> мгновенно даёт миллионы рядов и кладёт хранилище. Правило: метки — это только величины из небольшого фиксированного множества (endpoint, метод, код ответа, версия модели). Всё остальное — в логи или трейсы.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-prometheus-types-interview">
+  <div class="name" id="mlops-prometheus-types-interview">
+    Объясните counter, gauge, histogram и summary в Prometheus
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Counter</b> — монотонно неубывающий счётчик (число запросов, число ошибок). Сбрасывается только при рестарте процесса, и функция <code>rate()</code> это корректно обрабатывает. Само значение counter бессмысленно — работают всегда с производной: <code>rate(http_requests_total[5m])</code>.</p>
+<p><b>Gauge</b> — величина, которая может расти и падать (использование памяти, длина очереди, число активных соединений). К ней применимы <code>avg</code>, <code>max</code>, <code>min</code>, но не <code>rate</code>.</p>
+<p><b>Histogram</b> — распределение по преднастроенным бакетам. Экспортируется как набор counter&#39;ов вида <code>_bucket{le=&quot;0.1&quot;}</code> плюс <code>_sum</code> и <code>_count</code>. Перцентили считаются на сервере функцией <code>histogram_quantile</code>, и главное свойство — <b>бакеты агрегируются между инстансами</b>, поэтому можно честно посчитать общий p99 по всему сервису.</p>
+<p><b>Summary</b> — перцентили считаются <b>на стороне клиента</b> и экспортируются готовыми. Дешевле для сервера и точнее для одного инстанса, но перцентили <b>нельзя агрегировать</b> между репликами. Поэтому для latency в распределённых сервисах почти всегда выбирают histogram.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как выбирать бакеты">
+<p>Бакеты histogram задаются заранее, и от них зависит точность перцентиля: если все запросы попадают в один бакет, <code>histogram_quantile</code> даст бесполезное значение. Правило — бакеты должны плотно покрывать окрестность вашего SLO. Если SLO «p99 меньше 300 мс», нужны границы вроде 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2. Дефолтные бакеты клиентской библиотеки редко подходят. Обратная сторона — каждый бакет это отдельный временной ряд, и histogram с 20 бакетами и тремя метками стоит дорого по кардинальности.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Классические ошибки в PromQL">
+<p><code>rate()</code> применяется только к counter; для gauge нужен <code>deriv</code> или разность. Окно в <code>rate()</code> должно быть не меньше четырёх интервалов скрейпа, иначе возможны дыры. <code>increase()</code> даёт экстраполированное значение и может выдать дробное число запросов — это нормально. И нельзя усреднять готовые перцентили: <code>avg(p99)</code> — бессмысленная величина, нужен <code>histogram_quantile</code> по сумме бакетов.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Надёжность и инциденты</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-degradation-investigation-interview">
+  <div class="name" id="mlops-degradation-investigation-interview">
+    Как расследовать деградацию качества после релиза модели?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Первое действие — <b>остановить кровотечение</b>: откатить на предыдущую версию или перевести трафик на неё, и только потом разбираться. Расследование на живом инциденте — плохая практика.</p>
+<p>Дальше — сузить область по фактам:</p>
+<ol>
+<li><b>Изменилась ли модель?</b> Сравнить версию артефакта, digest образа, конфигурацию. Часто оказывается, что «релиз модели» заодно принёс новую версию библиотеки или изменение препроцессинга.</li>
+<li><b>Изменились ли данные?</b> Сравнить распределения входных признаков до и после релиза, долю пропусков и дефолтов. Если сдвиг совпал по времени с релизом — виноват препроцессинг; если начался раньше — модель ни при чём, а релиз просто совпал.</li>
+<li><b>Изменилось ли поведение предсказаний?</b> Распределение выходов, средний скоринг, доля предсказаний выше порога. Резкий сдвиг при неизменном входе — это код, а не мир.</li>
+<li><b>Одинаково ли деградировало везде?</b> Разложить метрику по срезам: регион, платформа, сегмент, версия клиента. Проблема на одном срезе указывает на конкретный источник данных или на новую популяцию.</li>
+<li><b>Совпало ли с чем-то ещё?</b> Деплой соседнего сервиса, миграция БД, маркетинговая акция, инцидент у провайдера.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Самая частая причина — не модель">
+<p>В практике деградация «после релиза модели» чаще всего оказывается training-serving skew: препроцессинг в сервисе отличается от того, что был при обучении, или признак в проде считается по другой формуле, или feature store отдаёт дефолты по таймауту и модель работает на нулях. Проверяется это одним приёмом: взять несколько десятков реальных продовых запросов, прогнать их через обучающий пайплайн и сравнить полученные векторы признаков с теми, что реально пришли в модель. Расхождение видно сразу и снимает половину гипотез.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что должно существовать заранее">
+<p>Расследование возможно только при наличии: логов предсказаний с версией модели и входными признаками, сохранённых распределений обучающей выборки, метрик по срезам, истории деплоев с точными временами и возможности быстро откатиться. Всё это делается <b>до</b> инцидента. Ответ «посмотрим логи» без такой подготовки на собеседовании выглядит слабо: если предсказания не логировались, смотреть будет нечего.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-disaster-recovery-interview">
+  <div class="name" id="mlops-disaster-recovery-interview">
+    Как спроектировать и проверить disaster recovery для ML-платформы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Начинается всё не с технологий, а с двух чисел на каждый компонент: <b>RTO</b> (за сколько восстановим) и <b>RPO</b> (сколько данных допустимо потерять). Они разные для разных частей: онлайн-инференс — RTO минуты, RPO ноль; пайплайн обучения — RTO сутки, RPO часы; история экспериментов — RTO дни.</p>
+<p>Что должно быть восстановимо:</p>
+<ul>
+<li><b>Артефакты моделей</b> — в объектном хранилище с версионированием и репликацией в другой регион; это самое дешёвое и самое важное.</li>
+<li><b>Данные и фичи</b> — снапшоты, репликация, возможность пересобрать витрины из сырых данных.</li>
+<li><b>Метаданные</b> — база model registry и трекинга: регулярные бэкапы с проверенным восстановлением.</li>
+<li><b>Инфраструктура</b> — описана как код (Terraform + GitOps), чтобы кластер поднимался из репозитория, а не восстанавливался по памяти.</li>
+<li><b>Секреты</b> — бэкап или возможность перевыпуска.</li>
+</ul>
+<p>И обязательно <b>деградационный режим</b>: что отдаёт сервис, если модель недоступна? Кэшированные предсказания, простое правило, предыдущая версия, значение по умолчанию. Отвечать «вернём ошибку» почти всегда неправильно.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Бэкап, который не восстанавливали, — это не бэкап">
+<p>Ключевая часть ответа. DR-план проверяется регулярными учениями: восстановление базы из бэкапа в изолированное окружение с замером фактического времени, game day с намеренным отключением компонента, проверка, что образы и артефакты действительно доступны из резервного региона (частая находка — реплика есть, но у сервисного аккаунта нет прав на чтение из неё). Без учений RTO — это гипотеза, а не число.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Что специфично для ML">
+<p>Три вещи, о которых забывают. Первое: <b>воспроизводимость обучения</b> — если потерян датасет, модель нельзя переобучить, поэтому версионированные снапшоты обучающих данных входят в DR-объём. Второе: <b>цепочка зависимостей</b> — сервис бесполезен без feature store, а тот без потоковой обработки; восстанавливать надо связный набор, и порядок восстановления должен быть описан. Третье: <b>дорогое железо</b> — GPU-квоты в резервном регионе не появляются мгновенно, и план «переедем в другой регион» без заранее зарезервированной квоты нереализуем.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-cascading-failure-interview">
+  <div class="name" id="mlops-cascading-failure-interview">
+    Как предотвращать cascading failure и retry storm?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Каскадный отказ развивается по типовому сценарию: один сервис замедляется → вызывающие копят соединения и повторяют запросы → нагрузка на замедленный растёт → он падает → повторы уходят на соседние реплики → падают и они.</p>
+<p>Механизмы защиты:</p>
+<p><b>Таймауты.</b> Каждый вызов обязан иметь таймаут, причём <b>бюджет уменьшается вниз по стеку</b>: если у пользователя SLA 500 мс, у внутреннего вызова не может быть таймаута 5 секунд. Без таймаута пул соединений исчерпывается, и сервис умирает без единой ошибки.</p>
+<p><b>Retry с jitter и бюджетом.</b> Экспоненциальная задержка со случайной добавкой — иначе все клиенты повторяют синхронно и создают волны. Повторять только идемпотентные операции, ограничивать долю retry (например, не более 10 % от основного трафика).</p>
+<p><b>Circuit breaker.</b> После серии ошибок вызовы к неисправному сервису прекращаются на время, и он получает шанс восстановиться вместо того, чтобы добиваться повторами.</p>
+<p><b>Load shedding и приоритеты.</b> При перегрузке отбрасывать часть запросов быстро (лучше отказать 10 % сразу, чем деградировать всем), в первую очередь низкоприоритетные — фоновые и батчевые.</p>
+<p><b>Bulkhead.</b> Изолированные пулы ресурсов, чтобы отказ одной зависимости не выел все потоки сервиса.</p>
+<p><b>Graceful degradation.</b> Заранее описанный упрощённый ответ: закэшированные рекомендации, предыдущая версия модели, простое правило.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему retry — самое опасное «улучшение»">
+<p>Retry увеличивает нагрузку именно тогда, когда система уже перегружена, — то есть работает как положительная обратная связь. Особенно опасны retry на нескольких уровнях сразу: клиент повторяет 3 раза, gateway 3 раза, сервис-вызыватель 3 раза — итого до 27 запросов на один пользовательский. Отсюда правило: retry делается <b>на одном уровне</b>, с ограниченным бюджетом и обязательным jitter, и никогда не применяется к запросу, который завершился по таймауту всего пользовательского бюджета.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Специфика ML-сервисов">
+<p>GPU-инференс особенно уязвим: реплика поднимается минуты, поэтому автоскейлинг не успевает компенсировать всплеск, и load shedding становится не опцией, а необходимостью. Кроме того, при перегрузке динамический батчинг начинает набирать большие батчи, latency растёт, клиенты ретраят по таймауту, а их запросы уже стоят в очереди — классическая ситуация, когда сервис выполняет работу, результат которой никому не нужен. Лечится ограничением длины очереди с быстрым отказом и проверкой дедлайна запроса перед обработкой.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Безопасность и governance</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-secrets-interview">
+  <div class="name" id="mlops-secrets-interview">
+    Как защищать секреты и доступы в ML-пайплайнах?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Базовый принцип — <b>секретов не должно быть там, где их можно скопировать</b>: ни в git, ни в слоях образа, ни в переменных сборки, ни в логах, ни в ноутбуках.</p>
+<p>Как правильно:</p>
+<ul>
+<li><b>Централизованное хранилище</b> (Vault, облачный Secret Manager, External Secrets Operator) и выдача секретов в рантайме, а не на этапе сборки.</li>
+<li><b>Короткоживущие креды вместо статических.</b> В облаке — workload identity (IRSA в EKS, Workload Identity в GKE): под получает временный токен по своей service account, и долгоживущего ключа не существует вовсе. Это самый сильный ответ на вопрос.</li>
+<li><b>Least privilege.</b> Отдельная роль на сервис, доступ только к нужному префиксу бакета и только на чтение; отдельные роли для пайплайна обучения и для инференса.</li>
+<li><b>Ротация</b> и автоматический перевыпуск, аудит обращений к секретам.</li>
+<li><b>Защита от утечки в логи</b>: маскирование в логгере, запрет печатать конфиг целиком, сканирование репозиториев на секреты в CI (gitleaks, trufflehog) и pre-commit хуки.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Специфика ML">
+<p>Три места, где секреты утекают чаще всего именно в ML. <b>Ноутбуки</b> — токен вписан в ячейку и попадает в git вместе с выводом. <b>Артефакты экспериментов</b> — в MLflow логируется весь конфиг, включая строку подключения к БД. <b>Образы</b> — креды к registry или к хранилищу данных зашиты в Dockerfile «на время отладки». Плюс сам MLflow или Airflow часто разворачивают без аутентификации во внутренней сети, а через них доступны и данные, и артефакты, и переменные окружения с секретами.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про доступ к данным">
+<p>Отдельный слой — доступ не к секретам, а к самим данным. Обучающая выборка нередко содержит персональные данные, и «дать датасаентисту полный доступ к prod-БД» — типичный антипаттерн. Правильная схема: обезличенные или псевдонимизированные витрины в отдельном окружении, доступ по ролям и на срок, логирование обращений, запрет выгрузки на локальные машины, а для чувствительных задач — работа в изолированном окружении без выхода в интернет.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-supply-chain-interview">
+  <div class="name" id="mlops-supply-chain-interview">
+    Как защитить software и model supply chain?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Цепочка поставки в ML длиннее, чем в обычной разработке: помимо кода и зависимостей в неё входят <b>базовые образы, предобученные веса и датасеты</b>, и каждое звено — потенциальная точка компрометации.</p>
+<p>Меры по звеньям:</p>
+<p><b>Зависимости.</b> Lock-файлы с хэшами, запрет на неприкреплённые версии, приватное зеркало пакетов вместо прямого выхода в публичный индекс, сканирование на уязвимости, защита от dependency confusion (внутренние имена пакетов зарезервированы в публичном реестре).</p>
+<p><b>Образы.</b> Базовые образы только из доверенного реестра, ссылка по digest, сканирование на CVE, генерация <b>SBOM</b>, подпись образов (cosign/Sigstore) и политика в кластере, допускающая запуск только подписанных.</p>
+<p><b>Артефакты моделей.</b> Хэш и подпись весов, проверка при загрузке, запись происхождения. Отдельная опасность — <b>формат сериализации</b>: <code>pickle</code> и <code>torch.load</code> выполняют произвольный код при десериализации, поэтому загрузка «модели из интернета» равна запуску чужого кода. Безопасная альтернатива — <code>safetensors</code> или ONNX.</p>
+<p><b>Данные.</b> Контроль источника обучающих данных и защита от data poisoning: валидация, отслеживание аномальных вливаний, ограничение доверия к пользовательским данным при автопереобучении.</p>
+<p><b>Сборка.</b> Изолированные раннеры, воспроизводимая сборка, provenance-атрибуция (SLSA), запрет на доступ в интернет из шага сборки.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про предобученные веса">
+<p>Скачивание чекпоинта с публичного хаба и его загрузка через <code>pickle</code> — это выполнение произвольного кода с правами вашего сервиса. Известны реальные случаи вредоносных весов на публичных хабах. Минимальные меры: качать только из доверенных организаций, проверять хэш, предпочитать <code>safetensors</code>, а при необходимости загрузить <code>pickle</code>-модель — делать это в изолированной песочнице без доступа к сети и секретам, после чего пересохранять в безопасном формате.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-pii-interview">
+  <div class="name" id="mlops-pii-interview">
+    Как учитывать PII и требования на удаление данных в ML-системе?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Основа — <b>инвентаризация</b>: нужно знать, где в системе есть персональные данные. Это data catalog с классификацией полей, отметками чувствительности и владельцами. Без него любые требования регулятора неисполнимы.</p>
+<p>Далее по слоям:</p>
+<p><b>Минимизация.</b> Не собирать то, что не нужно; заменять прямые идентификаторы на псевдонимы; хешировать или токенизировать; агрегировать вместо хранения сырых событий.</p>
+<p><b>Разграничение.</b> Доступ по ролям и на срок, отдельное окружение для работы с чувствительными данными, аудит обращений, запрет выгрузки.</p>
+<p><b>Право на удаление.</b> Самое сложное требование, потому что удалить надо во всех копиях: сырые логи, витрины, feature store, бэкапы, артефакты экспериментов. Практическая схема — <b>crypto-shredding</b>: данные каждого субъекта шифруются индивидуальным ключом, и удаление сводится к уничтожению ключа, что немедленно делает данные нечитаемыми во всех копиях, включая бэкапы.</p>
+<p><b>Модели.</b> Отдельный вопрос — считается ли обученная модель содержащей персональные данные. Для больших моделей это не теоретический риск: они способны запоминать и воспроизводить обучающие примеры (memorization, membership inference). Меры: дедупликация обучающих данных, ограничение числа эпох на редких примерах, дифференциальная приватность, тестирование на извлечение обучающих данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Про удаление и переобучение">
+<p>Честный ответ на вопрос «удалили ли вы данные из модели» обычно звучит так: сами данные удалены из хранилищ, а влияние на веса устраняется при следующем плановом переобучении на очищенном датасете. Отсюда практическое требование к архитектуре — регулярное переобучение и отслеживание, какая версия модели обучена на данных до какой даты, чтобы можно было сказать, когда влияние удалённых записей исчезнет. Machine unlearning как точечное «вычитание» примера из обученной модели — активная область исследований, а не готовая продовая практика.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые упущения">
+<p>Персональные данные утекают в места, которые никто не считает хранилищем: логи предсказаний с сырыми признаками, артефакты экспериментов с сэмплами данных, скриншоты в тикетах, витрины для аналитики, кэши. Отдельно — трансграничная передача: обучение в облаке другого региона может нарушать требования локализации. И ретеншн: данные, которые «просто лежат» без срока хранения, — это и риск, и стоимость.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Linux и сети</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-load-average-interview">
+  <div class="name" id="mlops-load-average-interview">
+    Load average высокий, но CPU почти свободен. Как это объяснить?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>В Linux load average считает не только процессы в состоянии <code>R</code> (готовы или выполняются на CPU), но и процессы в состоянии <code>D</code> — <b>uninterruptible sleep</b>, то есть ожидающие завершения ввода-вывода. Это отличие Linux от классического UNIX и главная причина путаницы.</p>
+<p>Значит, высокий load при низком <code>%us</code>/<code>%sy</code> означает, что процессы <b>чего-то ждут</b>, а не считают. Типичные источники:</p>
+<ul>
+<li><b>Диск.</b> Медленный или перегруженный том, сетевое хранилище (NFS, EBS с исчерпанным burst-балансом), деградировавший RAID. Диагностика: <code>iostat -x 1</code> — смотреть <code>await</code>, <code>%util</code>, глубину очереди; <code>iotop</code> — кто именно генерирует I/O.</li>
+<li><b>Сеть в блокирующем режиме.</b> Зависшие NFS-монтирования переводят процессы ровно в <code>D</code>.</li>
+<li><b>Память.</b> Активный swap или прямая реклейм-нагрузка: процессы блокируются на страничных промахах. Смотреть <code>vmstat 1</code> (колонки <code>si</code>/<code>so</code>, <code>b</code>), <code>/proc/pressure/memory</code>.</li>
+<li><b>Блокировки в ядре</b> и слишком много потоков, конкурирующих за один ресурс.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Правильный инструмент — PSI">
+<p>Современный и гораздо более информативный сигнал — <b>Pressure Stall Information</b> (<code>/proc/pressure/cpu</code>, <code>/memory</code>, <code>/io</code>). Он показывает, какую долю времени задачи проводили в ожидании конкретного ресурса, причём отдельно <code>some</code> (хоть одна задача ждала) и <code>full</code> (все задачи ждали, то есть система стояла). В отличие от load average PSI сразу отвечает на вопрос «чего именно не хватает», и его стоит снимать в мониторинг вместо или вместе с load average. В cgroup v2 PSI доступен и по отдельным контейнерам.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про контейнеры">
+<p>Load average внутри контейнера показывает значение <b>всего хоста</b>, а не контейнера: <code>/proc/loadavg</code> не изолирован namespace&#39;ами. Поэтому судить о нагрузке своего пода по load average нельзя — нужны cgroup-метрики: троттлинг CPU, PSI по cgroup, потребление относительно лимитов. Это же объясняет, почему автоскейлинг и алерты никогда не строят на load average в Kubernetes.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-oom-interview">
+  <div class="name" id="mlops-oom-interview">
+    Как расследовать рост памяти и OOM в ML-сервисе?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Сначала надо понять, <b>какой именно OOM</b> произошёл — это три разных события:</p>
+<ol>
+<li><b>Cgroup OOM (OOMKilled).</b> Контейнер превысил свой memory limit; ядро убивает процесс, Kubernetes показывает <code>OOMKilled</code> и код 137. Виден в событиях пода и в <code>dmesg</code>.</li>
+<li><b>Хостовый OOM.</b> На ноде кончилась память, сработал глобальный OOM killer и выбрал жертву по <code>oom_score</code>. Может убить не тот процесс, что виноват.</li>
+<li><b>CUDA OOM.</b> Кончилась память GPU; процесс жив и получает исключение. К оперативной памяти отношения не имеет.</li>
+</ol>
+<p>Дальше — отличить утечку от законного роста: построить график <code>container_memory_working_set_bytes</code> за неделю. Монотонный рост без плато — утечка; пилообразный с пиками под нагрузкой — недостаточный лимит; ступенька после деплоя — регрессия в новой версии.</p>
+<p>Типичные причины в ML-сервисах: рост батча при всплеске нагрузки; неограниченная очередь запросов; кэш предсказаний или признаков без лимита размера; накопление объектов в глобальных структурах; фрагментация аллокатора; несколько копий модели в форк-воркерах вместо разделяемой памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему RSS растёт, даже когда утечки нет">
+<p>Аллокатор <code>glibc</code> не всегда возвращает освобождённую память ядру: он оставляет её в своих аренах для будущих запросов. При многопоточной нагрузке арен много, фрагментация растёт, и RSS выходит на плато заметно выше пикового полезного потребления. Симптом — память растёт до некоторого уровня и стабилизируется, а профилировщик кучи не показывает утечки. Практические меры: настройка <code>MALLOC_ARENA_MAX</code>, переход на <code>jemalloc</code> или <code>tcmalloc</code>, а для Python — понимание, что <code>pymalloc</code> тоже не отдаёт мелкие блоки обратно ОС.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Специфика ML-нагрузок">
+<p>Три частые ловушки. Первая: <b>DataLoader с <code>num_workers &gt; 0</code></b> форкает процессы, и в неудачных случаях каждый получает свою копию данных — рост памяти кратен числу воркеров. Вторая: <b>накопление графа вычислений</b> — сохранение тензора с <code>requires_grad</code> в список для логирования удерживает весь граф; лечится <code>.detach()</code> или <code>.item()</code>. Третья: <b>память под пиковый батч</b> — сервис живёт неделями и падает при первом же редком большом запросе, поэтому лимит надо ставить по пику, а размер батча и длину входа ограничивать явно.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-dns-k8s-interview">
+  <div class="name" id="mlops-dns-k8s-interview">
+    Как диагностировать проблемы с DNS в Kubernetes?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Сначала — как это работает. Под получает <code>/etc/resolv.conf</code> с адресом сервиса CoreDNS и списком <code>search</code>-доменов (<code>namespace.svc.cluster.local</code>, <code>svc.cluster.local</code>, <code>cluster.local</code>) и параметром <code>ndots:5</code>. Последнее означает: любое имя, в котором меньше пяти точек, сначала перебирается по всем search-доменам и только потом резолвится как абсолютное. Поэтому запрос к <code>api.example.com</code> (две точки) порождает четыре-пять последовательных DNS-запросов, из которых первые несколько заведомо неуспешны.</p>
+<p>Диагностика по шагам: проверить резолв изнутри пода (<code>nslookup</code>, <code>dig</code> из отладочного контейнера) для короткого и полного имени; проверить, живы ли поды CoreDNS и не троттлятся ли они; посмотреть метрики CoreDNS (запросы, ошибки, latency, <code>SERVFAIL</code>); проверить NetworkPolicy — часто она блокирует UDP/53 к kube-dns; проверить <code>conntrack</code> на нодах.</p>
+<p>Типичные причины: перегрузка CoreDNS из-за <code>ndots</code>-амплификации; исчерпание таблицы conntrack; известная гонка в UDP conntrack при параллельных A и AAAA-запросах, дающая случайные пятисекундные задержки; неверный <code>dnsPolicy</code> у пода с <code>hostNetwork</code>; NetworkPolicy без разрешения DNS.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Лечение">
+<p>Самое эффективное — <b>NodeLocal DNSCache</b>: DaemonSet с локальным кэширующим резолвером на каждой ноде, который снимает основную нагрузку с CoreDNS, убирает гонку conntrack (использует TCP до апстрима) и заметно снижает хвост latency. Второе — <b>явно ставить <code>ndots: 2</code></b> или использовать полные имена с точкой на конце (<code>api.example.com.</code>) для внешних адресов: это убирает лишние запросы. Третье — увеличить число реплик CoreDNS и включить autoscaling, а также настроить кэширование в самом CoreDNS.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Почему это часто бьёт именно по ML-сервисам">
+<p>Инференс-сервис обращается к feature store, к объектному хранилищу и к другим сервисам на каждый запрос. Если клиентская библиотека не переиспользует соединения и резолвит имя заново, то при <code>ndots:5</code> на каждый пользовательский запрос приходится несколько DNS-запросов, и при высоком RPS CoreDNS становится узким местом всей системы. Проявляется это как непонятный рост p99 без роста нагрузки на сам сервис — и найти причину без взгляда на DNS-метрики очень тяжело.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-timeouts-conntrack-interview">
+  <div class="name" id="mlops-timeouts-conntrack-interview">
+    Как расследовать периодические таймауты между двумя сервисами?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>«Периодические» — ключевое слово: постоянная ошибка означает конфигурацию, периодическая — ресурс, который иногда заканчивается.</p>
+<p>Что проверять по слоям:</p>
+<p><b>Приложение.</b> Пул соединений исчерпан, очередь на клиенте, GC-паузы, блокирующие вызовы в event loop. Смотреть метрики пула и время ожидания в нём отдельно от времени ответа сервера.</p>
+<p><b>Сокеты и порты.</b> Исчерпание <b>ephemeral ports</b> на клиенте при большом числе исходящих соединений; большое количество сокетов в <code>TIME_WAIT</code>. Смотреть <code>ss -s</code>, <code>net.ipv4.ip_local_port_range</code>, метрики <code>node_sockstat_*</code>.</p>
+<p><b>Conntrack.</b> Таблица отслеживания соединений на ноде имеет предел <code>nf_conntrack_max</code>; при переполнении новые соединения молча отбрасываются, а в <code>dmesg</code> появляется <code>nf_conntrack: table full, dropping packet</code>. Симптом — именно периодические таймауты при нормальной работе большинства запросов. Смотреть <code>node_nf_conntrack_entries</code> относительно <code>_limit</code>.</p>
+<p><b>Сеть.</b> Потери и ретрансмиссии TCP (<code>netstat -s</code>, <code>node_netstat_Tcp_RetransSegs</code>), MTU mismatch (проявляется как зависание больших ответов при нормальной работе мелких), переполнение очередей на интерфейсе.</p>
+<p><b>Целевой сервис.</b> Backlog очереди прослушивания переполнен (<code>ss -lnt</code> — колонки <code>Send-Q</code>/<code>Recv-Q</code>), реплика перегружена, идёт rolling-обновление без корректного вывода из балансировки.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему подозрение на MTU часто оправдано">
+<p>MTU mismatch даёт очень характерную картину: мелкие запросы проходят, большие зависают. Причина в том, что крупные пакеты требуют фрагментации, а при заблокированном ICMP механизм Path MTU Discovery не работает — отправитель не узнаёт, что пакет не прошёл. В Kubernetes это типично для оверлейных сетей (VXLAN добавляет 50 байт заголовка) и для VPN-туннелей. Проверяется командой <code>ping -M do -s &lt;размер&gt;</code> с постепенным увеличением размера: точка, где пакеты перестают проходить, и есть реальный MTU пути.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Порядок действий">
+<p>Начинать надо не с <code>tcpdump</code>, а с сужения области: воспроизводится ли проблема между конкретными парами подов или нод, коррелирует ли с нагрузкой, с временем, с размером ответа, с конкретной репликой. Distributed tracing показывает, на каком участке теряется время, — часто оказывается, что «сетевой таймаут» на самом деле является ожиданием в пуле соединений на стороне клиента, и сеть здесь ни при чём.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">System Design кейсы</h3>
+<li class="question" data-md-source="true" data-md-id="mlops-case-scale-rps-interview">
+  <div class="name" id="mlops-case-scale-rps-interview">
+    Кейс: масштабировать inference с 500 до 3000 RPS при p95 &lt; 500 мс
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Начинать надо не с решения, а с уточнений: какая модель и её размер, где сейчас узкое место, какова длина входа, допустимо ли кэширование, какой бюджет, обязателен ли GPU. Без этого любой ответ — гадание.</p>
+<p>Дальше — план по шагам.</p>
+<p><b>1. Измерить.</b> Профилировать текущие 500 RPS: разложить p95 по стадиям (сеть, получение признаков, препроцессинг, forward, постпроцессинг). Часто оказывается, что forward занимает 30 % времени, а остальное — feature store и препроцессинг.</p>
+<p><b>2. Убрать лишнюю работу.</b> Кэш предсказаний для повторяющихся входов, кэш признаков, батчевый запрос признаков вместо N последовательных, вынос части вычислений в офлайн.</p>
+<p><b>3. Ускорить инференс.</b> Динамический батчинг (главный рычаг для GPU), FP16/BF16, компиляция в TensorRT или ONNX Runtime, при необходимости квантизация или дистилляция с проверкой качества.</p>
+<p><b>4. Масштабировать горизонтально.</b> Реплики за балансировщиком, HPA по глубине очереди или p95, а не по CPU; Cluster Autoscaler с запасом; тёплый резерв и overprovisioning, потому что GPU-реплика поднимается минуты.</p>
+<p><b>5. Защититься от перегрузки.</b> Ограничение длины очереди, load shedding, приоритеты, деградационный режим (упрощённая модель или кэш при перегрузке).</p>
+<p><b>6. Проверить.</b> Нагрузочный тест до 4000 RPS с реальным профилем входов, проверка p95 и p99, отдельно — поведение при отказе feature store и при выкатке.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как считать ёмкость">
+<p>Простая арифметика, которую ждут на собеседовании: если одна реплика держит 120 RPS при p95 внутри бюджета, то на 3000 RPS нужно 25 реплик, плюс запас на пик (обычно закладывают целевую утилизацию 60–70 %, потому что при 90 % хвост взрывается) — итого около 40. Дальше проверяется, помещается ли это в квоту GPU, сколько стоит и не дешевле ли уменьшить модель. Нужно явно назвать целевую утилизацию и запас — ответ «поставим побольше подов» без чисел выглядит слабо.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что легко упустить">
+<p>Рост в 6 раз ударит не только по инференсу: feature store, БД и сеть получат ту же нагрузку, и узкое место может переехать туда. Также вырастет объём логов предсказаний — это отдельная стоимость и отдельная пропускная способность. И увеличится радиус поражения при инциденте, а значит нужны более строгие canary-гейты и более быстрый откат.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="mlops-case-quality-drop-interview">
+  <div class="name" id="mlops-case-quality-drop-interview">
+    Кейс: качество модели упало, а инфраструктурные метрики в норме
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Ситуация: бизнес-метрика просела, при этом latency, ошибки и утилизация в норме. Значит, ломается не доставка ответа, а его содержание.</p>
+<p>Гипотезы проверяются в порядке дешевизны:</p>
+<p><b>1. Что-то изменилось у нас.</b> Сверить историю деплоев: версия модели, версия сервиса, версия библиотек, изменение конфигурации, изменение порога принятия решения. Совпадение по времени — самая вероятная причина.</p>
+<p><b>2. Изменились входные данные.</b> Сравнить распределения признаков с обучающими и с прошлой неделей: доля пропусков, новые категории, доля дефолтных значений из-за таймаутов feature store, сломавшийся upstream-источник. Молчаливая замена признака на дефолт — очень частый сценарий, потому что никаких ошибок при этом не возникает.</p>
+<p><b>3. Изменился мир.</b> Сезонность, акция, новый сегмент пользователей, изменение поведения после релиза продукта, действия конкурента. Проверяется разложением метрики по срезам: если просело равномерно везде — скорее наша поломка; если на одном сегменте — скорее изменение популяции.</p>
+<p><b>4. Изменилась метрика, а не качество.</b> Поменялась логика расчёта, изменился состав аудитории, сдвинулось окно наблюдения меток, часть меток приходит с задержкой. Обязательно проверить, что падение не артефакт отчёта.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Самая частая находка">
+<p>В большинстве реальных разборов виновником оказывается не модель, а <b>данные на входе</b>: upstream поменял формат поля, категория переименовалась, источник стал отдавать пустые значения, а сервис вежливо подставил дефолт. Модель при этом работает идеально — на мусоре. Отсюда практический вывод: валидация входных данных в рантайме и алерт на рост доли дефолтов важнее, чем ещё один процент качества на офлайн-выборке.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Как отвечать на такой кейс">
+<p>Ждут не готового ответа, а <b>метода</b>: сузить область, отделить «изменилось у нас» от «изменилось снаружи», опереться на срезы и на историю изменений, проверить сам факт падения. Хорошая структура ответа: сначала стабилизировать (откат, если совпало с релизом), затем локализовать по времени и по срезам, затем подтвердить гипотезу данными, затем исправить и добавить сигнал, который поймал бы это раньше. Последний пункт — про постмортем — часто забывают, а он показывает зрелость.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

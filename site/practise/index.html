@@ -1,0 +1,436 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Практика</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/css/roadmap-progress.css" rel="stylesheet" />
+    <script src="../assets/js/components/navigation.js"></script>
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<script src="../assets/js/components/anchor-scroll.js"></script>
+<script src="../assets/js/components/info-cards.js"></script>
+<script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="ml">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Практика</h1>
+            <p class="subtitle">Практические задания и упражнения по математике, Python и машинному обучению</p>
+          </div>
+        </div>
+      </header>
+
+      <h2>Основы</h2>
+      <div class="cards-grid">
+        <a class="card" href="../practise/tips.html" data-progress-pages="practise/tips.html">
+          <div class="card-header">
+            <div class="card-icon python">
+              <img src="../assets/icons/book.svg" alt="Советы по сдаче практики" />
+            </div>
+            <h3 class="card-title">Советы по сдаче практики</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Советы по сдаче практики, практические задания</p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+
+        <a class="card" href="../practise/math.html" data-progress-pages="practise/math.html">
+          <div class="card-header">
+            <div class="card-icon python">
+              <img src="../assets/icons/math.svg" alt="Математика" />
+            </div>
+            <h3 class="card-title">Математика</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Алгебра, математический анализ, теория вероятностей и математическая статистика
+            </p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+
+        <a href="../practise/python/base.html" class="card" data-progress-pages="practise/python/base.html">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../assets/icons/python.svg" alt="Python Base" />
+            </div>
+            <h3 class="card-title">Python Base</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Базовый синтаксис, файлы, исключения, ООП и стандартные инструменты
+            </p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+
+        <a href="../practise/python/advanced.html" class="card" data-progress-pages="practise/python/advanced.html">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../assets/icons/python.svg" alt="Python Advanced" />
+            </div>
+            <h3 class="card-title">Python Advanced</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Dataclass, asyncio, multiprocessing, threading и продвинутые темы
+            </p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+      </div>
+
+      <h2>ML</h2>
+      <div class="cards-grid">
+
+      <a class="card" href="../ai/practise/classic_ml.html" data-progress-pages="ai/practise/classic_ml.html">
+        <div class="card-header">
+          <div class="card-icon python">
+            <img src="../assets/icons/classicml.png" alt="Classic ML" />
+          </div>
+          <h3 class="card-title">Classic ML</h3>
+        </div>
+        <div class="card-content">
+          <p class="card-description">
+            Регрессия, классификация, метрики, основные определения, практические задания
+          </p>
+          <span class="card-link">Изучить</span>
+        </div>
+      </a>
+
+      <a class="card" href="../ai/practise/dl.html" data-progress-pages="ai/practise/dl.html">
+        <div class="card-header">
+          <div class="card-icon python">
+            <img src="../assets/icons/dl.png" alt="DL" />
+          </div>
+          <h3 class="card-title">Deep Learning</h3>
+        </div>
+        <div class="card-content">
+          <p class="card-description">
+            Нейронные сети, трансформеры и методы глубокого обучения
+          </p>
+          <span class="card-link">Изучить</span>
+        </div>
+      </a>
+
+      <a class="card" href="../ai/practise/nlp.html" data-progress-pages="ai/practise/nlp.html">
+        <div class="card-header">
+          <div class="card-icon python">
+            <img src="../assets/icons/nlp.svg" alt="NLP" />
+          </div>
+          <h3 class="card-title">NLP</h3>
+        </div>
+        <div class="card-content">
+          <p class="card-description">
+            Обработка естественного языка, RAG, LLM Agents
+          </p>
+          <span class="card-link">Изучить</span>
+        </div>
+      </a>
+
+      <a class="card" href="../ai/practise/cv.html" data-progress-pages="ai/practise/cv.html">
+        <div class="card-header">
+          <div class="card-icon python">
+            <img src="../assets/icons/cv.png" alt="CV" />
+          </div>
+          <h3 class="card-title">CV</h3>
+        </div>
+        <div class="card-content">
+          <p class="card-description">
+            Компьютерное зрение, анализ изображений
+          </p>
+          <span class="card-link">Изучить</span>
+        </div>
+      </a>
+
+      <!-- <a class="card" href="../ai/practise/classic_ml.html">
+        <div class="card-header">
+          <div class="card-icon python">🧠</div>
+          <h3 class="card-title">Проекты ML</h3>
+        </div>
+        <div class="card-content">
+          <p class="card-description">Проекты машинного обучения, практические задания</p>
+          <span class="card-link">Изучить</span>
+        </div>
+      </a> -->
+
+      <!-- DL -->
+      <!-- NLP Base -->
+      <!-- NLP RAG -->
+      <!-- NLP Agents -->
+
+      
+      </div>
+
+      <h2>Дополнительно</h2>
+      <div class="cards-grid">
+        <a href="../practise/db/postgresql.html" class="card" data-progress-pages="practise/db/postgresql.html">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../assets/icons/postgresql.png" alt="PostgreSQL" />
+            </div>
+            <h3 class="card-title">PostgreSQL</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              SQL-запросы для ML: JOIN, оконные функции, retention, дедупликация
+            </p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+
+        <a href="../practise/db/redis.html" class="card" data-progress-pages="practise/db/redis.html">
+          <div class="card-header">
+            <div class="card-icon research">
+              <img src="../assets/icons/redis.png" alt="Redis" />
+            </div>
+            <h3 class="card-title">Redis</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Кэш предсказаний, TTL, rate limiter, лидерборд и LRU
+            </p>
+            <span class="card-link">Изучить</span>
+          </div>
+        </a>
+      </div>
+    </main>
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-auth:start -->
+    
+    
+    <!-- firebase-sdk-auth:end -->
+    <!-- Подключение authGuard -->
+    <script src="../authGuard.js"></script>
+    <script src="../assets/js/components/roadmap-progress.js"></script>
+  </body>
+</html>

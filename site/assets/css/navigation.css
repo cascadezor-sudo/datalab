@@ -1,0 +1,1104 @@
+@import url("./tokens.css");
+
+html.material-access-checking body {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+#material-access-check-overlay {
+  display: none !important;
+}
+
+/* Кольцо фокуса. Собственный токен, потому что в tokens.css подходящего цвета
+   нет: --border-brand — полупрозрачная заливка границы, контур из неё почти
+   не виден. Значение стоит перенести в tokens.css отдельной правкой, чтобы им
+   пользовался весь сайт, а не только навигация. */
+:root {
+  --nav-focus-ring: #1d4ed8;
+}
+
+html[data-theme="dark"],
+[data-theme="dark"] body {
+  --nav-focus-ring: #93c5fd;
+}
+
+/* Feather Icons Sizing */
+[data-feather] {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+}
+
+/* Smaller icons for navigation */
+.nav-links [data-feather] {
+  width: 14px;
+  height: 14px;
+}
+
+/* Larger icons for headers */
+h1 [data-feather] {
+  width: 20px;
+  height: 20px;
+}
+
+/* Medium icons for buttons */
+button [data-feather] {
+  width: 16px;
+  height: 16px;
+}
+
+/* Навигация */
+#navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--bg-nav);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 0 20px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  transition: box-shadow var(--transition-base);
+}
+
+#navbar.scrolled {
+  box-shadow: var(--shadow-sm);
+}
+
+/* На десктопе контейнер ссылок «растворяется»: его пункты встают в общий
+   ряд навбара, и меню аккаунта можно увести в правый край через order.
+   На телефоне это выезжающая панель (см. медиазапрос ниже). */
+.nav-links {
+  display: contents;
+}
+
+/* Логотип вместо «🏠 Домой» */
+.nav-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-logo img {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.nav-logo:focus-visible,
+.nav-links > a:focus-visible,
+.nav-search-btn:focus-visible,
+.dropdown-content button:focus-visible {
+  outline: 2px solid var(--nav-focus-ring);
+  outline-offset: 2px;
+}
+
+.nav-links a {
+  padding: 7px 13px;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 13.5px;
+  transition: all var(--transition-base);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.nav-links a:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.nav-links a.active {
+  color: var(--text);
+  background: var(--bg-card);
+  font-weight: 600;
+  border-color: var(--border);
+  box-shadow: var(--shadow-xs);
+}
+
+/* Дропдауны — визуально выделены */
+.dropdown {
+  position: relative;
+}
+
+/* Триггер стал <button>, и правила `.nav-links a` из styles.css (0,1,1) его
+   больше не перебивают — до этого весь блок ниже был мёртвым кодом. Чтобы
+   навбар не поехал на 150+ страницах, цвет/размер/отступы берём те же, что у
+   соседних ссылок; задача PR — клавиатура, а не редизайн. */
+.dropdown-btn {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--text-color);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-base);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* <button> не наследует шрифт страницы: без этого подпись меню рисовалась бы
+     системным шрифтом кнопок. */
+  font-family: inherit;
+  line-height: inherit;
+  text-align: left;
+}
+
+.dropdown-btn:hover {
+  color: var(--accent-color);
+  background: var(--border);
+  border-color: transparent;
+}
+
+/* Тоже повторяет `.nav-links a.active` из styles.css: активный раздел
+   подсвечивается такой же «таблеткой», как и обычные ссылки навбара. */
+.dropdown-btn.active {
+  color: var(--accent-main, var(--accent-color));
+  background: color-mix(in srgb, var(--brand) 15%, transparent);
+  border-radius: 999px;
+  border-color: transparent;
+  font-weight: 500;
+}
+
+/* В тёмной теме styles.css красит активную ссылку сплошным акцентом —
+   повторяем, иначе активный раздел-дропдаун выделялся бы иначе, чем соседи. */
+[data-theme="dark"] body .dropdown-btn.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.dropdown-btn::after {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  margin-left: 2px;
+  opacity: 0.8;
+  transition: transform 0.2s ease;
+}
+
+.dropdown-content {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  min-width: 200px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.97);
+  transform-origin: top left;
+  transition: all var(--transition-slow);
+}
+
+/* :focus-within — единственный способ открыть меню без мыши: пока
+   .dropdown-content скрыт через visibility: hidden, его ссылки не получают
+   фокус и Tab их проскакивает. Фокус на триггере (он внутри .dropdown)
+   раскрывает список и делает ссылки доступными для Tab. */
+.dropdown:hover .dropdown-content,
+.dropdown:focus-within .dropdown-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.dropdown:hover .dropdown-btn::after,
+.dropdown:focus-within .dropdown-btn::after {
+  transform: rotate(180deg);
+}
+
+/* Escape закрывает меню, а фокус возвращается на триггер — то есть остаётся
+   внутри .dropdown, и :focus-within открыл бы список обратно. Класс ставит JS
+   и снимает при следующем осмысленном действии (Tab, наведение, повторное
+   открытие). Правило идёт после :focus-within — специфичность равная,
+   выигрывает порядок. */
+.dropdown.dropdown-dismissed .dropdown-content {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.97);
+}
+
+.dropdown.dropdown-dismissed .dropdown-btn::after {
+  transform: none;
+}
+
+/* Видимый фокус: без него клавиатурный пользователь не понимает, где он.
+   :focus-visible, а не :focus, чтобы мышиный клик не оставлял рамку. */
+.dropdown-btn:focus-visible,
+.dropdown-content a:focus-visible {
+  outline: 2px solid var(--nav-focus-ring);
+  outline-offset: 2px;
+}
+
+.dropdown-content a,
+.dropdown-content button {
+  display: block;
+  padding: 9px 14px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-base);
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+/* Пункты-кнопки меню аккаунта («Оформление», язык, «Выйти») выглядят как
+   ссылки соседей. */
+.dropdown-content button {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font-family: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-content a:last-child,
+.dropdown-content button:last-child {
+  border-bottom: none;
+}
+
+.dropdown-content a:hover,
+.dropdown-content button:hover {
+  background: var(--border);
+  color: var(--text);
+  transform: none;
+  font-weight: 500;
+}
+
+/* ── Мега-меню «Материалы» ─────────────────────────────────────────────── */
+
+.dropdown--mega .dropdown-content {
+  min-width: 440px;
+  padding: 10px;
+}
+
+.dropdown--mega .dropdown-content a {
+  border-bottom: none;
+}
+
+.dropdown-mega__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Главный вход в материалы: ученики не замечали его среди обычных пунктов. */
+.dropdown-mega__top a:first-child {
+  flex: 1;
+  color: var(--brand);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.dropdown-mega__top a:first-child::after {
+  content: " →";
+}
+
+.nav-links .dropdown-mega__secondary {
+  flex: none;
+  width: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+}
+
+/* auto-fit: колонка «Аналитика» займёт место сама, без правки CSS. */
+.dropdown-mega__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 12px;
+}
+
+.dropdown-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-group__title {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.dropdown-mega__footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Правый край: поиск, бейджи, аккаунт ───────────────────────────────── */
+
+.nav-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  margin-left: auto;
+  padding: 6px 8px 6px 12px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text-subtle);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-base),
+    color var(--transition-base);
+}
+
+.nav-search-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.nav-search-btn__icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.nav-search-btn__label {
+  flex: 1;
+  text-align: left;
+}
+
+.nav-search-btn kbd {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--border);
+  border: 1px solid var(--border);
+  color: var(--text-subtle);
+}
+
+/* Меню аккаунта — последний ребёнок #navbar: справа и по Tab последним. */
+.nav-account {
+  margin-left: 6px;
+}
+
+.nav-account .dropdown-btn {
+  padding: 3px 8px 3px 3px;
+  border-radius: var(--radius-full);
+}
+
+.nav-account .dropdown-content {
+  left: auto;
+  right: 0;
+  transform-origin: top right;
+}
+
+.nav-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand) 18%, var(--bg-card));
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.nav-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nav-avatar svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Кнопки меню — тем же цветом, что и ссылки-соседи (`.nav-links a`). */
+.nav-links .dropdown-content button {
+  color: var(--text-color);
+}
+
+.nav-account .dropdown-content a,
+.nav-account .dropdown-content button {
+  border-bottom: none;
+}
+
+.nav-account .dropdown-content #theme-toggle-nav,
+.nav-account .dropdown-content .nav-logout-item {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.nav-account .dropdown-content .nav-logout-item {
+  color: var(--danger);
+}
+
+/* Кнопка мобильного меню */
+.mobile-menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 24px;
+}
+
+/* Мобильная версия */
+@media (max-width: 768px) {
+  /* styles.css на телефоне ужимает навбар до 48px — панель же отсчитана
+     от 64px. */
+  #navbar {
+    padding: 0 12px;
+    height: 64px;
+    min-height: 64px;
+    max-height: none;
+  }
+
+  .mobile-menu-btn {
+    display: block;
+    margin-right: 0;
+  }
+
+  .nav-logo {
+    margin-right: 0;
+  }
+
+  .nav-links {
+    display: flex;
+    max-width: none;
+    position: fixed;
+    top: 64px;
+    left: 0;
+    right: 0;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 4px;
+    transform: translateY(-100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    height: auto;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .nav-links.show {
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .nav-links a,
+  .dropdown-btn {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 16px;
+    opacity: 1;
+  }
+
+  .dropdown {
+    width: 100%;
+  }
+
+  .dropdown-content {
+    position: static;
+    width: 100%;
+    margin: 0;
+    transform: none;
+    box-shadow: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+  }
+
+  .dropdown.open .dropdown-btn::after,
+  .dropdown:focus-within .dropdown-btn::after {
+    transform: rotate(180deg);
+  }
+
+  /* На узком экране список схлопнут высотой, а не только visibility. Если бы
+     :focus-within из десктопной части просто показал его, ссылки стали бы
+     фокусируемыми внутри блока нулевой высоты — фокус уходил бы в никуда.
+     Поэтому здесь фокус раскрывает меню так же, как тап. */
+  .dropdown.open .dropdown-content,
+  .dropdown:focus-within .dropdown-content {
+    height: auto;
+    opacity: 1;
+    visibility: visible;
+    padding: 4px 0 4px 16px;
+    border-left: 2px solid var(--border-brand);
+  }
+
+  .dropdown.dropdown-dismissed .dropdown-content {
+    height: 0;
+    opacity: 0;
+    visibility: hidden;
+    padding: 0;
+    border-left: none;
+  }
+
+  .dropdown-content a,
+  .dropdown-content button {
+    padding: 10px 16px;
+    font-size: 15px;
+    border-bottom: none;
+  }
+
+  /* Мега-меню на телефоне — колонки друг под другом, группами. */
+  .dropdown--mega .dropdown-content {
+    min-width: 0;
+  }
+
+  .dropdown--mega.open .dropdown-content,
+  .dropdown--mega:focus-within .dropdown-content {
+    padding: 4px 0 4px 12px;
+  }
+
+  .dropdown-mega__columns {
+    grid-template-columns: 1fr;
+  }
+
+  /* Поиск — только иконка, подсказка ⌘K на телефоне не нужна. */
+  .nav-search-btn {
+    min-width: 0;
+    padding: 8px;
+  }
+
+  .nav-search-btn__label,
+  .nav-search-btn kbd {
+    display: none;
+  }
+
+  /* Меню аккаунта и на телефоне — аватар в шапке со всплывающим списком,
+     а не пункты в панели: мобильные правила .dropdown выше рассчитаны на
+     панель, здесь возвращаем обычный поповер. */
+  #navbar .nav-account {
+    width: auto;
+    margin-left: 4px;
+  }
+
+  #navbar .nav-account .dropdown-btn {
+    width: auto;
+    padding: 3px 6px 3px 3px;
+  }
+
+  #navbar .nav-account .dropdown-content {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: auto;
+    width: max-content;
+    min-width: 200px;
+    height: auto;
+    margin-top: 6px;
+    padding: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Тёмная тема styles.css красит список карточкой с тенью — в панели
+     пункты идут сплошным списком. */
+  #navbar .dropdown-content {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* Раскрытый дропдаун не должен оставаться видимым в закрытой панели. */
+  .nav-links:not(.show) .dropdown-content {
+    visibility: hidden;
+  }
+}
+
+.appearance-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(9, 13, 20, 0.48);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  backdrop-filter: blur(10px);
+}
+
+.appearance-modal-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.appearance-modal-backdrop[hidden] {
+  display: none;
+}
+
+.appearance-modal {
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 16% 0%,
+      color-mix(in srgb, var(--brand) 15%, transparent),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 100% 12%,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 32%
+    ),
+    var(--bg-elevated);
+  box-shadow: var(--shadow-xl);
+  transform: translateY(8px) scale(0.98);
+  transition: transform 0.18s ease;
+}
+
+.appearance-modal-backdrop.show .appearance-modal {
+  transform: translateY(0) scale(1);
+}
+
+.appearance-modal__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appearance-modal__kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.appearance-modal h2,
+.appearance-modal h3 {
+  margin: 0;
+  color: var(--text);
+}
+
+.appearance-modal h2 {
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.appearance-modal h3 {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.appearance-modal__close {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.appearance-modal__close:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.appearance-modal__section {
+  margin-top: 22px;
+}
+
+/* Живая область для скринридера: выбор темы и палитры виден только глазами.
+   Прячем визуально, но не через display: none и не через visibility — из
+   таких узлов aria-live ничего не объявляет. */
+.appearance-modal__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.appearance-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.appearance-option {
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.appearance-option:hover,
+.appearance-option.active {
+  transform: translateY(-1px);
+  border-color: var(--border-brand);
+  box-shadow: var(--shadow-md);
+}
+
+.appearance-option.active {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand) 10%, transparent),
+      transparent
+    ),
+    var(--bg-card);
+}
+
+.appearance-option__swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.appearance-option__swatches span {
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+.appearance-option__title {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.appearance-option__text {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@media (max-width: 680px) {
+  .appearance-options {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-modal {
+    padding: 20px;
+    border-radius: 20px;
+  }
+}
+
+/* ── Кошелёк: бейдж баланса в навбаре и всплывающее «+N монет» ─────────── */
+
+.nav-wallet-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-left: var(--nav-search-margin, 6px);
+  white-space: nowrap;
+  transition:
+    background var(--transition-base),
+    border-color var(--transition-base),
+    transform var(--transition-base);
+}
+
+.nav-online-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-left: var(--nav-search-margin, 6px);
+  white-space: nowrap;
+}
+
+.nav-online-badge[hidden] {
+  display: none;
+}
+
+.nav-online-badge {
+  position: relative;
+}
+
+.nav-online-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1200;
+  display: none;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 10px 12px;
+  white-space: normal;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface, var(--card-bg, #fff));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+}
+
+.nav-online-badge:hover .nav-online-popover:not([hidden]),
+.nav-online-badge:focus .nav-online-popover:not([hidden]),
+.nav-online-badge:focus-within .nav-online-popover:not([hidden]) {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-online-popover__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nav-online-popover__head {
+  font-size: 12px;
+  color: var(--text-secondary, var(--text-muted));
+}
+
+.nav-online-popover__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nav-online-popover__icon {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.nav-online-popover__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.nav-online-popover__count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-online-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.nav-wallet-badge:hover,
+.nav-wallet-badge:focus-visible {
+  background: var(--border-strong);
+  border-color: var(--border-brand);
+}
+
+.nav-wallet-badge__icon,
+.wallet-toast__icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.nav-wallet-badge__icon svg,
+.wallet-toast__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wallet-toast__icon {
+  width: 22px;
+  height: 22px;
+}
+
+.nav-wallet-badge.is-bumped {
+  animation: wallet-bump 0.6s ease;
+}
+
+@keyframes wallet-bump {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(1.18);
+    border-color: var(--border-brand);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.wallet-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 1100;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border-brand);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 18%));
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition:
+    opacity var(--transition-base),
+    transform var(--transition-base);
+}
+
+.wallet-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-wallet-badge.is-bumped {
+    animation: none;
+  }
+
+  .wallet-toast {
+    transition: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .nav-wallet-badge {
+    margin-left: 8px;
+    padding: 6px 9px;
+  }
+
+  /* На телефоне рядом кошелёк и поиск: остаётся точка с числом. */
+  .nav-online-badge {
+    margin-left: 8px;
+    padding: 6px 9px;
+  }
+
+  .nav-online-badge__word {
+    display: none;
+  }
+}
+
+/* На самых узких экранах рядом поиск, онлайн и кошелёк — от логотипа
+   остаётся значок. */
+@media (max-width: 420px) {
+  .nav-logo__text {
+    display: none;
+  }
+}
+
+/* Монета «град» как инлайн-иконка рядом с текстом (главная, профиль). */
+.coin-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+}
+
+/* «Только материалы» отчётов не пишут: пункт меню, карточка профиля и ссылка
+   из подсказки лидерборда. Атрибут ставит navigation.js (applyLearningFormat).
+   Ссылки в тексте новостей не трогаем — предложение осталось бы с дырой. */
+html[data-learning-format="materials"] #navbar a[href="/my-reports.html"],
+html[data-learning-format="materials"] a.card[href="/my-reports.html"],
+html[data-learning-format="materials"]
+  .column-tooltip-content
+  a[href="/my-reports.html"] {
+  display: none;
+}

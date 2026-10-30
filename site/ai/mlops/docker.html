@@ -1,0 +1,1491 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Docker</title>
+
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/code-styles.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/block-tests.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">MLOps</span>
+            <span class="pill pill--soft">Docker</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Docker</h1>
+          <p class="section-shell__desc">Вопросы по контейнеризации и Docker.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3 data-md-source="true">Блок 1</h3>
+
+
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="containerization" data-interview="5">
+  <div class="name" id="containerization">
+    Контейнеризация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Контейнеризация</b> — это метод упаковки и изоляции приложений в стандартные единицы, называемые контейнерами. Каждый контейнер содержит всё необходимое для работы приложения: код, библиотеки, зависимости, системные утилиты и настройки окружения. Контейнеры обеспечивают одинаковое поведение приложения на разных платформах и упрощают его развёртывание и масштабирование.</p>
+<figure style="text-align: center">
+  <img alt="Контейнеризация" src="../../images/mlops/docker/containerization.jpg" width="1200" height="800" loading="lazy" decoding="async" style="max-width: 80%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Контейнеры используют общее ядро операционной системы, но работают изолированно, что делает их легче и эффективнее, чем виртуальные машины. При этом важно контролировать распределение ресурсов докер-хоста, чтобы один контейнер не занял всю доступную память или процессорное время.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Контейнеризация реализуется с помощью таких инструментов, как <b>Docker</b>. Docker создаёт образы — статичные шаблоны, из которых запускаются контейнеры. Каждый контейнер — это экземпляр образа, в котором запущены определённые процессы. Все контейнеры хранятся и управляются докер-хостом, деля общие ресурсы, но сохраняя файловую и процессную изоляцию. Для оркестрации множества контейнеров используется <b>Docker Compose</b>, где в YAML-файле описываются все сервисы, сети и тома приложения.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="what_is_docker" data-interview="5">
+  <div class="name" id="what_is_docker">
+    Что такое Docker?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker</b> — это платформа для виртуализации, которая позволяет упаковывать приложения в контейнеры.</p>
+<figure style="text-align: center">
+  <img alt="Docker" src="../../images/mlops/docker/docker-logo.svg" width="659" height="440" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Преимущества Docker:</p>
+<ul>
+<li><b>Изоляция</b>: приложения не влияют друг на друга</li>
+<li><b>Портативность</b>: контейнеры можно запускать на любой платформе</li>
+<li><b>Повторяемость</b>: приложения всегда запускаются одинаково</li>
+<li><b>Эффективность</b>: контейнеры используют меньше ресурсов, чем виртуальные машины</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Основные команды Docker:</p>
+<ul>
+<li><code>docker build</code>: создать образ контейнера из Dockerfile</li>
+<li><code>docker run</code>: запустить контейнер из образа</li>
+<li><code>docker stop</code>: остановить контейнер</li>
+<li><code>docker rm</code>: удалить контейнер</li>
+<li><code>docker images</code>: список образов контейнеров</li>
+<li><code>docker ps</code>: список запущенных контейнеров</li>
+</ul>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->
+        <h3 data-md-source="true">Блок 2</h3>
+
+
+
+
+
+
+
+<!-- md:inject:section:Блок 2:start -->
+<li class="question" data-md-source="true" data-md-id="dockerfile" data-interview="5">
+  <div class="name" id="dockerfile">
+    Dockerfile
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Докер файл</b> (<code>dockerfile</code>) — это набор инструкций, которые говорят докеру, как создать образ и что там должно оказаться. Из докер-файла собирается образ, а на основе образа запускается контейнер.</p>
+<figure style="text-align: center">
+  <img alt="Dockerfile → Image → Container" src="../../images/mlops/docker/pipe.png" width="1388" height="420" loading="lazy" decoding="async" style="max-width: 90%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Пример простого Dockerfile:</p>
+
+</div>
+<div class="code-block" data-lang="bash">FROM python:3.13
+WORKDIR /usr/local/app
+
+# Установка зависимостей
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копирование исходного кода
+COPY src ./src
+EXPOSE 8080 # Порт, который будет использоваться в контейнере
+
+# Настройка пользователя для контейнера
+RUN useradd app
+USER app
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Некоторые из наиболее распространенных инструкций в Dockerfile включают:</p>
+<ul>
+<li><code>FROM image</code> — указывает базовый образ, на основе которого будет создан образ.</li>
+<li><code>WORKDIR path</code> — указывает рабочую директорию в образе, в которой будут выполняться команды.</li>
+<li><code>COPY host-path image-path</code> — эта инструкция указывает сборщику скопировать файлы с хоста и поместить их в образ контейнера.</li>
+<li><code>RUN command</code> — эта инструкция указывает сборщику выполнить указанную команду.</li>
+<li><code>ENV name value</code> — устанавливает переменную окружения в образ.</li>
+<li><code>EXPOSE port-number</code> — указывает порт, который будет использоваться в контейнере.</li>
+<li><code>USER user-or-uid</code> — устанавливает пользователя по умолчанию для всех последующих инструкций.</li>
+<li><code>CMD [&quot;command&quot;, &quot;arg1&quot;]</code> — устанавливает команду по умолчанию для контейнера, использующего этот образ.</li>
+</ul>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dockerignore" data-interview="2">
+  <div class="name" id="dockerignore">
+    .dockerignore
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>.dockerignore</code> — это файл со списком путей, которые Docker не должен отправлять в build context при сборке образа.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Когда выполняется <code>docker build</code>, Docker сначала собирает build context: файлы из текущей директории, доступные инструкциям <code>COPY</code> и <code>ADD</code>. Если не ограничить context, в сборку могут попасть <code>.git</code>, локальное виртуальное окружение, датасеты, кэш ноутбуков, секреты и артефакты обучения.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Пример <code>.dockerignore</code> для Python/ML-проекта:</p>
+
+</div>
+<div class="code-block" data-lang="gitignore">.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+notebooks/
+data/
+models/
+.env</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p><code>.dockerignore</code> не удаляет файлы из уже собранного образа. Он только не отправляет их в build context. Если секрет уже был скопирован в образ через <code>COPY</code>, его нужно убрать из Dockerfile и пересобрать образ заново.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен <code>.dockerignore</code>?</b></p>
+<p>Чтобы не отправлять лишние и чувствительные файлы в build context Docker.</p>
+</li>
+<li><p><b>Почему <code>.git</code> и <code>.env</code> обычно добавляют в <code>.dockerignore</code>?</b></p>
+<p><code>.git</code> раздувает context, а <code>.env</code> может содержать пароли, токены и ключи доступа.</p>
+</li>
+<li><p><b>Чем <code>.dockerignore</code> отличается от <code>.gitignore</code>?</b></p>
+<p><code>.gitignore</code> влияет на Git, а <code>.dockerignore</code> влияет на то, какие файлы Docker видит при сборке образа.</p>
+</li>
+<li><p><b>Почему это важно для MLOps?</b></p>
+<p>ML-проекты часто содержат большие датасеты, модели и секреты для облачных хранилищ; их нельзя случайно упаковывать в образ.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-build-cache" data-interview="3">
+  <div class="name" id="docker-build-cache">
+    Кэш сборки Docker
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Build cache</b> — это механизм Docker, который переиспользует уже собранные слои образа, если соответствующие инструкции Dockerfile и входные файлы не изменились.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Docker выполняет инструкции Dockerfile сверху вниз. Если изменилась инструкция или файл, от которого она зависит, Docker пересобирает этот слой и все слои после него. Поэтому стабильные и тяжелые шаги обычно ставят выше, а часто меняющийся код — ниже.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Плохой вариант: любое изменение в <code>src</code> заставит заново устанавливать зависимости.</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
+CMD ["python", "-m", "app"]</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Хороший вариант: зависимости пересобираются только при изменении <code>requirements.txt</code>.</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src ./src
+CMD ["python", "-m", "src.app"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для ML-сервисов это особенно заметно: установка <code>torch</code>, <code>numpy</code>, <code>pandas</code>, <code>scikit-learn</code> и других зависимостей может занимать минуты, а изменение одной строки бизнес-логики не должно запускать эту установку заново.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое build cache?</b></p>
+<p>Это кэш слоев образа, который Docker переиспользует при повторных сборках.</p>
+</li>
+<li><p><b>Почему порядок инструкций в Dockerfile важен?</b></p>
+<p>Изменение раннего слоя инвалидирует этот слой и все последующие слои.</p>
+</li>
+<li><p><b>Почему <code>COPY requirements.txt</code> обычно делают до <code>COPY src</code>?</b></p>
+<p>Чтобы установка зависимостей кэшировалась и не повторялась при каждом изменении кода.</p>
+</li>
+<li><p><b>Как build cache помогает в MLOps?</b></p>
+<p>Он ускоряет сборку образов с тяжелыми ML-зависимостями и делает CI/CD дешевле.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-multi-stage-build" data-interview="4">
+  <div class="name" id="docker-multi-stage-build">
+    Multi-stage build
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Multi-stage build</b> — это прием в Dockerfile, при котором образ собирается в несколько стадий: в одной стадии устанавливаются build-зависимости и собираются артефакты, а в финальный образ копируется только то, что нужно для запуска.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Обычная проблема: для сборки приложения нужны компиляторы, dev-библиотеки и временные файлы, но в runtime они не нужны. Multi-stage build позволяет оставить их в промежуточной стадии и не тащить в финальный образ.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Пример для Python: wheel собирается в стадии <code>builder</code>, а финальный образ получает только установленный пакет.</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim AS builder
+WORKDIR /build
+COPY pyproject.toml .
+COPY src ./src
+RUN pip wheel --no-cache-dir --wheel-dir /wheels .
+
+FROM python:3.13-slim
+WORKDIR /app
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir /wheels/*.whl
+USER 10001
+CMD ["python", "-m", "app"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Multi-stage build особенно полезен для Go, Rust, Java, Node.js frontend-сборок и Python-пакетов с native-зависимостями. Финальный образ получается меньше и проще для аудита.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое multi-stage build?</b></p>
+<p>Это Dockerfile с несколькими стадиями сборки, где финальный образ получает только нужные артефакты.</p>
+</li>
+<li><p><b>Зачем отделять build-стадию от runtime-стадии?</b></p>
+<p>Чтобы не включать в production-образ компиляторы, временные файлы и dev-зависимости.</p>
+</li>
+<li><p><b>Что делает <code>COPY --from=builder</code>?</b></p>
+<p>Копирует файлы из промежуточной стадии в текущую стадию образа.</p>
+</li>
+<li><p><b>Почему это важно для MLOps?</b></p>
+<p>Так проще собирать воспроизводимые и компактные образы для inference-сервисов и batch jobs.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-image-size" data-interview="4">
+  <div class="name" id="docker-image-size">
+    Размер Docker-образа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Размер образа</b> — это суммарный размер слоев Docker-образа, которые нужно хранить локально, передавать в registry и скачивать на сервере перед запуском контейнера.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Большой образ дольше собирается, дольше пушится в registry, дольше скачивается при деплое и обычно содержит больше лишних файлов. Чем больше ненужных пакетов и инструментов внутри, тем шире поверхность атаки.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для production-сервиса часто выбирают <code>slim</code>-образ вместо полного:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src ./src
+CMD ["python", "-m", "src.app"]</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p><code>alpine</code>-образы маленькие, но не всегда быстрее и проще. В Python/ML-проектах из-за <code>musl</code> могут возникать проблемы с бинарными wheel-пакетами, а сборка native-зависимостей иногда становится сложнее.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Практические приемы уменьшения образа: использовать <code>.dockerignore</code>, выбирать минимальный базовый образ, не хранить кэш пакетных менеджеров, применять multi-stage build и не копировать датасеты внутрь runtime-образа.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему размер образа важен?</b></p>
+<p>Он влияет на скорость сборки, push/pull, деплой и объем хранилища.</p>
+</li>
+<li><p><b>Что дает <code>python:3.13-slim</code> по сравнению с полным <code>python:3.13</code>?</b></p>
+<p>Обычно меньший runtime-образ с меньшим количеством системных пакетов.</p>
+</li>
+<li><p><b>Почему <code>alpine</code> не всегда лучший выбор для Python/ML?</b></p>
+<p>Некоторые бинарные зависимости хуже совместимы с <code>musl</code>, поэтому сборка может стать сложнее.</p>
+</li>
+<li><p><b>Какие приемы уменьшают размер ML-образа?</b></p>
+<p><code>.dockerignore</code>, <code>--no-cache-dir</code>, multi-stage build и хранение моделей/данных вне образа.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-cmd-entrypoint" data-interview="4">
+  <div class="name" id="docker-cmd-entrypoint">
+    CMD и ENTRYPOINT
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>CMD</code> задает команду по умолчанию для контейнера, а <code>ENTRYPOINT</code> задает основной исполняемый файл, вокруг которого строится запуск контейнера.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если образ ведет себя как обычный сервис, часто достаточно <code>CMD</code>. Если образ должен вести себя как CLI-утилита, удобно фиксировать <code>ENTRYPOINT</code>, а аргументы передавать через <code>CMD</code> или через команду <code>docker run</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Сервис FastAPI обычно запускают через <code>CMD</code>:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Образ для batch inference можно оформить как CLI:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">ENTRYPOINT ["python", "-m", "jobs.predict"]
+CMD ["--help"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Exec-форма через JSON-массив обычно предпочтительнее shell-формы: процесс получает сигналы напрямую, а аргументы не проходят через лишнюю оболочку.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>CMD</code>?</b></p>
+<p>Задает команду и аргументы по умолчанию для запуска контейнера.</p>
+</li>
+<li><p><b>Что делает <code>ENTRYPOINT</code>?</b></p>
+<p>Фиксирует основной исполняемый файл контейнера.</p>
+</li>
+<li><p><b>Когда удобно использовать <code>ENTRYPOINT</code>?</b></p>
+<p>Когда образ должен работать как CLI-инструмент или batch job с разными аргументами.</p>
+</li>
+<li><p><b>Почему exec-форма предпочтительнее shell-формы?</b></p>
+<p>Она лучше передает сигналы процессу и не добавляет лишний shell-процесс.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-environment-variables" data-interview="3">
+  <div class="name" id="docker-environment-variables">
+    Переменные окружения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Переменные окружения</b> — это параметры конфигурации, которые контейнер получает при сборке или запуске и читает внутри приложения через environment.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В Docker важно различать <code>ARG</code>, <code>ENV</code> и runtime-переменные. <code>ARG</code> доступен во время сборки, <code>ENV</code> сохраняется в образе, а переменные из <code>docker run -e</code> или <code>compose.yaml</code> передаются контейнеру при запуске.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Переменные для запуска контейнера:</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker run -e MODEL_NAME=baseline -e LOG_LEVEL=info ml-api:latest</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>То же самое в Docker Compose:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    image: ml-api:latest
+    environment:
+      MODEL_NAME: baseline
+      LOG_LEVEL: info</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не храните секреты в <code>ENV</code> внутри Dockerfile: они становятся частью образа и могут попасть в историю слоев. Пароли, токены и ключи лучше передавать через секреты платформы запуска.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем <code>ARG</code> отличается от <code>ENV</code>?</b></p>
+<p><code>ARG</code> нужен на этапе сборки, а <code>ENV</code> сохраняется в образе и доступен при запуске контейнера.</p>
+</li>
+<li><p><b>Где лучше задавать параметры окружения для разных сред?</b></p>
+<p>При запуске контейнера: через Compose, orchestrator, CI/CD или платформу деплоя.</p>
+</li>
+<li><p><b>Почему нельзя класть секреты в Dockerfile через <code>ENV</code>?</b></p>
+<p>Они могут сохраниться в образе и попасть в registry или историю слоев.</p>
+</li>
+<li><p><b>Почему переменные окружения важны для ML-сервиса?</b></p>
+<p>Через них удобно выбирать модель, уровень логирования, адрес MLflow, bucket и режим запуска.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 2:end -->
+        <h3 data-md-source="true">Блок 3</h3>
+
+
+
+
+<!-- md:inject:section:Блок 3:start -->
+<li class="question" data-md-source="true" data-md-id="image" data-interview="5">
+  <div class="name" id="image">
+    Образ
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Образ</b> (image) — готовое к запуску приложение, в котором лежит код, либы, инструменты, зависимости и прочее необходимое для запуска.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Образ — набор файлов, он статичен. С этого статичного образа можно создавать контейнеры. С одного образа можно создать много разных контейнеров.</p>
+<figure style="text-align: center">
+  <img alt="Из одного образа можно запустить несколько контейнеров" src="../../images/mlops/docker/containers.png" width="1167" height="375" loading="lazy" decoding="async" style="max-width: 90%; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Например, можно скачать образ питона, и он будет находиться локально в кэше докера. На основании этого образа можно создать несколько разных контейнеров и запускать там разные приложения.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Информация о процессе, который запустится в создаваемом на основании образа контейнере, находится в образе. Это одна из инструкций, которая находится там как текстовая строка в образе.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>За каждым контейнером закрепляется место на жестком диске. Каждый контейнер может писать файлы либо считывать их с жесткого диска докер-хоста.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="image-layers" data-interview="4">
+  <div class="name" id="image-layers">
+    Слои образа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Каждый образ состоит из слоев, каждый слой — набор файлов (слои — FLS, Files system layers). У каждого образа есть базовый слой и другие слои.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Все файлы образа записываются в разные слои для того, чтобы их можно было переиспользовать в других образах. Значит, у разных образов некоторые слои могут пересекаться. Переиспользование слоев ускоряет процесс создания кастомных образов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Все слои, кроме верхнего (контейнерного), являются <b>read-only</b>. Это значит, что после создания образа его содержимое не изменяется. При запуске контейнера поверх этих слоёв создаётся новый <b>записываемый слой</b> (writable layer), в который сохраняются все изменения. Благодаря этому Docker экономно использует дисковое пространство и ускоряет сборку новых образов, переиспользуя уже существующие слои.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Каждый слой формируется на основе инструкции <code>Dockerfile</code> — например, <code>FROM</code>, <code>COPY</code> или <code>RUN</code>. При изменении одной инструкции Docker пересобирает только соответствующий слой и все последующие, что делает процесс сборки инкрементальным и быстрым.</p>
+<figure style="text-align: center">
+  <img alt="Слои образа" src="../../images/mlops/docker/layers.jpg" width="1512" height="479" loading="lazy" decoding="async" style="max-width: 90%; width: 100%; height: auto" />
+</figure>
+<p>Слои хранятся в локальном кэше Docker и могут быть использованы повторно другими образами, если совпадает их базовое содержимое. Это обеспечивает эффективное использование пространства и ускоряет загрузку приложений.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="container" data-interview="5">
+  <div class="name" id="container">
+    Контейнер
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Контейнер</b> (container) — это экземпляр образа, в котором запущены определённые процессы. Образами можно делиться. Для этого используется Docker Registry — реестр, хранящий образы. Самый известный — <b>Docker Hub</b>, откуда можно стянуть образ какого-нибудь приложения или операционки и на их основе собирать свой собственный образ.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Контейнер отличается от образа тем, что в контейнере есть запущенные процессы, контейнеры работают и выполняют определенные задачи.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="how_containers_work" data-interview="4">
+  <div class="name" id="how_containers_work">
+    Работа контейнеров
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Все контейнеры находятся на докер-хосте и используют одни и те же общие ресурсы, они распределяют между собой все доступные ресурсы докер-хоста: память, процессор, сетевые ресурсы, — и используют общее ядро Linux.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Нужно планировать распределение этих ресурсов, чтобы какой-то один из контейнеров не использовал вдруг все доступные ресурсы докер-хоста.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Процессы внутри контейнеров независимы, для каждого из контейнеров на жестком диске докер-хоста выделяется отдельное место для хранения файлов конкретного контейнера.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если создать несколько контейнеров с одного образа, то у этих контейнеров будут общие файлы — они будут находиться на жестком диске докер-хоста только в одном месте, они не будут скопированы $n$ раз в зависимости от количества контейнеров, запущенных с какого-то образа, поэтому ресурсы используются более эффективно.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Докер автоматически останавливает те контейнеры, у которых нет активных процессов. Если какой-то процесс внутри контейнера выполнился и завершился, то докер автоматически остановит такой контейнер.</p>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 3:end -->
+        <h3 data-md-source="true">Блок 4</h3>
+
+
+
+
+
+
+
+
+<!-- md:inject:section:Блок 4:start -->
+<li class="question" data-md-source="true" data-md-id="docker-volumes" data-interview="5">
+  <div class="name" id="docker-volumes">
+    Volumes
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Volume</b> — это хранилище данных, подключаемое к контейнеру отдельно от его writable layer.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Контейнеры считаются эфемерными: их можно удалить и создать заново из образа. Если данные лежат только внутри writable layer контейнера, они исчезнут вместе с контейнером. Volumes позволяют хранить данные дольше жизни контейнера.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Named volume для PostgreSQL в Compose:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  database:
+    image: postgres:16
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+volumes:
+  pg_data:</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Bind mount для локальной разработки:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    build: .
+    volumes:
+      - ./src:/app/src</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В MLOps volumes часто используют для локальных датасетов, моделей, логов экспериментов и артефактов. В production для таких данных чаще выбирают внешние хранилища: S3, GCS, NFS, MLflow artifact store или managed database.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужны volumes?</b></p>
+<p>Чтобы хранить данные отдельно от жизненного цикла контейнера.</p>
+</li>
+<li><p><b>Чем named volume отличается от bind mount?</b></p>
+<p>Named volume управляется Docker, а bind mount подключает конкретный путь с хоста.</p>
+</li>
+<li><p><b>Почему не стоит хранить важные данные только в writable layer контейнера?</b></p>
+<p>При удалении контейнера эти данные легко потерять.</p>
+</li>
+<li><p><b>Где volumes полезны в MLOps?</b></p>
+<p>В локальной разработке, для датасетов, моделей, логов и временных артефактов экспериментов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-networks" data-interview="3">
+  <div class="name" id="docker-networks">
+    Docker Networks
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker network</b> — это виртуальная сеть, через которую контейнеры могут обмениваться трафиком друг с другом и с внешним миром.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В Docker Compose сервисы в одной сети видят друг друга по имени сервиса. Если сервис называется <code>database</code>, приложение должно подключаться к <code>database:5432</code>, а не к <code>localhost:5432</code>. Внутри контейнера <code>localhost</code> указывает на сам контейнер.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Приложение подключается к Postgres по имени сервиса <code>database</code>:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://user:password@database:5432/app
+  database:
+    image: postgres:16</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Ошибка <code>localhost</code> вместо имени сервиса — одна из самых частых ошибок в Compose. <code>localhost</code> внутри контейнера не означает &quot;мой ноутбук&quot; и не означает &quot;соседний контейнер&quot;.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Docker network?</b></p>
+<p>Это виртуальная сеть, к которой подключаются контейнеры.</p>
+</li>
+<li><p><b>Как контейнеры в Compose находят друг друга?</b></p>
+<p>По DNS-именам сервисов, например <code>database</code>, <code>redis</code>, <code>mlflow</code>.</p>
+</li>
+<li><p><b>Почему <code>localhost</code> внутри контейнера часто приводит к ошибке?</b></p>
+<p>Потому что он указывает на сам контейнер, а не на другой сервис.</p>
+</li>
+<li><p><b>Почему сети важны для MLOps?</b></p>
+<p>ML API, база, feature store, MLflow и мониторинг часто запускаются как отдельные сервисы и общаются по сети.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-ports-expose" data-interview="3">
+  <div class="name" id="docker-ports-expose">
+    Порты и EXPOSE
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>EXPOSE</code> документирует порт, на котором приложение слушает внутри контейнера, а проброс портов (<code>-p</code> или <code>ports</code>) делает этот порт доступным с хоста.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если FastAPI слушает порт <code>8080</code> внутри контейнера, это еще не значит, что браузер на хосте сможет открыть <code>localhost:8080</code>. Нужно явно опубликовать порт контейнера на порт хоста.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Проброс порта через <code>docker run</code>:</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker run -p 8000:8080 ml-api:latest</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В примере <code>8000</code> — порт на хосте, <code>8080</code> — порт внутри контейнера. Запрос на <code>http://localhost:8000</code> попадет в приложение, которое слушает <code>8080</code> в контейнере.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>То же самое в Compose:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    image: ml-api:latest
+    ports:
+      - "8000:8080"</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>EXPOSE</code>?</b></p>
+<p>Документирует порт контейнера, но сам по себе не публикует его на хосте.</p>
+</li>
+<li><p><b>Что означает <code>-p 8000:8080</code>?</b></p>
+<p>Порт <code>8000</code> на хосте пробрасывается в порт <code>8080</code> внутри контейнера.</p>
+</li>
+<li><p><b>Почему приложение может работать в контейнере, но не открываться в браузере?</b></p>
+<p>Возможно, порт контейнера не опубликован на хосте.</p>
+</li>
+<li><p><b>Почему это важно для ML API?</b></p>
+<p>Inference-сервис должен быть доступен клиентам, мониторингу и health checks через опубликованный порт.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-healthcheck" data-interview="2">
+  <div class="name" id="docker-healthcheck">
+    HEALTHCHECK
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>HEALTHCHECK</code> — это инструкция Dockerfile, которая задает команду проверки состояния контейнера.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Контейнер может быть запущен, но приложение внутри него уже не принимает запросы: зависло, потеряло подключение к модели, не может отвечать из-за ошибки инициализации. Health check позволяет отличать &quot;процесс существует&quot; от &quot;сервис реально здоров&quot;.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Health check для HTTP-сервиса:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Минимальный endpoint в FastAPI:</p>
+
+</div>
+<div class="code-block" data-lang="python">from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В production health endpoint часто проверяет не только факт запуска процесса, но и готовность зависимостей: загружена ли модель, доступна ли база, можно ли читать конфигурацию.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что проверяет <code>HEALTHCHECK</code>?</b></p>
+<p>Команду, по результату которой Docker понимает, здоров контейнер или нет.</p>
+</li>
+<li><p><b>Почему статус &quot;container is running&quot; недостаточен?</b></p>
+<p>Процесс может существовать, но приложение может не отвечать на запросы.</p>
+</li>
+<li><p><b>Что обычно возвращает <code>/health</code>?</b></p>
+<p>Короткий ответ о состоянии сервиса, например <code>{&quot;status&quot;: &quot;ok&quot;}</code>.</p>
+</li>
+<li><p><b>Почему health check важен для ML-сервиса?</b></p>
+<p>Модель может не загрузиться или зависимость может быть недоступна, хотя контейнер формально запущен.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-non-root-user" data-interview="2">
+  <div class="name" id="docker-non-root-user">
+    Запуск не от root
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Запуск контейнера <b>не от root</b> означает, что основной процесс внутри контейнера выполняется от обычного пользователя с ограниченными правами.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>По умолчанию многие образы запускают процесс от <code>root</code>. Это удобно при сборке, но рискованно в runtime: ошибка в приложении или уязвимость зависимости получает больше прав внутри контейнера. Поэтому системные операции делают во время сборки, а перед запуском переключаются на обычного пользователя.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Создание пользователя в Dockerfile:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src ./src
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+CMD ["python", "-m", "src.app"]</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Если контейнеру нужен доступ к volume, нужно проверить права на файлы и директории. Частая проблема: приложение запущено не от root и не может писать в смонтированную директорию.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему не стоит запускать production-контейнер от root?</b></p>
+<p>Это увеличивает последствия уязвимости или ошибки в приложении.</p>
+</li>
+<li><p><b>Что делает инструкция <code>USER</code>?</b></p>
+<p>Меняет пользователя, от которого выполняются последующие инструкции и процесс контейнера.</p>
+</li>
+<li><p><b>Когда root может быть нужен в Dockerfile?</b></p>
+<p>Во время сборки: для установки системных пакетов, создания пользователя и настройки прав.</p>
+</li>
+<li><p><b>Какая типичная проблема возникает с volumes?</b></p>
+<p>Пользователь внутри контейнера может не иметь прав на запись в смонтированную директорию.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-secrets" data-interview="4">
+  <div class="name" id="docker-secrets">
+    Секреты в Docker
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Секреты</b> — это чувствительные значения: пароли, API-токены, приватные ключи, DSN баз данных и credentials для облачных хранилищ.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Секреты нельзя зашивать в Dockerfile, коммитить в репозиторий или копировать в образ. Если токен попал в слой образа, он может сохраниться даже после удаления файла в следующем слое.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для локальной разработки часто используют <code>.env</code>, но сам файл добавляют в <code>.gitignore</code> и <code>.dockerignore</code>. Для production секреты обычно передает платформа запуска: Kubernetes Secrets, Docker secrets, GitHub Actions secrets, облачный secret manager или CI/CD-система.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Локальный <code>.env</code> можно подключить в Compose:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    image: ml-api:latest
+    env_file:
+      - .env</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Переменные окружения удобны, но не являются полноценным хранилищем секретов. Для критичных систем лучше использовать secret manager и короткоживущие credentials.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что считается секретом?</b></p>
+<p>Пароли, токены, приватные ключи, cloud credentials и строки подключения с паролями.</p>
+</li>
+<li><p><b>Почему нельзя записывать секреты в Dockerfile?</b></p>
+<p>Они могут сохраниться в слоях образа и попасть в registry.</p>
+</li>
+<li><p><b>Для чего <code>.env</code> добавляют в <code>.dockerignore</code>?</b></p>
+<p>Чтобы локальные секреты случайно не попали в build context.</p>
+</li>
+<li><p><b>Как обычно передают секреты в production?</b></p>
+<p>Через secret manager, CI/CD secrets, Kubernetes Secrets или механизм секретов платформы запуска.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-logs" data-interview="2">
+  <div class="name" id="docker-logs">
+    Логи контейнера
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Логи контейнера</b> — это вывод процесса контейнера в <code>stdout</code> и <code>stderr</code>, который Docker может читать через <code>docker logs</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Контейнерное приложение обычно пишет логи в стандартный вывод, а не только в файл внутри контейнера. Тогда Docker, Compose, Kubernetes и системы мониторинга могут централизованно собирать эти логи.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Просмотр логов контейнера:</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker logs my-container
+docker logs -f my-container</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Просмотр логов сервиса в Compose:</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker compose logs -f app</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для ML API в логах полезно видеть старт сервиса, версию модели, время ответа, ошибки предобработки, request id и признаки деградации. При этом нельзя логировать персональные данные и секреты.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Куда контейнерное приложение обычно пишет логи?</b></p>
+<p>В <code>stdout</code> и <code>stderr</code>, чтобы Docker и orchestrator могли их собирать.</p>
+</li>
+<li><p><b>Что делает <code>docker logs -f</code>?</b></p>
+<p>Показывает логи контейнера в режиме follow, то есть продолжает выводить новые строки.</p>
+</li>
+<li><p><b>Почему файл внутри контейнера не всегда хорошее место для логов?</b></p>
+<p>Контейнер может быть удален, а внешний сборщик логов не увидит файл без дополнительной настройки.</p>
+</li>
+<li><p><b>Какие логи важны для ML-сервиса?</b></p>
+<p>Версия модели, ошибки инференса, latency, request id и события загрузки модели.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-resource-limits" data-interview="3">
+  <div class="name" id="docker-resource-limits">
+    Ограничения ресурсов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Ограничения ресурсов</b> — это лимиты CPU, памяти и других ресурсов, которые контейнер может использовать на Docker host.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Контейнеры делят ресурсы одной машины. Если не задавать лимиты, один сервис может занять слишком много памяти или процессорного времени и повлиять на остальные контейнеры. Для ML это особенно важно: загрузка модели, batch inference и обработка больших входов могут резко увеличить потребление памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Ограничения при запуске контейнера:</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker run --memory=1g --cpus=1.5 ml-api:latest</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Ограничения в Compose:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    image: ml-api:latest
+    mem_limit: 1g
+    cpus: 1.5</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Если контейнер превышает лимит памяти, он может быть завершен с ошибкой <code>OOMKilled</code>. Для ML-сервиса это часто означает, что модель слишком большая для выбранного окружения или batch size слишком высок.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем ограничивать ресурсы контейнера?</b></p>
+<p>Чтобы один контейнер не забрал всю память или CPU хоста.</p>
+</li>
+<li><p><b>Что означает <code>--memory=1g</code>?</b></p>
+<p>Контейнеру задается лимит памяти около одного гигабайта.</p>
+</li>
+<li><p><b>Что такое <code>OOMKilled</code>?</b></p>
+<p>Ситуация, когда процесс завершен из-за превышения доступной памяти.</p>
+</li>
+<li><p><b>Почему лимиты важны для ML workload?</b></p>
+<p>Модели и batch-обработка могут потреблять много памяти и влиять на соседние сервисы.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 4:end -->
+        <h3 data-md-source="true">Блок 5</h3>
+
+
+
+
+<!-- md:inject:section:Блок 5:start -->
+<li class="question" data-md-source="true" data-md-id="dockerhub" data-interview="2">
+  <div class="name" id="dockerhub">
+    Docker Hub
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker Hub</b> — это реестр (репозиторий) образов, который содержит множество образов для различных приложений и операционных систем.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Docker Hub" src="../../images/mlops/docker/dockerhub.png" width="2098" height="982" loading="lazy" decoding="async" style="max-width: 90%; width: 100%; height: auto" />
+  <figcaption>
+    <a href="https://hub.docker.com/" target="_blank" rel="noopener">Docker Hub</a>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В репозитории лежат разные версии образа. У каждой версии образа могут быть разные теги. Тег <code>latest</code> указывает на самую актуальную версию, а <code>alpine</code> — на самую легковесную.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-compose" data-interview="4">
+  <div class="name" id="docker-compose">
+    Docker Compose
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker Compose</b> — это инструмент, который позволяет определять и запускать многоконтейнерные приложения с помощью одного файла конфигурации.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Иногда нужно запускать несколько контейнеров сразу. Микросервисов может быть много. С помощью Docker Compose можно упростить развертывание приложения, состоящего из нескольких контейнеров, используя всего один <code>yaml</code>-файл, где описаны все сервисы, которые необходимо запустить, и их настройки.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Файл конфигурации Docker Compose — <code>yaml</code>-файл с описанием:</p>
+<ul>
+<li><b>Служб</b>: контейнеров, из которых состоит приложение</li>
+<li><b>Сетей</b>: виртуальных сетей, в которых будут работать контейнеры</li>
+<li><b>Томов</b>: данных, которые будут храниться вне контейнеров</li>
+<li><b>Портов</b>: отображения портов контейнеров на порты хост-машины</li>
+<li><b>Переменных окружения</b>: переменных, которые будут доступны внутри контейнеров</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Преимущества Docker Compose:</b></p>
+<ul>
+<li><b>Упрощает</b> запуск многоконтейнерных приложений</li>
+<li><b>Повышает</b> повторяемость и переносимость приложений</li>
+<li><b>Уменьшает</b> количество команд, необходимых для запуска приложения</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Пример файла конфигурации Docker Compose. В примере:</p>
+<ul>
+<li>Определены две службы: <code>app</code> и <code>database</code></li>
+<li><code>app</code> будет построена из <code>Dockerfile</code> в текущем каталоге</li>
+<li><code>database</code> будет использовать образ <code>postgres:latest</code></li>
+<li>Переменная окружения <code>POSTGRES_PASSWORD</code> будет доступна внутри контейнера <code>database</code></li>
+</ul>
+
+</div>
+<div class="code-block" data-lang="yaml">version: "3"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+  database:
+    image: "postgres:latest"
+    environment:
+      - POSTGRES_PASSWORD="password"</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Для запуска приложения</b> с помощью Docker Compose необходимо выполнить команду <code>docker-compose up -d</code>. Эта команда:</p>
+<ul>
+<li>Создаст виртуальную сеть</li>
+<li>Загрузит образы контейнеров</li>
+<li>Запустит контейнеры</li>
+<li>Подключит контейнеры к сети</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Docker Compose может управлять несколькими контейнерами, но только на одной машине.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Как быть, если нужно управлять несколькими контейнерами на нескольких машинах? Например, <b><a href="../../ai/mlops/k8s.html" target="_blank" rel="noopener">Kubernetes (k8s)</a></b> — это оркестратор контейнеров, который позволяет управлять несколькими контейнерами на нескольких машинах.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-ml-inference" data-interview="4">
+  <div class="name" id="docker-ml-inference">
+    Docker для ML inference
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker для ML inference</b> — это упаковка сервиса, который загружает обученную модель и отвечает на prediction-запросы, в воспроизводимый контейнерный образ.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Типичный inference-сервис состоит из HTTP API, кода предобработки, модели, зависимостей и конфигурации. Docker фиксирует окружение запуска, а Compose помогает локально поднять API вместе с зависимостями: базой, MLflow, Redis или мониторингом.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Минимальный Dockerfile для FastAPI inference-сервиса:</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.13-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src ./src
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Compose-фрагмент для локального запуска:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  api:
+    build: .
+    ports:
+      - "8000:8080"
+    environment:
+      MODEL_NAME: baseline
+      LOG_LEVEL: info</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Большие модели не всегда стоит копировать внутрь образа. Часто образ содержит код, а модель загружается при старте из artifact store: S3, GCS, MLflow или внутреннего registry моделей.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что Docker фиксирует для inference-сервиса?</b></p>
+<p>Код, зависимости, команду запуска и базовое runtime-окружение.</p>
+</li>
+<li><p><b>Что обычно должно быть в ML inference Dockerfile?</b></p>
+<p>Установка зависимостей, копирование кода, запуск не от root, порт, health check и команда старта.</p>
+</li>
+<li><p><b>Почему модель не всегда кладут в образ?</b></p>
+<p>Большие модели раздувают образ; их удобнее версионировать и загружать из artifact store.</p>
+</li>
+<li><p><b>Зачем Compose в локальной разработке ML-сервиса?</b></p>
+<p>Чтобы поднять API и зависимые сервисы одной командой в воспроизводимой конфигурации.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="docker-desktop" data-interview="1">
+  <div class="name" id="docker-desktop">
+    Docker Desktop
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Docker Desktop</b> — это настольное приложение для <b>macOS</b>, <b>Windows</b> и <b>Linux</b>, которое ставит и обновляет <b>Docker Engine</b>, <b>Docker CLI</b>, <b>Docker Compose</b> и даёт <b>графический интерфейс</b> для работы с контейнерами, образами, томами и сетями на локальной машине.
+<figure style="text-align: center">
+  <img alt="" src="../../images/mlops/docker/dockerdesktop.png" width="2320" height="1456" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+</figure></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>На серверах чаще ставят только <b>Docker Engine</b> и CLI без GUI. Docker Desktop ориентирован на <b>разработку</b>: один установщик, обновления из приложения, встроенные инструменты и меньше ручной настройки ядра и прав доступа по сравнению с &quot;голым&quot; движком на чистой ОС.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В типичной поставке Docker Desktop входят:</p>
+<ul>
+<li><b>Docker Engine</b> — демон и API, как в серверной установке</li>
+<li><b>Docker CLI</b> — команды <code>docker</code>, <code>docker build</code>, <code>docker run</code> и т.д.</li>
+<li><b>Docker Compose</b> — запуск многоконтейнерных приложений по <code>compose.yaml</code> (команда <code>docker compose</code>)</li>
+<li><b>GUI</b> — образы, контейнеры, логи, использование ресурсов, настройки (CPU, память, диски, сети)</li>
+<li>на <b>Windows</b> часто используется связка с <b>WSL 2</b>; на <b>macOS</b> — лёгкая Linux-VM под капотом для самого движка</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Практический смысл:</b> после установки Docker Desktop можно сразу собирать образы из <a href="#dockerfile">Dockerfile</a>, поднимать стеки через <a href="#docker-compose">Docker Compose</a> и пушить образы в <a href="#dockerhub">Docker Hub</a>, не настраивая отдельно пакеты движка в системе.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Лицензирование">
+<p>Условия использования Docker Desktop для <b>крупных компаний</b> и <b>коммерческого</b> применения менялись со временем. Перед развёртыванием в организации стоит свериться с <b>текущей</b> лицензией и политикой на <a href="https://www.docker.com/" target="_blank" rel="noopener">официальном сайте Docker</a>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<ul>
+<li><a href="https://docs.docker.com/desktop/" target="_blank" rel="noopener">Docker Desktop — документация</a> (Eng)</li>
+</ul>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 5:end -->
+        <!-- Карточка входа в тест -->
+        <div class="quiz-entry" 
+             data-quiz-id="mlops:docker"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+      </ol>
+    </main>
+
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

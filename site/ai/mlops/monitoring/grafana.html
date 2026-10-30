@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grafana</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Monitoring</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Grafana</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Monitoring</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Grafana</h1>
+        <p class="section-shell__desc">Материалы по дашбордам и визуализации метрик.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="grafana_intro" data-interview="3" data-title-link="https://grafana.com/">
+  <div class="name" id="grafana_intro">
+    <a class="question-title-link" href="https://grafana.com/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое Grafana?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Grafana</b> — open-source платформа для визуализации и мониторинга метрик, логов и трейсов. Подключается к различным источникам данных (Prometheus, Loki, ClickHouse, Elasticsearch, PostgreSQL и десяткам других) и строит интерактивные дашборды.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Grafana — «стекло» над данными. Она сама не хранит метрики, а только визуализирует их из источников. Типичный стек:</p>
+
+</div>
+<div class="code-block" data-lang="text">Сервисы -&gt; Prometheus (хранение метрик) -&gt; Grafana (визуализация)
+Сервисы -&gt; Loki (хранение логов)       -&gt; Grafana (визуализация)
+Сервисы -&gt; Tempo (хранение трейсов)    -&gt; Grafana (визуализация)</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Весь этот стек (Prometheus + Loki + Tempo + Grafana) называется <b>Grafana OSS stack</b> или <b>PLG stack</b> (Prometheus, Loki, Grafana).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ML Engineer работает с Grafana как <b>потребитель и строитель дашбордов</b>:</p>
+<ul>
+<li><b>Мониторинг inference-сервисов</b> — latency, throughput, error rate в разбивке по моделям</li>
+<li><b>Мониторинг обучения</b> — GPU utilization, loss curve (если логируется в метрики), время эпох</li>
+<li><b>Дрейф данных</b> — распределение входящих признаков и предсказаний в динамике</li>
+<li><b>Качество модели</b> — A/B-метрики, точность на свежей разметке</li>
+<li><b>Feature pipeline</b> — consumer lag, задержка обновления признаков</li>
+<li><b>Батчевые пайплайны</b> — время выполнения, SLA, количество ошибок</li>
+<li><b>Бизнес-метрики</b> — CTR, конверсия, revenue per request — рядом с техническими</li>
+</ul>
+<p>Видеть всё это на одном дашборде помогает быстро находить деградацию модели и понимать её причины.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Data Sources">
+<p>Grafana умеет подключаться к множеству источников данных:</p>
+<table class="task-table">
+<thead><tr><th>Data Source</th><th>Что даёт</th></tr></thead>
+<tbody>
+<tr><td><b>Prometheus</b></td><td>Метрики сервисов, инфраструктуры, ML-пайплайнов</td></tr>
+<tr><td><b>Loki</b></td><td>Логи (структурированные и неструктурированные)</td></tr>
+<tr><td><b>ClickHouse</b></td><td>Аналитика, бизнес-метрики, events</td></tr>
+<tr><td><b>PostgreSQL / MySQL</b></td><td>Произвольные SQL-запросы к prod-данным</td></tr>
+<tr><td><b>Elasticsearch</b></td><td>Логи и полнотекстовый поиск</td></tr>
+<tr><td><b>Tempo / Jaeger</b></td><td>Distributed tracing</td></tr>
+<tr><td><b>AWS CloudWatch</b></td><td>Метрики и логи AWS-сервисов</td></tr>
+<tr><td><b>BigQuery</b></td><td>Аналитика в GCP</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://grafana.com/docs/grafana/latest/" target="_blank" rel="noopener">Grafana docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://play.grafana.org/" target="_blank" rel="noopener">Grafana Play</a></td><td>Интерактивная демо-среда Grafana с примерами дашбордов.</td></tr>
+<tr><td><a href="https://grafana.com/grafana/dashboards/" target="_blank" rel="noopener">Grafana dashboards community</a></td><td>Тысячи готовых дашбордов для импорта.</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=lILY8eSspEo" target="_blank" rel="noopener">Getting Started with Grafana (YouTube)</a></td><td>Вводное видео по Grafana.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Grafana и что она хранит?</b></p>
+<p>Grafana — инструмент визуализации. Она не хранит данные, а подключается к источникам (Prometheus, Loki и др.) и строит дашборды поверх них.</p>
+</li>
+<li><p><b>Что входит в стандартный OSS-стек мониторинга с Grafana?</b></p>
+<p>Prometheus (метрики) + Loki (логи) + Grafana (визуализация). Опционально Tempo или Jaeger для distributed tracing.</p>
+</li>
+<li><p><b>Какие дашборды нужны ML Engineer?</b></p>
+<p>Inference latency/throughput/errors, GPU utilization, Kafka consumer lag, распределение предсказаний для drift-мониторинга, A/B-метрики, бизнес-метрики.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="grafana_dashboards" data-interview="2">
+  <div class="name" id="grafana_dashboards">
+    Дашборды: структура и лучшие практики
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Dashboard</b> — набор панелей (panels), организованных по строкам (rows), отображающих метрики за выбранный временной диапазон. Дашборд сохраняется как JSON и может быть выгружен, импортирован и версионирован в Git.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Структура дашборда:</p>
+
+</div>
+<div class="code-block" data-lang="text">Dashboard
+├── Variables (переключатели: environment, model_name, region)
+├── Row: "Service Health"
+│   ├── Panel: RPS (time series)
+│   ├── Panel: Error rate % (time series)
+│   └── Panel: p95 Latency (time series)
+├── Row: "Model Quality"
+│   ├── Panel: Prediction score distribution (histogram)
+│   ├── Panel: Drift score (gauge)
+│   └── Panel: A/B CTR (bar chart)
+└── Row: "Infrastructure"
+    ├── Panel: GPU utilization (time series)
+    └── Panel: Consumer lag (time series)</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Типы панелей:</b></p>
+<table class="task-table">
+<thead><tr><th>Панель</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td><b>Time series</b></td><td>Метрики во времени (latency, RPS, lag)</td></tr>
+<tr><td><b>Stat / Big number</b></td><td>Одно текущее значение (uptime, error count)</td></tr>
+<tr><td><b>Gauge</b></td><td>Значение на шкале (GPU utilization %, error rate %)</td></tr>
+<tr><td><b>Bar chart</b></td><td>Сравнение по категориям (модели, регионы)</td></tr>
+<tr><td><b>Histogram</b></td><td>Распределение (score distribution)</td></tr>
+<tr><td><b>Table</b></td><td>Табличные данные (топ медленных запросов)</td></tr>
+<tr><td><b>Heatmap</b></td><td>Распределение по времени (request latency heatmap)</td></tr>
+<tr><td><b>Logs</b></td><td>Строки логов из Loki</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Структура ML-дашборда">
+<p>Хорошая практика — один дашборд на «область ответственности»:</p>
+<table class="task-table">
+<thead><tr><th>Дашборд</th><th>Аудитория</th><th>Содержимое</th></tr></thead>
+<tbody>
+<tr><td><b>Inference SLO</b></td><td>ML + SRE</td><td>RPS, latency p50/p95/p99, error rate, uptime</td></tr>
+<tr><td><b>Model Health</b></td><td>ML Engineer</td><td>Score distribution, drift score, prediction volume</td></tr>
+<tr><td><b>Feature Pipeline</b></td><td>ML + Data Eng</td><td>Consumer lag, признаки freshness, ошибки pipeline</td></tr>
+<tr><td><b>Training Jobs</b></td><td>ML Engineer</td><td>GPU util, epoch time, loss (если в метриках)</td></tr>
+<tr><td><b>A/B Experiments</b></td><td>ML + Product</td><td>CTR, conversion, revenue по группам</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Как создать дашборд из готового шаблона">
+<ol>
+<li>Открыть <a href="https://grafana.com/grafana/dashboards" target="_blank" rel="noopener">grafana.com/grafana/dashboards</a></li>
+<li>Найти нужный дашборд (например, <code>Node Exporter Full</code>, ID: 1860)</li>
+<li>В Grafana: <b>Dashboards $\to$ Import $\to$ Dashboard ID</b></li>
+<li>Указать Prometheus data source</li>
+</ol>
+<p>Популярные ID для ML/MLOps:</p>
+<table class="task-table">
+<thead><tr><th>ID</th><th>Название</th></tr></thead>
+<tbody>
+<tr><td>1860</td><td>Node Exporter Full</td></tr>
+<tr><td>7589</td><td>Kafka Overview</td></tr>
+<tr><td>9628</td><td>PostgreSQL Database</td></tr>
+<tr><td>14282</td><td>NVIDIA GPU</td></tr>
+<tr><td>3662</td><td>Prometheus 2.0 Overview</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Дашборды в Git">
+<p>Дашборды хранятся как JSON и должны быть в Git:</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Экспорт через Grafana API
+curl -H "Authorization: Bearer $GRAFANA_TOKEN" \
+  http://grafana:3000/api/dashboards/uid/inference-slo \
+  | jq '.dashboard' &gt; dashboards/inference-slo.json</div>
+<div class="info-card-auto" data-type="remark" data-title="Дашборды в Git">
+<p>Grafana поддерживает <b>provisioning</b>: при старте автоматически загружает дашборды из папки — удобно для GitOps.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое row в Grafana-дашборде и зачем он нужен?</b></p>
+<p>Row — строка-группировщик для панелей. Позволяет логически разделить дашборд по областям (Service Health, Model Quality, Infrastructure) и сворачивать разделы.</p>
+</li>
+<li><p><b>Почему дашборды нужно хранить в Git?</b></p>
+<p>Чтобы версионировать изменения, делать code review, восстанавливать дашборды после пересоздания Grafana и применять их через provisioning в GitOps-стиле.</p>
+</li>
+<li><p><b>Какой тип панели выбрать для мониторинга распределения предсказаний?</b></p>
+<p>Histogram panel — показывает распределение значений. Для дрейф-мониторинга важно видеть форму распределения score, а не только среднее.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="grafana_panels_promql" data-interview="1">
+  <div class="name" id="grafana_panels_promql">
+    Построение панелей: PromQL в Grafana
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В Grafana каждая панель содержит один или несколько <b>запросов</b> к data source. Для Prometheus это PromQL-запросы. Grafana автоматически подставляет временной диапазон (<code>$__range</code>) и интервал (<code>$__rate_interval</code>).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Особенности PromQL в Grafana">
+<p><b><code>$__rate_interval</code></b> — специальная переменная Grafana: автоматически выбирает правильный интервал для <code>rate()</code> в зависимости от zoom уровня. Всегда используйте её вместо фиксированного <code>[5m]</code>:</p>
+
+</div>
+<div class="code-block" data-lang="promql">rate(inference_requests_total[$__rate_interval])</div>
+<div class="info-card-auto" data-type="remark" data-title="Особенности PromQL в Grafana">
+<p><b><code>$__range</code></b> — текущий временной диапазон дашборда (например, <code>6h</code>). Удобен для <code>increase()</code>:</p>
+
+</div>
+<div class="code-block" data-lang="promql">increase(inference_requests_total[$__range])</div>
+<div class="info-card-auto" data-type="remark" data-title="Особенности PromQL в Grafana">
+<p><b>Legend format</b> — шаблон легенды: <code>{{model_name}} {{status}}</code> автоматически заполняется значениями labels.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Панели для Inference SLO дашборда">
+<p><b>RPS (запросов в секунду):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql"># Query A
+sum by (model_name) (
+  rate(inference_requests_total[$__rate_interval])
+)
+# Legend: {{model_name}}
+# Visualization: Time series</div>
+<div class="info-card-auto" data-type="example" data-title="Панели для Inference SLO дашборда">
+<p><b>Error rate (%):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql"># Query A
+100 * sum by (model_name) (
+  rate(inference_requests_total{status="error"}[$__rate_interval])
+) / sum by (model_name) (
+  rate(inference_requests_total[$__rate_interval])
+)
+# Thresholds: 1% = yellow, 5% = red
+# Visualization: Time series</div>
+<div class="info-card-auto" data-type="example" data-title="Панели для Inference SLO дашборда">
+<p><b>Latency p50 / p95 / p99 (3 запроса на одной панели):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql"># Query A — p50
+histogram_quantile(0.50, sum by (model_name, le) (
+  rate(inference_latency_seconds_bucket[$__rate_interval])
+))
+
+# Query B — p95
+histogram_quantile(0.95, sum by (model_name, le) (
+  rate(inference_latency_seconds_bucket[$__rate_interval])
+))
+
+# Query C — p99
+histogram_quantile(0.99, sum by (model_name, le) (
+  rate(inference_latency_seconds_bucket[$__rate_interval])
+))
+# Legend: p{{quantile}} {{model_name}}
+# Unit: seconds</div>
+<div class="info-card-auto" data-type="example" data-title="Панели для Inference SLO дашборда">
+<p><b>GPU utilization (время обучения):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">avg by (gpu, instance) (
+  nvidia_gpu_duty_cycle
+)
+# Unit: percent (0-100)
+# Thresholds: &lt; 50% = yellow (GPU простаивает)</div>
+<div class="info-card-auto" data-type="example" data-title="Панели для Inference SLO дашборда">
+<p><b>Распределение предсказаний (дрейф-мониторинг):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">sum by (le) (
+  rate(inference_prediction_score_bucket[$__rate_interval])
+)
+# Visualization: Heatmap (ось Y = бакеты, цвет = плотность)</div>
+<div class="info-card-auto" data-type="remark" data-title="Форматирование значений">
+<p>Grafana умеет автоматически форматировать числа — выбирается в поле <b>Unit</b> панели:</p>
+<table class="task-table">
+<thead><tr><th>Unit</th><th>Применение</th></tr></thead>
+<tbody>
+<tr><td><code>seconds</code></td><td>latency (показывает ms/µs автоматически)</td></tr>
+<tr><td><code>percent (0-100)</code></td><td>utilization, error rate</td></tr>
+<tr><td><code>short</code></td><td>RPS, lag</td></tr>
+<tr><td><code>bytes</code></td><td>memory, disk</td></tr>
+<tr><td><code>reqps</code></td><td>requests per second</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему в Grafana для <code>rate()</code> нужно использовать <code>$__rate_interval</code> вместо фиксированного <code>[5m]</code>?</b></p>
+<p><code>$__rate_interval</code> автоматически масштабируется под текущий zoom дашборда. Фиксированный <code>[5m]</code> может давать неверные результаты при просмотре данных за часы или дни.</p>
+</li>
+<li><p><b>Как на одной панели показать p50, p95 и p99 latency?</b></p>
+<p>Добавить три запроса A/B/C с <code>histogram_quantile(0.50/0.95/0.99, ...)</code>, настроить <code>Legend format</code> для каждого.</p>
+</li>
+<li><p><b>Какая визуализация подходит для мониторинга дрейфа распределения предсказаний?</b></p>
+<p>Heatmap — ось Y это бакеты Histogram, цвет = плотность. Позволяет визуально заметить сдвиг распределения предсказаний во времени.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="grafana_variables" data-interview="1">
+  <div class="name" id="grafana_variables">
+    Template Variables: многоуровневые дашборды
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Template Variables</b> — переменные в Grafana, которые позволяют динамически менять параметры запросов через dropdown-меню вверху дашборда. Переменная подставляется в PromQL-запросы как <code>$variable_name</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Без переменных нужен отдельный дашборд для каждой модели, окружения или региона. С переменными один дашборд работает для всех:</p>
+
+</div>
+<div class="code-block" data-lang="text">┌──────────────────────────────────────────────────────┐
+│  environment: [production ▼]  model: [recommender ▼] │
+├──────────────────────────────────────────────────────┤
+│  RPS for recommender in production...                │
+│  p95 latency for recommender in production...        │
+└──────────────────────────────────────────────────────┘</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Типы переменных:</p>
+<table class="task-table">
+<thead><tr><th>Тип</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><b>Query</b></td><td>Значения берутся из Prometheus (label values)</td></tr>
+<tr><td><b>Custom</b></td><td>Фиксированный список значений</td></tr>
+<tr><td><b>Constant</b></td><td>Одно фиксированное значение (datasource URL, prefix)</td></tr>
+<tr><td><b>Interval</b></td><td>Временной интервал ($__auto_interval)</td></tr>
+<tr><td><b>Data source</b></td><td>Выбор data source из списка</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Настройка переменных для ML-дашборда">
+<p><b>Переменная <code>environment</code></b> (из Prometheus label):</p>
+
+</div>
+<div class="code-block" data-lang="text">Type: Query
+Data source: Prometheus
+Query: label_values(inference_requests_total, environment)
+Refresh: On dashboard load
+Multi-value: false
+Include All: false</div>
+<div class="info-card-auto" data-type="example" data-title="Настройка переменных для ML-дашборда">
+<p><b>Переменная <code>model_name</code></b> (зависит от <code>environment</code>):</p>
+
+</div>
+<div class="code-block" data-lang="text">Type: Query
+Query: label_values(inference_requests_total{environment="$environment"}, model_name)
+Refresh: On time range change
+Multi-value: true   ← можно выбрать несколько моделей
+Include All: true   ← опция "All models"</div>
+<div class="info-card-auto" data-type="example" data-title="Настройка переменных для ML-дашборда">
+<p>Использование в PromQL:</p>
+
+</div>
+<div class="code-block" data-lang="promql">sum by (model_name) (
+  rate(inference_requests_total{
+    environment="$environment",
+    model_name=~"$model_name"    ← =~ для multi-value (regex)
+  }[$__rate_interval])
+)</div>
+<div class="info-card-auto" data-type="remark" data-title="Практичные переменные для ML-дашбордов">
+<table class="task-table">
+<thead><tr><th>Переменная</th><th>Label</th><th>Зачем</th></tr></thead>
+<tbody>
+<tr><td><code>$environment</code></td><td>environment</td><td>production / staging / canary</td></tr>
+<tr><td><code>$model_name</code></td><td>model_name</td><td>версии и типы моделей</td></tr>
+<tr><td><code>$region</code></td><td>region</td><td>мультирегиональный деплой</td></tr>
+<tr><td><code>$instance</code></td><td>instance</td><td>конкретный pod / сервер</td></tr>
+<tr><td><code>$interval</code></td><td>—</td><td>Interval variable для агрегации</td></tr>
+</tbody>
+</table><p><b>Interval variable</b> — позволяет переключать шаг агрегации (1m / 5m / 1h):</p>
+
+</div>
+<div class="code-block" data-lang="text">Type: Interval
+Values: 1m,5m,15m,1h,6h,1d
+Auto option: on</div>
+<div class="info-card-auto" data-type="remark" data-title="Практичные переменные для ML-дашбордов">
+<p>Использование в запросе:</p>
+
+</div>
+<div class="code-block" data-lang="promql">avg_over_time(inference_latency_p95[$__rate_interval])</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужны template variables в дашборде?</b></p>
+<p>Чтобы один дашборд работал для любой комбинации environment, модели, региона — через dropdown вместо дублирования дашбордов.</p>
+</li>
+<li><p><b>Как использовать multi-value переменную в PromQL?</b></p>
+<p>С оператором regex match <code>=~</code>: <code>{model_name=~&quot;$model_name&quot;}</code>. При выборе нескольких значений Grafana автоматически формирует <code>model_name=~&quot;v1|v2|v3&quot;</code>.</p>
+</li>
+<li><p><b>Что делает параметр <code>Refresh: On dashboard load</code> у переменной?</b></p>
+<p>Grafana обновляет список значений из Prometheus при каждой загрузке дашборда. Это важно для переменных типа model_name — когда деплоится новая модель, она сразу появляется в dropdown.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="grafana_alerts" data-badge-type="additional" data-interview="2">
+  <div class="name" id="grafana_alerts">
+    Алертинг в Grafana
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Grafana Alerting</b> (Unified Alerting, начиная с Grafana 8+) — встроенная система алертинга, которая работает параллельно с Prometheus Alerting Rules. Grafana сама evaluates PromQL-правила и отправляет уведомления через Contact Points (Slack, PagerDuty, email и др.).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Grafana Alerting vs Prometheus AlertManager:</b></p>
+<table class="task-table">
+<thead><tr><th></th><th>Prometheus Alerting Rules</th><th>Grafana Alerting</th></tr></thead>
+<tbody>
+<tr><td><b>Где живут правила</b></td><td><code>alerts/*.yml</code> в Prometheus</td><td>Grafana UI / provisioning</td></tr>
+<tr><td><b>Источники данных</b></td><td>Только Prometheus</td><td>Prometheus, Loki, ClickHouse, SQL, ...</td></tr>
+<tr><td><b>Визуализация</b></td><td>Нет</td><td>Прямо на дашборде</td></tr>
+<tr><td><b>Силencing / routing</b></td><td>AlertManager</td><td>Grafana Alerting</td></tr>
+<tr><td><b>GitOps</b></td><td>Лучше</td><td>Через provisioning</td></tr>
+</tbody>
+</table><p>Для ML-команд удобно, когда алерт видно прямо на дашборде в виде аннотации — сразу понятно, при каком значении метрики он сработал.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Alerting Rule через Grafana UI">
+<p>Пример: алерт на высокий p95 latency inference-сервиса.</p>
+<p><b>Alert rule:</b></p>
+
+</div>
+<div class="code-block" data-lang="yaml"># Grafana provisioning: alerts/inference.yaml
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: "ML Inference Alerts"
+    folder: "ML Monitoring"
+    interval: 1m
+    rules:
+      - uid: inference-latency-high
+        title: "Inference p95 Latency High"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: |
+                histogram_quantile(0.95,
+                  sum by (model_name, le)(
+                    rate(inference_latency_seconds_bucket[5m])
+                  )
+                )
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.5]      # &gt; 500ms
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency &gt; 500ms для {{ $labels.model_name }}"</div>
+<div class="info-card-auto" data-type="remark" data-title="Contact Points и Notification Policies">
+<p><b>Contact Point</b> — куда отправлять (Slack, PagerDuty, Telegram, email).</p>
+<p><b>Notification Policy</b> — правила маршрутизации: какие алерты куда идут.</p>
+
+</div>
+<div class="code-block" data-lang="text">Default policy -&gt; slack-ml-team
+  ├── severity=critical -&gt; pagerduty-oncall
+  └── team=ml           -&gt; slack-ml-alerts</div>
+<div class="info-card-auto" data-type="remark" data-title="Contact Points и Notification Policies">
+<p>Grafana поддерживает <b>silences</b> — временное отключение алертов (например, во время планового maintenance или A/B-эксперимента, который намеренно меняет метрики).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Аннотации на дашборде">
+<p>Алерты Grafana можно показывать как <b>аннотации</b> на time series панелях — вертикальная полоса в момент срабатывания. Это мощный инструмент для root cause analysis: видно, что именно произошло с метрикой при алерте.</p>
+<p>Настройка: панель $\to$ <b>Alert</b> tab $\to$ включить аннотации.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://grafana.com/docs/grafana/latest/alerting/" target="_blank" rel="noopener">Grafana Alerting docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/" target="_blank" rel="noopener">Grafana Alerting provisioning</a></td><td>Алертинг через файлы (GitOps).</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>В чём преимущество Grafana Alerting перед Prometheus Alerting Rules?</b></p>
+<p>Grafana Alerting работает с любыми data sources (не только Prometheus), алерты видны прямо на дашборде как аннотации, и логика routing/silencing встроена без отдельного AlertManager.</p>
+</li>
+<li><p><b>Когда лучше использовать Prometheus Alerting Rules?</b></p>
+<p>Когда важна GitOps-чистота (YAML в репозитории), все данные только в Prometheus, и уже используется AlertManager для routing. Для Kubernetes-среды это часто предпочтительнее.</p>
+</li>
+<li><p><b>Что такое silence и когда его применяют?</b></p>
+<p>Временное отключение алертов по условию (label match). Применяется при плановом maintenance, деплое новой версии модели, или намеренном A/B-эксперименте, который меняет метрики.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="grafana_loki" data-badge-type="additional" data-interview="2">
+  <div class="name" id="grafana_loki">
+    Loki: логи в Grafana
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Grafana Loki</b> — система агрегации логов, оптимизированная для работы с Grafana. В отличие от Elasticsearch, Loki не индексирует содержимое логов — только метаданные (labels). Это делает его дешевле в хранении, но быстрее при поиске по labels.</p>
+<p>Язык запросов — <b>LogQL</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Архитектура PLG-стека с Loki:</p>
+
+</div>
+<div class="code-block" data-lang="text">Сервис пишет логи в stdout/stderr
+        ↓
+Promtail / Grafana Alloy (агент)
+  читает логи, добавляет labels, отправляет в Loki
+        ↓
+Loki (хранение логов с индексом по labels)
+        ↓
+Grafana (панели с логами, корреляция с метриками)</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Loki vs Elasticsearch:</b></p>
+<table class="task-table">
+<thead><tr><th></th><th>Loki</th><th>Elasticsearch</th></tr></thead>
+<tbody>
+<tr><td><b>Индексирование</b></td><td>Только labels</td><td>Полный текст</td></tr>
+<tr><td><b>Стоимость хранения</b></td><td>Низкая</td><td>Высокая</td></tr>
+<tr><td><b>Поиск по тексту</b></td><td>Медленнее (grep по сжатым чанкам)</td><td>Быстрее</td></tr>
+<tr><td><b>Интеграция с Grafana</b></td><td>Нативная</td><td>Через plugin</td></tr>
+<tr><td><b>Типичное применение</b></td><td>Cloud-native, Kubernetes</td><td>Большие объёмы, full-text</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="LogQL — язык запросов Loki">
+<p><b>Базовый синтаксис:</b> <code>{selector} |= &quot;filter&quot; | parser | метрика</code></p>
+
+</div>
+<div class="code-block" data-lang="logql"># Все логи inference-сервиса с ошибками
+{job="inference-service", environment="production"} |= "ERROR"
+
+# Логи с парсингом JSON и фильтром по полю
+{job="inference-service"} | json | model_name="recommender_v3" | duration &gt; 500ms
+
+# Количество ошибок в минуту (метрика из логов)
+sum by (model_name) (
+  rate({job="inference-service"} |= "ERROR" | json | __error__="" [1m])
+)</div><h3>Promtail-конфигурация для ML-сервисов</h3>
+<div class="code-block" data-lang="yaml"># promtail.yml
+server:
+  http_listen_port: 9080
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: inference-service
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: inference-service
+          environment: production
+          __path__: /var/log/inference/*.log
+
+  - job_name: feature-pipeline
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: feature-pipeline
+          __path__: /var/log/pipeline/*.log
+
+  # Kubernetes pods
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            model_name: model_name
+            latency_ms: latency_ms
+      - labels:
+          level:
+          model_name:</div>
+<div class="info-card-auto" data-type="remark" data-title="Корреляция метрик и логов в Grafana">
+<p>Самая мощная возможность Loki в Grafana — <b>переход от метрики к логу</b> в один клик. При высоком p95 latency на Prometheus-панели можно открыть логи inference-сервиса за тот же период прямо в Grafana через <b>Explore</b> или <b>Logs panel</b>.</p>
+<p>Настраивается через <b>Data Links</b> в панели:</p>
+
+</div>
+<div class="code-block" data-lang="text">Title: View logs
+URL: /explore?datasource=loki&amp;queries=[{...filters from labels...}]</div><h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://grafana.com/docs/loki/latest/" target="_blank" rel="noopener">Grafana Loki docs</a></td><td>Официальная документация Loki.</td></tr>
+<tr><td><a href="https://grafana.com/docs/loki/latest/query/" target="_blank" rel="noopener">LogQL docs</a></td><td>Полный справочник LogQL.</td></tr>
+<tr><td><a href="https://grafana.com/docs/loki/latest/best-practices/" target="_blank" rel="noopener">Loki Best Practices</a></td><td>Рекомендации по labels и производительности.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Loki отличается от Elasticsearch в подходе к индексированию?</b></p>
+<p>Loki индексирует только labels (метаданные), а не содержимое логов. Это дешевле по хранению и памяти, но поиск по тексту медленнее — Loki грепает по сжатым чанкам.</p>
+</li>
+<li><p><b>Что такое LogQL и как он связан с PromQL?</b></p>
+<p>LogQL — язык запросов Loki, синтаксически похожий на PromQL. Позволяет фильтровать логи по labels и тексту, а также строить метрики из логов (rate ошибок, count событий).</p>
+</li>
+<li><p><b>Как использовать Loki совместно с Prometheus в Grafana?</b></p>
+<p>Панели с метриками (Prometheus) и логами (Loki) живут на одном дашборде. Через Data Links можно переходить от всплеска метрики прямо к логам за тот же промежуток — это ускоряет root cause analysis.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

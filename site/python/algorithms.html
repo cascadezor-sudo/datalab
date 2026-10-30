@@ -1,0 +1,1366 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Python Algorithms</title>
+
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/quiz.css" rel="stylesheet">
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/runnable-code-block.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/gamification.js"></script>
+    <script src="../assets/js/components/quiz.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Algorithms</span>
+            <span class="pill pill--soft">Python</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Python Algorithms</h1>
+          <p class="section-shell__desc">Алгоритмическая база для Python: FLOPS, сложность, память и основные подходы к задачам.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 15</h3>
+<li class="question" data-md-source="true" data-md-id="flops-terminology" data-interview="4">
+  <div class="name" id="flops-terminology">
+    FLOPS: терминология
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>FLOP</b> (<em>floating-point operation</em>) — одна операция над числами с плавающей точкой: сложение, умножение, деление, иногда fused multiply-add считают как две операции.</p>
+<p><b>FLOPS</b> (<em>floating-point operations per second</em>) — скорость выполнения таких операций в секунду. Например, $10^9$ FLOPS = $1$ GFLOPS.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Важное различие">
+<ul>
+<li><b>FLOP</b> — количество операций: «модель требует $2\cdot10^9$ FLOP на один forward pass».</li>
+<li><b>FLOPS</b> — производительность железа или фактический throughput: «ускоритель выдает $40$ TFLOPS».</li>
+<li><b>MAC</b> (<em>multiply-accumulate</em>) — операция вида $a\cdot b + c$; в ML часто считают $1$ MAC как $2$ FLOP.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Где это встречается">
+<p>FLOP/FLOPS полезны, когда нужно оценить вычислительную стоимость линейной алгебры, нейросетей и численных методов. Например, умножение матриц размера $n\times n$ классическим способом требует порядка $2n^3$ FLOP: для каждого элемента результата считаем $n$ умножений и примерно $n$ сложений.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ограничения метрики">
+<p>FLOPS не равны реальному времени работы программы. На практике влияют доступ к памяти, кэш, векторизация, Python-overhead, параллелизм, тип данных (<code>float32</code>, <code>float64</code>, <code>int8</code>) и эффективность конкретной реализации. Поэтому FLOPS — хорошая грубая оценка вычислений, но не полная модель производительности.</p>
+
+</div>
+<div class="code-block" data-lang="python">def dot(x, y):
+    total = 0.0
+    for a, b in zip(x, y):
+        total += a * b
+    return total</div>
+<div class="info-card-auto" data-type="explanation" data-title="Оценка примера">
+<p>Для векторов длины $n$ в коде выше выполняется $n$ умножений и $n$ сложений, то есть примерно $2n$ FLOP. Но в чистом Python реальное время часто будет ограничено интерпретатором, а не скоростью арифметики процессора.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем FLOP отличается от FLOPS?</b></p>
+<p>FLOP — количество операций с плавающей точкой. FLOPS — скорость выполнения таких операций в секунду.</p>
+</li>
+<li><p><b>Что такое MAC и как его часто переводят в FLOP?</b></p>
+<p>MAC — операция multiply-accumulate: умножить и прибавить. В ML её часто считают как $2$ FLOP.</p>
+</li>
+<li><p><b>Почему высокий FLOPS не гарантирует быстрый Python-код?</b></p>
+<p>Потому что время может упираться в интерпретатор, память, кэш, передачу данных и неэффективную реализацию, а не только в арифметические операции.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="algorithmic-complexity-memory" data-interview="5" data-title-link="/python/advanced.html#complexity">
+  <div class="name" id="algorithmic-complexity-memory">
+    <a class="question-title-link" href="../python/advanced.html#complexity" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Алгоритмическая сложность и сложность по памяти<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Временная сложность</b> оценивает, как растет число шагов алгоритма при увеличении размера входа $n$.</p>
+<p><b>Сложность по памяти</b> оценивает, сколько дополнительной памяти нужно алгоритму при росте $n$: массивы, хеш-таблицы, очереди, стек рекурсии, копии данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Связь с Big-O">
+<p>Подробная нотация $\mathcal{O}(\cdot)$ уже разобрана на странице <a href="../python/advanced.html#complexity">Python Advanced: алгоритмическая сложность</a>. Здесь важно применять её сразу в двух измерениях: время и память. Например, алгоритм может работать за $\mathcal{O}(n)$ времени и требовать $\mathcal{O}(1)$ дополнительной памяти, а может работать за $\mathcal{O}(n)$ времени и хранить $\mathcal{O}(n)$ промежуточных данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: сумма без копии">
+<p>Код ниже проходит вход один раз и не создает дополнительных коллекций.</p>
+
+</div>
+<div class="code-block" data-lang="python">def total(values):
+    result = 0
+    for x in values:
+        result += x
+    return result</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, потому что проходим все элементы. Дополнительная память: $\mathcal{O}(1)$, потому что храним только <code>result</code> и текущий элемент.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: множество для быстрого поиска">
+<p>Здесь память покупает быстрый поиск: уже встреченные элементы складываются в <code>set</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def has_duplicate(values):
+    seen = set()
+    for x in values:
+        if x in seen:
+            return True
+        seen.add(x)
+    return False</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Среднее время: $\mathcal{O}(n)$, потому что операции с <code>set</code> в среднем константные. Дополнительная память: $\mathcal{O}(n)$, потому что в худшем случае храним все элементы.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Типичные ошибки">
+<ul>
+<li>Оценивать только время и забывать, что <code>set</code>, <code>dict</code>, копии списков и срезы требуют памяти.</li>
+<li>Считать рекурсивный алгоритм $\mathcal{O}(1)$ по памяти, хотя стек вызовов может быть $\mathcal{O}(h)$, где $h$ — глубина рекурсии.</li>
+<li>Путать размер входа: для графа сложность часто выражают через $V$ вершин и $E$ ребер, например $\mathcal{O}(V + E)$.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что оценивает временная сложность?</b></p>
+<p>Как растет количество шагов алгоритма при увеличении размера входа.</p>
+</li>
+<li><p><b>Что входит в сложность по памяти?</b></p>
+<p>Дополнительные структуры данных, копии, очереди, хеш-таблицы и стек рекурсии, которые нужны алгоритму помимо входных данных.</p>
+</li>
+<li><p><b>Почему <code>set</code> может ускорить алгоритм, но увеличить память?</b></p>
+<p>Поиск в <code>set</code> в среднем $\mathcal{O}(1)$, но для этого нужно хранить элементы в хеш-таблице, что дает $\mathcal{O}(n)$ дополнительной памяти.</p>
+</li>
+<li><p><b>Где подробнее разобрана нотация $\mathcal{O}(\cdot)$?</b></p>
+<p>На странице <a href="../python/advanced.html#complexity">Python Advanced: алгоритмическая сложность</a>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="algorithmic-approaches" data-interview="5" data-title-link="/ai/interviews/algo-tasks.html">
+  <div class="name" id="algorithmic-approaches">
+    <a class="question-title-link" href="../ai/interviews/algo-tasks.html" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Основные алгоритмические подходы<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Алгоритмический подход</b> — типовой способ разложить задачу на шаги. На собеседованиях чаще проверяют не знание редкого алгоритма, а умение выбрать подход: пройти массив одним указателем, использовать хеш-таблицу, отсортировать, применить два указателя, BFS/DFS или динамическое программирование.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Базовый набор подходов">
+<table class="task-table">
+<thead><tr><th>Подход</th><th>Когда использовать</th><th>Типичная сложность</th></tr></thead>
+<tbody>
+<tr><td>Один проход</td><td>Подсчеты, максимум/минимум, проверка условия</td><td>$\mathcal{O}(n)$</td></tr>
+<tr><td>Хеш-таблица (<code>dict</code>, <code>set</code>)</td><td>Быстрый поиск, частоты, дедупликация</td><td>$\mathcal{O}(n)$ время, $\mathcal{O}(n)$ память</td></tr>
+<tr><td>Сортировка</td><td>Нужно упорядочить, сгруппировать, упростить сравнения</td><td>$\mathcal{O}(n\log n)$</td></tr>
+<tr><td>Два указателя</td><td>Отсортированный массив, подотрезки, пары</td><td>$\mathcal{O}(n)$ после сортировки или без неё</td></tr>
+<tr><td>Скользящее окно</td><td>Непрерывные подмассивы/подстроки</td><td>$\mathcal{O}(n)$</td></tr>
+<tr><td>Стек/очередь</td><td>Скобки, монотонность, BFS</td><td>$\mathcal{O}(n)$</td></tr>
+<tr><td>DFS/BFS</td><td>Графы, деревья, компоненты связности</td><td>$\mathcal{O}(V + E)$</td></tr>
+<tr><td>Динамическое программирование</td><td>Оптимум по подзадачам, количество способов</td><td>Зависит от числа состояний</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как выбирать подход">
+<ol>
+<li>Сначала уточни размер входа и требуемые ограничения: $n=10^3$ и $n=10^6$ ведут к разным решениям.</li>
+<li>Выпиши наивное решение и его сложность.</li>
+<li>Найди, что повторяется: поиск, пересчет, сравнение всех со всеми, обход графа, выбор оптимума.</li>
+<li>Подбери структуру данных или паттерн, который убирает лишнюю работу.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: &lt;code&gt;Two Sum&lt;/code&gt;">
+<p>Наивное решение проверяет все пары и работает за $\mathcal{O}(n^2)$. Если хранить уже увиденные числа в <code>dict</code>, то для каждого <code>x</code> можно за $\mathcal{O}(1)$ проверить, встречалось ли <code>target - x</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def two_sum(nums, target):
+    seen = {}
+    for i, x in enumerate(nums):
+        need = target - x
+        if need in seen:
+            return seen[need], i
+        seen[x] = i
+    return None</div>
+<div class="info-card-auto" data-type="remark" data-title="Практика">
+<p>Разборы алгоритмических задач с собеседований собраны на странице <a href="../ai/interviews/algo-tasks.html">interviews/algo-tasks.html</a>. Эту страницу удобно использовать после теории: сначала классифицировать задачу по подходу, затем смотреть решение.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные материалы">
+<ul>
+<li><a href="https://neetcode.io/">NeetCode</a> — структурированная карта паттернов и задач LeetCode.</li>
+<li><a href="https://www.youtube.com/@NeetCode/videos">NeetCode YouTube</a> — видеоразборы задач с LeetCode.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие подходы стоит узнавать первыми?</b></p>
+<p>Один проход, хеш-таблица, сортировка, два указателя, скользящее окно, стек/очередь, DFS/BFS и динамическое программирование.</p>
+</li>
+<li><p><b>Почему хеш-таблица часто улучшает решение?</b></p>
+<p>Она заменяет линейный поиск на средний $\mathcal{O}(1)$ lookup, но обычно требует $\mathcal{O}(n)$ дополнительной памяти.</p>
+</li>
+<li><p><b>Когда стоит думать про DFS или BFS?</b></p>
+<p>Когда задача описывает граф, дерево, зависимости, достижимость, компоненты связности или поиск кратчайшего пути в невзвешенном графе.</p>
+</li>
+<li><p><b>Где смотреть практические разборы задач?</b></p>
+<p>На странице <a href="../ai/interviews/algo-tasks.html">interviews/algo-tasks.html</a>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="single-pass" data-interview="4">
+  <div class="name" id="single-pass">
+    Один проход
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Один проход</b> — подход, при котором алгоритм читает вход слева направо один раз и поддерживает небольшое состояние: счетчик, сумму, максимум, минимум, флаг, текущий ответ или несколько агрегатов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Нужно посчитать количество элементов с условием.</li>
+<li>Нужно найти максимум, минимум, сумму, среднее, первый подходящий элемент.</li>
+<li>Нужно проверить, выполняется ли условие для всех или хотя бы одного элемента.</li>
+<li>Ответ можно обновлять локально, без возврата к прошлым элементам.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: максимум и его индекс">
+<p>Код хранит только текущий лучший индекс и значение.</p>
+
+</div>
+<div class="code-block" data-lang="python">def max_with_index(values):
+    if not values:
+        return None
+
+    best_i = 0
+    best_value = values[0]
+
+    for i, value in enumerate(values[1:], start=1):
+        if value &gt; best_value:
+            best_i = i
+            best_value = value
+
+    return best_i, best_value</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как думать">
+<p>Главный вопрос: «какую минимальную информацию из пройденной части нужно сохранить, чтобы обработать следующий элемент?» Если ответ — несколько переменных, скорее всего подходит один проход. Например, для максимума достаточно текущего лучшего значения; для проверки возрастающей последовательности достаточно предыдущего элемента.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: проверка монотонности">
+<p>Код сравнивает каждый элемент с предыдущим и останавливается при первом нарушении.</p>
+
+</div>
+<div class="code-block" data-lang="python">def is_non_decreasing(values):
+    for prev, current in zip(values, values[1:]):
+        if current &lt; prev:
+            return False
+    return True</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$, но срез <code>values[1:]</code> создает копию для списка. Для больших входов лучше идти по индексам или через итератор.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Срезы вроде <code>values[1:]</code> могут добавлять $\mathcal{O}(n)$ памяти.</li>
+<li>Если для каждого элемента внутри прохода запускается поиск по списку, реальная сложность может стать $\mathcal{O}(n^2)$.</li>
+<li>Один проход не подходит, если решение требует видеть будущие элементы без дополнительной структуры данных.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое подход «один проход»?</b></p>
+<p>Это обработка входа за один линейный проход с поддержанием небольшого состояния.</p>
+</li>
+<li><p><b>Какая типичная сложность у одного прохода?</b></p>
+<p>Время $\mathcal{O}(n)$, дополнительная память обычно $\mathcal{O}(1)$.</p>
+</li>
+<li><p><b>Как понять, что подход подходит?</b></p>
+<p>Если для ответа достаточно обновлять несколько переменных при чтении очередного элемента.</p>
+</li>
+<li><p><b>Какая частая ошибка ломает оценку памяти?</b></p>
+<p>Использовать срезы или копии данных там, где можно обойтись индексами или итератором.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="hash-table" data-interview="5">
+  <div class="name" id="hash-table">
+    Хеш-таблица: dict и set
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Хеш-таблица</b> — структура данных для быстрого поиска по ключу. В Python основные реализации — <code>dict</code> для пар ключ-значение и <code>set</code> для множества уникальных ключей.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Нужно быстро проверять, встречался ли элемент раньше.</li>
+<li>Нужно считать частоты элементов.</li>
+<li>Нужно убрать дубликаты.</li>
+<li>Нужно заменить вложенный цикл «найти пару/дополнение» на lookup.</li>
+<li>Нужно сгруппировать элементы по ключу.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: частоты">
+<p><code>dict</code> связывает элемент с количеством его появлений.</p>
+
+</div>
+<div class="code-block" data-lang="python">def frequencies(values):
+    counts = {}
+    for x in values:
+        counts[x] = counts.get(x, 0) + 1
+    return counts</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Среднее время: $\mathcal{O}(n)$, память: $\mathcal{O}(k)$, где $k$ — число разных элементов. В худшем случае $k=n$.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: пересечение без вложенного цикла">
+<p><code>set(a)</code> заменяет линейный поиск по <code>a</code> на быстрый lookup.</p>
+
+</div>
+<div class="code-block" data-lang="python">def intersection(a, b):
+    seen = set(a)
+    result = []
+
+    for x in b:
+        if x in seen:
+            result.append(x)
+
+    return result</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n + m)$, память: $\mathcal{O}(n)$ для <code>set(a)</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как думать">
+<p>Если наивное решение содержит проверку <code>x in list</code> внутри цикла, спроси: можно ли заранее положить элементы в <code>set</code> или <code>dict</code>? Часто это меняет $\mathcal{O}(n^2)$ на $\mathcal{O}(n)$ ценой дополнительной памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Ключи должны быть хешируемыми: <code>int</code>, <code>str</code>, <code>tuple</code> из хешируемых элементов подходят, <code>list</code> и <code>dict</code> — нет.</li>
+<li><code>dict</code> и <code>set</code> дают среднее $\mathcal{O}(1)$, но не гарантируют сортированный порядок по значению.</li>
+<li>Ускорение поиска почти всегда покупается памятью.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда использовать <code>set</code>?</b></p>
+<p>Когда нужно быстро проверять наличие элемента или убрать дубликаты.</p>
+</li>
+<li><p><b>Когда использовать <code>dict</code>?</b></p>
+<p>Когда нужно связать ключ со значением: частотой, индексом, группой или агрегатом.</p>
+</li>
+<li><p><b>Какая типичная сложность поиска в <code>dict</code>/<code>set</code>?</b></p>
+<p>В среднем $\mathcal{O}(1)$ на lookup, вставку и удаление.</p>
+</li>
+<li><p><b>Какой главный trade-off у хеш-таблиц?</b></p>
+<p>Быстрый поиск за счет дополнительной памяти.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sorting-approach" data-interview="4">
+  <div class="name" id="sorting-approach">
+    Сортировка как алгоритмический подход
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Сортировка как подход</b> — прием, при котором мы сначала упорядочиваем данные, чтобы дальше задача стала проще: одинаковые элементы оказываются рядом, пары можно искать двумя указателями, интервалы можно обрабатывать по началу или концу.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Нужно сгруппировать одинаковые или близкие элементы.</li>
+<li>Нужно найти пары/тройки с условием по сумме.</li>
+<li>Нужно обработать интервалы, события, дедлайны.</li>
+<li>Порядок исходного массива не важен или его можно восстановить через индексы.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: есть ли дубликаты через сортировку">
+<p>После сортировки одинаковые элементы оказываются рядом.</p>
+
+</div>
+<div class="code-block" data-lang="python">def has_duplicate(values):
+    values = sorted(values)
+    for i in range(1, len(values)):
+        if values[i] == values[i - 1]:
+            return True
+    return False</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n\log n)$ из-за сортировки, память зависит от реализации и копии <code>sorted(values)</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: интервалы">
+<p>Сортировка по началу интервала позволяет обрабатывать пересечения одним проходом.</p>
+
+</div>
+<div class="code-block" data-lang="python">def merge_intervals(intervals: list[list[int]]) -&gt; list[list[int]]:
+    if not intervals:
+        return []
+
+    intervals = sorted(intervals)
+    merged = [list(intervals[0])]
+
+    for start, end in intervals[1:]:
+        last = merged[-1]
+        if start &lt;= last[1]:
+            last[1] = max(last[1], end)
+        else:
+            merged.append([start, end])
+
+    return merged</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n\log n)$ из-за сортировки, затем $\mathcal{O}(n)$ на проход. Дополнительная память: $\mathcal{O}(n)$ для результата.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как думать">
+<p>Сортировка полезна, когда беспорядок во входе мешает видеть структуру. После сортировки локальные отношения становятся информативными: дубликаты рядом, минимальные и максимальные элементы на краях, интервалы идут в естественном порядке.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Сортировка обычно стоит $\mathcal{O}(n\log n)$, поэтому не стоит применять её, если существует простой $\mathcal{O}(n)$ проход.</li>
+<li><code>sorted()</code> возвращает новый список; <code>list.sort()</code> сортирует на месте.</li>
+<li>Если нужно сохранить исходные позиции, сортируй пары <code>(value, index)</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем сортировать данные перед решением?</b></p>
+<p>Чтобы одинаковые или сравнимые элементы оказались рядом, а дальнейший проход стал проще.</p>
+</li>
+<li><p><b>Какая типичная сложность сортировки сравнениями?</b></p>
+<p>$\mathcal{O}(n\log n)$ по времени.</p>
+</li>
+<li><p><b>Чем <code>sorted()</code> отличается от <code>list.sort()</code>?</b></p>
+<p><code>sorted()</code> создает новый список, <code>list.sort()</code> меняет список на месте.</p>
+</li>
+<li><p><b>Что делать, если после сортировки нужны исходные индексы?</b></p>
+<p>Сортировать пары <code>(value, index)</code> или объекты с сохраненным исходным индексом.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="two-pointers" data-interview="4">
+  <div class="name" id="two-pointers">
+    Два указателя
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Два указателя</b> — подход, где мы поддерживаем две позиции в массиве или строке и двигаем их по правилу. Указатели могут идти с разных концов к центру или вместе слева направо.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Массив отсортирован, и нужно найти пару с заданной суммой.</li>
+<li>Нужно сравнивать элементы с двух концов.</li>
+<li>Нужно удалить/переставить элементы на месте.</li>
+<li>Нужно сжать последовательность или объединить два отсортированных массива.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: пара с заданной суммой в отсортированном массиве">
+<p>Указатели стартуют с разных концов и двигаются в зависимости от текущей суммы.</p>
+
+</div>
+<div class="code-block" data-lang="python">def two_sum_sorted(nums, target):
+    left = 0
+    right = len(nums) - 1
+
+    while left &lt; right:
+        current = nums[left] + nums[right]
+        if current == target:
+            return left, right
+        if current &lt; target:
+            left += 1
+        else:
+            right -= 1
+
+    return None</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это работает">
+<p>Для отсортированного массива сумма <code>nums[left] + nums[right]</code> управляемо меняется. Если сумма слишком маленькая, нужно увеличить левый указатель. Если слишком большая, нужно уменьшить правый. Мы не перебираем все пары, потому что каждый шаг гарантированно отбрасывает группу невозможных вариантов.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: проверка палиндрома">
+<p>Сравниваем символы с двух концов и сдвигаемся к центру.</p>
+
+</div>
+<div class="code-block" data-lang="python">def is_palindrome(text):
+    left = 0
+    right = len(text) - 1
+
+    while left &lt; right:
+        if text[left] != text[right]:
+            return False
+        left += 1
+        right -= 1
+
+    return True</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Для поиска суммы двумя указателями обычно нужна сортировка; если сортируешь, учитывай $\mathcal{O}(n\log n)$.</li>
+<li>Важно доказать, почему движение указателя не пропускает ответ.</li>
+<li>Не путай два указателя со скользящим окном: окно обычно описывает непрерывный подотрезок.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое два указателя?</b></p>
+<p>Это техника с двумя индексами, которые двигаются по массиву или строке по определенному правилу.</p>
+</li>
+<li><p><b>Когда два указателя особенно полезны?</b></p>
+<p>На отсортированных массивах, при поиске пар, проверке с двух концов и преобразованиях на месте.</p>
+</li>
+<li><p><b>Почему поиск пары в отсортированном массиве работает за $\mathcal{O}(n)$?</b></p>
+<p>На каждом шаге один из указателей сдвигается, а всего каждый указатель проходит массив не более одного раза.</p>
+</li>
+<li><p><b>Что нужно уметь объяснить на собеседовании?</b></p>
+<p>Почему выбранное движение указателя не может пропустить правильный ответ.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="sliding-window" data-interview="4">
+  <div class="name" id="sliding-window">
+    Скользящее окно
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Скользящее окно</b> — подход для задач про непрерывные подмассивы или подстроки. Мы поддерживаем левую и правую границы окна, а также состояние внутри окна: сумму, частоты, количество нарушений условия.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Нужно найти лучший непрерывный подотрезок.</li>
+<li>Есть ограничение на сумму, длину, число разных символов или число ошибок.</li>
+<li>Подстрока или подмассив должны идти подряд.</li>
+<li>При расширении правой границы можно локально обновить состояние.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: максимальная сумма окна фиксированной длины">
+<p>Сумма окна обновляется через добавление нового правого элемента и удаление старого левого.</p>
+
+</div>
+<div class="code-block" data-lang="python">def max_sum_fixed_window(nums, k):
+    if k &lt;= 0 or k &gt; len(nums):
+        return None
+
+    current = sum(nums[i] for i in range(k))
+    best = current
+
+    for right in range(k, len(nums)):
+        current += nums[right]
+        current -= nums[right - k]
+        best = max(best, current)
+
+    return best</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: самая длинная подстрока без повторов">
+<p>Левая граница перепрыгивает за последнее повторное появление символа.</p>
+
+</div>
+<div class="code-block" data-lang="python">def longest_unique_substring(text):
+    last_seen = {}
+    left = 0
+    best = 0
+
+    for right, ch in enumerate(text):
+        if ch in last_seen and last_seen[ch] &gt;= left:
+            left = last_seen[ch] + 1
+        last_seen[ch] = right
+        best = max(best, right - left + 1)
+
+    return best</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(k)$, где $k$ — число разных символов.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как думать">
+<p>Окно отвечает на вопрос: «какой текущий непрерывный фрагмент мы рассматриваем?» Правая граница обычно расширяет окно, левая — сжимает его, когда нарушено условие. Если каждую границу двигать только вперед, суммарное время остается линейным.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Скользящее окно работает только для непрерывных фрагментов.</li>
+<li>Для переменного окна нужно аккуратно формулировать инвариант: что всегда верно внутри <code>[left, right]</code>.</li>
+<li>Если левая граница может двигаться назад, линейная оценка ломается.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Для каких задач подходит скользящее окно?</b></p>
+<p>Для задач про непрерывные подмассивы и подстроки.</p>
+</li>
+<li><p><b>Почему скользящее окно часто работает за $\mathcal{O}(n)$?</b></p>
+<p>Потому что левая и правая границы проходят вход только вперед.</p>
+</li>
+<li><p><b>Что хранится в состоянии окна?</b></p>
+<p>Сумма, частоты, количество уникальных элементов, число нарушений или другой агрегат.</p>
+</li>
+<li><p><b>Чем окно отличается от обычных двух указателей?</b></p>
+<p>Окно почти всегда описывает непрерывный фрагмент между <code>left</code> и <code>right</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="stack-queue" data-interview="4">
+  <div class="name" id="stack-queue">
+    Стек и очередь
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Стек</b> — структура LIFO: последним положили, первым достали. В Python обычно используют <code>list</code> с <code>append()</code> и <code>pop()</code>.</p>
+<p><b>Очередь</b> — структура FIFO: первым положили, первым достали. В Python для очереди удобно использовать <code>collections.deque</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать стек">
+<ul>
+<li>Проверка скобочных последовательностей.</li>
+<li>Отмена последнего действия.</li>
+<li>Монотонный стек: ближайший меньший/больший элемент.</li>
+<li>Итеративный DFS вместо рекурсии.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать очередь">
+<ul>
+<li>BFS по графу или дереву.</li>
+<li>Обработка задач в порядке поступления.</li>
+<li>Скользящее окно с удалением с обеих сторон через <code>deque</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: проверка скобок">
+<p>Стек хранит открывающие скобки, которые еще нужно закрыть.</p>
+
+</div>
+<div class="code-block" data-lang="python">def valid_parentheses(text):
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack = []
+
+    for ch in text:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in pairs:
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+
+    return not stack</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(n)$ в худшем случае.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: очередь для BFS">
+<p><code>deque</code> позволяет доставать элементы из начала очереди за $\mathcal{O}(1)$.</p>
+
+</div>
+<div class="code-block" data-lang="python">from collections import deque
+
+
+def bfs_order(graph, start):
+    seen = {start}
+    queue = deque([start])
+    order = []
+
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+
+        for neighbor in graph.get(node, []):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append(neighbor)
+
+    return order</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(V + E)$, память: $\mathcal{O}(V)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li><code>list.pop(0)</code> — $\mathcal{O}(n)$, потому что элементы сдвигаются. Для очереди используй <code>deque.popleft()</code>.</li>
+<li>Стек хранит незавершенный контекст; если забыть, что именно лежит в стеке, решение быстро становится хрупким.</li>
+<li>Для BFS нужно помечать вершину посещенной при добавлении в очередь, иначе можно добавить её много раз.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое стек?</b></p>
+<p>LIFO-структура: последним добавили, первым достали.</p>
+</li>
+<li><p><b>Что такое очередь?</b></p>
+<p>FIFO-структура: первым добавили, первым достали.</p>
+</li>
+<li><p><b>Почему для очереди в Python лучше <code>deque</code>, а не <code>list</code>?</b></p>
+<p><code>deque.popleft()</code> работает за $\mathcal{O}(1)$, а <code>list.pop(0)</code> — за $\mathcal{O}(n)$.</p>
+</li>
+<li><p><b>Где часто нужен стек?</b></p>
+<p>В скобках, монотонных задачах, отмене действий и DFS.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dfs-bfs" data-interview="3">
+  <div class="name" id="dfs-bfs">
+    DFS и BFS
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>DFS</b> (<em>depth-first search</em>) — обход в глубину: сначала идем как можно глубже по одному пути, потом откатываемся.</p>
+<p><b>BFS</b> (<em>breadth-first search</em>) — обход в ширину: сначала посещаем всех соседей на расстоянии $1$, затем на расстоянии $2$ и так далее.</p>
+<figure style="text-align: center">
+  <img alt="" src="../images/python/dfs-bfs.png" width="750" height="312" loading="lazy" decoding="async" style="max-width: 100%; width: 100%; height: auto" />
+  <figcaption>
+    Визуализация DFS, BFS. <a href="https://www.freelancinggig.com/blog/2019/02/06/what-is-the-difference-between-bfs-and-dfs-algorithms/" target="_blank" rel="noopener">Источник</a>
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать DFS">
+<ul>
+<li>Нужно пройти все вершины графа или дерева.</li>
+<li>Нужно найти компоненты связности.</li>
+<li>Нужно проверить наличие цикла.</li>
+<li>Нужно перебрать варианты с backtracking.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать BFS">
+<ul>
+<li>Нужно найти кратчайшее расстояние в невзвешенном графе.</li>
+<li>Нужно обойти уровни дерева.</li>
+<li>Нужно распространять состояние слоями: клетки в матрице, волны, расстояния.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: DFS рекурсией">
+<p>Рекурсия естественно играет роль стека обхода.</p>
+
+</div>
+<div class="code-block" data-lang="python">def dfs(graph, node, seen=None):
+    if seen is None:
+        seen = set()
+
+    seen.add(node)
+
+    for neighbor in graph.get(node, []):
+        if neighbor not in seen:
+            dfs(graph, neighbor, seen)
+
+    return seen</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(V + E)$, память: $\mathcal{O}(V)$ для <code>seen</code> и стека рекурсии.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: BFS с расстояниями">
+<p>BFS хранит расстояние при первом добавлении вершины в очередь.</p>
+
+</div>
+<div class="code-block" data-lang="python">from collections import deque
+
+
+def shortest_distances(graph, start):
+    dist = {start: 0}
+    queue = deque([start])
+
+    while queue:
+        node = queue.popleft()
+
+        for neighbor in graph.get(node, []):
+            if neighbor not in dist:
+                dist[neighbor] = dist[node] + 1
+                queue.append(neighbor)
+
+    return dist</div>
+<div class="info-card-auto" data-type="explanation" data-title="Свойство BFS">
+<p>BFS дает кратчайшие расстояния по числу ребер в невзвешенном графе.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как думать">
+<p>Графовая задача часто прячется за словами «можно перейти», «связаны», «зависит от», «достижимо», «острова», «компоненты». Вершинами могут быть не только явные <code>node</code>, но и клетки матрицы, состояния игры, слова или объекты.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Без <code>seen</code> обход графа может зациклиться.</li>
+<li>Рекурсивный DFS может упереться в лимит рекурсии Python на глубоких графах.</li>
+<li>BFS для кратчайшего пути работает без весов; для взвешенных графов нужен другой алгоритм, например Дейкстра.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем DFS отличается от BFS?</b></p>
+<p>DFS идет в глубину по одному пути, BFS обходит граф слоями по расстоянию.</p>
+</li>
+<li><p><b>Какая сложность обхода графа списками смежности?</b></p>
+<p>$\mathcal{O}(V + E)$ по времени.</p>
+</li>
+<li><p><b>Когда BFS дает кратчайший путь?</b></p>
+<p>В невзвешенном графе, где каждое ребро имеет одинаковую стоимость.</p>
+</li>
+<li><p><b>Зачем нужен <code>seen</code>?</b></p>
+<p>Чтобы не посещать вершины повторно и не зациклиться.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dynamic-programming" data-interview="2">
+  <div class="name" id="dynamic-programming">
+    Динамическое программирование
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Динамическое программирование</b> — подход для задач, где ответ строится из ответов на меньшие подзадачи, а одни и те же подзадачи повторяются. Вместо повторного пересчета мы сохраняем результаты.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<ul>
+<li>Нужно найти максимум, минимум или количество способов.</li>
+<li>Есть выбор на каждом шаге: взять/не взять, перейти/не перейти, разбить/не разбить.</li>
+<li>Состояние можно описать небольшим набором параметров.</li>
+<li>Рекурсивное наивное решение пересчитывает одни и те же подзадачи.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как строить DP">
+<ol>
+<li>Определи состояние: что означает <code>dp[i]</code> или <code>dp[i][j]</code>.</li>
+<li>Определи переход: из каких меньших состояний получается текущее.</li>
+<li>Задай базовые случаи.</li>
+<li>Выбери порядок вычисления: сверху вниз с memoization или снизу вверх таблицей.</li>
+<li>Оцени сложность как число состояний умножить на цену перехода.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: числа Фибоначчи снизу вверх">
+<p>Храним только два последних состояния, потому что переход не требует всю таблицу.</p>
+
+</div>
+<div class="code-block" data-lang="python">def fib(n):
+    if n &lt;= 1:
+        return n
+
+    prev = 0
+    current = 1
+
+    for _ in range(2, n + 1):
+        prev, current = current, prev + current
+
+    return current</div>
+<div class="info-card-auto" data-type="explanation" data-title="Сложность">
+<p>Время: $\mathcal{O}(n)$, память: $\mathcal{O}(1)$. Таблица не нужна, потому что переход использует только два предыдущих состояния.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример: количество способов подняться по лестнице">
+<p><code>dp[i]</code> хранит число способов попасть на ступеньку <code>i</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">def climb_stairs(n):
+    if n &lt;= 2:
+        return n
+
+    dp = [0] * (n + 1)
+    dp[1] = 1
+    dp[2] = 2
+
+    for i in range(3, n + 1):
+        dp[i] = dp[i - 1] + dp[i - 2]
+
+    return dp[n]</div>
+<div class="info-card-auto" data-type="explanation" data-title="Переход">
+<p>Состояние: <code>dp[i]</code> — число способов попасть на ступеньку <code>i</code>. Переход: прийти можно с <code>i - 1</code> или <code>i - 2</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушки">
+<ul>
+<li>Нельзя писать DP, не определив явно смысл состояния.</li>
+<li>Если состояние содержит слишком много параметров, число состояний может стать огромным.</li>
+<li>Memoization ускоряет повторные подзадачи, но расходует память.</li>
+<li>Жадный выбор и DP похожи внешне, но DP нужен там, где локально лучший выбор не гарантирует глобальный оптимум.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое динамическое программирование?</b></p>
+<p>Это сохранение ответов на подзадачи, чтобы строить большой ответ без повторного пересчета.</p>
+</li>
+<li><p><b>Из чего состоит DP-решение?</b></p>
+<p>Состояние, переход, базовые случаи, порядок вычисления и оценка числа состояний.</p>
+</li>
+<li><p><b>Как оценивать сложность DP?</b></p>
+<p>Число состояний умножить на стоимость перехода для каждого состояния.</p>
+</li>
+<li><p><b>Когда DP не нужен?</b></p>
+<p>Когда достаточно одного прохода, жадного выбора или когда подзадачи не повторяются.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="leetcode-practice-patterns" data-interview="4" data-title-link="/materials/python/index.html">
+  <div class="name" id="leetcode-practice-patterns">
+    <a class="question-title-link" href="../materials/python/index.html" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Типовые задачи LeetCode по алгоритмическим подходам<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Зачем это нужно">
+<p>Типовые задачи LeetCode удобно разбирать не как случайный список, а как тренировку паттернов: два указателя, хеш-таблицы, скользящее окно, бинарный поиск, деревья, heap и stack. Так проще понять, какой прием применить на собеседовании.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Обозначения">
+<p><div class="leetcode-difficulty-legend">
+  <span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span>
+  <span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span>
+  <span class="leetcode-difficulty leetcode-difficulty--hard">Hard</span>
+</div></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Two Pointers &amp;amp; Hash Tables">
+<p><b>Двойные указатели</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span> <a href="https://leetcode.com/problems/valid-palindrome/" target="_blank" rel="noopener">125. Valid Palindrome</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span> <a href="https://leetcode.com/problems/merge-sorted-array/" target="_blank" rel="noopener">88. Merge Sorted Array</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/partition-labels/" target="_blank" rel="noopener">763. Partition Labels</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/container-with-most-water/" target="_blank" rel="noopener">11. Container With Most Water</a></li>
+</ul>
+<p><b>Hash Tables</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span> <a href="https://leetcode.com/problems/two-sum/" target="_blank" rel="noopener">1. Two Sum</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span> <a href="https://leetcode.com/problems/contains-duplicate/" target="_blank" rel="noopener">217. Contains Duplicate</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/find-all-anagrams-in-a-string/" target="_blank" rel="noopener">438. Find All Anagrams</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Sliding Window &amp;amp; Binary Search">
+<p><b>Sliding Window</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--easy">Easy</span> <a href="https://leetcode.com/problems/substrings-of-size-three-with-distinct-characters/" target="_blank" rel="noopener">1876. Substrings of Size Three</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/longest-substring-without-repeating-characters/" target="_blank" rel="noopener">3. Longest Substring</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/longest-repeating-character-replacement/" target="_blank" rel="noopener">424. Longest Repeating Character</a></li>
+</ul>
+<p><b>Binary Search</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/search-in-rotated-sorted-array/" target="_blank" rel="noopener">33. Search in Rotated Array</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/find-peak-element/" target="_blank" rel="noopener">162. Find Peak Element</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Trees &amp;amp; Advanced Structures">
+<p><b>Trees</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/unique-binary-search-trees/" target="_blank" rel="noopener">96. Unique Binary Search Trees</a></li>
+</ul>
+<p><b>Heap &amp; Stack</b></p>
+<ul>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/kth-largest-element-in-an-array/" target="_blank" rel="noopener">215. Kth Largest Element</a></li>
+<li><span class="leetcode-difficulty leetcode-difficulty--medium">Medium</span> <a href="https://leetcode.com/problems/daily-temperatures/" target="_blank" rel="noopener">739. Daily Temperatures</a></li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Рекомендация: LeetCode 75">
+<p>Примеры выше покрывают ключевые паттерны. Чтобы увидеть другие типовые задачи и закрепить навык выбора подхода, посмотрите <a href="https://leetcode.com/studyplan/leetcode-75/" target="_blank" rel="noopener">LeetCode 75</a> — подборку задач для подготовки к собеседованиям.</p>
+<figure style="text-align: center">
+  <img alt="LeetCode 75" src="../images/python/leetcode75.png" width="1292" height="980" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+  <figcaption>
+    LeetCode 75 — подборка типовых задач для подготовки к собеседованиям.
+  </figcaption>
+</figure>
+<p>Удобно проходить её не подряд, а группами: сначала выберите паттерн, затем сравните новую задачу с примерами из этого вопроса.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как тренироваться">
+<ol>
+<li>Сначала классифицируй задачу по паттерну.</li>
+<li>Сформулируй наивное решение и его сложность.</li>
+<li>Найди, какая структура данных убирает лишнюю работу.</li>
+<li>После решения выпиши короткий шаблон: что было состоянием, как двигались указатели или как обновлялась структура данных.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие паттерны алгосов самые популярные?</b></p>
+<p>Два указателя, хеш-таблицы, скользящее окно, бинарный поиск, деревья, heap и stack.</p>
+</li>
+<li><p><b>Зачем группировать задачи по подходам?</b></p>
+<p>Так легче распознавать похожие условия и быстрее выбирать структуру данных или алгоритмический прием.</p>
+</li>
+<li><p><b>С чего начинать разбор новой задачи?</b></p>
+<p>С классификации паттерна, наивного решения и оценки сложности.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+
+        <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="python:algorithms"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+      </ol>
+    </main>
+
+    <!-- Подключение authGuard -->
+    <script src="../authGuard.js"></script>
+
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body></html>

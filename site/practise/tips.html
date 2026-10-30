@@ -1,0 +1,1165 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Советы по сдаче практики</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/interview-videos.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Советы</span>
+            <span class="pill pill--soft">По сдаче практики</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Советы по сдаче практики</h1>
+          <p class="section-shell__desc">Практические задачи и упражнения по Python.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Оформление Python кода</h3>
+        <li class="question featured-question">
+          <div id="code_style" class="name">
+            Как оформлять Google-style docstrings?
+          </div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Google-style docstring" data-type="definition">
+              <p><b>Docstring</b> — строка документации сразу после объявления модуля, класса, метода или функции. В Google style информация разбивается на понятные секции: <code>Args</code>, <code>Returns</code>, <code>Raises</code>, <code>Yields</code>, <code>Attributes</code> и <code>Examples</code>.</p>
+              <p>Docstring объясняет <b>контракт</b> кода: что он делает, какие данные ожидает, что возвращает и в каких случаях завершается ошибкой. Он не должен пересказывать реализацию построчно.</p>
+            </div>
+
+            <h3>Базовая структура</h3>
+            <p>Начни с короткого описания в повелительной форме. Если одной строки недостаточно, после пустой строки добавь подробности, а затем нужные секции. Название секции заканчивается двоеточием, её содержимое оформляется с отступом в четыре пробела.</p>
+            <div class="code-block" data-lang="python">
+def calculate_discount(price: float, percent: float) -&gt; float:
+    """Рассчитай цену товара после применения скидки.
+
+    Args:
+        price: Исходная цена товара в рублях. Должна быть неотрицательной.
+        percent: Размер скидки от 0 до 100 включительно.
+
+    Returns:
+        Цена после применения скидки, округлённая до двух знаков.
+
+    Raises:
+        ValueError: Если цена отрицательная или скидка находится вне диапазона.
+
+    Examples:
+        &gt;&gt;&gt; calculate_discount(1_000.0, 15.0)
+        850.0
+    """
+    if price &lt; 0:
+        raise ValueError("price must be non-negative")
+    if not 0 &lt;= percent &lt;= 100:
+        raise ValueError("percent must be between 0 and 100")
+
+    return round(price * (1 - percent / 100), 2)
+            </div>
+
+            <h3>Что писать в секциях</h3>
+            <ul>
+              <li><b><code>Args</code>:</b> назначение каждого аргумента, единицы измерения, допустимые диапазоны и особые значения. Не повторяй очевидное вроде «<code>name</code> — имя».</li>
+              <li><b><code>Returns</code>:</b> смысл результата и его формат. Если функция всегда возвращает <code>None</code>, секцию обычно можно опустить.</li>
+              <li><b><code>Raises</code>:</b> только исключения, которые являются частью ожидаемого поведения функции и которые важно знать вызывающему коду.</li>
+              <li><b><code>Yields</code>:</b> используй вместо <code>Returns</code> для генераторов и опиши каждый выдаваемый элемент.</li>
+              <li><b><code>Examples</code>:</b> добавляй небольшой запускаемый пример для нетривиального поведения или пограничного случая.</li>
+            </ul>
+
+            <div class="info-card-auto" data-title="Аннотации типов и docstring" data-type="remark">
+              <p>Если типы уже указаны в сигнатуре, не дублируй их в <code>Args</code> и <code>Returns</code>. Аннотация отвечает на вопрос «какого типа значение», а docstring — «что оно означает и какие ограничения действуют».</p>
+            </div>
+
+            <h3>Пример генератора</h3>
+            <div class="code-block" data-lang="python">
+from collections.abc import Iterator
+
+
+def iter_batches(items: list[str], batch_size: int) -&gt; Iterator[list[str]]:
+    """Раздели последовательность строк на пакеты заданного размера.
+
+    Последний пакет может содержать меньше элементов, чем остальные.
+    Исходный список не изменяется.
+
+    Args:
+        items: Строки, которые нужно объединить в пакеты.
+        batch_size: Максимальное число элементов в одном пакете.
+
+    Yields:
+        Очередной пакет строк с сохранением исходного порядка.
+
+    Raises:
+        ValueError: Если размер пакета меньше единицы.
+
+    Examples:
+        &gt;&gt;&gt; list(iter_batches(["a", "b", "c"], 2))
+        [['a', 'b'], ['c']]
+    """
+    if batch_size &lt; 1:
+        raise ValueError("batch_size must be positive")
+
+    for start in range(0, len(items), batch_size):
+        yield items[start : start + batch_size]
+            </div>
+
+            <h3>Пример класса</h3>
+            <p>У класса опиши его назначение и публичные атрибуты. Методы документируй отдельно, если их поведение не очевидно из названия и сигнатуры.</p>
+            <div class="code-block" data-lang="python">
+class TemperatureSensor:
+    """Храни показания датчика температуры.
+
+    Attributes:
+        sensor_id: Уникальный идентификатор физического датчика.
+        unit: Единица измерения: ``"celsius"`` или ``"fahrenheit"``.
+    """
+
+    def __init__(self, sensor_id: str, unit: str = "celsius") -&gt; None:
+        """Инициализируй датчик.
+
+        Args:
+            sensor_id: Непустой идентификатор датчика.
+            unit: Единица измерения возвращаемых значений.
+
+        Raises:
+            ValueError: Если идентификатор пуст или единица измерения неизвестна.
+        """
+        if not sensor_id:
+            raise ValueError("sensor_id must not be empty")
+        if unit not in {"celsius", "fahrenheit"}:
+            raise ValueError("unsupported temperature unit")
+
+        self.sensor_id = sensor_id
+        self.unit = unit
+            </div>
+
+            <h3>Частые ошибки</h3>
+            <div class="comparison-card">
+              <div class="comparison-card-header primary">Проверка перед сдачей</div>
+              <ul class="comparison-card-content">
+                <li>Docstring стоит первой инструкцией внутри функции, метода или класса.</li>
+                <li>Первая строка коротко и точно описывает действие.</li>
+                <li>Все параметры из сигнатуры перечислены в <code>Args</code> в том же порядке.</li>
+                <li>Указаны важные ограничения: диапазоны, форматы, единицы измерения и допустимость <code>None</code>.</li>
+                <li><code>Returns</code> описывает значение, а не повторяет его тип.</li>
+                <li><code>Raises</code> соответствует реальным исключениям в коде.</li>
+                <li>Пример можно скопировать и запустить без скрытых переменных.</li>
+              </ul>
+            </div>
+          </div>
+        </li>
+
+        <h3>Загрузка кода в GitHub-репозиторий</h3>
+        <li class="question featured-question">
+          <div class="name" id="pull-request-guide">Как сдавать задания? (Pull Request)</div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Что такое PR" data-type="definition">
+                <p><b>PR (Pull Request)</b> — запрос на перенос изменений из твоей ветки в основную ветку <code>main</code>. В PR видны все изменённые файлы, история коммитов, результаты автоматических проверок и комментарии ревьюера.</p>
+                <p>Одно задание оформляй одним небольшим PR. Так изменения легче проверить, обсудить и при необходимости исправить.</p>
+            </div>
+            
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+                <p>Почитать про основы Git можно <a href="../github/basics.html">здесь</a>.</p>
+              </div>
+
+              <h3>Перед началом работы</h3>
+              <p>Убедись, что Git настроен, репозиторий склонирован, а команда <code>git status</code> не показывает случайных незакоммиченных изменений. Команды ниже выполняются из папки проекта.</p>
+              <div class="code-block" data-lang="bash">
+git status
+git remote -v
+              </div>
+
+              <div class="comparison-card" style="margin-bottom: 24px;">
+                <div class="comparison-card-header primary">
+                  Пошаговая сдача задания
+                </div>
+                <ul class="comparison-card-content">
+                  <li><b>1. Переключись на <code>main</code> и получи свежие изменения:</b>
+                    <div class="code-block" data-lang="bash">
+git switch main
+git pull origin main
+                    </div>
+                  </li>
+                  <li><b>2. Создай отдельную ветку от обновлённой <code>main</code>:</b>
+                    <p>Имя должно кратко отражать задачу. Используй латиницу, строчные буквы и дефисы.</p>
+                    <div class="code-block" data-lang="bash">
+git switch -c practice/titanic-model
+                    </div>
+                  </li>
+                  <li><b>3. Выполни задание и проверь результат:</b>
+                    <p>Например, помести решение задачи Titanic в отдельную папку, добавь инструкцию запуска и убедись, что код выполняется на чистых входных данных.</p>
+                    <div class="code-block" data-lang="bash">
+python -m pytest
+python src/train.py --help
+                    </div>
+                  </li>
+                  <li><b>4. Проверь состав изменений:</b>
+                    <div class="code-block" data-lang="bash">
+git status
+git diff
+                    </div>
+                    <p>Не добавляй секреты, датасеты большого размера, <code>.venv/</code>, кэш, логи и временные файлы. Для них настрой <code>.gitignore</code>.</p>
+                  </li>
+                  <li><b>5. Добавь только нужные файлы и создай понятный коммит:</b>
+                    <div class="code-block" data-lang="bash">
+git add titanic/ README.md
+git commit -m "Add Titanic classification solution"
+                    </div>
+                  </li>
+                  <li><b>6. Отправь ветку на GitHub:</b>
+                    <div class="code-block" data-lang="bash">
+git push -u origin practice/titanic-model
+                    </div>
+                    <p>Флаг <code>-u</code> связывает локальную ветку с удалённой. Следующие обновления можно отправлять обычной командой <code>git push</code>.</p>
+                  </li>
+                  <li><b>7. Открой Pull Request:</b>
+                    <ul>
+                      <li>Открой вкладку <b>Pull requests</b> и нажми <b>New pull request</b>.</li>
+                      <li>В <b>base</b> выбери <code>main</code>, в <b>compare</b> — <code>practice/titanic-model</code>.</li>
+                      <li>Проверь вкладку <b>Files changed</b>: там не должно быть посторонних файлов.</li>
+                      <li>Дай PR конкретное название, например <code>Add Titanic classification solution</code>.</li>
+                      <li>Опиши результат, способ проверки и известные ограничения.</li>
+                      <li>Нажми <b>Create pull request</b> и дождись автоматических проверок.</li>
+                    </ul>
+                  </li>
+                </ul>
+              </div>
+
+              <h3>Пример описания Pull Request</h3>
+              <div class="code-block" data-lang="markdown">
+## Что сделано
+
+- добавлена подготовка данных Titanic;
+- обучена модель LogisticRegression;
+- добавлены тесты для обработки пропусков.
+
+## Как проверить
+
+1. Установить зависимости: `pip install -r requirements.txt`.
+2. Запустить тесты: `pytest`.
+3. Запустить обучение: `python src/train.py`.
+
+## Результат
+
+Accuracy на validation-выборке: 0.81.
+
+## Ограничения
+
+- модель пока не сохраняется в отдельный файл.
+              </div>
+
+              <h3>Как внести исправления после ревью</h3>
+              <p>Не закрывай PR и не создавай новый. Исправь код в той же ветке, сделай ещё один коммит и отправь его — PR обновится автоматически.</p>
+              <div class="code-block" data-lang="bash">
+git switch practice/titanic-model
+# внеси исправления
+git add titanic/
+git commit -m "Address review comments"
+git push
+              </div>
+
+              <div class="comparison-card">
+                <div class="comparison-card-header success">Финальная проверка</div>
+                <ul class="comparison-card-content">
+                  <li>PR посвящён одному заданию и создан из отдельной ветки.</li>
+                  <li>В репозитории нет паролей, токенов, виртуального окружения и тяжёлых временных файлов.</li>
+                  <li>Код запускается, тесты проходят, а способ проверки описан в PR.</li>
+                  <li>Вкладка <b>Files changed</b> содержит только относящиеся к заданию изменения.</li>
+                  <li>На все комментарии ревьюера дан ответ, а исправления отправлены в ту же ветку.</li>
+                </ul>
+              </div>
+          </div>
+
+          
+        </li>
+
+        <li class="question">
+          <div class="name" id="video-git">Видео: Git и Pull Request</div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Как работать с видео" data-type="definition">
+              <p>Эти видео показывают полный путь задания: от создания ветки и коммита до открытия Pull Request. Смотри их вместе с терминалом — после каждого смыслового блока ставь видео на паузу и повторяй команды в учебном репозитории.</p>
+            </div>
+
+            <p style="margin-bottom: 1rem;">Нажми на карточку, чтобы открыть видео.</p>
+            <div id="tips-videos-grid" class="interview-videos-grid" role="list"></div>
+          </div>
+        </li>
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Python</h3>
+<li class="question" data-md-source="true" data-md-id="python-full-project" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="python-full-project">
+    Полноценный Python-проект
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Собрать не просто файл <code>main.py</code>, а нормальный Python-проект: с <code>pyproject.toml</code>, виртуальным окружением <code>.venv</code>, структурой <code>src/</code>, тестами, линтером, type checker, Docker, <code>docker-compose</code>, GitHub Actions и бейджами в <code>README.md</code>.</p>
+
+</div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <a href="https://docs.astral.sh/uv/" rel="noopener" target="_blank" class="badge badge-link">uv</a>
+                      <a href="https://docs.astral.sh/ruff/" rel="noopener" target="_blank" class="badge badge-link">Ruff</a>
+                      <a href="https://docs.astral.sh/ty/" rel="noopener" target="_blank" class="badge badge-link">ty</a>
+                      <a href="https://docs.pytest.org/" rel="noopener" target="_blank" class="badge badge-link">pytest</a>
+                      <span class="badge">Docker</span>
+                      <span class="badge">GitHub Actions</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="remark" data-title="Итоговая структура">
+<p>В конце должен получиться примерно такой проект:</p>
+
+</div>
+<div class="code-block" data-lang="text">awesome-weather/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── src/
+│   └── awesome_weather/
+│       ├── __init__.py
+│       ├── cli.py
+        ...
+│       └── core.py
+├── tests/
+│   └── test_core.py
+    ...
+│   └── ...
+├── .dockerignore
+├── .gitignore
+├── .python-version
+├── Dockerfile
+├── README.md
+├── docker-compose.yml
+├── pyproject.toml
+└── uv.lock</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 1. Создание pyproject.toml">
+<p>Сначала создай папку проекта и главный конфигурационный файл <code>pyproject.toml</code>. В нём описываются имя проекта, версия Python, зависимости, CLI-команда, build backend, настройки тестов, линтера и type checker.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="pyproject.toml">
+<p>Минимальный <code>pyproject.toml</code> для приложения с CLI, тестами, Ruff и ty:</p>
+
+</div>
+<div class="code-block" data-lang="toml">[project]
+name = "awesome-weather"
+version = "0.1.0"
+description = "Small example Python project with uv, tests, linting, typing and Docker."
+readme = "README.md" # можно не указывать
+requires-python = "&gt;=3.12"
+dependencies = [
+    "pydantic&gt;=2.0",
+]
+
+[project.scripts]
+awesome-weather = "awesome_weather.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest&gt;=8.0",
+    "pytest-cov&gt;=5.0",
+    "ruff&gt;=0.8",
+    "ty&gt;=0.0.1a1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+]
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["./src"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Если используешь <code>uv init awesome-weather --package</code>, <code>pyproject.toml</code> будет создан автоматически. Но полезно понимать его структуру вручную: именно этот файл является центром проекта.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 2. Создание &lt;code&gt;.venv&lt;/code&gt; через &lt;code&gt;uv&lt;/code&gt;">
+<p>Теперь привяжи версию Python, создай <code>lock</code>-файл и синхронизируй окружение. <code>uv sync</code> создаст <code>.venv</code> рядом с <code>pyproject.toml</code> и установит обычные и dev-зависимости.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv python pin 3.12
+uv lock
+uv sync</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>После синхронизации появятся:</p>
+<ul>
+<li><code>.python-version</code> — выбранная версия Python;</li>
+<li><code>.venv/</code> — локальное виртуальное окружение;</li>
+<li><code>uv.lock</code> — зафиксированное дерево зависимостей.</li>
+</ul>
+<p>Команды проекта запускай через <code>uv run</code>, чтобы не активировать окружение вручную.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run python --version
+uv run ruff check .
+uv run ruff format .
+uv run ty check
+uv run pytest</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 3. Структура src-layout">
+<p><code>src/</code>-layout защищает от случайного импорта кода прямо из корня репозитория. Это ближе к тому, как пакет будет работать после установки.</p>
+
+</div>
+<div class="code-block" data-lang="bash">mkdir -p src/awesome_weather tests    # создать папки из терминала
+touch src/awesome_weather/__init__.py # создать файл из терминала
+touch src/awesome_weather/core.py     # создать файл из терминала
+touch src/awesome_weather/cli.py      # создать файл из терминала
+touch tests/test_core.py              # создать файл из терминала</div>
+<div class="info-card-auto" data-type="example" data-title="src/awesome_weather/core.py">
+<p>Основная бизнес-логика должна лежать отдельно от CLI, API и тестов.</p>
+
+</div>
+<div class="code-block" data-lang="python">from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class WeatherReport(BaseModel):
+    city: str = Field(min_length=1)
+    temperature_c: float
+    wind_mps: float = Field(ge=0)
+
+    @property
+    def feels_cold(self) -&gt; bool:
+        return self.temperature_c &lt; 5 or self.wind_mps &gt;= 10
+
+
+def format_report(report: WeatherReport) -&gt; str:
+    status = "cold" if report.feels_cold else "ok"
+    return f"{report.city}: {report.temperature_c:.1f} C, wind {report.wind_mps:.1f} m/s, {status}"</div>
+<div class="info-card-auto" data-type="example" data-title="src/awesome_weather/cli.py">
+<p>CLI-слой только парсит аргументы, вызывает бизнес-логику и печатает результат.</p>
+
+</div>
+<div class="code-block" data-lang="python">from __future__ import annotations
+
+import argparse
+
+from awesome_weather.core import WeatherReport, format_report
+
+
+def build_parser() -&gt; argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Print a small weather report.")
+    parser.add_argument("--city", required=True)
+    parser.add_argument("--temperature", required=True, type=float)
+    parser.add_argument("--wind", required=True, type=float)
+    return parser
+
+
+def main() -&gt; None:
+    args = build_parser().parse_args()
+    report = WeatherReport(
+        city=args.city,
+        temperature_c=args.temperature,
+        wind_mps=args.wind,
+    )
+    print(format_report(report))
+
+
+if __name__ == "__main__":
+    main()</div>
+<div class="info-card-auto" data-type="remark" data-title="Проверка CLI">
+<p>После <code>uv sync</code> команда из <code>[project.scripts]</code> должна запускаться через <code>uv run</code>.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run awesome-weather --city Moscow --temperature -3 --wind 4</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 4. Тесты pytest">
+<p>Тесты кладём в <code>tests/</code>. Они должны проверять не только happy path, но и ошибки валидации, граничные случаи и несколько вариантов входных данных.</p>
+
+</div>
+<div class="code-block" data-lang="python">import pytest
+from pydantic import ValidationError
+
+from awesome_weather.core import WeatherReport, format_report
+
+
+def test_format_report_for_normal_weather() -&gt; None:
+    report = WeatherReport(city="Tbilisi", temperature_c=18.2, wind_mps=2.5)
+
+    assert format_report(report) == "Tbilisi: 18.2 C, wind 2.5 m/s, ok"
+
+
+@pytest.mark.parametrize(
+    ("temperature_c", "wind_mps"),
+    [
+        (0.0, 2.0),
+        (12.0, 11.0),
+    ],
+)
+def test_cold_weather_detection(temperature_c: float, wind_mps: float) -&gt; None:
+    report = WeatherReport(city="Oslo", temperature_c=temperature_c, wind_mps=wind_mps)
+
+    assert report.feels_cold is True
+
+
+def test_city_must_not_be_empty() -&gt; None:
+    with pytest.raises(ValidationError):
+        WeatherReport(city="", temperature_c=10.0, wind_mps=1.0)</div>
+<div class="info-card-auto" data-type="remark" data-title="Запуск тестов">
+<p>Запускай тесты той же командой локально и в CI.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run pytest</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 5. Ruff: линтер и форматтер">
+<p>Ruff отвечает за линтинг, порядок импортов и форматирование. В <code>pyproject.toml</code> уже есть базовая конфигурация.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run ruff check .
+uv run ruff format .</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В CI лучше проверять форматирование без изменения файлов.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run ruff format --check .</div>
+<div class="info-card-auto" data-type="remark" data-title="Типичные правила Ruff">
+<ul>
+<li><code>E</code>, <code>F</code> — базовые ошибки стиля и неиспользуемые импорты;</li>
+<li><code>I</code> — сортировка импортов;</li>
+<li><code>B</code> — частые баги из <code>flake8-bugbear</code>;</li>
+<li><code>UP</code> — обновление синтаксиса под современный Python;</li>
+<li><code>SIM</code> — упрощение кода.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 6. ty: type checker">
+<p><code>ty</code> проверяет типы и быстро ловит несовместимые аргументы, неправильные возвращаемые значения и ошибки в аннотациях.</p>
+
+</div>
+<div class="code-block" data-lang="bash">uv run ty check</div>
+<div class="info-card-auto" data-type="example" data-title="Пример ошибки типов">
+<p>Такой код должен быть подозрительным для type checker: <code>temperature_c</code> ожидает число, а не строку.</p>
+
+</div>
+<div class="code-block" data-lang="python">from awesome_weather.core import WeatherReport
+
+
+report = WeatherReport(city="Berlin", temperature_c="warm", wind_mps=3.0)</div>
+<div class="info-card-auto" data-type="example" data-title=".gitignore">
+<p>В git не должны попадать виртуальные окружения, кеши, coverage-отчёты и сборочные артефакты.</p>
+
+</div>
+<div class="code-block" data-lang="gitignore">.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]</div>
+<div class="info-card-auto" data-type="example" data-title=".dockerignore">
+<p>В Docker build context не нужно отправлять <code>.git</code>, <code>.venv</code>, кеши и артефакты сборки.</p>
+
+</div>
+<div class="code-block" data-lang="dockerignore">.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+htmlcov
+dist
+build
+*.egg-info
+__pycache__
+*.pyc</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 7. Dockerfile">
+<p>Dockerfile должен ставить зависимости из <code>uv.lock</code>, копировать код и запускать CLI. Для приложения важны воспроизводимость и отсутствие лишних dev-зависимостей в runtime-образе.</p>
+
+</div>
+<div class="code-block" data-lang="dockerfile">FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_SYSTEM_PYTHON=1
+
+WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY .python-version pyproject.toml uv.lock README.md ./
+COPY src ./src
+
+RUN uv sync --frozen --no-dev
+
+ENTRYPOINT ["uv", "run", "awesome-weather"]
+CMD ["--city", "Moscow", "--temperature", "-3", "--wind", "4"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Сборка и запуск Docker">
+<p>Проверь, что образ собирается и CLI запускается внутри контейнера.</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker build -t awesome-weather:local .
+docker run --rm awesome-weather:local --city Kazan --temperature 7 --wind 3</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 8. docker-compose.yml">
+<p><code>docker-compose</code> удобен, когда сервисов становится больше: API + база данных + кеш + worker. Даже для маленького CLI можно показать стандартный каркас.</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["--city", "Moscow", "--temperature", "-3", "--wind", "4"]</div>
+<div class="info-card-auto" data-type="remark" data-title="Запуск compose">
+<p>Команда ниже пересоберёт образ и запустит сервис.</p>
+
+</div>
+<div class="code-block" data-lang="bash">docker compose up --build</div>
+<div class="info-card-auto" data-type="example" data-title="docker-compose.yml для будущего FastAPI">
+<p>Если позже появится FastAPI-сервис, <code>command</code> обычно заменяют на запуск сервера, а наружу пробрасывают порт.</p>
+
+</div>
+<div class="code-block" data-lang="yaml">services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    command: ["uv", "run", "uvicorn", "awesome_weather.api:app", "--host", "0.0.0.0", "--port", "8000"]</div>
+<div class="info-card-auto" data-type="exercise" data-title="Шаг 9. GitHub Actions">
+<p>CI должен повторять локальные проверки: установка зависимостей, Ruff, форматирование, type checking, тесты и сборка Docker-образа.</p>
+
+</div>
+<div class="code-block" data-lang="yaml">name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run ty check
+
+      - name: Tests
+        run: uv run pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t awesome-weather:ci .</div>
+<div class="info-card-auto" data-type="example" data-title="README.md с бейджами">
+<p>В <code>README.md</code> должны быть бейдж CI, версия Python, используемые инструменты и команды для запуска проекта.</p>
+
+</div>
+<div class="code-block" data-lang="markdown"># awesome-weather
+
+[![CI](https://github.com/OWNER/awesome-weather/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/awesome-weather/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/package%20manager-uv-purple.svg)](https://docs.astral.sh/uv/)
+[![Ruff](https://img.shields.io/badge/linter-ruff-red.svg)](https://docs.astral.sh/ruff/)
+
+Small example Python project with uv, pytest, Ruff, ty and Docker.
+
+## Development
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check .
+uv run ruff format .
+uv run ty check
+```
+
+## Run
+
+```bash
+uv run awesome-weather --city Moscow --temperature -3 --wind 4
+```
+
+## Docker
+
+```bash
+docker build -t awesome-weather:local .
+docker run --rm awesome-weather:local --city Kazan --temperature 7 --wind 3
+docker compose up --build
+```</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Не забудь заменить <code>OWNER</code> на имя пользователя или организации GitHub.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Финальный чеклист">
+<p>Перед тем как считать проект собранным, проверь:</p>
+<ul>
+<li><code>uv sync --frozen</code> проходит на чистой машине;</li>
+<li><code>.venv/</code> не попадает в git;</li>
+<li><code>uv.lock</code> лежит в git;</li>
+<li>весь код приложения лежит в <code>src/&lt;package_name&gt;/</code>;</li>
+<li>тесты лежат в <code>tests/</code>;</li>
+<li><code>uv run pytest</code> проходит;</li>
+<li><code>uv run ruff check .</code> проходит;</li>
+<li><code>uv run ruff format --check .</code> проходит;</li>
+<li><code>uv run ty check</code> проходит;</li>
+<li>Docker-образ собирается;</li>
+<li><code>docker compose up --build</code> запускает сервис;</li>
+<li>CI повторяет те же проверки, что и локальная разработка;</li>
+<li>в <code>README.md</code> есть команды запуска, тестов и бейдж CI.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Да, информации много, но именно так или очень похоже выглядит <b>настоящий проект</b>: продуктовый репозиторий, где людям не всё равно на качество и воспроизводимость кода. Бывает и иначе: в репозитории может быть бардак без всего перечисленного выше, но это уже редфлаг</p>
+<p><b>Старайся следовать</b> хотя бы базовому минимуму: <code>uv</code>, <code>pyproject.toml</code>, <code>ruff</code>. Так ты сразу будешь восприниматься как более компетентный инженер. А если умеешь собирать <code>docker-compose</code> и разворачивать сервис, это ещё сильнее повышает уровень проекта.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+
+    <!-- Модалка для видео — как на interviews/videos.html -->
+    <div id="interview-video-modal-backdrop" class="interview-video-modal-backdrop" aria-hidden="true"></div>
+    <div class="interview-video-modal-panel" id="interview-video-modal-panel" role="dialog" aria-modal="true" aria-labelledby="interview-video-modal-title">
+      <div class="interview-video-modal-header">
+        <div class="interview-video-modal-header-title-wrap">
+          <h2 class="interview-video-modal-title" id="interview-video-modal-title">Загрузка…</h2>
+        </div>
+        <button type="button" class="interview-video-modal-close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="interview-video-modal-body">
+        <div class="interview-video-modal-video-wrap"></div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var rootDomain = "https://pub-cf3e183ec4694911aa529c3fc61057a0.r2.dev";
+        var tipsVideos = [
+          { id: "0", title: "Работа с Git", description: "Краткое видео по работе с Git: ветки, коммиты, слияние.", videoUrl: rootDomain + "/git-workflow.mp4" },
+          { id: "1", title: "Pull Request", description: "Как оформить и отправить Pull Request: от ветки до ревью.", videoUrl: rootDomain + "/pull-requests.mp4" }
+        ];
+        function escapeHtml(s) {
+          if (!s) return "";
+          var div = document.createElement("div");
+          div.textContent = s;
+          return div.innerHTML;
+        }
+        function renderCard(video) {
+          var descHtml = (video.description || "").trim() ? '<p class="interview-video-card-desc">' + escapeHtml(video.description) + "</p>" : "";
+          return (
+            '<article class="interview-video-card" data-video-id="' + escapeHtml(video.id) + '" role="button" tabindex="0">' +
+            '<div class="interview-video-card-thumb">' +
+            '<div class="interview-video-card-thumb-placeholder">▶</div>' +
+            '<div class="interview-video-card-play"><span class="interview-video-card-play-icon">▶</span></div>' +
+            "</div>" +
+            '<div class="interview-video-card-body">' +
+            '<h3 class="interview-video-card-title">' + escapeHtml(video.title) + "</h3>" +
+            descHtml +
+            '<div class="interview-video-card-meta"></div>' +
+            "</div></article>"
+          );
+        }
+        function initTipsVideoGrid(root) {
+          var scope = root && root.querySelector ? root : document;
+          var grid = scope.querySelector("#tips-videos-grid") || document.getElementById("tips-videos-grid");
+          if (!grid || grid.dataset.tipsVideosReady === "true") return;
+          grid.innerHTML = tipsVideos.map(renderCard).join("");
+          grid.dataset.tipsVideosReady = "true";
+        }
+        function openModal(videoId) {
+          var data = tipsVideos.find(function (v) { return v.id === videoId; });
+          if (!data) return;
+          var backdrop = document.getElementById("interview-video-modal-backdrop");
+          var panel = document.getElementById("interview-video-modal-panel");
+          var titleEl = panel && panel.querySelector(".interview-video-modal-title");
+          var videoWrap = panel && panel.querySelector(".interview-video-modal-video-wrap");
+          if (titleEl) titleEl.textContent = data.title;
+          if (videoWrap && data.videoUrl) {
+            videoWrap.innerHTML = '<video controls preload="metadata" controlsList="nodownload" src="' + escapeHtml(data.videoUrl) + '"></video>';
+          }
+          if (backdrop) {
+            backdrop.classList.add("open");
+            backdrop.setAttribute("aria-hidden", "false");
+          }
+          document.body.style.overflow = "hidden";
+          var closeBtn = panel && panel.querySelector(".interview-video-modal-close");
+          if (closeBtn) closeBtn.onclick = closeModal;
+          if (backdrop) backdrop.onclick = function (e) { if (e.target === backdrop) closeModal(); };
+          document.addEventListener("keydown", onEscape);
+        }
+        function closeModal() {
+          var backdrop = document.getElementById("interview-video-modal-backdrop");
+          var panel = document.getElementById("interview-video-modal-panel");
+          if (backdrop) {
+            backdrop.classList.remove("open");
+            backdrop.setAttribute("aria-hidden", "true");
+          }
+          document.body.style.overflow = "";
+          document.removeEventListener("keydown", onEscape);
+          var videoWrap = panel && panel.querySelector(".interview-video-modal-video-wrap");
+          if (videoWrap) {
+            var video = videoWrap.querySelector("video");
+            if (video) { video.pause(); video.src = ""; }
+            videoWrap.innerHTML = "";
+          }
+        }
+        function onEscape(e) { if (e.key === "Escape") closeModal(); }
+        document.addEventListener("click", function (e) {
+          var card = e.target.closest && e.target.closest("#tips-videos-grid .interview-video-card");
+          if (card) openModal(card.dataset.videoId);
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          var card = e.target.closest && e.target.closest("#tips-videos-grid .interview-video-card");
+          if (!card) return;
+          e.preventDefault();
+          openModal(card.dataset.videoId);
+        });
+        initTipsVideoGrid(document);
+        document.addEventListener("DOMContentLoaded", function () { initTipsVideoGrid(document); });
+        document.addEventListener("lazyQuestionsReady", function () {
+          setTimeout(function () { initTipsVideoGrid(document); }, 0);
+        });
+        new MutationObserver(function (mutations) {
+          for (var i = 0; i < mutations.length; i += 1) {
+            for (var j = 0; j < mutations[i].addedNodes.length; j += 1) {
+              initTipsVideoGrid(mutations[i].addedNodes[j]);
+            }
+          }
+        }).observe(document.body, { childList: true, subtree: true });
+      })();
+    </script>
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+</body></html>

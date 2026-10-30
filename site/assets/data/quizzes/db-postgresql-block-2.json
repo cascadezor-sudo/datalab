@@ -1,0 +1,135 @@
+{
+  "id": "db:postgresql:block-2",
+  "title": "PostgreSQL · Блок 2: JOIN, агрегаты, NULL и окна",
+  "description": "Проверка перед блоком 3: виды JOIN и fan-out, ON против WHERE, GROUP BY и HAVING, три COUNT, NULL и NOT IN, CTE и подзапросы, оконные функции, point-in-time join.",
+  "timeLimitSec": 900,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_fanout",
+      "type": "single",
+      "q": "В `users` 1000 строк. После `users LEFT JOIN orders ON orders.user_id = users.id` строк стало 4500. Что произошло?",
+      "options": [
+        "Баг Postgres: LEFT JOIN не может увеличить число строк",
+        "Fan-out: у пользователей по несколько заказов, и каждая строка пользователя повторилась по числу совпадений",
+        "LEFT JOIN добавил строки заказов без пользователей",
+        "Postgres продублировал строки из-за отсутствия индекса"
+      ],
+      "answer": [1],
+      "explain": "При связи один-ко-многим строки левой таблицы размножаются, и SUM/COUNT/AVG по ним искажаются. `COUNT(*)` сверяют до и после JOIN."
+    },
+    {
+      "id": "b2_on_vs_where",
+      "type": "single",
+      "q": "Запрос `users u LEFT JOIN orders o ON o.user_id = u.id WHERE o.status = 'paid'` потерял пользователей без оплаченных заказов. Как исправить?",
+      "options": [
+        "Заменить `LEFT JOIN` на `INNER JOIN`",
+        "Добавить `DISTINCT` в `SELECT`",
+        "Перенести условие в `HAVING`",
+        "Перенести условие `o.status = 'paid'` в `ON`"
+      ],
+      "answer": [3],
+      "explain": "WHERE выполняется после соединения: у левых строк без пары `o.status` равен NULL, условие не TRUE, строки выкидываются — LEFT фактически становится INNER."
+    },
+    {
+      "id": "b2_where_having",
+      "type": "single",
+      "q": "Нужно оставить пользователей с суммой заказов больше 1000. Где писать условие `SUM(amount) > 1000`?",
+      "options": [
+        "В `HAVING`: он фильтрует уже сформированные группы и работает с агрегатами",
+        "В `WHERE`: он выполняется после группировки",
+        "В `ON`",
+        "В `ORDER BY`"
+      ],
+      "answer": [0],
+      "explain": "Логический порядок: FROM/JOIN → WHERE → GROUP BY → агрегаты → HAVING → SELECT → ORDER BY → LIMIT. В WHERE агрегатов ещё нет."
+    },
+    {
+      "id": "b2_counts",
+      "type": "single",
+      "q": "В группе 5 строк, в колонке `promo` значения `'A'`, `'A'`, `'B'`, `NULL`, `NULL`. Что вернут `COUNT(*)`, `COUNT(promo)` и `COUNT(DISTINCT promo)`?",
+      "options": ["5, 5, 2", "5, 3, 3", "5, 3, 2", "3, 3, 2"],
+      "answer": [2],
+      "explain": "`COUNT(*)` считает все строки, `COUNT(col)` — только непустые, `COUNT(DISTINCT col)` — число различных непустых значений."
+    },
+    {
+      "id": "b2_int_division",
+      "type": "single",
+      "q": "Почему `SUM(clicks) / COUNT(*)` по целым колонкам вернул 0 вместо 0.33?",
+      "options": [
+        "`COUNT(*)` пропускает строки с NULL",
+        "Оба операнда целые, и Postgres делает целочисленное деление; нужно привести один к `numeric` или `float8`",
+        "`SUM` по целым всегда возвращает 0 при переполнении",
+        "Нужно было писать `AVG(COUNT(*))`"
+      ],
+      "answer": [1],
+      "explain": "Например, `SUM(clicks)::numeric / COUNT(*)`. А вот `AVG(int)` в Postgres и так возвращает `numeric`."
+    },
+    {
+      "id": "b2_not_in_null",
+      "type": "single",
+      "q": "`SELECT * FROM users WHERE user_id NOT IN (SELECT user_id FROM blacklist)` вернул ноль строк, хотя в чёрном списке всего два человека. Вероятная причина?",
+      "options": [
+        "`NOT IN` не работает с подзапросами",
+        "В `users` нет индекса по `user_id`",
+        "Подзапрос вернул слишком много строк",
+        "В `blacklist.user_id` есть `NULL`: `x <> NULL` даёт NULL, и условие никогда не становится TRUE"
+      ],
+      "answer": [3],
+      "explain": "`NOT IN (1, 2, NULL)` раскрывается в `x <> 1 AND x <> 2 AND x <> NULL`. Лечение — `NOT EXISTS` или фильтр `IS NOT NULL` в подзапросе."
+    },
+    {
+      "id": "b2_null_desc",
+      "type": "single",
+      "q": "Запрос «топ-10 пользователей по доходу» `ORDER BY revenue DESC LIMIT 10` вернул строки с пустым `revenue`. Почему?",
+      "options": [
+        "Postgres считает NULL больше любых значений, и при `DESC` они идут первыми; нужно `NULLS LAST`",
+        "`LIMIT` игнорирует сортировку",
+        "`DESC` сортирует NULL как ноль",
+        "Это случайность: порядок NULL недетерминирован"
+      ],
+      "answer": [0],
+      "explain": "Пропуски поднимаются наверх при сортировке по убыванию. `ORDER BY revenue DESC NULLS LAST` ставит их в конец."
+    },
+    {
+      "id": "b2_cte_pg12",
+      "type": "single",
+      "q": "Что изменилось с CTE в PostgreSQL 12?",
+      "options": [
+        "CTE стали всегда материализоваться и кэшироваться",
+        "CTE запретили ссылаться друг на друга",
+        "CTE без побочных эффектов, на который ссылаются один раз, инлайнится как подзапрос, и фильтры проталкиваются внутрь",
+        "Появилась поддержка рекурсии через `WITH RECURSIVE`"
+      ],
+      "answer": [2],
+      "explain": "До 12 версии CTE всегда материализовался и был барьером оптимизации. Поведение можно задать явно: `MATERIALIZED` / `NOT MATERIALIZED`."
+    },
+    {
+      "id": "b2_window_rownum",
+      "type": "single",
+      "q": "Как взять последнюю запись каждого пользователя через оконную функцию?",
+      "options": [
+        "`WHERE ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) = 1`",
+        "Посчитать `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC)` в подзапросе или CTE и снаружи оставить `rn = 1`",
+        "`GROUP BY user_id` и `LAST_VALUE(created_at)` с рамкой по умолчанию",
+        "`LEAD(created_at) OVER (PARTITION BY user_id)` и фильтр `IS NULL` в `WHERE`"
+      ],
+      "answer": [1],
+      "explain": "Окна вычисляются после WHERE, поэтому фильтровать по ним можно только снаружи. Тай-брейкер `id DESC` делает результат детерминированным."
+    },
+    {
+      "id": "b2_pit_leak",
+      "type": "multi",
+      "q": "Что из этого приводит к утечке будущего в обучающую выборку? Выберите все подходящие варианты.",
+      "options": [
+        "Приклеить к прогнозам текущее состояние таблицы признаков обычным JOIN по `user_id`",
+        "Брать для каждого прогноза события с `event_ts <= cutoff_ts` через `LEFT JOIN LATERAL ... ORDER BY event_ts DESC LIMIT 1`",
+        "Использовать `LEAD` при расчёте признаков",
+        "Фильтровать по `event_time`, когда данные доезжают в хранилище с задержкой"
+      ],
+      "answer": [0, 2, 3],
+      "explain": "Point-in-time join берёт только то, что было известно к моменту прогноза. `LEAD` смотрит в следующую строку, а задержку поступления учитывают фильтром по `available_at`."
+    }
+  ]
+}

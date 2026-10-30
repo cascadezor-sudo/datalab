@@ -1,0 +1,956 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Redis Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet">
+    <link href="../../assets/css/task-table.css" rel="stylesheet">
+    <link href="../../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../../assets/css/styles.css" rel="stylesheet">
+    <link href="../../assets/css/navigation.css" rel="stylesheet">
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../../assets/code-styles.css">
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/exercise-checker.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/exercise-checker.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <ol class="breadcrumbs__list">
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/index.html">Практика</a></li>
+          <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../practise/db.html">Базы данных Практика</a></li>
+          <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Redis Практика</span></li>
+        </ol>
+      </nav>
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Практика</span>
+            <span class="pill pill--soft">Redis</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Redis Практика</h1>
+          <p class="section-shell__desc">Практические задачи по Redis для ML-сервисов: кэш предсказаний, TTL, rate limiter, лидерборд, LRU и защита от cache stampede.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Redis</h3>
+<li class="question" data-md-source="true" data-md-id="practise_redis_cache_key" data-difficulty="easy" data-tests="import hashlib, json
+k = prediction_key(&quot;churn&quot;, &quot;v7&quot;, {&quot;age&quot;: 31, &quot;city&quot;: &quot;Kazan&quot;})
+assert k.startswith(&quot;pred:churn:v7:&quot;), &quot;Префикс pred:&lt;model&gt;:&lt;version&gt;:&quot;
+assert len(k.split(&quot;:&quot;)[-1]) == 64, &quot;Хэш SHA-256 в hex — 64 символа&quot;
+assert k == prediction_key(&quot;churn&quot;, &quot;v7&quot;, {&quot;city&quot;: &quot;Kazan&quot;, &quot;age&quot;: 31}), &quot;Порядок полей не влияет на ключ&quot;
+assert k != prediction_key(&quot;churn&quot;, &quot;v8&quot;, {&quot;age&quot;: 31, &quot;city&quot;: &quot;Kazan&quot;}), &quot;Новая версия модели — новый ключ&quot;
+assert k != prediction_key(&quot;churn&quot;, &quot;v7&quot;, {&quot;age&quot;: 32, &quot;city&quot;: &quot;Kazan&quot;}), &quot;Другой вход — другой ключ&quot;
+assert prediction_key(&quot;m&quot;, &quot;v1&quot;, {&quot;x&quot;: 0.1 + 0.2}) == prediction_key(&quot;m&quot;, &quot;v1&quot;, {&quot;x&quot;: 0.3}), &quot;float округляются до 6 знаков&quot;
+expected = hashlib.sha256(json.dumps({&quot;a&quot;: 1, &quot;b&quot;: &quot;Казань&quot;}, sort_keys=True, separators=(&quot;,&quot;, &quot;:&quot;), ensure_ascii=False).encode(&quot;utf-8&quot;)).hexdigest()
+assert prediction_key(&quot;m&quot;, &quot;v1&quot;, {&quot;b&quot;: &quot;Казань&quot;, &quot;a&quot;: 1}) == &quot;pred:m:v1:&quot; + expected, &quot;Каноническая форма JSON и SHA-256&quot;
+assert &quot;Kazan&quot; not in k, &quot;Сырые данные не попадают в ключ&quot;">
+  <div class="name question-difficulty-easy" id="practise_redis_cache_key">
+    Ключ кэша для предсказаний модели
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться строить ключ кэша предсказаний, который одинаков для одинаковых входов, различается для разных версий модели и не раскрывает данные пользователя.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_ml_cache" rel="noopener" target="_blank" class="badge badge-link">Кэш предсказаний</a>
+                      <a href="../../practise/db/redis.html#redis_cache_invalidation" rel="noopener" target="_blank" class="badge badge-link">Версионирование ключей</a>
+                      <span class="badge">SHA-256</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>prediction_key(model, version, features)</code>, который возвращает строку вида</p>
+<p><code>pred:&lt;model&gt;:&lt;version&gt;:&lt;sha256-хэш входа&gt;</code></p>
+<p>Правила:</p>
+<ul>
+<li>хэш считается от <b>канонической формы</b> словаря <code>features</code>: <code>json.dumps</code> с <code>sort_keys=True</code>, <code>separators=(&quot;,&quot;, &quot;:&quot;)</code> и <code>ensure_ascii=False</code>, закодированной в UTF-8;</li>
+<li>перед сериализацией значения типа <code>float</code> округляются до 6 знаков после запятой (<code>round(v, 6)</code>) — чтобы <code>0.1 + 0.2</code> и <code>0.3</code> давали один ключ; остальные значения не меняются;</li>
+<li>порядок полей в <code>features</code> не должен влиять на ключ, а смена <code>version</code> — должна.</li>
+</ul>
+<p>Например, <code>prediction_key(&quot;churn&quot;, &quot;v7&quot;, {&quot;age&quot;: 31})</code> начинается с <code>pred:churn:v7:</code>, а за ним идут 64 шестнадцатеричных символа.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это на собеседовании">
+<p>Вопрос «как вы кэшируете предсказания» почти всегда упирается в ключ: что будет после выкатки новой модели, почему hit rate неожиданно низкий, не лежат ли в Redis email-адреса в открытом виде. Эта функция отвечает на все три вопроса.</p>
+
+</div>
+<div class="code-block" data-lang="python">import hashlib
+import json
+
+
+def prediction_key(model: str, version: str, features: dict) -&gt; str:
+    pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем в ключе кэша предсказания версия модели?</b></p>
+<p>Ответ модели зависит и от входа, и от весов. С версией в ключе после выкатки новая модель читает и пишет свои ключи, а старые ответы уходят по TTL — инвалидация получается бесплатно.</p>
+</li>
+<li><p><b>Зачем приводить вход к канонической форме?</b></p>
+<p>Одинаковые по смыслу входы должны давать одинаковую строку: иначе порядок полей или форматирование чисел дробят один вход на много ключей, и hit rate падает.</p>
+</li>
+<li><p><b>Почему вход хэшируют, а не кладут в ключ целиком?</b></p>
+<p>Хэш фиксированной длины экономит память на длинных входах и не раскрывает персональные данные в именах ключей, которые видны в <code>SCAN</code> и логах.</p>
+</li>
+<li><p><b>Какая проблема с числами с плавающей точкой?</b></p>
+<p><code>0.1 + 0.2</code> и <code>0.3</code> сериализуются в разные строки. Округление до разумной точности перед хэшированием склеивает такие входы в один ключ.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_cache_aside" data-difficulty="medium" data-tests="import json
+class FakeRedis:
+    def __init__(self):
+        self.now = 0.0
+        self.data = {}
+    def get(self, key):
+        item = self.data.get(key)
+        if item is None:
+            return None
+        value, expires_at = item
+        if expires_at is not None and self.now &gt;= expires_at:
+            del self.data[key]
+            return None
+        return value
+    def set(self, key, value, ex=None):
+        self.data[key] = (value, None if ex is None else self.now + ex)
+        return True
+r = FakeRedis()
+calls = {&quot;n&quot;: 0}
+@cached(r, ttl=60)
+def predict(user_id, boost=1.0):
+    calls[&quot;n&quot;] += 1
+    return {&quot;user&quot;: user_id, &quot;score&quot;: 0.5 * boost}
+assert predict(42) == {&quot;user&quot;: 42, &quot;score&quot;: 0.5}, &quot;Первый вызов считает результат&quot;
+assert predict(42) == {&quot;user&quot;: 42, &quot;score&quot;: 0.5}, &quot;Второй вызов берёт из кэша&quot;
+assert calls[&quot;n&quot;] == 1, &quot;Функция вызвана один раз&quot;
+assert predict(7) == {&quot;user&quot;: 7, &quot;score&quot;: 0.5} and calls[&quot;n&quot;] == 2, &quot;Другие аргументы — промах&quot;
+assert all(isinstance(v, str) for v, _ in r.data.values()), &quot;В Redis кладём JSON-строку, а не Python-объект&quot;
+assert all(exp == 60 for _, exp in r.data.values()), &quot;TTL передан как ex=ttl&quot;
+r.now = 61
+assert predict(42) == {&quot;user&quot;: 42, &quot;score&quot;: 0.5} and calls[&quot;n&quot;] == 3, &quot;После TTL значение пересчитывается&quot;
+predict(user_id=1, boost=2.0)
+predict(boost=2.0, user_id=1)
+assert calls[&quot;n&quot;] == 4, &quot;Порядок kwargs не влияет на ключ&quot;">
+  <div class="name question-difficulty-medium" id="practise_redis_cache_aside">
+    Cache-aside декоратор с TTL для модели
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать паттерн cache-aside в виде декоратора: при попадании отдать результат из Redis, при промахе посчитать, сохранить с TTL и вернуть.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_caching_patterns" rel="noopener" target="_blank" class="badge badge-link">Cache-aside</a>
+                      <a href="../../practise/db/redis.html#redis_ttl" rel="noopener" target="_blank" class="badge badge-link">TTL</a>
+                      <span class="badge">Сериализация JSON</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши фабрику декораторов <code>cached(r, ttl)</code>. Здесь <code>r</code> — клиент с интерфейсом как у <code>redis-py</code>:</p>
+<ul>
+<li><code>r.get(key)</code> — строка или <code>None</code>, если ключа нет или он истёк;</li>
+<li><code>r.set(key, value, ex=None)</code> — записать строку <code>value</code>, <code>ex</code> — TTL в секундах.</li>
+</ul>
+<p>Декорированная функция должна:</p>
+<ol>
+<li>построить ключ из имени функции и аргументов: <code>f&quot;cache:{func.__name__}:&quot; + json.dumps({&quot;args&quot;: list(args), &quot;kwargs&quot;: kwargs}, sort_keys=True)</code>;</li>
+<li>если <code>r.get(key)</code> вернул значение — вернуть <code>json.loads(value)</code>, <b>не вызывая</b> исходную функцию;</li>
+<li>иначе вызвать функцию, записать результат как JSON-строку с <code>ex=ttl</code> и вернуть результат.</li>
+</ol>
+<p>Благодаря <code>sort_keys=True</code> вызовы <code>predict(a=1, b=2)</code> и <code>predict(b=2, a=1)</code> попадают в один ключ. Результат <code>None</code> считай некэшируемым для простоты — в тестах его не будет.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Где это встречается">
+<p>Ровно так оборачивают <code>model.predict</code> или вызов эмбеддера в сервисе инференса. В тестах вместо настоящего Redis используется <code>FakeRedis</code> с управляемыми часами <code>r.now</code>, чтобы проверить истечение TTL без реального ожидания.</p>
+
+</div>
+<div class="code-block" data-lang="python">import json
+
+
+def cached(r, ttl: int):
+    def decorator(func):
+        pass
+    return decorator</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как работает чтение в паттерне cache-aside?</b></p>
+<p>Сначала проверяется кэш; при попадании значение возвращается сразу, при промахе вычисляется или читается из БД, кладётся в кэш с TTL и возвращается.</p>
+</li>
+<li><p><b>Почему значение в Redis кладут JSON-строкой?</b></p>
+<p>Redis хранит только строки байтов и ничего не знает о Python-объектах. Словарь нужно сериализовать при записи и десериализовать при чтении.</p>
+</li>
+<li><p><b>Зачем передавать TTL при записи в кэш?</b></p>
+<p>Без TTL ключ живёт вечно: память растёт, а значение устаревает. TTL ограничивает время жизни любой ошибки инвалидации.</p>
+</li>
+<li><p><b>Почему в ключе сортируют kwargs?</b></p>
+<p>Вызовы с одинаковыми именованными аргументами в разном порядке должны попадать в один ключ, иначе кэш дробится и hit rate падает.</p>
+</li>
+<li><p><b>Какая проблема у такого декоратора при высокой нагрузке?</b></p>
+<p>Когда горячий ключ истекает, все одновременные запросы получают промах и параллельно запускают модель — cache stampede. От него защищает блокировка на пересчёт.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_stampede_lock" data-difficulty="hard" data-tests="import json
+class FakeRedis:
+    def __init__(self):
+        self.now = 0.0
+        self.data = {}
+    def _alive(self, key):
+        item = self.data.get(key)
+        if item is None:
+            return None
+        if item[1] is not None and self.now &gt;= item[1]:
+            del self.data[key]
+            return None
+        return item
+    def get(self, key):
+        item = self._alive(key)
+        return None if item is None else item[0]
+    def set(self, key, value, ex=None, nx=False):
+        if nx and self._alive(key) is not None:
+            return None
+        self.data[key] = (value, None if ex is None else self.now + ex)
+        return True
+    def delete(self, key):
+        return 1 if self.data.pop(key, None) is not None else 0
+r = FakeRedis()
+calls = {&quot;n&quot;: 0}
+def compute():
+    calls[&quot;n&quot;] += 1
+    return {&quot;top&quot;: [1, 2, 3]}
+assert get_or_compute(r, &quot;top100&quot;, compute, ttl=600, lock_ttl=10) == {&quot;top&quot;: [1, 2, 3]}, &quot;Промах: значение посчитано&quot;
+assert calls[&quot;n&quot;] == 1 and &quot;lock:top100&quot; not in r.data, &quot;Замок снят после расчёта&quot;
+assert r.data[&quot;top100&quot;][1] == 600, &quot;Результат записан с TTL&quot;
+assert get_or_compute(r, &quot;top100&quot;, compute, ttl=600, lock_ttl=10) == {&quot;top&quot;: [1, 2, 3]} and calls[&quot;n&quot;] == 1, &quot;Попадание: compute не вызывается&quot;
+r.set(&quot;lock:k2&quot;, &quot;worker-7&quot;, ex=10)
+assert get_or_compute(r, &quot;k2&quot;, compute, ttl=600, lock_ttl=10) is None, &quot;Замок занят другим — вернуть None&quot;
+assert calls[&quot;n&quot;] == 1, &quot;При занятом замке модель не запускается&quot;
+r.now = 11
+assert get_or_compute(r, &quot;k2&quot;, compute, ttl=600, lock_ttl=10) == {&quot;top&quot;: [1, 2, 3]} and calls[&quot;n&quot;] == 2, &quot;Замок истёк по TTL — можно считать&quot;
+def broken():
+    raise RuntimeError(&quot;GPU OOM&quot;)
+try:
+    get_or_compute(r, &quot;k3&quot;, broken, ttl=600, lock_ttl=10)
+    raised = False
+except RuntimeError:
+    raised = True
+assert raised, &quot;Исключение из compute пробрасывается&quot;
+assert &quot;lock:k3&quot; not in r.data, &quot;Замок снят даже при ошибке&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="practise_redis_stampede_lock">
+    Защита от cache stampede через SET NX EX
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Сделать так, чтобы при истечении горячего ключа дорогой пересчёт запускал <b>только один</b> процесс, а остальные не шли в модель параллельно.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_cache_problems" rel="noopener" target="_blank" class="badge badge-link">Cache stampede</a>
+                      <a href="../../practise/db/redis.html#redis_atomicity" rel="noopener" target="_blank" class="badge badge-link">SET NX EX</a>
+                      <span class="badge">Распределённая блокировка</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>get_or_compute(r, key, compute, ttl, lock_ttl)</code>. Клиент <code>r</code> умеет:</p>
+<ul>
+<li><code>r.get(key)</code> — строка или <code>None</code>;</li>
+<li><code>r.set(key, value, ex=None, nx=False)</code> — при <code>nx=True</code> пишет, <b>только если ключа нет</b>, и возвращает <code>True</code>; если ключ уже есть — возвращает <code>None</code> (как <code>redis-py</code>);</li>
+<li><code>r.delete(key)</code>.</li>
+</ul>
+<p>Логика:</p>
+<ol>
+<li>Если в <code>key</code> есть значение — вернуть <code>json.loads(value)</code>.</li>
+<li>Иначе попытаться взять замок: <code>r.set(f&quot;lock:{key}&quot;, &quot;1&quot;, ex=lock_ttl, nx=True)</code>.</li>
+<li>Замок <b>не взят</b> — кто-то уже считает: вернуть <code>None</code>, <b>не вызывая</b> <code>compute</code> (вызывающий код отдаст заглушку или повторит позже).</li>
+<li>Замок взят — вызвать <code>compute()</code>, записать результат JSON-строкой в <code>key</code> с <code>ex=ttl</code>, вернуть результат.</li>
+<li>Замок нужно снять (<code>r.delete</code>) <b>в любом случае</b>, даже если <code>compute()</code> выбросил исключение, — исключение при этом пробрасывается дальше.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Почему у замка TTL">
+<p>Если процесс, взявший замок, упадёт посреди расчёта, <code>finally</code> не выполнится, и без <code>ex=lock_ttl</code> замок остался бы навсегда. TTL замка — страховка: через <code>lock_ttl</code> секунд пересчёт сможет начать другой процесс. В тестах это проверяется через управляемые часы <code>r.now</code>.</p>
+
+</div>
+<div class="code-block" data-lang="python">import json
+
+
+def get_or_compute(r, key: str, compute, ttl: int, lock_ttl: int):
+    pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое cache stampede?</b></p>
+<p>Истекает горячий ключ, и множество одновременных запросов получают промах и параллельно запускают один и тот же дорогой пересчёт, перегружая модель или БД.</p>
+</li>
+<li><p><b>Почему <code>SET ... NX EX</code> подходит для замка?</b></p>
+<p><code>NX</code> атомарно записывает ключ, только если его нет, — замок достаётся ровно одному процессу. <code>EX</code> гарантирует, что замок исчезнет сам, если владелец упал.</p>
+</li>
+<li><p><b>Зачем снимать замок в <code>finally</code>?</b></p>
+<p>Иначе при ошибке в расчёте замок провисит до истечения TTL, и всё это время ключ никто не пересчитает.</p>
+</li>
+<li><p><b>Что делать процессам, которые не получили замок?</b></p>
+<p>Не запускать пересчёт: отдать устаревшее значение или заглушку, либо подождать и перечитать кэш.</p>
+</li>
+<li><p><b>Чем опасно освобождение замка простым <code>DEL</code> в проде?</b></p>
+<p>Если расчёт длился дольше TTL замка, замок уже мог взять другой процесс, и <code>DEL</code> удалит чужой замок. Надёжно — хранить в замке уникальный токен и удалять Lua-скриптом, только если токен совпадает.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_rate_limit_fixed" data-difficulty="medium" data-tests="class FakeRedis:
+    def __init__(self):
+        self.now = 0.0
+        self.data = {}
+        self.exp = {}
+    def _purge(self, key):
+        if key in self.exp and self.now &gt;= self.exp[key]:
+            self.data.pop(key, None)
+            self.exp.pop(key, None)
+    def incr(self, key):
+        self._purge(key)
+        self.data[key] = self.data.get(key, 0) + 1
+        return self.data[key]
+    def expire(self, key, seconds):
+        self._purge(key)
+        if key not in self.data:
+            return False
+        self.exp[key] = self.now + seconds
+        return True
+    def ttl(self, key):
+        self._purge(key)
+        if key not in self.data:
+            return -2
+        return -1 if key not in self.exp else int(self.exp[key] - self.now)
+def call(r, user, t, limit=3, window=60):
+    r.now = t
+    return allow(r, user, limit, window, t)
+r = FakeRedis()
+assert [call(r, &quot;u1&quot;, t) for t in (0, 1, 2)] == [True, True, True], &quot;Первые 3 запроса в окне проходят&quot;
+assert call(r, &quot;u1&quot;, 3) is False, &quot;4-й запрос в том же окне отклонён&quot;
+assert call(r, &quot;u1&quot;, 59) is False, &quot;До конца окна лимит исчерпан&quot;
+assert r.ttl(&quot;rl:u1:0&quot;) &gt; 0, &quot;У счётчика окна есть TTL&quot;
+assert call(r, &quot;u1&quot;, 60) is True, &quot;Новое окно — новый счётчик&quot;
+assert call(r, &quot;u2&quot;, 3) is True, &quot;Лимит считается для каждого пользователя отдельно&quot;
+r2 = FakeRedis()
+burst = [call(r2, &quot;u3&quot;, 59.5) for _ in range(3)] + [call(r2, &quot;u3&quot;, 60.0) for _ in range(3)]
+assert burst == [True] * 6, &quot;Недостаток окна: на стыке окон за 0.5 с проходит 2 * limit запросов&quot;">
+  <div class="name question-difficulty-medium" id="practise_redis_rate_limit_fixed">
+    Rate limiter: фиксированное окно на INCR + EXPIRE
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать самый частый на собеседованиях rate limiter — «не больше <code>limit</code> запросов за окно в <code>window</code> секунд» — на атомарном счётчике Redis.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_atomicity" rel="noopener" target="_blank" class="badge badge-link">INCR</a>
+                      <a href="../../practise/db/redis.html#redis_ttl" rel="noopener" target="_blank" class="badge badge-link">EXPIRE</a>
+                      <span class="badge">Fixed window</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>allow(r, user_id, limit, window, now) -&gt; bool</code>. Клиент <code>r</code> умеет:</p>
+<ul>
+<li><code>r.incr(key)</code> — атомарно увеличить счётчик на 1 и вернуть новое значение (несуществующий ключ считается нулём);</li>
+<li><code>r.expire(key, seconds)</code> — поставить ключу TTL;</li>
+<li><code>r.ttl(key)</code> — оставшийся TTL (нужен тестам).</li>
+</ul>
+<p>Алгоритм фиксированного окна:</p>
+<ol>
+<li>номер окна — <code>int(now // window)</code>, ключ — <code>f&quot;rl:{user_id}:{номер окна}&quot;</code>;</li>
+<li><code>count = r.incr(key)</code>;</li>
+<li>если <code>count == 1</code> (первый запрос в окне) — поставить <code>r.expire(key, window)</code>, чтобы счётчик не жил вечно;</li>
+<li>вернуть <code>count &lt;= limit</code>.</li>
+</ol>
+<p>Например, при <code>limit=3, window=60</code> запросы в секунды 0, 1, 2 пропускаются, в секунду 3 — нет, а в секунду 60 начинается новое окно.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="В настоящем Redis">
+<p>Шаги 2–3 в проде выполняют в <code>MULTI</code>/<code>EXEC</code> или Lua-скрипте: если процесс упадёт между <code>INCR</code> и <code>EXPIRE</code>, ключ останется без TTL. Здесь, в однопоточной эмуляции, это не проявится, но на собеседовании об этом стоит сказать.</p>
+
+</div>
+<div class="code-block" data-lang="python">def allow(r, user_id: str, limit: int, window: int, now: float) -&gt; bool:
+    pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему для счётчика используют <code>INCR</code>, а не <code>GET</code> + <code>SET</code>?</b></p>
+<p><code>INCR</code> атомарен: сервер читает, увеличивает и записывает значение одной операцией. При <code>GET</code> + <code>SET</code> параллельные запросы теряют инкременты.</p>
+</li>
+<li><p><b>Зачем ставить TTL на ключ окна?</b></p>
+<p>Иначе ключи всех прошедших окон копятся в памяти бесконечно. TTL, равный длине окна, удаляет счётчик, когда окно закончилось.</p>
+</li>
+<li><p><b>Почему <code>INCR</code> и <code>EXPIRE</code> в проде выполняют атомарно?</b></p>
+<p>Если процесс упадёт между ними, ключ останется без TTL. Поэтому их объединяют в <code>MULTI</code>/<code>EXEC</code> или Lua-скрипт.</p>
+</li>
+<li><p><b>В чём главный недостаток фиксированного окна?</b></p>
+<p>На стыке двух окон можно за очень короткое время пропустить до двух лимитов запросов: конец одного окна и начало следующего. Это исправляет скользящее окно.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_rate_limit_sliding" data-difficulty="hard" data-tests="class FakeRedis:
+    def __init__(self):
+        self.z = {}
+        self.ttls = {}
+    def zremrangebyscore(self, key, mn, mx):
+        s = self.z.get(key, {})
+        drop = [m for m, sc in s.items() if mn &lt;= sc &lt;= mx]
+        for m in drop:
+            del s[m]
+        return len(drop)
+    def zcard(self, key):
+        return len(self.z.get(key, {}))
+    def zadd(self, key, mapping):
+        s = self.z.setdefault(key, {})
+        added = sum(1 for m in mapping if m not in s)
+        s.update(mapping)
+        return added
+    def expire(self, key, seconds):
+        self.ttls[key] = seconds
+        return key in self.z
+counter = {&quot;i&quot;: 0}
+def call(r, user, t, limit=3, window=60):
+    counter[&quot;i&quot;] += 1
+    return allow_sliding(r, user, limit, window, t, f&quot;req-{counter['i']}&quot;)
+r = FakeRedis()
+assert [call(r, &quot;u1&quot;, t) for t in (0, 10, 20)] == [True, True, True], &quot;3 запроса в окне проходят&quot;
+assert call(r, &quot;u1&quot;, 30) is False, &quot;4-й за 60 секунд отклонён&quot;
+assert r.zcard(&quot;rl:sliding:u1&quot;) == 3, &quot;Отклонённый запрос не добавляется в окно&quot;
+assert call(r, &quot;u1&quot;, 60) is True, &quot;Запрос из секунды 0 выпал из окна (now - window включительно)&quot;
+assert call(r, &quot;u1&quot;, 61) is False, &quot;В окне (1, 61] снова 3 запроса&quot;
+assert call(r, &quot;u1&quot;, 70) is True, &quot;Запрос из секунды 10 выпал из окна&quot;
+assert r.ttls.get(&quot;rl:sliding:u1&quot;) == 60, &quot;TTL ключа продлевается на window&quot;
+r2 = FakeRedis()
+burst = [call(r2, &quot;u2&quot;, 59.5) for _ in range(3)] + [call(r2, &quot;u2&quot;, 60.0) for _ in range(3)]
+assert burst == [True, True, True, False, False, False], &quot;На стыке минут лимит не удваивается&quot;">
+  <div class="name question-difficulty-hard question-hard-title" id="practise_redis_rate_limit_sliding">
+    Rate limiter: скользящее окно на sorted set
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Исправить недостаток фиксированного окна: считать запросы за <b>последние</b> <code>window</code> секунд от текущего момента, храня время каждого запроса в sorted set.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_data_types" rel="noopener" target="_blank" class="badge badge-link">Sorted Set</a>
+                      <span class="badge">Sliding window log</span>
+                      <span class="badge">ZREMRANGEBYSCORE</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши <code>allow_sliding(r, user_id, limit, window, now, request_id) -&gt; bool</code>. Клиент <code>r</code> эмулирует команды sorted set:</p>
+<ul>
+<li><code>r.zremrangebyscore(key, min, max)</code> — удалить элементы со score в отрезке <code>[min, max]</code> (границы включительно);</li>
+<li><code>r.zcard(key)</code> — число элементов;</li>
+<li><code>r.zadd(key, {member: score})</code> — добавить элемент со score;</li>
+<li><code>r.expire(key, seconds)</code> — TTL на весь ключ.</li>
+</ul>
+<p>Алгоритм для ключа <code>f&quot;rl:sliding:{user_id}&quot;</code>:</p>
+<ol>
+<li>удалить запросы, которые старше окна: score от <code>0</code> до <code>now - window</code> включительно — в окне остаются запросы из полуинтервала $(now - window,\ now]$;</li>
+<li>если <code>zcard</code> меньше <code>limit</code> — добавить текущий запрос (<code>request_id</code> со score <code>now</code>), продлить TTL ключа на <code>window</code> и вернуть <code>True</code>;</li>
+<li>иначе вернуть <code>False</code>, <b>не добавляя</b> запрос.</li>
+</ol>
+<p>Например, при <code>limit=3, window=60</code> и запросах в 0, 10, 20 запрос в 30 отклоняется, а в 60 проходит: запрос из секунды 0 уже выпал из окна.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="В настоящем Redis">
+<p>Эти три команды в проде выполняют одним Lua-скриптом: иначе два параллельных запроса одновременно увидят <code>zcard = 2</code> и оба добавят себя, превысив лимит. Плата за точность — память: sorted set хранит <b>каждый</b> запрос в окне, а не один счётчик.</p>
+
+</div>
+<div class="code-block" data-lang="python">def allow_sliding(r, user_id: str, limit: int, window: int, now: float, request_id: str) -&gt; bool:
+    pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему для скользящего окна подходит sorted set?</b></p>
+<p>Score хранит время запроса, поэтому старые запросы удаляются одной командой по диапазону score, а число запросов в окне даёт <code>ZCARD</code> — всё на сервере, без выгрузки данных.</p>
+</li>
+<li><p><b>Чем скользящее окно лучше фиксированного?</b></p>
+<p>Окно отсчитывается от текущего момента, а не от начала минуты, поэтому на стыке окон нельзя пропустить удвоенный лимит.</p>
+</li>
+<li><p><b>Зачем выполнять команды лимитера одним Lua-скриптом?</b></p>
+<p>Иначе два параллельных запроса одновременно прочитают одинаковое число элементов и оба добавят себя, превысив лимит. Скрипт выполняется атомарно.</p>
+</li>
+<li><p><b>Какая цена у точности скользящего окна?</b></p>
+<p>Память: хранится каждый запрос в окне, а не один счётчик. Для больших лимитов используют приближение — взвешенную сумму счётчиков текущего и предыдущего фиксированных окон.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_leaderboard" data-difficulty="medium" data-tests="lb = Leaderboard()
+assert lb.add(&quot;alice&quot;, 50) == 50, &quot;Новый игрок начинает с 0&quot;
+lb.add(&quot;bob&quot;, 80)
+assert lb.add(&quot;alice&quot;, 40) == 90, &quot;ZINCRBY прибавляет к текущему счёту&quot;
+assert lb.top(2) == [(&quot;alice&quot;, 90), (&quot;bob&quot;, 80)], &quot;Топ по убыванию счёта&quot;
+assert lb.rank(&quot;bob&quot;) == 1, &quot;Место считается с нуля&quot;
+assert lb.rank(&quot;carol&quot;) is None, &quot;Нет игрока — None&quot;
+lb.add(&quot;carol&quot;, 80)
+assert lb.top(3) == [(&quot;alice&quot;, 90), (&quot;carol&quot;, 80), (&quot;bob&quot;, 80)], &quot;При равном счёте — обратный лексикографический порядок&quot;
+assert lb.top(10) == lb.top(3), &quot;n больше числа игроков — возвращаются все&quot;
+lb.add(&quot;alice&quot;, -100)
+assert lb.rank(&quot;alice&quot;) == 2 and lb.top(1) == [(&quot;carol&quot;, 80)], &quot;Отрицательные очки опускают игрока&quot;">
+  <div class="name question-difficulty-medium" id="practise_redis_leaderboard">
+    Лидерборд: семантика sorted set
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Разобраться, почему лидерборд в Redis делают на sorted set, реализовав его команды <code>ZINCRBY</code>, <code>ZRANGE ... REV WITHSCORES</code> и <code>ZREVRANK</code> на обычном Python.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_data_types" rel="noopener" target="_blank" class="badge badge-link">Sorted Set</a>
+                      <span class="badge">ZINCRBY</span>
+                      <span class="badge">ZREVRANK</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши класс <code>Leaderboard</code> с методами:</p>
+<ul>
+<li><code>add(player, points) -&gt; float</code> — прибавить очки игроку (новый игрок начинает с 0) и вернуть его новый счёт, как <code>ZINCRBY</code>;</li>
+<li><code>top(n) -&gt; list[tuple[str, float]]</code> — первые <code>n</code> игроков по убыванию счёта в виде пар <code>(игрок, счёт)</code>, как <code>ZRANGE key 0 n-1 REV WITHSCORES</code>;</li>
+<li><code>rank(player) -&gt; int | None</code> — место игрока в том же порядке, <b>с нуля</b>, или <code>None</code>, если игрока нет, как <code>ZREVRANK</code>.</li>
+</ul>
+<p>Порядок при равном счёте — как в Redis для <code>REV</code>: имена игроков в <b>обратном</b> лексикографическом порядке (<code>&quot;bob&quot;</code> выше <code>&quot;alice&quot;</code>).</p>
+<p>Например, после <code>add(&quot;alice&quot;, 50)</code>, <code>add(&quot;bob&quot;, 80)</code>, <code>add(&quot;alice&quot;, 40)</code> вызов <code>top(2)</code> вернёт <code>[(&quot;alice&quot;, 90.0), (&quot;bob&quot;, 80.0)]</code>, а <code>rank(&quot;bob&quot;)</code> — <code>1</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Сложность">
+<p>Простая реализация со словарём и сортировкой на каждый <code>top</code> работает за $O(N \log N)$ — для задачи это нормально. В Redis sorted set хранит элементы в skip list, поэтому <code>ZINCRBY</code> и <code>ZREVRANK</code> стоят $O(\log N)$, а топ-$n$ — $O(\log N + n)$ на миллионах игроков.</p>
+
+</div>
+<div class="code-block" data-lang="python">class Leaderboard:
+    def __init__(self):
+        pass
+
+    def add(self, player: str, points: float) -&gt; float:
+        pass
+
+    def top(self, n: int) -&gt; list:
+        pass
+
+    def rank(self, player: str):
+        pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему лидерборд в Redis делают на sorted set?</b></p>
+<p>Sorted set всегда хранит элементы отсортированными по score, поэтому добавление очков, место игрока и топ-N выполняются одной командой за логарифмическое время прямо на сервере.</p>
+</li>
+<li><p><b>Какие команды нужны для лидерборда?</b></p>
+<p><code>ZINCRBY</code> для начисления очков, <code>ZRANGE ... REV WITHSCORES</code> для топа, <code>ZREVRANK</code> для места игрока и <code>ZSCORE</code> для его счёта.</p>
+</li>
+<li><p><b>Как устроен sorted set внутри?</b></p>
+<p>Skip list, упорядоченный по score, плюс хэш-таблица «элемент → score». Первое даёт диапазоны и ранги за $O(\log N)$, второе — поиск счёта за $O(1)$.</p>
+</li>
+<li><p><b>Как упорядочены элементы с одинаковым score?</b></p>
+<p>Лексикографически по имени элемента; в обратных командах (<code>REV</code>, <code>ZREVRANK</code>) — в обратном лексикографическом порядке.</p>
+</li>
+<li><p><b>Где ещё в ML пригодится sorted set?</b></p>
+<p>Скользящие окна событий по времени, топ популярных товаров за период, очереди с приоритетом, хранение кандидатов для рекомендаций со скорами.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="practise_redis_lru_cache" data-difficulty="medium" data-tests="c = LRUCache(2)
+assert c.put(&quot;a&quot;, 1) is None and c.put(&quot;b&quot;, 2) is None, &quot;Пока есть место — ничего не вытесняется&quot;
+assert c.get(&quot;a&quot;) == 1, &quot;Чтение существующего ключа&quot;
+assert c.put(&quot;c&quot;, 3) == &quot;b&quot;, &quot;Вытесняется давно не использованный ключ&quot;
+assert c.get(&quot;b&quot;) is None, &quot;Вытесненного ключа больше нет&quot;
+assert c.put(&quot;a&quot;, 10) is None, &quot;Обновление существующего ключа ничего не вытесняет&quot;
+assert c.get(&quot;a&quot;) == 10, &quot;Значение обновилось&quot;
+assert c.put(&quot;d&quot;, 4) == &quot;c&quot;, &quot;Обновление через put тоже освежает ключ&quot;
+assert c.get(&quot;missing&quot;) is None, &quot;Нет ключа — None&quot;
+one = LRUCache(1)
+one.put(&quot;x&quot;, 1)
+assert one.put(&quot;y&quot;, 2) == &quot;x&quot; and one.get(&quot;y&quot;) == 2, &quot;capacity=1&quot;">
+  <div class="name question-difficulty-medium" id="practise_redis_lru_cache">
+    LRU-кэш: как работает allkeys-lru
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать классический LRU-кэш с операциями за $O(1)$ — ту самую политику вытеснения, которую Redis применяет при <code>maxmemory-policy allkeys-lru</code>.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="../../practise/db/redis.html#redis_eviction" rel="noopener" target="_blank" class="badge badge-link">Политики вытеснения</a>
+                      <span class="badge">LRU</span>
+                      <span class="badge">OrderedDict</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Напиши класс <code>LRUCache(capacity)</code> с методами:</p>
+<ul>
+<li><code>get(key)</code> — значение по ключу или <code>None</code>, если ключа нет. Успешное чтение делает ключ <b>самым свежим</b>;</li>
+<li><code>put(key, value)</code> — записать значение. Запись тоже делает ключ самым свежим. Если после добавления <b>нового</b> ключа их стало больше <code>capacity</code>, удалить ключ, к которому дольше всего не обращались, и вернуть его; иначе вернуть <code>None</code>.</li>
+</ul>
+<p>Обе операции должны работать за $O(1)$: подойдёт <code>collections.OrderedDict</code> с методами <code>move_to_end</code> и <code>popitem(last=False)</code>.</p>
+<p>Например, при <code>capacity=2</code>: <code>put(&quot;a&quot;, 1)</code>, <code>put(&quot;b&quot;, 2)</code>, <code>get(&quot;a&quot;)</code>, <code>put(&quot;c&quot;, 3)</code> — вытесняется <code>&quot;b&quot;</code>, потому что <code>&quot;a&quot;</code> только что читали.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Отличие от Redis">
+<p>Здесь LRU точный. Redis экономит память и делает <b>приближённый</b> LRU: берёт случайную выборку из <code>maxmemory-samples</code> ключей и вытесняет самый давний из неё. И вытесняет он по объёму памяти, а не по числу ключей.</p>
+
+</div>
+<div class="code-block" data-lang="python">from collections import OrderedDict
+
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        pass
+
+    def get(self, key):
+        pass
+
+    def put(self, key, value):
+        pass</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какой ключ вытесняет LRU?</b></p>
+<p>Тот, к которому дольше всего не обращались: ни чтением, ни записью.</p>
+</li>
+<li><p><b>Как получить LRU с операциями за O(1)?</b></p>
+<p>Хэш-таблица для поиска плюс двусвязный список для порядка обращений; в Python это <code>OrderedDict</code> с <code>move_to_end</code> и <code>popitem(last=False)</code>.</p>
+</li>
+<li><p><b>Почему LRU в Redis приближённый?</b></p>
+<p>Точный порядок обращений требует дополнительной памяти на каждый ключ. Redis берёт случайную выборку ключей и вытесняет самый давний из неё, что почти не уступает точному LRU.</p>
+</li>
+<li><p><b>Когда LRU работает плохо и что взять вместо него?</b></p>
+<p>При разовых сканах большого числа ключей: они становятся «свежими» и вымывают действительно горячие ключи. В таких случаях лучше LFU, который учитывает частоту обращений.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+
+    <script src="../../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  
+
+</body></html>

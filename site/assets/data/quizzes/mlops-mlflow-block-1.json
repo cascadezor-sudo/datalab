@@ -1,0 +1,83 @@
+{
+  "id": "mlops:mlflow:block-1",
+  "title": "MLflow · Блок 1: платформа и Tracking Server",
+  "description": "Проверка перед блоком 2: что решает MLflow, experiment и run, параметры, метрики, артефакты и теги, компоненты MLflow, Tracking Server, backend store и artifact store.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b1_problem",
+      "type": "single",
+      "q": "Какую проблему в первую очередь решает MLflow Tracking?",
+      "options": [
+        "Ускоряет обучение моделей на GPU",
+        "Автоматически подбирает архитектуру модели",
+        "Отвечает на вопрос, какой код, данные и гиперпараметры дали этот результат",
+        "Заменяет систему контроля версий кода"
+      ],
+      "answer": [2],
+      "explain": "Каждый запуск сохраняется как run с параметрами, метриками, артефактами и тегами — историю можно сравнить и воспроизвести."
+    },
+    {
+      "id": "b1_run",
+      "type": "single",
+      "q": "Как соотносятся run и experiment в MLflow?",
+      "options": [
+        "Run — один запуск обучения, experiment — группа таких запусков",
+        "Experiment — один запуск, run — группа экспериментов",
+        "Это синонимы",
+        "Run — версия модели в Registry"
+      ],
+      "answer": [0],
+      "explain": "Каждый запуск обучения сохраняется как run внутри experiment."
+    },
+    {
+      "id": "b1_artifacts",
+      "type": "multi",
+      "q": "Что из перечисленного логируют в MLflow как артефакты? Выберите все верные.",
+      "options": [
+        "`learning_rate`",
+        "График confusion matrix",
+        "`roc_auc`",
+        "Веса модели"
+      ],
+      "answer": [1, 3],
+      "explain": "Артефакты — файлы: графики, веса, отчёты. `learning_rate` — параметр, `roc_auc` — метрика."
+    },
+    {
+      "id": "b1_registry_component",
+      "type": "single",
+      "q": "Какой компонент MLflow отвечает за версии моделей, стадии и approval flow?",
+      "options": ["Tracking", "Projects", "Models", "Model Registry"],
+      "answer": [3],
+      "explain": "Tracking логирует запуски, Projects упаковывают запуск, Models — формат сохранения, а версии и стадии живут в Model Registry."
+    },
+    {
+      "id": "b1_stores",
+      "type": "single",
+      "q": "Где в production-схеме MLflow хранятся файлы моделей и графики?",
+      "options": [
+        "В backend store — PostgreSQL или MySQL",
+        "В artifact store — S3, MinIO, GCS или Azure Blob",
+        "В памяти Tracking Server",
+        "В git-репозитории с кодом обучения"
+      ],
+      "answer": [1],
+      "explain": "Backend store держит metadata (experiments, runs, params, metrics, tags), а файлы уходят в artifact store."
+    },
+    {
+      "id": "b1_mlruns",
+      "type": "single",
+      "q": "Почему команде не стоит работать с MLflow через локальную папку `mlruns/`?",
+      "options": [
+        "`mlruns/` не поддерживает логирование метрик",
+        "Локальная папка работает медленнее PostgreSQL в сотни раз",
+        "Runs живут на машине одного человека, артефакты легко потерять, доступы и бэкапы неуправляемы",
+        "MLflow запрещает `mlruns/` лицензией"
+      ],
+      "answer": [2],
+      "explain": "`mlruns/` годится для локальной разработки, командному MLflow нужны tracking server, БД и object storage."
+    }
+  ]
+}

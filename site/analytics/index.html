@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Аналитика данных — Каталог материалов</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/pages-modern.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/css/roadmap-progress.css" rel="stylesheet" />
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body class="roadmap">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <header class="page-header">
+      <div class="page-header-content">
+        <img class="page-header-icon" src="../assets/icons/roadmap.svg" alt="" />
+        <div class="page-header-text">
+          <h1 id="title">Аналитика данных (Data & Product Analytics)</h1>
+          <p class="subtitle">Полный трек подготовки: A/B-тестирование, продуктовые метрики, логирование, BI, DWH, SQL и собеседования (145 тем)</p>
+        </div>
+      </div>
+    </header>
+
+    <a href="roadmap/interactive.html" class="card visualization-card">
+      <div class="card-header">
+        <div class="card-icon roadmap">
+          <img src="../assets/icons/roadmap.svg" alt="Интерактивная карта аналитика" />
+        </div>
+        <h3 class="card-title">Интерактивная визуальная карта аналитика</h3>
+      </div>
+      <div class="card-content">
+        <p class="card-description">
+          Интерактивная дорожная карта всех этапов обучения: фундамент, эксперименты, метрики, практика и банк собеседований
+        </p>
+        <span class="card-link">Открыть интерактивную карту</span>
+      </div>
+    </a>
+
+    <section class="roadmap-section">
+      <div class="cards-grid">
+
+        <a href="product/ab.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="A/B-тестирование I (Статистика и теория)" />
+            </div>
+            <h3 class="card-title">A/B-тестирование I (Статистика и теория)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Фундаментальные основы сплит-тестирования, проверка статистических гипотез, p-value, ошибки I и II рода, критерии согласия и оценка эффектов.</p>
+            <span class="card-link">Изучить (14 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/ab-design.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="A/B-тестирование II (Дизайн экспериментов, CUPED, MDE)" />
+            </div>
+            <h3 class="card-title">A/B-тестирование II (Дизайн экспериментов, CUPED, MDE)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Дизайн и планирование экспериментов: расчет выборки, MDE, выбор OEC, Sample Ratio Mismatch, продвинутые техники снижения дисперсии (CUPED) и последовательное тестирование.</p>
+            <span class="card-link">Изучить (15 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/metrics.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Продуктовые метрики (AARRR, LTV, Retention)" />
+            </div>
+            <h3 class="card-title">Продуктовые метрики (AARRR, LTV, Retention)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Система продуктовых метрик: расчет DAU/MAU, Stickiness, кривые удержания (Retention), воронки конверсий, когортный анализ, Unit-экономика и North Star Metric.</p>
+            <span class="card-link">Изучить (12 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/logging.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Логирование событий и Tracking Plan" />
+            </div>
+            <h3 class="card-title">Логирование событий и Tracking Plan</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Архитектура сбора данных, разработка Tracking Plan, сессионизация, качество аналитических логов и склейка пользователей (Identity Resolution).</p>
+            <span class="card-link">Изучить (6 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/research.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Продуктовые исследования и Causal Inference" />
+            </div>
+            <h3 class="card-title">Продуктовые исследования и Causal Inference</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Методология продуктовых исследований: приоритизация гипотез (RICE/ICE), разбор падения метрик, сегментация и оценка каузального эффекта без A/B тестирования.</p>
+            <span class="card-link">Изучить (7 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/bi.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="BI-системы, визуализация и Yandex DataLens" />
+            </div>
+            <h3 class="card-title">BI-системы, визуализация и Yandex DataLens</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Построение эффективных аналитических дашбордов, архитектура BI-решений, выбор визуализаций и практическая работа с Yandex DataLens и SQL.</p>
+            <span class="card-link">Изучить (6 тем)</span>
+          </div>
+        </a>
+
+        <a href="product/tools.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Инструменты экспериментов (GrowthBook, Вариокуб, Флаги)" />
+            </div>
+            <h3 class="card-title">Инструменты экспериментов (GrowthBook, Вариокуб, Флаги)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Инфраструктура сплит-тестирования: архитектура сплитовалки, деление трафика (хеширование), платформы GrowthBook и Вариокуб, Feature Flags и canary rollouts.</p>
+            <span class="card-link">Изучить (6 тем)</span>
+          </div>
+        </a>
+
+        <a href="practise/ab.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Практика: Задачи A/B-тестирования" />
+            </div>
+            <h3 class="card-title">Практика: Задачи A/B-тестирования</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Сборник расчетных и алгоритмических задач: расчет Z-тестов, Welch t-test, вычисление MDE и Sample Size, бутстреп доверительных интервалов и реализация CUPED на Python.</p>
+            <span class="card-link">Изучить (11 тем)</span>
+          </div>
+        </a>
+
+        <a href="practise/metrics.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Практика: Продуктовые метрики и SQL" />
+            </div>
+            <h3 class="card-title">Практика: Продуктовые метрики и SQL</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Практикум по расчету ключевых продуктовых показателей на реальных данных: SQL-запросы для DAU/MAU, воронок, когортного Retention в Pandas, юнит-экономики и анализа просадок.</p>
+            <span class="card-link">Изучить (10 тем)</span>
+          </div>
+        </a>
+
+        <a href="bank/product.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Банк вопросов собеседований (Продуктовая аналитика)" />
+            </div>
+            <h3 class="card-title">Банк вопросов собеседований (Продуктовая аналитика)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Банк реальных вопросов и кейсов с собеседований на позицию Middle/Senior Product Analyst: A/B тесты, метрики, расследование аномалий и продуктовый SQL.</p>
+            <span class="card-link">Изучить (18 тем)</span>
+          </div>
+        </a>
+
+        <a href="../db/dwh.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Хранилища данных DWH и ClickHouse" />
+            </div>
+            <h3 class="card-title">Хранилища данных DWH и ClickHouse</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Архитектура хранилищ данных (DWH): реляционные модели, схемы Звезда и Снежинка, ETL/ELT процессы и колоночная СУБД ClickHouse для аналитики больших данных.</p>
+            <span class="card-link">Изучить (9 тем)</span>
+          </div>
+        </a>
+
+        <a href="../python/data.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Python для анализа данных (pandas, numpy, EDA)" />
+            </div>
+            <h3 class="card-title">Python для анализа данных (pandas, numpy, EDA)</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Инструменты аналитика данных: Jupyter Workflow, векторизация NumPy, глубокая работа с Pandas (groupby, merge, pivot_table) и визуализация в Matplotlib и Seaborn.</p>
+            <span class="card-link">Изучить (11 тем)</span>
+          </div>
+        </a>
+
+        <a href="../bank/db.html" class="card">
+          <div class="card-header">
+            <div class="card-icon roadmap">
+              <img src="../assets/icons/roadmap.svg" alt="Банк вопросов собеседований: SQL и базы данных" />
+            </div>
+            <h3 class="card-title">Банк вопросов собеседований: SQL и базы данных</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">Полный справочник вопросов по SQL и базам данных: джойны, оконные функции, CTE, оптимизация индексов, планы запросов EXPLAIN, ACID и транзакции.</p>
+            <span class="card-link">Изучить (20 тем)</span>
+          </div>
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

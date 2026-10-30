@@ -1,0 +1,517 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Испытательный срок</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <script defer src="../../assets/js/core.js"></script>
+    <script defer src="../../assets/js/questions.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="interviews">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Испытательный срок</h1>
+            <p class="subtitle">Швейцарский нож для первых недель на новом месте: вопросы, процессы, ожидания и первые результаты</p>
+          </div>
+          <div class="page-header-cta">
+            <a class="page-header-button" href="../../ai/interviews/index.html">К разделу Интервью</a>
+          </div>
+        </div>
+      </header>
+
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/progress.svg" alt="План" />
+            </div>
+            <h2 class="card-title">Главная идея испыталки</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Фокус" data-type="definition">
+              Испытательный срок нужен для быстрой синхронизации: понять ожидания, встроиться в рабочий ритм, закрыть первые задачи и показать, что с тобой спокойно работать.
+            </div>
+            <div class="info-card-auto" data-title="Правило" data-type="remark">
+              В первые недели выигрывает не тот, кто молчит и "сам разберется", а тот, кто задает точные вопросы, фиксирует договоренности и регулярно показывает прогресс.
+            </div>
+            <div class="info-card-auto" data-title="Правило" data-type="remark">
+              Успех испытательного срока зависит не от всех трех месяцев испыталки. 90% успеха достигаются в первые 2-3 недели. Так что за этот период нужно максимально хорошо себя зарекомендовать.           
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/it-slang.png" alt="Термины" />
+            </div>
+            <h2 class="card-title">Перед стартом</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Если в онбординге встречаются незнакомые слова, сверяйся со словарем:
+              <a href="../../ai/interviews/dictionary.html">ликбез по IT-терминам</a>.
+            </p>
+            <div class="info-card-auto" data-title="Минимум" data-type="example">
+              Заранее выпиши непонятные аббревиатуры, названия сервисов, роли людей, названия встреч и командные процессы. Это превратит хаос первого дня в список для уточнений.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="first-week">Первая неделя</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/question.svg" alt="Вопросы" />
+            </div>
+            <h2 class="card-title">Что спросить в первую очередь</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Чек-лист" data-type="definition">
+              <ul>
+                <li>Какие критерии успешного прохождения испытательного срока?</li>
+                <li>Какие задачи ожидаются в первые 2 недели, месяц и к концу ИС?</li>
+                <li>Кто принимает результат: тимлид, руководитель, ментор, продукт?</li>
+                <li>Где живут задачи, документация, код, дашборды и командные договоренности?</li>
+                <li>К кому идти по продуктовым, техническим, инфраструктурным и организационным вопросам?</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/calendar.svg" alt="Ритм" />
+            </div>
+            <h2 class="card-title">Как понять рабочий процесс</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Карта процесса" data-type="example">
+              Попроси показать путь задачи: от идеи или тикета до релиза. Важно понять статусы, ревью, тестирование, деплой, владельцев этапов и что считается "готово".
+            </div>
+            <ul>
+              <li>Как заводятся задачи и кто их приоритизирует.</li>
+              <li>Как часто проходят дейли, планирование, ретро, демо, 1:1.</li>
+              <li>Какие есть правила по веткам, pull request, code review и релизам.</li>
+              <li>Где смотреть метрики качества, ошибок, алертов и нагрузки.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="questions">Что можно и нельзя спрашивать</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/chat.svg" alt="Можно" />
+            </div>
+            <h2 class="card-title">Можно и нужно</h2>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>Уточнять ожидаемый результат, срок, приоритет и формат сдачи задачи.</li>
+              <li>Просить контекст: зачем нужна задача, кто пользователь, какая метрика важна.</li>
+              <li>Спрашивать про локальные практики команды, даже если "в целом ты знаешь Git/Scrum/ML".</li>
+              <li>Показывать промежуточное решение и спрашивать, туда ли ты идешь.</li>
+              <li>Просить пример хорошего PR, отчета, эксперимента, ноутбука или дизайна решения.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/warning.svg" alt="Осторожно" />
+            </div>
+            <h2 class="card-title">Лучше не делать</h2>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>Не спрашивать одно и то же без фиксации ответа в заметках.</li>
+              <li>Не задавать вопросы, которые можно найти в документации или в чате.</li>
+              <li>Не задавать слишком простые вопросы вроде "как склонировать репозиторий".</li>
+              <li>Не приходить с "ничего не работает" без логов, шагов воспроизведения и гипотезы.</li>
+              <li>Не спорить с процессом до того, как понял, почему он такой.</li>
+              <li>Не обещать срок, если не оценил неизвестные зависимости.</li>
+              <li>Не пропадать надолго: лучше короткий апдейт раньше, чем идеальный результат молча и поздно.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+
+      <h2 id="communication">Коммуникация</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/report.png" alt="Апдейты" />
+            </div>
+            <h2 class="card-title">Как давать апдейты</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Шаблон" data-type="example">
+              Что сделал -> что делаю дальше -> где риск или блокер -> когда будет следующий апдейт. Такой формат экономит время руководителю и показывает управляемость.
+            </div>
+            <ul>
+              <li>Пиши коротко, но регулярно.</li>
+              <li>Отделяй факты от предположений.</li>
+              <li>Если застрял больше чем на 30-60 минут, готовь вопрос с контекстом.</li>
+              <li>После созвона фиксируй решения письменно: в тикете, чате или личных заметках.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/mentor-stats.svg" alt="1:1" />
+            </div>
+            <h2 class="card-title">Что обсуждать на 1:1</h2>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>Насколько текущий прогресс соответствует ожиданиям по ИС.</li>
+              <li>Какие навыки или зоны контекста нужно подтянуть быстрее.</li>
+              <li>Что в работе сейчас самое важное, а что можно отложить.</li>
+              <li>Какая обратная связь есть по коммуникации, качеству решений и скорости.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="ml-work">Если ты в ML-команде</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/ml.svg" alt="ML" />
+            </div>
+            <h2 class="card-title">Что быстро выяснить</h2>
+          </div>
+          <div class="card-content">
+            <ul>
+              <li>Какие данные используются, где лежат, кто владелец и какие есть ограничения доступа.</li>
+              <li>Как устроены эксперименты: трекинг, baseline, метрики, валидация, артефакты.</li>
+              <li>Как модель попадает в прод: batch/online, API, расписания, мониторинг, rollback.</li>
+              <li>Какие метрики важнее: offline quality, latency, cost, reliability, business KPI.</li>
+              <li>Какие типовые инциденты уже случались и как команда их разбирает.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Схема" />
+            </div>
+            <h2 class="card-title">Собери карту системы</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Артефакт" data-type="remark">
+              За первые недели полезно нарисовать свою схему: источники данных, пайплайны, модели, сервисы, мониторинг, владельцы и основные риски. Потом покажи ее кому-то из команды и поправь.
+            </div>
+            <div class="info-card-auto" data-title="Как составить карту проекта?" data-type="remark">
+              По возможности нужно активно использовать Claude/Codex/Cursor для сканирования репозитория и составления карты проекта и документации. Удобно составлять документацию в markdown формате, итоговую карту можно попросить сгенерировать в html-формате.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="final-checklist">Финальный чек-лист</h2>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/training.svg" alt="Чек-лист" />
+            </div>
+            <h2 class="card-title">Перед итоговой встречей (если такая предусмотрена)</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Подготовка" data-type="definition">
+              <ul>
+                <li>Список закрытых задач со ссылками на PR, тикеты, дашборды или документы.</li>
+                <li>Что ты улучшил: скорость, качество, стабильность, покрытие тестами, понятность процесса.</li>
+                <li>Какие зоны еще требуют контекста и какой у тебя план на следующий месяц.</li>
+                <li>Какая обратная связь уже была получена и что ты по ней изменил. Либо запросить фидбек от руководителя или ментора.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/rocket.svg" alt="Дальше" />
+            </div>
+            <h2 class="card-title">Главный сигнал</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              После испыталки у команды должно остаться простое ощущение: ты умеешь разбираться, доводить до результата, предупреждать о рисках и становиться автономнее каждую неделю.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- firebase-sdk-auth:start -->
+      
+      
+      <!-- firebase-sdk-auth:end -->
+      <script src="../../authGuard.js"></script>
+
+      <button aria-label="Наверх" id="scrollToTopBtn" type="button">
+        <svg
+          fill="none"
+          height="24"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <script src="../../assets/js/init-page.js"></script>
+    </main>
+  </body>
+</html>

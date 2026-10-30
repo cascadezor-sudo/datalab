@@ -1,0 +1,2870 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Новости и обновления</title>
+
+    <!-- Common Styles -->
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/css/styles.css" />
+    <link rel="stylesheet" href="assets/css/pages-modern.css" />
+    <link rel="stylesheet" href="assets/css/news-page.css" />
+    <link href="assets/katex/katex.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/code-styles.css" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<link href="assets/css/navigation.css" rel="stylesheet" />
+
+    <script defer="" src="assets/js/core.js"></script>
+    <script defer="" src="assets/js/questions.js"></script>
+    <script defer="" src="assets/js/controls.js"></script>
+    <script defer="" src="assets/katex/katex.min.js"></script>
+    <script defer="" src="assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="assets/js/init-head.js"></script>
+    <script src="assets/js/components/navigation.js"></script>
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/components/inline-code-highlighter.js"></script>
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <!-- Navigation will be injected by navigation.js -->
+    <nav id="navbar"></nav>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <img class="page-header-icon" src="assets/icons/online-news.svg" alt="" />
+          <div class="page-header-text">
+            <h1 id="title">Новости и обновления</h1>
+            <p class="subtitle">Следите за развитием платформы</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="news-container">
+
+        <!-- Релиз v2026.10.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.10.2</h2>
+            <time datetime="2026-10-02">2 октября 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="suggestions.html">Доска предложений</a></b>: предлагайте, что улучшить на платформе, и голосуйте за чужие идеи — популярные забираем в работу первыми. Пункт «Предложения» — в меню аккаунта. За внедрённую идею автору на менторстве — 300 градов.</li>
+              <li><b>Первые идеи с доски уже на сайте</b>: аудиозаписи на странице <a href="ai/interviews/videos.html">собеседований</a> слушаются прямо в карточке, как голосовое, а волна на компьютере двигается в такт звуку. Под GIF в материалах появились кнопки паузы и скорости 0.5×–2×, анимация сама встаёт на паузу, когда уходит за экран. Под сложными формулами появилась строка «Как читать» — как произнести формулу вслух; начали с <a href="math/probability.html">теории вероятностей</a>. И починили баг: поставленная оценка сложности вопроса теперь видна после обновления страницы.</li>
+              <li><b>Тесты после блоков</b>: на всех страницах материалов с несколькими блоками, например в <a href="ai/ml/dl.html">Deep Learning</a>, после каждого блока стоит короткий тест для самопроверки. Он необязательный, следующий блок не закрывается. За первую сдачу — 50 градов.</li>
+              <li><b><a href="spaced-repetition.html">Карточки повторения</a> удобнее</b>: под кнопками оценок видно, когда карточка покажется снова, после оценки больше не перескакивает через одну, а когда всё повторено — экран с датой следующего повторения. На телефоне кнопки оценок встали в сетку 2×2.</li>
+              <li><b>100 градов за найденную ошибку</b>: если сообщили об ошибке в вопросе через «В тексте ошибка?» и мы её исправили — автору на менторстве начисляется 100 градов.</li>
+              <li><b>Видео-гайд</b>: вместо слайдов <a href="guide/index.html">гайд по платформе</a> — короткий ролик на две минуты с оглавлением, кнопкой шага можно перемотать к нужному месту.</li>
+              <li><b>Новое в материалах</b>: в <a href="ai/ml/classic.html">Classic ML</a> — вопрос про conformal prediction с анимациями. На странице собеседований — новая запись мок-собеса по Python.</li>
+              <li><b>Правки по вашим замечаниям</b>: декораторы в <a href="practise/python/base.html">практике Python</a>, pandas и property в <a href="python/base.html">основах Python</a>, скользящее окно в <a href="python/algorithms.html">алгоритмах</a>, подпись к SVD в <a href="math/algebra.html">линейной алгебре</a>, подсказка в задаче на метрики в <a href="practise/math.html">практике по математике</a>, подпись к графику EMA в Deep Learning. Тест по алгоритмам Python теперь спрашивает только то, что есть в материале.</li>
+              <li><b>Мелочи</b>: код в карточках-пояснениях больше не обрезается слева; в режиме презентации работают «В тексте ошибка?» и ассистент, а клавиши слайдов не мешают печатать; окно вопроса дня не просвечивает в тёмной теме; <a href="wallet.html">кошелёк</a> не вылезает за экран телефона; ссылки на YouTube в заголовках вопросов помечены значком ▶; в шапках страниц — аккуратные иконки вместо эмодзи.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.9.27 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.9.27</h2>
+            <time datetime="2026-09-27">27 сентября 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Платформа на английском</b>: в меню аккаунта (аватар справа в шапке) появился пункт «English». Он переключает весь интерфейс, а материалы открываются в английской версии, например <a href="en/ai/ml/classic.html">Classic ML</a> или <a href="en/python/base.html">основы Python</a>. Переведены почти все вопросы, практика и банк вопросов. На английском также <a href="spaced-repetition.html">карточки повторения</a>, подсказки к терминам, все <a href="tests/index.html">тесты</a> и вопрос дня. Чат-ассистент отвечает на том языке, на котором спросили. Прогресс общий: решённый на английском вопрос засчитывается и в русской версии. Если перевода вопроса ещё нет, показывается русский текст с пометкой «Not translated yet».</li>
+              <li><b>Новая шапка</b>: вместо длинного ряда кнопок — логотип, меню «Материалы» со всеми разделами на одном экране, поиск и меню аккаунта. В нём профиль, новости, оформление, язык и выход. Кнопка «Выйти» теперь только там, и она переспрашивает, чтобы не выйти случайно.</li>
+              <li><b>ML-материалы переехали в раздел /ai/</b>: например, <a href="ai/ml/index.html">машинное обучение</a> теперь живёт по адресу /ai/ml/. Python, математика, базы данных, Git и Linux остались на месте. Старые ссылки и закладки сами перекидывают на новый адрес.</li>
+              <li><b>Мелочи</b>: карточки NLP, Computer Vision, моделей, баз данных и MLOps на <a href="roadmap/index.html">карте разделов</a> снова ведут на роадмап, а не сразу в материалы. В вопросе про бэггинг в <a href="ai/ml/classic.html">Classic ML</a> поправили подписи к картинкам.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.9.25 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.9.25</h2>
+            <time datetime="2026-09-25">25 сентября 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новый раздел <a href="db/index.html">«Базы данных»</a></b>: теория по <a href="db/redis.html">Redis</a> и <a href="db/postgresql.html">PostgreSQL</a> с 58 анимациями и схемами — индексы, транзакции, MVCC, репликация, кэширование. К нему 14 задач с автопроверкой: SQL-запросы для ML в <a href="practise/db/postgresql.html">практике по PostgreSQL</a> и кэш, TTL, rate limiter и LRU в <a href="practise/db/redis.html">практике по Redis</a>. В <a href="practise/index.html">списке практики</a> они лежат в новой секции «Дополнительно». Анимации про векторный поиск (IVF, HNSW) заодно появились в <a href="ai/ml/nlp/rag.html">RAG</a>.</li>
+              <li><b><a href="practise/math.html">Практика по математике</a> проверяется сама</b>: ответ вписывается в поля — число, вектор или матрицу — и сразу сверяется. Можно писать дробью, корнем, через π и e, десятичные — с точностью до сотых. Для √, π, e и степени есть кнопки под полями.</li>
+              <li><b>Вопрос дня и серия на <a href="main.html">главной</a></b>: каждый день один общий вопрос для всех. Чтобы его закрыть, нужно проверить себя по карточкам и оценить, насколько уверенно вспомнил ответ; на менторстве за это начисляются грады. Рядом — твоя серия и кольцо дневной цели: выбираешь 5, 10 или 20 вопросов в день и видишь, сколько уже сделано. Серию теперь продлевает и повторение карточек, а всплывающее напоминание об отчёте на главной убрали.</li>
+              <li><b>Еженедельные лиги в <a href="leaderboard.html">лидерборде</a></b>: вкладка «Моя лига» — соревнование в группе из 10–15 учеников близкого уровня по числу вопросов, решённых за неделю. В понедельник тройка лучших поднимается в следующую лигу, последние трое опускаются: Бронза → Серебро → Золото → Платина.</li>
+              <li><b>Вход с кодом</b>: при входе с нового устройства на почту приходит шестизначный код. На странице <a href="profile/sessions.html">сессий</a> видно, где открыт твой аккаунт, и можно выйти на любом устройстве или на всех сразу.</li>
+              <li><b><a href="ai/interviews/company-question-bank.html">Банк вопросов по компаниям</a></b>: компании разбиты на группы по числу вопросов, есть поиск компании и счётчик вопросов на каждой плитке. HR-вопросы собраны отдельно от технических, добавлены новые компании с логотипами, код и формулы в разборах больше не разваливаются. В <a href="profile/feedbacks.html">фидбеках</a> на карточке видно, какой это был собес.</li>
+              <li><b><a href="wallet.html">Витрина наград</a></b>: появились мини-коробка и легендарная коробка — что внутри, узнаешь при получении. Заработанное теперь делится на «за учёбу» и «за рефералов».</li>
+              <li><b><a href="roadmap/index.html">Карта разделов</a> стала короче</b>: секции свёрнуты, у раздела одна карточка вместо россыпи подстраниц — NLP, Computer Vision, MLOps и Базы данных ведут на свои обзорные страницы. В <a href="roadmap/interactive.html">интерактивной карте</a> появилась практика по базам данных.</li>
+              <li><b>Мелочи</b>: в шапке виден счётчик «N онлайн» — наведи, и увидишь, какие разделы сейчас учат. Ссылки из материалов открываются в новой вкладке, черновик кода в раннере не теряется, блоки кода больше не рассыпаются на «пилюли». В фактах дня 115 новых и без повторов. На «только материалах» больше не показывается пункт «Отчёты» — они только для менторства. По обращениям учеников поправили вопросы про <a href="python/base.html">Python</a> (ленивость range, id объектов, моржовый оператор, pandas), базис в линейной алгебре и порядок шагов ML-пайплайна.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.9.15 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.9.15</h2>
+            <time datetime="2026-09-15">15 сентября 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Шкала «собес» у каждого вопроса</b>: в заголовке теперь пять точек — как часто эту тему спрашивают на собеседованиях, от красной единицы до зелёной пятёрки. Оценки собраны по разборам настоящих собесов учеников и проставлены всей теории — например, в <a href="ai/ml/classic.html">Classic ML</a> и <a href="ai/ml/dl.html">Deep Learning</a>. Наведи на шкалу — увидишь расшифровку.</li>
+              <li><b>Видно, где остановился</b>: прочитанный вопрос помечается зелёной полоской слева прямо в свёрнутом списке, раскрывать его больше не нужно.</li>
+              <li><b>Карточки вопросов перерисованы</b>: спокойная плоская шапка со стрелкой раскрытия, аккуратные иконки у «Определения», «Пояснения» и других блоков вместо эмодзи, компактная панель «Прочитано» и оценки сложности под вопросом. Метки «Обязательно», «Дополнительно», «Можно учить позже» и «Ресерч» стали цветными кружками — что какой означает, написано над списком, там же расшифрована стрелка ↗ у вопросов со ссылкой на источник.</li>
+              <li><b>Анимации вместо статичных схем</b>: больше сотни коротких гифок прямо в вопросах — как градиент идёт по сети, как считается self-attention, как смещение и разброс меняются со сложностью модели. Больше всего их в <a href="ai/ml/classic.html">Classic ML</a>, <a href="ai/ml/dl.html">Deep Learning</a> и математике — <a href="math/probability.html">вероятности</a>, <a href="math/algebra.html">линейной алгебре</a>, <a href="math/calculus.html">матанализе</a>; есть и в <a href="ai/ml/classic-cv.html">классическом CV</a>, <a href="ai/ml/timeseries.html">временных рядах</a> и <a href="ai/ml/recsys.html">рекомендациях</a>.</li>
+              <li><b><a href="guide/index.html">Гайд</a> под твой формат</b>: один гайд на оба тарифа — ученику на менторстве показываются шаги про отчёты, фидбек и грады, а на «только материалах» — только то, что относится к нему.</li>
+              <li><b><a href="leaderboard.html">Лидерборд</a></b>: колонки стали короче — «Часы», «Тесты», — а рядом с градами их собственная иконка.</li>
+              <li><b><a href="ai/interviews/company-question-bank.html">Банк вопросов по компаниям</a></b>: добавлен Eqvilent.</li>
+              <li><b>Правки в материалах</b>: в <a href="math/probability.html">условной вероятности</a> уточнён пример про кошек и четыре лапы, в <a href="ai/ml/models/dl.html">GAN</a> поправлено название дивергенции Йенсена–Шеннона.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.9.9 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.9.9</h2>
+            <time datetime="2026-09-09">9 сентября 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Грады — валюта за учёбу</b>: за каждый изученный вопрос, сданный тест, ежедневный отчёт, карточки повторения, достижения и рубежи серии теперь начисляются грады. Баланс висит в шапке, <a href="wallet.html">кошелёк</a> со ставками, историей и витриной — в меню «Прогресс». Серия умножает ставки: с 7 дней ×1,25, с 14 — ×1,5, с 30 — ×2, а пять отчётов за неделю добавляют ещё +0,25. За всю прошлую активность грады начислены разом. Пока только для учеников на менторстве.</li>
+              <li><b><a href="wallet.html#wallet-shop-title">Витрина наград</a></b>: Telegram Premium на месяц, книга в твёрдом переплёте с полки ментора, секретный подарок, скидка 10% на следующий месяц и запасные заморозки серии. Заказ списывает грады сразу, ментор получает уведомление и передаёт награду. Ещё грады приходят за каждого приведённого на менторство друга — самый крупный разовый бонус.</li>
+              <li><b>Серию теперь считает сервер</b>: одинаково на <a href="main.html">главной</a>, в <a href="profile.html">профиле</a> и в <a href="leaderboard.html">лидерборде</a>, сутки по московскому времени. Две заморозки в месяц прощают пропущенный день; купленные из витрины срабатывают сами, когда ежемесячные 2 бесплатные заморозки кончились, — запас виден в виджете серии, а утром после сработавшей заморозки приходит уведомление.</li>
+              <li><b><a href="achievements.html">Достижения</a></b>: одиннадцать новых за интервальное повторение карточек, ожили 26 достижений, которые раньше нельзя было получить, а на каждой карточке виден тир — бронза, серебро, золото или платина — и награда в градах за него. Каталог больше не залипает в кэше браузера.</li>
+              <li><b><a href="tests/index.html">Тесты</a> не теряют попытку</b>: обрыв связи или истёкший таймер больше не стирают ответы — попытка сохраняется и попадает в историю. Стартовая диагностика стала строже: 70 вопросов вместо прежних.</li>
+              <li><b><a href="python/base.html">Практика на Python</a></b>: код выполняется в отдельном потоке с таймаутом, зависший цикл больше не подвешивает страницу; редактор задач удобнее, ошибки запуска объясняются понятно, а <code>from __future__</code> в решениях больше не ломает проверку.</li>
+              <li><b>Поиск по тексту страниц</b>: в палитре ⌘K появилась вкладка «Из текста» — ищет по содержимому материалов, а не только по названиям, и только по разделам, к которым есть доступ.</li>
+              <li><b>Учебный план и <a href="roadmap/index.html">роадмап</a></b>: в план попали все обязательные вопросы, появилась неделя выхода на рынок с трекером откликов, а страницы этапа открываются в момент, когда задание ставят на доску.</li>
+              <li><b>Быстрее и доступнее</b>: тема применяется до первой отрисовки без белой вспышки, дропдауны навигации работают с клавиатуры, на глубоких страницах есть хлебные крошки, видимый фокус и переход к содержимому; картинки пережаты и грузятся лениво, страница в фоновой вкладке больше не остаётся пустой.</li>
+              <li><b>Мелочи и правки по обращениям</b>: <a href="leaderboard.html">лидерборд</a> показывает учеников с доступом только к материалам отдельной секцией, ассистент предупреждает про VPN из России, в Focal Loss поправлена арифметика весов α, в определении регрессии — обозначения, плюс две правки по обращениям учеников.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.8.31 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.8.31</h2>
+            <time datetime="2026-08-31">31 августа 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="tests/index.html">11 новых тестов</a></b>: алгоритмы на Python, классический и глубокий CV, NLP-модели, временные ряды, рекомендательные системы, Kubernetes, Kafka и три теста по Git — основы, продвинутые команды и GitHub Actions.</li>
+              <li><b><a href="tests/index.html">Все старые тесты</a> переработаны</b>: 18 тестов, было 459 вопросов — стало 511. Раньше правильный ответ почти всегда был самым длинным вариантом, и тест можно было пройти, не зная темы. Теперь так не получится.</li>
+              <li><b>Починили фактические ошибки <a href="tests/index.html">в вопросах</a></b>: неверные ответы про Dropout и сложность attention, Truncated SVD, определение непрерывности, выборочную дисперсию и ЦПТ, «норму Лапласа» в classic ML — и ещё около двух десятков мест.</li>
+              <li><b><a href="tests/index.html">Объяснения</a> больше не путают</b>: раньше в разборе писали «второй вариант верный», хотя варианты перемешиваются при каждом прохождении. Переписали 44 таких объяснения по смыслу.</li>
+              <li><b><a href="tests/index.html">Тест по алгоритмам</a> заработал</b>: на странице <a href="python/algorithms.html">Python → Алгоритмы</a> блок с тестом был размечен неправильно и просто не открывался.</li>
+              <li><b>Пересмотрели таймеры</b>: в <a href="tests/index.html">десяти тестах</a> время на прохождение не совпадало с реальным объёмом вопросов — где-то давали 5 минут на большой тест.</li>
+              <li><b>Три новых <a href="bank/index.html">банка вопросов с собеседований</a></b>: <a href="ai/bank/cv.html">Computer Vision</a> (33 вопроса), <a href="ai/bank/recsys.html">рекомендательные системы</a> (30) и <a href="ai/bank/mlops.html">MLOps</a> (41) — от свёрток, детекции и CLIP до коллаборативной фильтрации, retrieval, Kubernetes, CI/CD и system design. Всего в банке стало 537 вопросов.</li>
+              <li><b>Ответы в <a href="bank/index.html">банке</a> переписали целиком</b>: в каждом вопросе теперь развёрнутый ответ, разбор того, что на самом деле проверяет интервьюер, типовые ошибки и ссылки на теорию платформы. Это коснулось всех разделов — <a href="bank/python.html">Python</a>, <a href="bank/math.html">математики</a>, <a href="ai/bank/classic-ml.html">classic ML</a>, <a href="ai/bank/dl.html">DL</a>, <a href="ai/bank/nlp.html">NLP</a> и <a href="bank/hr.html">HR</a>.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.8.29 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.8.29</h2>
+            <time datetime="2026-08-29">29 августа 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новый раздел «<a href="ai/ml/cv/dl.html">Deep Learning CV</a>»</b>: 28 вопросов про задачи компьютерного зрения — классификация, детекция, сегментация, ключевые точки, глубина, генерация, а также лоссы, метрики и разметка. Есть в поиске и в командной палитре.</li>
+              <li><b><a href="ai/ml/classic-cv.html">Classic CV</a> собрали заново</b>: 22 вопроса — от изображения как объекта до фильтров, детекторов границ и углов, дескрипторов, геометрии камеры и преобразований Фурье. Старые вопросы углубили, из теории ведут ссылки на <a href="ai/practise/cv.html">задачи из практики</a>.</li>
+              <li><b>Секция Computer Vision на <a href="roadmap/index.html">карте разделов</a></b>: <a href="ai/roadmap/cv.html">Classic CV</a> и <a href="ai/roadmap/cv-dl.html">Deep Learning CV</a> теперь видно на roadmap, прогресс по ним считается вместе с остальными разделами.</li>
+              <li><b>Больше 180 новых картинок</b>: схемы и графики почти во все вопросы по <a href="ai/ml/classic.html">Classic ML</a>, <a href="ai/ml/dl.html">Deep Learning</a>, <a href="ai/ml/cv.html">CV</a>, <a href="ai/ml/nlp/index.html">NLP</a>, <a href="ai/ml/recsys.html">рекомендательным системам</a> и <a href="ai/ml/timeseries.html">временным рядам</a>. Теперь механику модели можно не только прочитать, но и увидеть.</li>
+              <li><b>Новый раздел «<a href="ai/ml/models/nlp.html">Архитектуры NLP-моделей</a>»</b>: 31 вопрос про то, как устроены современные языковые модели. Раздел подключён к <a href="ai/roadmap/models-nlp.html">roadmap</a> и прогрессу, из теории на него ведут перекрёстные ссылки.</li>
+              <li><b>Обучение на GPU</b>: в <a href="ai/ml/dl.html">Deep Learning</a> добавили пять вопросов про GPU и распределённое обучение — чем GPU отличается от CPU, как устроена память и что делать, когда модель не влезает.</li>
+              <li><b>Механики внимания</b>: перебрали список вопросов в <a href="ai/ml/nlp/advanced.html">NLP Advanced</a> и добавили SubQ, Multi-Token Prediction и sparse attention.</li>
+              <li><b>Формулы</b>: починили вёрстку LaTeX — стрелки, знаки умножения и точки теперь везде отображаются как математика, а не как случайные символы.</li>
+              <li><b>Уведомления</b>: приходят в Telegram и синхронизируются со <a href="profile/notifications.html">страницей на сайте</a>. Карточки переверстали, показываем три последних, остальные — по кнопке; в задачах видно имя автора и полное описание.</li>
+              <li><b>Секция «Сегодня» на <a href="main.html">главной</a></b>: живые счётчики по вашей активности за день. Заодно починили вводный тур.</li>
+              <li><b>Поиск по сайту (Cmd+K)</b>: в каталоге теперь только страницы с понятными названиями, у страниц роадмапа — своя плашка.</li>
+              <li><b>Подсказки к терминам</b>: словарь вырос до 540 терминов, и страницы больше не подтормаживают при их подсветке.</li>
+              <li><b>AI-помощник</b>: ответ форматируется прямо по мере печати — списки и формулы больше не «прыгают» в конце.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.8.27 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.8.27</h2>
+            <time datetime="2026-08-27">27 августа 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Переписали всю теорию</b>: больше 400 вопросов почти во всех разделах. Добавили объяснения «на пальцах», разбор формул по частям, примеры с конкретными числами и блоки про частые ошибки.</li>
+              <li><b>53 новых визуализаций</b>: разложение SVD, метод Гаусса по шагам, собственные векторы, p-value, линии уровня, сравнение оптимизаторов, дрейф данных — то, что лучше не только прочитать, но и увидеть.</li>
+              <li><b>Больше <a href="spaced-repetition.html">вопросов для самопроверки</a></b>: в конце каждого вопроса теперь 5–8 штук вместо трёх-четырёх.</li>
+              <li><b>Мобильная версия</b>: оглавление вопросов больше не исчезает — открывается шторкой снизу; подсказки к терминам работают по тапу.</li>
+              <li><b><a href="ai/interviews/algo-tasks.html">Алго-задачи</a></b>: добавили фильтры, список подгружается по мере прокрутки.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.8.26 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.8.26</h2>
+            <time datetime="2026-08-26">26 августа 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="achievements.html">Достижения</a> и <a href="leaderboard.html">лидерборд</a></b>: запустили каталог достижений с прогрессом, уведомлениями и фильтрами; в лидерборде имена показываются нормально, а неактивных участников можно скрыть.</li>
+              <li><b><a href="ai/interviews/company-question-bank.html">Банк собеседований</a></b>: выбор компании с логотипами и пагинацией, страницы грузятся быстрее; на <a href="ai/interviews/algo-tasks.html">алго-задачах</a> появились фильтры и подгрузка по мере прокрутки; в <a href="ai/interviews/videos.html">видеоразборах</a> теперь видно отзывы других учеников.</li>
+              <li><b><a href="roadmap/index.html">Roadmap</a> и <a href="profile/progress.html">прогресс</a></b>: прогресс собирается сразу с нескольких страниц, из <a href="profile.html">профиля</a> есть прямые ссылки на roadmap, материалы открываются автоматически при нужном прогрессе.</li>
+              <li><b>AI-помощник</b>: в помощи к вопросу появились кнопки действий, починили потоковые ответы и обрезание меню, формулы в ответах теперь отображаются корректно.</li>
+              <li><b>Мобильная версия</b>: оглавление вопросов больше не исчезает — вместо него нижняя шторка; подсказки к терминам открываются по тапу.</li>
+              <li><b><a href="tests/index.html">Квизы</a></b>: точнее считаем баллы, понятнее статусы прохождения; в тесте по NLP Agents обновили описание, вопросы и тайм-лимит.</li>
+              <li><b>NLP и <a href="ai/ml/nlp/agents.html">агенты</a></b>: новые теоретические и практические вопросы про агентов, разделы по LangChain, LangGraph, LangFlow, LangFuse и LangSmith со схемами; в <a href="ai/ml/nlp/rag.html">RAG</a> — новая часть проекта и перестроенный LlamaIndex.</li>
+              <li><b><a href="practise/index.html">Практики по ML</a></b>: новые задания по бинарной и мультиклассовой классификации; в MNIST — сравнение MLP и CNN; в аугментациях и self-attention — пошаговая реализация с маскированием; уточнили цели и метрики в кластеризации и регрессии.</li>
+              <li><b><a href="ai/ml/dl.html">Deep Learning</a></b>: разобрали data drift и concept drift — как заметить сдвиг, чем его мерить и что делать; добавили картинки к дрифту, оптимизаторам и label smoothing.</li>
+              <li><b><a href="python/index.html">Python</a></b>: обновили async и сравнение подходов к конкурентности, задания по JSON и статистике модулей, добавили ссылку на LeetCode 75; поправили код в примерах и опечатки.</li>
+              <li><b>Математика и мелкие правки</b>: на <a href="math/index.html">страницах по математике</a> появился раздел с видео; привели к единому виду формулы в <a href="ai/ml/classic.html">метриках классификации и регрессии</a>, поправили определения и ссылки на упражнения.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.7.29 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.7.29</h2>
+            <time datetime="2026-07-29">29 июля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новый учебный материал — «<a href="math/probability.html">Полная вероятность</a>»</b>: добавили информацию по теме. Также исправили мелкую опечатку в смежных заметках.</li>
+              <li><b>Сворачивание длинных вопросов</b>: добавили кнопку для сворачивания длинных вопросов и улучшили стили секций.</li>
+              <li><b><a href="calender/index.html">Канбан‑доска</a> — удобнее работать с задачами</b>: добавили поиск и фильтры, редактирование деталей задач (описание, пояснения, материалы), кнопку редактирования на карточках, улучшили сортировку студентов и настроили видимость задач для учеников.</li>
+              <li><b>AI‑помощник и чат</b>: в <a href="guide/index.html">руководстве</a> появился раздел про AI‑ассистента; добавили AI‑помощь в вопросах и интеграцию RAG‑чата. Дневной лимит чата для студентов теперь 10 запросов; позицию кнопки чата поправили.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.7.17 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.7.17</h2>
+            <time datetime="2026-07-17">17 июля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>AI‑помощь к вопросам</b>: на страницах вопросов добавили подсказки/объяснения от AI — можно получить помощь прямо в задаче.</li>
+              <li><b>Интро‑тур</b>: улучшили стартовый тур по платформе — подсказки и шаги стали понятнее для новых учеников.</li>
+              <li><b>Отчёты снова доступны</b>: из‑за бага возможность оставлять отчёты пропала, хотя раньше работала — вернули. Можно снова спокойно оставлять отчёты на <a href="my-reports.html">странице отчётов</a>.</li>
+              <li><b>Стрелки у вопросов</b>: при сворачивании вопроса стрелка раскрытия снова возвращается в исходное положение.</li>
+              <li><b>Кнопка «Всё выполнено»</b>: спрятали, чтобы случайно не нажать.</li>
+              <li><b>Сложность вопросов</b>: исправили баг, из‑за которого не удавалось поставить сложность под некоторые вопросы.</li>
+              <li><b>«В тексте ошибка?»</b>: добавили режим у вопросов — можно быстро сообщить о баге на сайте.</li>
+              <li><b><a href="practise/index.html">Практика</a></b>: исправили ошибку 500 при сдаче задачек по практике.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.7.14 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.7.14</h2>
+            <time datetime="2026-07-14">14 июля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новая категория собеседований и советы по probation</b>: добавили категорию интервью "probation" в палитру команд и список вопросов, а также отдельные подсказки по <a href="ai/interviews/probation.html">испытательному сроку</a>.</li>
+              <li><b>Слайд-меню для просмотра вопросов</b>: при презентации вопросов появился слайд-меню с адаптивным интерфейсом и улучшенной доступностью для навигации.</li>
+              <li><b>Поправлена модалка обратной связи</b>: улучшили стили окна обратной связи — лучше выглядит на мобильных и не ломает верстку.</li>
+              <li><b>Новые вакансии</b>: добавили новые аггрегаторы вакансий в <a href="ai/interviews/jobs.html">соответствующий раздел</a>.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.6.30 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.6.30</h2>
+            <time datetime="2026-06-30">30 июня 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Обновлены вопросы и материалы</b>: свежие вопросы и правки в <a href="python/index.html">Python</a> (включая поддержку py-mock), <a href="ai/ml/nlp/index.html">NLP</a>, <a href="ai/ml/dl.html">Deep Learning</a>, <a href="ai/ml/classic.html">Classic ML</a>, <a href="bank/hr.html">HR</a>; мелкие правки и исправления опечаток; удалили раздел с LeetCode.</li>
+              <li><b>Обновлён <a href="roadmap/index.html">roadmap курса</a></b>: увеличили длительность и требования, переработаны недели 6–7, обновлены заголовки и инструкции для недель 9–10, улучшен порядок страниц при подстановке контента.</li>
+              <li><b>Новый дизайн лендинга и навигация</b>: обновлён внешний вид <a href="main.html">главной страницы</a>, упростили навигацию и улучшили доступность — быстрее найти стартовые материалы и курсы.</li>
+              <li><b>Код и формулы: стили и копирование LaTeX</b>: добавлены стили кода и дефолтный язык для блоков с кодом, в математическом контенте появилась кнопка копирования LaTeX.</li>
+              <li><b>Кнопки <a href="tests/index.html">квизов</a> и мобильный интерфейс</b>: поменяли расположение и вид кнопок в квизах, поправили отображение на мобильных, мелкий хотфикс <a href="calender/index.html">календаря</a> — удобнее сдавать задания с телефона.</li>
+              <li><b>Поиск и командная палитра</b>: обновили индекс поиска и синхронизировали MD-контент, улучшили поиск в командной палитре — результаты релевантнее и быстрее открываются.</li>
+              <li><b><a href="leaderboard.html">Лидерборд</a> и отображение прогресса</b>: убрали тяжёлые анимации для стабильности в Firefox, обновили публичную статистику и прогресс-трекинг, добавили возможность скрывать виджет пользовательской статистики на отдельных страницах, дополнительно уточнён редактор истории подгрупп.</li>
+              <li><b>Динамический показ статистики сложности</b>: на страницах рейтингов отображаются только релевантные модули и уровни сложности, чтобы статистика не путала и была применима к вашим заданиям.</li>
+              <li><b>Проверки доступа к материалам</b>: исправили правила и проверки доступа к защитным страницам — закрытые разделы корректно скрываются, а доступ отображается правильно при изменениях в курсе.</li>
+              <li><b>Рендер материалов и бейджи</b>: улучшили парсинг директив в Markdown и генерацию HTML, обновили бейджи для упражнений и вопросов — контент рендерится точнее, бейджи видны корректно.</li>
+              <li><b><a href="profile/notifications.html">Уведомления</a></b>: исправили загрузку событий в уведомлениях — обновления курса и события календаря теперь приходят стабильнее.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.6.11.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.6.11.1</h2>
+            <time datetime="2026-06-11">11 июня 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="github/index.html">Git</a></b>: добавлены теормины.</li>
+              <li><b><a href="linux/basics.html">Linux</a></b>: добавлены материалы по архивам, фоновой работе задач, копированию данных, выбору GPU, использованию диска, переменным окружения и управлению файлами, а также другим базовым операциям.</li>
+              <li><b><a href="ai/mlops/docker.html">Docker</a></b>: добавлены статьи про build cache, различия CMD и ENTRYPOINT, переменные окружения в контейнерах, health checks и ограничения ресурсов.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.6.11 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.6.11</h2>
+            <time datetime="2026-06-11">11 июня 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="roadmap/index.html">Дорожная карта курса</a></b>: реализована функциональность course roadmap.</li>
+              <li><b>Учебный контент по <a href="math/index.html">математике</a> и примеры</b>: расширены материалы по якобиану и гессиану, добавлены примеры частных производных, исправлены опечатки и тесты (включая MNIST и таблицу умножения), добавлены изображения и иллюстрации для <a href="python/algorithms.html">DFS/BFS</a> и ссылки на плейлисты для визуализации.</li>
+              <li><b>Улучшения код-раннера и тестовой инфраструктуры</b>: добавлен шаг перестройки code-runner в workflow, улучшено парсирование тестов и обработка stdout, исправлены тесты и элементы управления для <a href="practise/python.html">Python-практик</a>.</li>
+              <li><b>Удаление визуализации</b>: убрана визуализация распределения сложности задач.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.5.20 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.5.20</h2>
+            <time datetime="2026-05-20">20 мая 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новые учебные разделы</b>: добавлена базовая <a href="python/algorithms.html">теория алгоритмов</a>, а также <a href="ai/practise/nlp.html">практические задания по токенизаторам</a>.</li>
+              <li><b>Проверки сборки и согласованность ссылок</b>: добавлены проверки шаблонов и валидация ссылок в процессе сборки, обновлены и выверены ссылки в новостях и markdown-файлах, удалена страница ассистента.</li>
+              <li><b>Оптимизация фронтенда и навигации</b>: удалены неиспользуемые CSS/JS и пустые ссылки на стили/скрипты, упрощена обработка внешних ссылок (удалён openSiteLinksInNewWindow), очищены лишние файлы и улучшена логика формирования оглавления.</li>
+              <li><b>Исправления форматирования и мелкие баги</b>: исправлено рендеринг Python‑фрагментов, исправлены ежедневные факты и материалы интервью, внесён ряд мелких багфиксов и уточнений описаний/уровней сложности.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.5.13 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.5.13</h2>
+            <time datetime="2026-05-13">13 мая 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              
+              <li><b>Управление доступом к материалам и палитра команд</b>: улучшена работа с доступом к материалам и расширена функциональность командной палитры для быстрого поиска и управления контентом.</li>
+              <li><b>Новый раздел по <a href="ai/ml/recsys.html">рекомендательным системам</a></b>: добавлен контент по рекоммендациям, включая описания и иллюстрации; материал дополнен изображениями и подробностями.</li>
+              <li><b>Материалы по <a href="ai/ml/timeseries.html">временным рядам</a></b>: добавлен раздел по time series с изображениями, примерами и ресурсами.</li>
+              <li><b>UI</b>: обновлены стили для меню и палитры команд. Также обновлены стили для ссылок, которые встроены в название вопросов на странице с материалом. Теперь явно отображается, есть ли там кликабельная ссылка на внешний ресурс; переход по ссылкам будет открывать страницу в новом окне, а не в текущем.</li>
+              <li><b>Подсказки в разделе <a href="ai/mlops/index.html">MLOps</a></b>: добавлены тултипы и уточняющие подсказки в материалах по MLOps для облегчения восприятия терминов и практик.</li>
+              <li><b><a href="ai/practise/classic_ml.html">Практическое задание: градиентный спуск</a></b>: добавлено упражнение по градиентному спуску с описанием задания для самостоятельной практики.</li>
+              <li><b>Исправления отображения контента</b>: поправлен рендеринг Python‑сниппетов и обновлена структура заголовков (h3 "полезные материалы" -> h2 "links").</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.5.11 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.5.11</h2>
+            <time datetime="2026-05-11">11 мая 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b><a href="spaced-repetition.html">Карточки и интервальное повторение</a></b>: добавлены карточки в стиле Quizlet.</li>
+              <li><b>Диагностическая панель на <a href="start.html">стартовой странице</a></b>: реализована интерактивная панель для диагностического тестирования по Python, математике, ML, DL и NLP.</li>
+              <li><b>Совместные <a href="my-reports.html">отчёты</a> и валидация ролей</b>: добавлена возможность отправки ссылки на отчёты; улучшено отображение отчётов и добавлены стилизованные кнопки «поделиться» и «удалить».</li>
+              <li><b>UI</b>: фиксы мелких багов и улучшения стилей.</li>
+            </ul>
+          </div>
+        </article>
+
+
+        <!-- Релиз v2026.5.6 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.5.6</h2>
+            <time datetime="2026-05-06">6 мая 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новый раздел: <a href="ai/mlops/kafka.html">Apache Kafka</a></b>: добавлен полный блок материалов по Kafka — core concepts, delivery guarantees, Kafka Connect, Schema Registry, Kafka Streams и ksqlDB, мониторинг, Python-интеграция, альтернативы и применение в ML-пайплайнах; добавлены иллюстрации и <a href="ai/roadmap/mlops-kafka.html">roadmap-страница</a>.</li>
+              <li><b>Новый раздел: мониторинг — Prometheus и Grafana</b>: добавлены материалы по <a href="ai/mlops/monitoring/prometheus.html">Prometheus</a> (типы метрик, PromQL, экспортеры, алертинг, Python-клиент) и <a href="ai/mlops/monitoring/grafana.html">Grafana</a> (дашборды, панели и PromQL, переменные, алерты, Loki); добавлены соответствующие roadmap-страницы.</li>
+              <li><b>Новый раздел: отслеживание экспериментов</b>: добавлены разделы по четырём платформам — <a href="ai/mlops/experiments-tracking/mlflow.html">MLflow</a> (tracking server, logging, registry), <a href="ai/mlops/experiments-tracking/clearml.html">ClearML</a> (intro, task logging, datasets и pipelines, agent и очереди), <a href="ai/mlops/experiments-tracking/tensorboard.html">TensorBoard</a> (scalars, media, profiler) и <a href="ai/mlops/experiments-tracking/wandb.html">WandB</a> (logging, artifacts, sweeps и reports); добавлены roadmap-страницы для каждой.</li>
+              <li><b>Аватары и персонализация <a href="profile.html">профиля</a></b>: реализована загрузка аватаров через Cloudflare Worker с cache-busting для мгновенного обновления; добавлены персонализированные приветствия в шапке и динамическое отображение аватара в <a href="leaderboard.html">leaderboard</a>.</li>
+              <li><b><a href="math/definitions.html">Математические определения</a></b>: обновлены карточки с обозначениями — модуль, argmin/argmax, математическое ожидание и дисперсия, запись функций, интервалы, логарифмы, разность множеств.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.5.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.5.1</h2>
+            <time datetime="2026-05-01">1 мая 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li><b>Новые палитры и синхронизация темы</b>: добавлены палитры vibecode, earth, sepia и graphite; улучшена обработка темы и стили <a href="profile/feedbacks.html">страницы фидбеков</a>.</li>
+              <li><b>Унифицированные стили интерфейса</b>: обновлены CSS для <a href="achievements.html">достижений</a>, <a href="leaderboard.html">таблицы лидеров</a> и <a href="my-reports.html">ежедневных отчётов</a>; переработаны стили <a href="news.html">страницы новостей</a> и форматирование новостных элементов для повышения читаемости.</li>
+              <li><b>Обновлённая <a href="tests/index.html">система тестов</a></b>: добавлены новые тесты по ML, MLOps и NLP с продвинутыми темами и облачными технологиями; упрощена конфигурация викторин и улучшены методы оценки результатов.</li>
+              <li><b>Новый контент: собеседование BP</b>: добавлен <a href="ai/interviews/videos.html">тех собес в British Petroleum</a>.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.28.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.28.1</h2>
+            <time datetime="2026-04-28">28 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Реструктуризация дорожной карты MLOps</b>: раздел «MLOps /
+                Infra» разделён на «<a href="ai/roadmap/mlops-cloud.html">MLOps / Cloud</a>» и «<a href="ai/roadmap/mlops-db.html">MLOps / Databases</a>»,
+                обновлены конфигурации, ссылки и целевые страницы roadmap для
+                согласованности.
+              </li>
+              <li>
+                <b>Новые материалы по <a href="ai/mlops/infra/cloud.html">облачным сервисам</a></b>: добавлены страницы
+                по AWS, Azure, GCP, Yandex Cloud, OpenStack и Proxmox с
+                определениями, примерами, разделами по управлению затратами и
+                безопасности и подборкой полезных ресурсов для ML-инженеров.
+              </li>
+              <li>
+                <b>Новые материалы по <a href="ai/mlops/infra/db.html">базам данных</a></b>: добавлены руководства по
+                ACID, теореме CAP, индексированию, мониторингу, безопасности и
+                NoSQL с примерами и рекомендациями по применению в ML-проектах.
+              </li>
+              <li>
+                <b>Новые материалы по <a href="ai/ml/nlp/advanced.html">вниманию и оптимизациям моделей</a></b>:
+                добавлены страницы и иллюстрации для Grouped Latent Attention
+                (GLA), Grouped-Tied Attention (GTA) и Multi-head Latent
+                Attention (MLA), оптимизации KV-cache и Paged Attention,
+                обновлен continuous batching; добавлены соответствующие оговорки
+                для MLA/GLA/GTA.
+              </li>
+              <li>
+                <b>Улучшения интерфейса и ассетов</b>: обновлён <a href="profile.html">профиль</a>
+                (адаптивная сетка активности, карточка уведомлений, динамическая
+                загрузка активности через JS), заменены иконки карточек на SVG и
+                улучшены CSS-стили для иконок.
+              </li>
+              <li>
+                <b>Обработка видео-интервью и рендеринг фидбэков</b>:
+                переработана логика обработки <a href="ai/interviews/videos.html">видео интервью</a> и рендеринга
+                <a href="profile/feedbacks.html">обратной связи</a>, обновлены регулярные выражения для обработки
+                callout и blockquote в файле feedbacks.html.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.28 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.28</h2>
+            <time datetime="2026-04-28">28 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Проверка <a href="practise/index.html">упражнений</a></b>: переработан модуль проверки —
+                упрощен рендеринг деталей, улучшена обработка ошибок при
+                выполнении Python-кода; добавлен раздел подробных тестовых чеков
+                и атрибут проверки в модели для более точной обратной связи,
+                обновлён CSS для корректного отображения.
+              </li>
+              <li>
+                <b>Геймификация и авто‑разблокировка</b>: реализована система
+                авто‑разблокировки прогресса, улучшён сбор ID вопросов в трекере
+                прогресса; добавлены проверки выходных дней и улучшено
+                распознавание маркеров списка для начисления наград.
+              </li>
+              <li>
+                <b>Автоинициализация пользователей</b>: новые пользователи
+                теперь автоматически получают роль и подгруппу по умолчанию при
+                аутентификации.
+              </li>
+              <li>
+                <b>Интерфейс и навигация</b>: улучшена верстка и стили <a href="profile/feedbacks.html">страницы
+                обратной связи</a> (новые блоки кода и оформление секций), обновлён
+                командный палитр и стили для сложных вопросов; внесены правки в
+                шаблоны и дорожные карты.
+              </li>
+              <li>
+                <b>Новые <a href="practise/python.html">практические задания по Python</a></b>: добавлено много
+                упражнений, в том числе по async, декораторам, dataclass и
+                работе с файлами. Идея такая: на прорабатываемую тему — 3
+                задачки разного уровня. Достаточно решить хотя бы 1. обновлены
+                бейджи практик и статус бейджей в NLP-разделах.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.22 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.22</h2>
+            <time datetime="2026-04-22">22 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Документация по <a href="ai/ml/nlp/optimization.html">дистилляции</a> и <a href="ai/ml/nlp/base.html">токенизаторам</a></b>: добавлено
+                сравнение токенизаторов и раздел о кросс-токенайзерной
+                дистилляции; расширены объяснения hard‑label и soft‑label
+                дистилляции, рассмотрены проблемы exposure bias и несоответствия
+                токенизаторов.
+              </li>
+              <li>
+                <b>Новые алгоритмы обучения</b>: в <a href="ai/ml/nlp/advanced.html">материалы</a> добавлены и
+                подробно описаны TRPO, PPO, DPO, IPO, GRPO и KTO с примерами и
+                разбором применения.
+              </li>
+              <li>
+                <b><a href="ai/ml/nlp/index.html">NLP</a> — новая структура</b>: реорганизована структура
+                материалов по NLP — разделены <a href="ai/ml/nlp/base.html">базовые</a> и <a href="ai/ml/nlp/advanced.html">продвинутые</a> темы,
+                обновлены ссылки в роадмапе и навигация по NLP-страницам.
+              </li>
+              <li>
+                <b>Обновления по архитектуре DL и CV</b>: обновлены страницы
+                архитектур моделей — добавлена страница с <a href="ai/ml/models/dl.html">архитектурами Dl</a>.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.21 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.21</h2>
+            <time datetime="2026-04-21">21 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Автоматическая проверка задач с проверяющими тестами</b>:
+                улучшены кнопки оценки сложности для автопроверяемых вопросов и
+                доработан код exercise checker для более стабильной работы
+                автоматической проверки.
+              </li>
+              <li>
+                <b>Навигация и якорные переходы</b>: переработано поведение
+                anchor-scroll (защита от повторных скроллов и отмена отложенных
+                попыток при действиях пользователя), упрощено раскрытие вопросов
+                с ленивой загрузкой и добавлен индикатор завершения в
+                оглавлении.
+              </li>
+              <li>
+                <b><a href="profile.html">Профиль</a> и онбординг</b>: в профиле и intro-туре поля
+                отображаемого имени разделены на имя и фамилию; усилена
+                валидация имени и Telegram username, обновлён предпросмотр и
+                рефакторинг обработки ввода.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.19 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.19</h2>
+            <time datetime="2026-04-19">19 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b><a href="spaced-repetition.html">Теоретический минимум (teormin)</a></b>: добавлены разделы
+                teormin по NLP, классическому ML и DL, Python, а также по темам
+                из анализа и теории вероятностей и алгебры; введён тип карточки
+                "teormin" с оформлением и интеграцией на JavaScript для
+                отображения этих материалов.
+              </li>
+              <li>
+                <b>Обновлённый пайплайн RAG и chunking в RAG-ассистенте</b>:
+                пересмотрены скрипты разбиения на чанки с новыми правилами и
+                фильтрами, теперь используются MD‑файлы; чанки пересобраны и
+                синхронизированы с контентом;
+              </li>
+              <li>
+                <b>Новые элементы интерфейса и стили</b>: обновлён стиль
+                модального <a href="calender/index.html">календаря</a> и общий стиль календаря, улучшены фоновые
+                градиенты в CSS, обновлены изображения для визуальной
+                согласованности; исправлена проблема с невидимыми ссылками в
+                светлой теме.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.17 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.17</h2>
+            <time datetime="2026-04-17">17 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Скелетоны для загрузки</b>: добавлена система
+                skeleton-загрузки для асинхронных компонентов и отдельных
+                фрагментов интерфейса, улучшено поведение при загрузке данных.
+              </li>
+              <li>
+                <b>Визуальные правки стилей</b>: обновлены фоновые градиенты в
+                CSS, заменены/обновлены изображения, исправлены стили инфокарт.
+              </li>
+              <li>
+                <b>Локальный формат даты в <a href="calender/index.html">календаре</a></b>: обработка дат в
+                календаре переведена на локальный формат ввода, улучшено
+                взаимодействие с датами в интерфейсе.
+              </li>
+              <li>
+                <b>Требование Telegram-имени</b>: введена обязательность
+                указания Telegram (tg) для поля имени там, где это требуется.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.15 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.15</h2>
+            <time datetime="2026-04-15">15 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Добавлены задания</b>: в конец файлов с некоторыми вопросами
+                по <a href="python/index.html">Python</a>, <a href="math/index.html">математике</a>, <a href="ai/ml/classic.html">Classic ML</a> и <a href="ai/ml/dl.html">DL</a> добавлены задачи (чтобы
+                проще было искать задачки, привязанные к теоретическим
+                вопросам).
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2026.4.12 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2026.4.12</h2>
+            <time datetime="2026-04-12">12 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b><a href="ai/ml/nlp/rag.html">RAG и поиск по векторам</a></b>: добавлены новые визуализации и
+                отдельный раздел по векторному поиску, обновлены метрики RAG и
+                реорганизована последовательность разделов для улучшения
+                навигации.
+              </li>
+              <li>
+                <b><a href="ai/ml/nlp/agents.html">Agent Skills и мультиагентные системы</a></b>: введена
+                документация по Agent Skills, добавлен бенчмарк WeirdML,
+                обновлены примеры мультиагентных систем и новые иллюстрации
+                агентов.
+              </li>
+              <li>
+                <b>Расширение <a href="python/index.html">раздела по Python</a></b>: переработаны и дополнены
+                материалы по Python с примерами и пояснениями, добавлены
+                практические задания, исправлены заголовки (dataclass) и
+                улучшено форматирование.
+              </li>
+              <li>
+                <b><a href="math/index.html">Математика</a> и структура документации</b>: приведены в порядок
+                номера разделов, добавлены LaTeX‑стайл обозначения в формулах,
+                переименована ветка mathematics→math и улучшена навигация между
+                математическими материалами.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.4.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.4.0</h2>
+            <time datetime="2026-04-04">4 апреля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                Агенты: добавлено несколько новых
+                <a href="ai/ml/nlp/agents.html#agents_benchmarks"
+                  >агентных бенчмарков</a
+                >,
+                <a href="ai/ml/nlp/agents.html#agents_multiagents_examples"
+                  >ресерч</a
+                >
+                по computer-use агентам (Manus, OpenClaw), определение
+                <a href="ai/ml/nlp/agents.html#agents-agentic-trajectories"
+                  >агентных траекторий</a
+                >,
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.3.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.3.1</h2>
+            <time datetime="2026-03-16">16 марта 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                Добавлен материал про
+                <a href="ai/interviews/cv.html">проверку резюме на ATS Score</a> -
+                насколько резюме хорошее с точки зрения проверки автоматическими
+                фильтрами? Как подогнать его для выбивания наивысшего скора, на
+                что обращать внимание при составлении резюме?
+              </li>
+              <li>
+                Добавлено несколько
+                <a href="ai/interviews/dictionary.html">определений IT-терминов</a>
+              </li>
+              <li>
+                Добавлен новый тип <a href="ai/interviews/videos.html">видео</a>: <a href="ai/interviews/mlsd.html">MLSD</a>. Залил первый видос -
+                проектирование RAG-системы: корпоративный ассистент для работы с
+                документами
+              </li>
+              <li>В <a href="leaderboard.html">лидерборд</a> добавлен статус "Пауза"</li>
+              <li>
+                <b>Каталог</b>: добавлен новый компонент для быстрого доступа к
+                контенту сайта (в правом верхнем углу страницы)
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.3.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.3.0</h2>
+            <time datetime="2026-02-20">20 февраля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b><a href="roadmap/index.html">Роадмап по Deep Learning</a></b
+                >: добавлена задачка MNIST;
+              </li>
+              <li>
+                В
+                <b
+                  ><a href="roadmap/interactive.html"
+                    >интерактивном роадмапе</a
+                  ></b
+                >
+                добавлен ликбез в разделе с интервью.
+              </li>
+              <li>
+                <b><a href="leaderboard.html">Лидерборд</a></b> переработан:
+                одна таблица без вкладок, в ней отображаются число вопросов и
+                часы на учёбу. Прогресс-бар перенесён в
+                <a href="profile/progress.html">прогресс по темам</a> в
+                профиле. Добавлена сортировка по колонкам по клику на стрелочки
+                в заголовках.
+              </li>
+              <li>
+                На странице
+                <b><a href="profile/progress.html">Прогресс по темам</a></b>
+                блоки по разделам (База, Классик МЛ и др.) вынесены из одной
+                общей рамки — каждая тема отображается в отдельной карточке.
+              </li>
+              <li>
+                Весь питоновский код на сайте теперь <b>исполняемый</b> — теперь
+                можно запускать код прямо на странице.
+              </li>
+              <li>
+                Алго задачки с собесов вынесены на
+                <a href="ai/interviews/algo-tasks.html">отдельную страницу</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+        <!-- Релиз v3.2.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.2.3</h2>
+            <time datetime="2026-02-15">15 февраля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b><a href="my-reports.html">Отчеты</a></b
+                >: при составлении отчета теперь можно указывать затраченное
+                время, количество задач, выполненных за день. Эта информация
+                сохраняется в виде статистики, чтобы в разделе с отчетами ученик
+                мог посмотреть, сколько он в среднем тратит времени на обучение
+                по дням и за весь период обучения в целом.
+              </li>
+              <li>
+                <b><a href="leaderboard.html">Лидерборд</a></b
+                >: добавлена новая страница, где можно посмотреть, сколько
+                затрачено времени на обучение.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.2.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.2.2</h2>
+            <time datetime="2026-02-13">13 февраля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b><a href="ai/interviews/videos.html">Видео</a></b
+                >: добавлен новый мок-собес по Classic ML и настоящий
+                алго-собес.
+              </li>
+              <li>
+                Фидбеки в
+                <a href="ai/interviews/videos.html">записях мок-собесов</a> теперь
+                подтягиваются из
+                <a href="profile/feedbacks.html">фидбеков в профиле</a>
+              </li>
+              <li><b><a href="roadmap/interactive.html">Интерактивный роадмап</a></b> переработан.</li>
+              <li>
+                Добавлено <b><a href="my-reports.html">подтверждение просмотра отчёта</a></b> ученика: ментор
+                может отметить отчёт как просмотренный, ученик видит это в своих
+                отчётах.
+              </li>
+              <li>
+                Добавлена страница
+                <b><a href="ai/interviews/roles.html">Роли в Data и ML</a></b
+                >: чем отличаются Data Scientist, ML Engineer, Analyst, MLOps,
+                Data Engineer, AI Engineer и как они соотносятся.
+              </li>
+              <li>
+                Исправлено <b>увеличение изображений по клику</b>: теперь
+                работает на всех страницах с <code>init-page.js</code>, в том
+                числе с ленивой подгрузкой вопросов (например, <a href="python/base.html">Python Base</a>).
+              </li>
+              <li>
+                Подгруппы переименованы: <code>[ПГ] Начало</code> ->
+                <code>1. Start</code>, <code>[ПГ] Основная часть</code> ->
+                <code>2. Main</code>, <code>[ПГ] На рынке</code> ->
+                <code>3. Market</code>,
+                <code>[ПГ] Устроившиеся / Устроились</code> ->
+                <code>4. Employed</code>.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.2.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.2.1</h2>
+            <time datetime="2026-02-08">8 февраля 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b>Определения терминов</b>: добавлены определения терминов на
+                всех страницах сайта. Теперь можно наводить на термины и видеть
+                определение.
+              </li>
+              <li>
+                Теперь <b>разделы сайта открываются постепенно</b> по мере
+                прохождения курса: сначала доступны математика и Classic ML
+                (теория, практика и вопросы с собеседований), далее открывается
+                DL (так же 3 раздела одновременно) и так далее
+              </li>
+              <li>
+                Вся практика вынесена на отдельную
+                <a href="practise/index.html">страницу</a>
+              </li>
+              <li>
+                Добавлена практика по
+                <a href="ai/practise/dl.html">DL</a>,
+                <a href="ai/practise/classic_ml.html">Classic ML</a>. Её можно
+                найти либо на странице с практикой, либо в соответствующем
+                роадмапе
+              </li>
+              <li>
+                Добавлен материал про
+                <a href="ai/interviews/ip-sz.html">ИП и самозанятость</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.2.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.2.0</h2>
+            <time datetime="2026-01-31">31 января 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b>NLP</b>: добавлен материал по
+                <a href="ai/ml/nlp/advanced.html#matryoshka-embeddings"
+                  >Matryoshka Embeddings</a
+                >
+              </li>
+              <li>
+                Сайт перенесен на хостинг через Казахский сервер под новым
+                Российским доменом schmidtml.ru
+              </li>
+              <li>
+                Добавлена страница с
+                <a href="ai/interviews/videos.html"
+                  >видео мок- и настоящих собесов</a
+                >. Соответствующие топики в тг-чате посепенно перестанут
+                поддерживаться, и новые видосы собеседований будут публиковаться
+                на сайте
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.1.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.1.3</h2>
+            <time datetime="2026-01-29">29 января 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b>LLM Agents</b>:
+                <a href="ai/ml/nlp/agents.html#agents_prompt_engineering"
+                  >prompt engineering</a
+                >,
+                <a href="ai/ml/nlp/agents.html#agents_context_engineering"
+                  >context engineering</a
+                >,
+                <a href="ai/ml/nlp/agents.html#agents_local_memory"
+                  >локальная память</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.1.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.1.2</h2>
+            <time datetime="2026-01-23">23 января 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b>Собесы</b>: добавлен
+                <a href="ai/interviews/dictionary.html">словарь IT-терминов</a>
+              </li>
+              <li>
+                <a href="leaderboard.html">Лидерборд</a>: теперь можно
+                фильтровать по подгруппам: начало, основная часть, на рынке,
+                устроились
+              </li>
+              <li>
+                <b>HH</b>: добавлен материал про
+                <a href="ai/interviews/hh.html">заполнение HH ML-щика</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.1.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.1.1</h2>
+            <time datetime="2026-01-12">12 января 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                Разбиение на подгруппы теперь видно в
+                <a href="leaderboard.html">лидерборде</a>. У всех есть мелкая
+                подпись рядом с именем, можно самостоятельно менять ПГ в
+                настройках профиля
+              </li>
+              <li>
+                <b>Интерактивный onboarding-тур</b> для новых пользователей:
+                пошаговое знакомство с ключевыми разделами платформы.
+              </li>
+              <li>
+                <b>NLP</b>: добавлен материал по
+                <a href="ai/ml/nlp/agents.html">агентам</a>
+              </li>
+              <li>
+                <b>Роадмап</b>: рефакторинг, NLP разбит на несколько разделов:
+                база, <a href="ai/roadmap/nlp-rag.html">RAG</a>,
+                <a href="ai/roadmap/nlp-agents.html">агенты</a>,
+                <a href="ai/roadmap/nlp-optimization.html">оптимизация</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.1.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.1.0</h2>
+            <time datetime="2026-01-12">12 января 2026</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <!-- INSERT_YOUR_CODE -->
+            <ul>
+              <li>
+                <b>Бейджи вопросов</b>: теперь ко
+                <b>всем вопросам на страницах с материалом добавлены бейджи</b>
+                типа:<br />
+                <span class="question-badge question-badge-required"
+                  >Обязательно</span
+                >,
+                <span class="question-badge question-badge-additional"
+                  >Дополнительно</span
+                >,
+                <span class="question-badge question-badge-later"
+                  >Можно учить позже</span
+                >,
+                <span class="question-badge question-badge-research"
+                  >Ресерч</span
+                ><br />
+              </li>
+              <li>
+                <b>Сортировка и фильтрация по бейджам</b>: теперь
+                <b>можно фильтровать вопросы на страницах</b>, оставляя только
+                выбранный тип (например, только "обязательно" или только
+                "ресерч"), с помощью специальной панели фильтрации на каждой
+                странице с вопросами.
+              </li>
+              <li>
+                Плашка с прогрессом теперь отображается в панели навигации
+                справа страницы
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.0.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.0.2</h2>
+            <time datetime="2025-12-21">21 декабря 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                Добавлен
+                <a href="bank/math.html#softmax-invariant-interview"
+                  >вопрос про инвариантность софтмакса</a
+                >
+              </li>
+              <li>
+                Реализован <b>полноэкранный режим чата</b> на <a href="main.html">главной странице</a> с
+                плавными анимациями
+              </li>
+              <li>
+                Ускорена <b>прогрузка страниц</b> за счет оптимизации загрузки
+                контента
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.0.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.0.1</h2>
+            <time datetime="2025-12-15">15 декабря 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Новый материал</h3>
+            <ul>
+              <li>
+                <b>RAG</b>: постепенно добавляется материал по
+                <a href="ai/ml/nlp/rag.html">RAG</a>
+              </li>
+            </ul>
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                Теперь все <b>изображения можно зумить</b>, нажав на них.
+                Кажется, это удобно, когда картинка мелкая, или там есть мелкие
+                детали
+              </li>
+              <li>
+                <b>Оптимизация прогрузки вопросов на сайте</b>: сокращения веса
+                страниц в несколько раз, ускорение загрузки
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v3.0.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v3.0.0</h2>
+            <time datetime="2025-12-10">10 декабря 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Новые возможности</h3>
+            <ul>
+              <li>
+                <b>RAG-ассистент</b>: на <a href="main.html">главной странице</a> добавлен
+                интеллектуальный чат-ассистент. Он отвечает на вопросы по
+                машинному обучению, Python, математике и другим темам сайта,
+                используя контекст из базы знаний. Доступен через иконку чата в
+                правом нижнем углу главной страницы.
+              </li>
+            </ul>
+            <h3>Обновления</h3>
+            <ul>
+              <li>
+                <b>Гайд</b>: добавлен
+                <a href="guide/index.html">интерактивный гайд</a> по работе с
+                платформой. Гайд поможет новым ученикам разобраться с платформой
+                и начать обучение.
+              </li>
+              <li><b><a href="main.html">Главная страница</a></b>: обновлены карточки с разделами</li>
+              <li>
+                <b>Теорвер</b>: добавлены вопросы по теории вероятностей:
+                <a href="math/probability.html#bayes-theorem">Теорема Байеса</a
+                >,
+                <a href="math/probability.html#conditional-probability"
+                  >Условная вероятность</a
+                >,
+                <a href="math/probability.html#joint-probability"
+                  >Совместная вероятность</a
+                >
+              </li>
+            </ul>
+            <h3>Другое</h3>
+            <ul>
+              <!-- режим презентации вопросов -->
+              <li>
+                <b>Режим презентации вопросов</b>: добавлен режим презентации
+                вопросов с модальным окном и навигацией. Режим позволяет
+                просматривать вопросы в режиме презентации, что удобно для
+                записи видео.
+              </li>
+              <li>
+                Убрана анимация мигающего ползунка прогресса на страницах с
+                вопросами
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.13.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.13.1</h2>
+            <time datetime="2025-12-09">9 декабря 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b><a href="bank/index.html">Банк вопросов</a></b>: добавлены новые вопросы по <a href="bank/python.html">Python</a>,
+                <a href="bank/math.html">математике</a> и <a href="ai/bank/nlp.html">NLP</a>
+              </li>
+              <li>
+                <b>Python</b>: добавлен материал:
+                <a href="python/base.html#ides">Что такое IDE?</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.13.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.13.0</h2>
+            <time datetime="2025-11-27">27 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <!-- feedbacks -->
+                <b>Обратная связь</b>: добавлена
+                <a href="profile/feedbacks.html">страница</a> с обратной связью
+                по собеседованиям (вместо PDF, которые раньше скидывал в тг)
+              </li>
+              <li>
+                <b><a href="roadmap/index.html">Roadmap</a></b>:
+                добавлены бейджи с примерным временем освоения (в неделях) для
+                всех основных разделов роадмапа (и выделены вспомогательные)
+              </li>
+              <li>
+                <b>Python</b>: добавлен материал по
+                <a href="python/base.html#jupyter_notebook"
+                  >Jupyter Notebook</a
+                >
+                в базовый курс Python
+              </li>
+              <li>
+                <b>NLP</b>: добавлены детали по
+                <a href="ai/ml/nlp/advanced.html#moe">обучению MoE</a>
+              </li>
+              <li>Мелкие фиксы <a href="calender/index.html">календаря</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.9 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.9</h2>
+            <time datetime="2025-11-17">17 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>CV</b>: добавлен материал про
+                <a href="ai/ml/models/cv.html#convnext">ConvNeXt</a>
+              </li>
+              </li>
+              <li>
+                <b>GitHub</b>: внесены изменения на странице
+                <a href="github/workflow.html">GitHub Workflow</a>
+              </li>
+              <li>
+                <b>Навигация</b>: на все страницы с материалом добавлены пометки
+                о блоках в навигацию
+              </li>
+              <li>Оптимизация скорости работы сайта</li>
+              <li>
+                <b>TODO</b>: добавить single/multi GPU обучение,
+                <code>mlflow</code>, <code>wandb</code>, data/model/pipeline
+                parallelism, предобработку текста/изображений с примерами
+                воспроизводимого кода (будет залито на github).
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.8 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.8</h2>
+            <time datetime="2025-11-10">10 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Собесы</b>: добавлен материал про
+                <a href="ai/interviews/scrum.html">управление проектами</a>
+                (Agile, Scrum, Waterfall)
+              </li>
+              <li>
+                <b>CV</b>: поправлен материал по:
+                <a href="ai/ml/classic-cv.html#matching-stitching"
+                  >Matching, stitching</a
+                >,
+                <a href="ai/ml/classic-cv.html#dft"
+                  >Дискретное Преобразование Фурье</a
+                >,
+                <a href="ai/ml/classic-cv.html#dct">Косинусное преобразование</a>
+              </li>
+              <li>
+                <b>NLP Optimization</b>: поправлен материал по:
+                <a href="ai/ml/nlp/optimization.html#exposure_bias"
+                  >Проблемы дистилляции: exposure bias</a
+                >, <a href="ai/ml/nlp/optimization.html#minillm">MiniLLM</a>,
+                <a href="ai/ml/nlp/optimization.html#tricks_for_replacement_of_ppo"
+                  >Трюки для замены PPO</a
+                >
+              </li>
+              <li>
+                <b>GitHub</b>: добавлен материал про
+                <a href="github/basics.html#github-vscode-extensions"
+                  >расширения для VS Code</a
+                >,
+                <a href="github/basics.html#github-vs-gitlab"
+                  >отличия GitHub и GitLab</a
+                >
+              </li>
+              <li>
+                <b>NLP Base</b>: добавлен материал с
+                <a href="ai/ml/nlp/base.html#elmo">ELMo</a>,
+                <a href="ai/ml/nlp/optimization.html#dynamic_batching"
+                  >Dynamic Batching</a
+                >
+              </li>
+              <li>
+                <b>Вопросы с собесов</b>: расширен блок по
+                <a href="ai/bank/nlp.html">NLP</a>
+                и
+                <a href="ai/bank/dl.html">DL</a>
+              </li>
+              <li>
+                <b>UI</b>: более удобные переходы по ссылкам на вопросы
+                разделов, визуальное выделение некоторых элементов для более
+                удобного восприятия. Сложные вопросы теперь дополнительно
+                выделяются (например,
+                <a href="ai/ml/nlp/optimization.html#minillm">MiniLLM</a>).
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.7 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.7</h2>
+            <time datetime="2025-11-06">6 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>NLP Optimization</b>: добавлены
+                <a href="ai/ml/nlp/optimization.html#ggml">GGML</a>,
+                <a href="ai/ml/nlp/optimization.html#gguf">GGUF</a>,
+                <a href="ai/ml/nlp/optimization.html#awq">AWQ</a>
+              </li>
+              <li>Мелкие фиксы</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.6 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.6</h2>
+            <time datetime="2025-11-03">3 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                Расширен <a href="bank/index.html">банк вопросов</a> по DL, NLP,
+                математике
+              </li>
+              <li>
+                Чуть улучшен визуал карточек с вопросами в разделах для более
+                легкого восприятия глазами
+              </li>
+              <li>
+                Добавлены
+                <a href="math/probability.html#mean">выборочное среднее</a>,
+                <a href="math/probability.html#sample-variance"
+                  >выборочная дисперсия</a
+                >,
+                <a href="math/probability.html#standard-deviation"
+                  >среднеквадратическое отклонение</a
+                >, <a href="math/probability.html#mode">мода</a>,
+                <a href="math/probability.html#median">медиана</a>,
+                <a href="math/probability.html#bootstrap">bootstrap</a>,
+                <a href="math/probability.html#t-test">t-test</a>,
+                <a href="math/probability.html#ab-testing">A/B-тест</a>
+              </li>
+              <li>Добавлен <a href="ai/ml/nlp/base.html#bow">BoW</a></li>
+              <li>
+                Добавлено описание моделей:
+                <a href="ai/ml/models/cv.html#efficientnet">EfficientNet</a>
+                (2019),
+                <a href="ai/ml/models/cv.html#efficientnetv2">EfficientNetV2</a>
+                (2021), <a href="ai/ml/models/cv.html#nasnet">NASNet</a> (2018),
+                <a href="ai/ml/models/cv.html#mobilenetv2">MobileNetV2</a> (2019),
+                <a href="ai/ml/models/cv.html#cbam">CBAM</a> (2018),
+                <a href="ai/ml/models/cv.html#vit">ViT</a> (2020),
+                <a href="ai/ml/models/cv.html#deit">DeiT</a> (2021),
+                <a href="ai/ml/models/cv.html#swin">Swin Transformer</a> (2021)
+              </li>
+              <li>
+                В
+                <a href="ai/ml/dl.html#activation-functions"
+                  >вопросе с функциями активации</a
+                >
+                добавлены графики и формулы для производных
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.5 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.5</h2>
+            <time datetime="2025-11-02">2 ноября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                Добавлен
+                <a href="ai/ml/dl.html#label_smoothing">Label Smoothing</a>
+              </li>
+              <li>
+                <b>Банк вопросов</b>: добавлены вопросы по
+                <a href="ai/bank/dl.html">DL</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.4 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.4</h2>
+            <time datetime="2025-10-30">30 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                Во все разделы с материалом добавлена навигационная панель
+                (справа) для более удобно и быстрого перехода к нужным
+                материалам (спасибо Денису за идею)
+              </li>
+              <li>
+                Расширен банк вопросов по классическому ML:
+                <a href="ai/bank/classic-ml.html"
+                  >банк вопросов по классическому ML</a
+                >
+              </li>
+              <li>
+                Чуть переписаны вопросы по
+                <a href="ai/ml/classic.html#classification_metrics"
+                  >метрикам классификации</a
+                >
+                и отдельно описаны
+                <a href="ai/ml/classic.html#clf-losses">лоссы для классификации</a>
+                и
+                <a href="ai/ml/classic.html#regr-losses">лоссы для регрессии</a>
+              </li>
+              <li>Bug fixes и оптимизация.</li>
+              <li>
+                Добавлены <a href="tests/index.html">тесты</a> по NLP
+                Optimization
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.3</h2>
+            <time datetime="2025-10-29">29 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                Добавлен раздел с описанием архитектур машинного обучения:
+                <a href="ai/ml/models/cv.html#resnext">ResNeXt</a> (2016),
+                <a href="ai/ml/models/cv.html#densenet">DenseNet</a> (2016),
+                <a href="ai/ml/models/cv.html#senet">SENet</a> (2017),
+                <a href="ai/ml/models/cv.html#mobilenet">MobileNet</a> (2017),
+                <a href="ai/ml/models/cv.html#shufflenet">ShuffleNet</a> (2017)
+              </li>
+              <li>
+                Добавлены <a href="tests/">тесты</a> по NLP Base, теорверу,
+                матану
+              </li>
+              <li>Bug fixes</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.2</h2>
+            <time datetime="2025-10-26">26 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>Добавлен <a href="tests/">тест</a> по DL, алгебре</li>
+              <li>
+                Добавлен раздел с описанием истории развития архитектур
+                машинного обучения
+                <a href="ai/ml/models/cv.html#alexnet">AlexNet</a>,
+                <a href="ai/ml/models/cv.html#zfnet">ZFNet</a>,
+                <a href="ai/ml/models/cv.html#vgg">Семейство VGG</a>,
+                <a href="ai/ml/models/cv.html#googlenet"
+                  >GoogLeNet (Inception v1)</a
+                >, <a href="ai/ml/models/cv.html#resnet">семейство ResNet</a>,
+                <a href="ai/ml/models/cv.html#inception">Inception (v2, v3, v4)</a>
+              </li>
+              <li>Bug fixes, optimization</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.12.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.12.1</h2>
+            <time datetime="2025-10-25">25 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Python</b>: добавлен материал по
+                <a href="python/advanced.html#numba"><code>numba</code></a
+                >,
+                <a href="python/advanced.html#isinstance"
+                  ><code>isinstance</code></a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.10 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.10</h2>
+            <time datetime="2025-10-23">23 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>Добавлены <a href="tests/index.html">тесты</a> по классическому ML и advanced python</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.9 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.9</h2>
+            <time datetime="2025-10-22">22 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Python</b>: добавлены материалы:
+                <a href="python/base.html#os_module">Модуль <code>os</code></a
+                >,
+                <a href="python/base.html#os_path"
+                  >Библиотека <code>os.path</code></a
+                >,
+                <a href="python/base.html#pathlib_intro"
+                  ><code>pathlib</code></a
+                >,
+                <a href="python/base.html#object_id"
+                  >Идентификатор объекта: <code>id()</code>, интернирование
+                  констант</a
+                >,
+                <a href="python/base.html#none_is"
+                  ><code>None</code>: почему проверять через <code>is</code></a
+                >,
+                <a href="python/base.html#object_lifecycle"
+                  >Жизнь объекта: создание, ссылки, удаление</a
+                >,
+                <a href="python/base.html#collections_counter"
+                  >Модуль <code>collections</code>: <code>Counter</code></a
+                >,
+
+                <a href="python/advanced.html#class_decorators"
+                  >Декораторы классов</a
+                >,
+                <a href="python/advanced.html#copy_deepcopy"
+                  >Копирование изменяемых объектов: поверхностное и
+                  <code>deepcopy</code></a
+                >,
+                <a href="python/advanced.html#weakref"
+                  ><code>weakref</code>: слабые ссылки</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.8 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.8</h2>
+            <time datetime="2025-10-21">21 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновлена страница с профилем</h3>
+            <ul>
+              <li>
+                Карточки <a href="profile.html">профиля</a> теперь в едином стиле с <a href="main.html">главной страницей</a>
+              </li>
+              <li>
+                Прогресс,
+                <a href="profile/offers.html">офферы</a>,
+                <a href="profile/settings.html">настройки</a> и
+                <a href="profile/notifications.html">уведомления</a> теперь в
+                разных разделах, а не на одной странице
+              </li>
+              <li>
+                Через профиль можно перейти на новые разделы:
+                <a href="tests/">Тесты</a>,
+                <a href="my-reports.html">Отчеты</a> и
+                <a href="achievements.html">Достижения</a>
+              </li>
+              <li>Улучшена структура навигации - все функции в одном месте</li>
+              <li>Фикс мелких багов</li>
+              <li>Добавлены новые <a href="tests">тесты по Python</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.7 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.7</h2>
+            <time datetime="2025-10-20">20 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>NLP</b>:
+                <a href="ai/ml/nlp/base.html#generation_metrics"
+                  >Метрики оценки качества генерации</a
+                >,
+                <a href="ai/ml/nlp/advanced.html#moe">MoE: смесь экспертов</a>
+              </li>
+              <li>Добавлен раздел с <a href="tests/index.html">тестами</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.6 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.6</h2>
+            <time datetime="2025-10-19">19 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>NLP</b>:
+                <a href="ai/ml/nlp/optimization.html#exposure_bias"
+                  >Проблемы дистилляции: exposure bias</a
+                >, <a href="ai/ml/nlp/optimization.html#minillm">MiniLLM</a>,
+                <a href="ai/ml/nlp/optimization.html#tricks_for_replacement_of_ppo"
+                  >Трюки для замены PPO</a
+                >
+              </li>
+              <li>
+                <b>Classic ML</b>: добавлены материалы по кластеризации:
+                <a href="ai/ml/classic.html#clustering_metrics"
+                  >Метрики кластеризации</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.5 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.5</h2>
+            <time datetime="2025-10-18">18 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <h3>Soft</h3>
+              <li>
+                <a href="ai/interviews/index.html">Раздел с собесами</a> вынесен в панель
+                навигации
+              </li>
+              <li>
+                <b>Банк вопросов</b> добавлены
+                <a href="bank/hr.html">HR вопросы</a>
+                с примерами ответов
+              </li>
+              <li>
+                Добавлен материал по
+                <a href="ai/interviews/linkedin.html">Linkedin</a> и
+                <a href="ai/interviews/cv.html">сопроводительному письму</a>
+              </li>
+              <h3>Hard</h3>
+              <li>
+                <b>Кластеризация</b>: обновлены материалы по
+                <a href="ai/ml/classic.html#kmeans">KMeans</a>,
+                <a href="ai/ml/classic.html#kmeans++">KMeans++</a>,
+                <a href="ai/ml/classic.html#kmedoids">KMedoids</a>,
+                <a href="ai/ml/classic.html#dbscan">DBSCAN</a>,
+                <a href="ai/ml/classic.html#hierarchical">иерархическая</a>,
+                <a href="ai/ml/classic.html#spectral">спектральная</a>. Добавлены
+                формальные определения и примеры.
+              </li>
+              <li>
+                <b>NLP</b>: добавлены материалы по
+                <a href="ai/ml/nlp/base.html#unigram">Unigram</a>,
+                <a href="ai/ml/nlp/base.html#sentencepiece">SentencePiece</a>.
+                <a href="ai/ml/nlp/base.html#tokenizers-comparison"
+                  >Сравнение методов токенизации</a
+                >
+              </li>
+              <li>
+                <b>Python</b>: добавлены материалы:
+                <a href="python/advanced.html#multiprocessing"
+                  >Многопроцессность</a
+                >,
+                <a href="python/advanced.html#threading">Многопоточность</a>,
+                <a href="python/advanced.html#comparison_concurrency"
+                  >Сравнение подходов к конкурентности</a
+                >,
+                <a href="python/advanced.html#complexity"
+                  >Алгоритмическая сложность</a
+                >
+              </li>
+              <li>
+                Добавлены материалы по
+                <a href="ai/mlops/k8s.html">Kubernetes</a>
+              </li>
+              <li>
+                <b>Деревья решений</b>: добавлены материалы по
+                <a href="ai/ml/classic.html#decision_tree_regression"
+                  >деревьям регрессии</a
+                >,
+                <a href="ai/ml/classic.html#tree_pros_cons"
+                  >плюсам и минусам решающих деревьев</a
+                >.
+                <a href="ai/ml/classic.html#tree_regularization"
+                  >Как можно регуляризировать решающее дерево</a
+                >.
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.4 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.4</h2>
+            <time datetime="2025-10-17">17 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>DL</b>: добавлены
+                <a href="ai/ml/dl.html#activation-functions">функции активации</a>:
+                SwiGLU, SiLU, Swish, GLU
+              </li>
+              <li>
+                <b>Python</b>: добавлен материал по
+                <a href="python/advanced.html#pydantic_basemodel"
+                  >Pydantic BaseModel</a
+                >,
+                <a href="python/advanced.html#pycache"
+                  ><code>__pycache__</code></a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.3</h2>
+            <time datetime="2025-10-14">14 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Bug fixes и улучшения</b>: исправлены мелкие ошибки в стилях
+                и логике работы системы отчетов, streak-подсчета и уведомлений
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.2</h2>
+            <time datetime="2025-10-13">13 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b><a href="bank/index.html">Вопросы с собеседований</a></b
+                >: исправлены опечатки в банке вопросов по Python и математике
+              </li>
+              <li>
+                <b><a href="achievements.html">Система достижений</a></b
+                >: добавлена возможность выбирать полученное достижение как
+                статус рядом с именем. Новые категории достижений: Прогресс,
+                Регулярность, Объём, Стиль, Особые, Скидки
+              </li>
+              <li>
+                <b>Интеграция</b>: достижения теперь учитывают прогресс по всем
+                разделам сайта и автоматически обновляются
+              </li>
+              <li>
+                <b><a href="profile.html">Профиль</a></b
+                >: добавлен раздел "💼 Мои офферы" для отслеживания полученных
+                офферов
+              </li>
+              <li>
+                <b>Скидоны на постоплату</b>: <a href="achievements.html">достижения</a> теперь могут давать
+                скидки до 7%
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.1</h2>
+            <time datetime="2025-10-11">11 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b><a href="bank/index.html">Вопросы с собеседований</a></b
+                >: добавлены вопросы и несколько задачек с собеседований по
+                Python (27 шт.) и математике (25 шт.)
+              </li>
+              <li>
+                <b>Интерфейс</b>: изменены анимации в <a href="calender/index.html">календаре</a> и в <a href="my-reports.html">отчетах</a>.
+                Наполнена карточка с написанием отчета, добавлены новые <a href="achievements.html">ачивки</a>
+              </li>
+              <li><b>Bug fixes</b></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.11.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.11.0</h2>
+            <time datetime="2025-10-09">9 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Геймификация и система отчётов</h3>
+            <ul>
+              <li>
+                <b><a href="my-reports.html">Ежедневные отчёты:</a></b> можно заполнять краткие отчёты о
+                проделанной работе, планах и трудностях
+              </li>
+              <li><b><a href="achievements.html">Система достижений</a></b></li>
+              <li>
+                <b>Streak-трекинг:</b> Отслеживание последовательных дней с
+                отчётами с визуальными индикаторами
+              </li>
+              <li>
+                <b>Markdown-поддержка:</b> Форматирование текста в <a href="my-reports.html">отчётах</a>
+                (markdown, ссылки, bullet-списки, код)
+              </li>
+              <li>
+                <b>Управление <a href="my-reports.html">отчётами</a>:</b> Возможность удаления собственных
+                отчётов
+              </li>
+              <li>
+                <b>Статистика активности:</b> Подсчёт дней подряд, активности за
+                неделю
+              </li>
+              <li>
+                Страницы: <a href="my-reports.html">Мои отчёты</a>,
+                <a href="achievements.html">Достижения</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.8 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.8</h2>
+            <time datetime="2025-10-08">8 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Python</h3>
+            <ul>
+              <li>
+                Добавлены вопросы:
+                <a href="python/base.html#datatypes_more"
+                  >Подробнее про типы данных</a
+                >, <a href="python/base.html#operations">Операции</a>,
+                <a href="python/base.html#shorthand_operations"
+                  >Сокращение операций</a
+                >, <a href="python/base.html#zip"><code>zip</code></a
+                >,
+                <a href="python/base.html#enumerate"><code>enumerate</code></a>
+              </li>
+            </ul>
+            <h3>DL</h3>
+            <ul>
+              <li>
+                Добавлены пояснения к
+                <a href="ai/ml/dl.html#positional-encoding"
+                  >позиционному кодированию</a
+                >
+              </li>
+            </ul>
+            <h3>NLP</h3>
+            <ul>
+              Добавлен материал:
+              <li>
+                <a href="ai/ml/nlp/optimization.html#lora">LoRA</a>,
+                <a href="ai/ml/nlp/optimization.html#lorap">LoRA+</a>,
+                <a href="ai/ml/nlp/optimization.html#dora">DoRA</a>,
+                <a href="ai/ml/nlp/optimization.html#vera">VeRA</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.7 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.7</h2>
+            <time datetime="2025-10-07">7 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Python</b>: добавлены задачки:
+                <a href="practise/python/base.html#logical_operators_python"
+                  >Проверка валидности пользователя</a
+                >,
+                <a href="practise/python/advanced.html#asyncio_python"
+                  >Асинхронные запросы</a
+                >,
+                <a href="practise/python/advanced.html#multiprocessing_python"
+                  >Параллельные вычисления с <code>multiprocessing</code></a
+                >,
+                <a href="practise/python/advanced.html#threading_python"
+                  >Многопоточность с <code>threading</code> для IO-задач</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.6 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.6</h2>
+            <time datetime="2025-10-06">6 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Docker</b>: добавлены начальные материалы по Docker:
+                <a href="ai/mlops/docker.html">Базовый блок</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.5 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.5</h2>
+            <time datetime="2025-10-05">5 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b>Уведомления на <a href="main.html">главной странице</a></b>: добавлена поддержка
+                KaTeX (математические формулы). Добавлен небольшой интерактив
+              </li>
+              <li>
+                <b>CV, Legend</b>: изменения на страницах
+                <a href="ai/interviews/cv.html">CV</a> и
+                <a href="ai/interviews/legend.html">Legend</a>
+              </li>
+              <li>
+                Добавлены детали по <a href="ai/ml/nlp/base.html#bpe">BPE</a>,
+                <a href="ai/ml/nlp/base.html#wordpiece">WordPiece</a>,
+                <a href="ai/ml/nlp/base.html#ppmi">PPMI</a>
+              </li>
+              <li>
+                Добавлен материал по
+                <a href="ai/ml/nlp/advanced.html#rmsnorm">RMSNorm</a>,
+                <a href="ai/ml/nlp/advanced.html#alibi">ALiBi</a>,
+                <a href="ai/ml/nlp/base.html#sentence-transformers"
+                  >Sentence Transformer</a
+                >,
+                <a href="ai/ml/nlp/base.html#triplet-loss">Triplet Loss</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.4 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.4</h2>
+            <time datetime="2025-10-02">2 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>
+                <b><a href="leaderboard.html">Лидерборд</a></b>: добавлены статусы: active, finished, departed.
+                Два последних указывают на то, что ученик закончил обучение или
+                покинул курс. В лидерборде они будут отображаться в конце списка
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.3</h2>
+            <time datetime="2025-10-01">1 октября 2025</time>
+          </div>
+          <div class="news-content">
+            <ul>
+              <li>На <a href="main.html">главной странице</a> добавлена лента последних новостей</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.2</h2>
+            <time datetime="2025-09-20">20 сентября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновы по NLP</h3>
+            Добавлены материалы по NLP:
+            <ul>
+              <li>
+                <a href="ai/ml/nlp/optimization.html#llm_optimization"
+                  >Оптимизация LLM</a
+                >.
+                <a href="ai/ml/nlp/optimization.html#rps_latency">RPS, Latency</a>
+              </li>
+
+              <li>
+                <a href="ai/ml/nlp/optimization.html#distillation">Дистилляция</a>:
+                <a href="ai/ml/nlp/optimization.html#hard-label-distillation"
+                  >Hard-label</a
+                >,
+                <a href="ai/ml/nlp/optimization.html#soft-label-distillation"
+                  >Soft-label</a
+                >,
+                <a href="ai/ml/nlp/optimization.html#distillation_problems"
+                  >Проблемы дистилляции</a
+                >
+              </li>
+
+              <li>
+                <a href="ai/ml/nlp/optimization.html#quantization"
+                  >Квантизация: определение</a
+                >.
+                <a href="ai/ml/nlp/optimization.html#linear_quantization"
+                  >Линейная квантизация</a
+                >,
+                <a href="ai/ml/nlp/optimization.html#how_to_quantize"
+                  >Сценарии квантизации</a
+                >, <a href="ai/ml/nlp/optimization.html#data_types">Типы данных</a>
+              </li>
+
+              <li>
+                <a href="ai/ml/nlp/optimization.html#quantization_problems"
+                  >Проблемы квантизации</a
+                >. <a href="ai/ml/nlp/optimization.html#llm_int8">LLM.Int8</a>,
+                <a href="ai/ml/nlp/optimization.html#smoothquant">SmoothQuant</a>,
+                <a href="ai/ml/nlp/optimization.html#spinquant">SpinQuant</a>,
+                <a href="ai/ml/nlp/optimization.html#gptq">GPTQ</a>
+              </li>
+              <li>
+                <a href="ai/ml/nlp/optimization.html#speculative_decoding"
+                  >Speculative Decoding</a
+                >, <a href="ai/ml/nlp/optimization.html#eagle">EAGLE</a>,
+                <a href="ai/ml/nlp/optimization.html#continuous_batching"
+                  >Continuous Batching</a
+                >,
+                <a href="ai/ml/nlp/optimization.html#ragged_tensors"
+                  >Ragged Tensors</a
+                >,
+                <a href="ai/ml/nlp/optimization.html#kv_cache">KV-cache</a>
+              </li>
+              <li><a href="ai/ml/nlp/optimization.html#qlora">QLoRA</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.1</h2>
+            <time datetime="2025-09-16">16 сентября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновы по NLP и DL</h3>
+            Добавлены материалы по NLP. Начат раздел продвинутых вопросов:
+            <ul>
+              <li>
+                <a href="ai/ml/nlp/advanced.html#mqa">Multi-Query Attention</a>,
+                <a href="ai/ml/nlp/advanced.html#gqa">Grouped-Query Attention</a>
+              </li>
+              <li>
+                <a href="ai/ml/nlp/advanced.html#flash-attention"
+                  >Flash Attention</a
+                >
+              </li>
+            </ul>
+            Добавлены материалы по DL:
+            <ul>
+              <li>
+                <a href="ai/ml/dl.html#causal-attention">Causal Attention</a>,
+                <a href="ai/ml/dl.html#masked-attention">Masked Attention</a>
+              </li>
+              <li>
+                Обновлен вопрос "<a href="ai/ml/dl.html#attention-types"
+                  >Виды внимания</a
+                >"
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.10.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.10.0</h2>
+            <time datetime="2025-09-14">14 сентября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновы по NLP и календарю</h3>
+            <ul>
+              <!-- bert, bert-like, gpt, gpt-like, nlp-tasks-desc, seq2seq (updates), seq2seq-attn (updates) -->
+              <li>
+                <a href="ai/ml/nlp/base.html#bert">BERT</a>,
+                <a href="ai/ml/nlp/base.html#bert-like">BERT-подобные модели</a>
+              </li>
+              <li>
+                <a href="ai/ml/nlp/base.html#gpt">GPT</a>,
+                <a href="ai/ml/nlp/base.html#gpt-like">GPT-подобные модели</a>
+              </li>
+              <li><a href="ai/ml/nlp/base.html#nlp-tasks-desc">Задачи NLP</a></li>
+              <li>
+                <a href="ai/ml/nlp/base.html#seq2seq">Seq2Seq</a>,
+                <a href="ai/ml/nlp/base.html#seq2seq-attn">Seq2Seq с attention</a>
+              </li>
+
+              <li>
+                Добавлена возможность создавать мок-собесы друг с другом в
+                <a href="leaderboard.html">лидерборде</a>: нужно нажать
+                <code>Пригласить на мок</code>, выбрать собеседника, опционально
+                указать описание темы мока, указать время начала и длительность.
+                После этого мок-собес будет добавлен в календарь для обоих
+                участников
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.9.4 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.9.4</h2>
+            <time datetime="2025-09-08">8 сентября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            Добавлены материалы по CV:
+            <ul>
+              <li>
+                <a href="ai/ml/classic-cv.html#image-as-object"
+                  >Изображение как объект</a
+                >
+              </li>
+              <li>
+                <a href="ai/ml/classic-cv.html#rgb-channels"
+                  >Число каналов, цветовое пространство RGB</a
+                >
+              </li>
+              <li>
+                <a href="ai/ml/classic-cv.html#bit-depth"
+                  >Число бит для кодирования изображения</a
+                >
+              </li>
+
+              <li>
+                <b>Фильтры:</b> <a href="ai/ml/classic-cv.html#gauss">Гауссов</a>,
+                <a href="ai/ml/classic-cv.html#median">Медианный</a>,
+                <a href="ai/ml/classic-cv.html#sobel">Собеля</a>,
+                <a href="ai/ml/classic-cv.html#gabor">Габора</a>
+              </li>
+              <li>
+                <a href="ai/ml/classic-cv.html#affine"
+                  >Аффинные преобразования: растяжение, поворот, масштабирование
+                  через матрицы</a
+                >
+              </li>
+
+              <li>
+                <b>Методы:</b>
+                <a href="ai/ml/classic-cv.html#matching-stitching"
+                  >Сопоставление (matching), склейка (stitching) изображений</a
+                >,
+                <a href="ai/ml/classic-cv.html#dft"
+                  >Дискретное Преобразование Фурье</a
+                >,
+                <a href="ai/ml/classic-cv.html#dct">Косинусное преобразование</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.9.3 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.9.3</h2>
+            <time datetime="2025-09-01">1 сентября 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            Различные улучшения в календаре
+          </div>
+        </article>
+
+        <!-- Релиз v2.9.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.9.2</h2>
+            <time datetime="2025-08-31">31 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Добавлены материалы по NLP:
+                <ul>
+                  <li><a href="ai/ml/nlp/index.html#fasttext">FastText</a></li>
+                  <li>
+                    <a href="ai/ml/nlp/index.html#lm-what"> Языковое моделирование </a
+                    >.
+                    <a href="ai/ml/nlp/index.html#lm-framework">
+                      Вероятность текста, левосторонние LM </a
+                    >.
+                  </li>
+                  <li>
+                    <a href="ai/ml/nlp/index.html#markov">
+                      N-грамм модели генерации текста, марковское свойство </a
+                    >.
+                    <a href="ai/ml/nlp/index.html#neural-lm">
+                      Нейронные сети для генерации текста </a
+                    >.
+                    <a href="ai/ml/nlp/index.html#training-lm"> Обучение </a>
+                  </li>
+                  <li>
+                    <a href="ai/ml/nlp/index.html#generation-strategies">
+                      Стратегии сэмплирования:
+                    </a>
+                    top-$k$, top-$p$, температура сэмплирования.
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.9.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.9.1</h2>
+            <time datetime="2025-08-27">27 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Добавлены материалы по NLP:
+                <ul>
+                  <li>
+                    <a href="ai/ml/nlp/index.html#text_vectorization"
+                      >Векторное представление текста</a
+                    >.
+                    <a href="ai/ml/nlp/index.html#one-hot">One-hot кодирование</a>,
+                    <a href="ai/ml/nlp/index.html#distributional_semantics"
+                      >Дистрибутивная семантика</a
+                    >
+                  </li>
+
+                  <li>
+                    <a href="ai/ml/nlp/index.html#count-based"
+                      >Count-based методы</a
+                    >,
+                    <a href="ai/ml/nlp/index.html#co-occurrence-counts"
+                      >Co-occurrence counts</a
+                    >,
+                    <a href="ai/ml/nlp/index.html#ppmi"
+                      >PPMI (Positive Pointwise Mutual Information)</a
+                    >, <a href="ai/ml/nlp/index.html#lsa">LSA</a>,
+                    <a href="ai/ml/nlp/index.html#tf-idf">TF-IDF</a>
+                  </li>
+
+                  <li>
+                    <a href="ai/ml/nlp/index.html#word2vec">Word2Vec</a>,
+                    <a href="ai/ml/nlp/index.html#skip-gram-cbow"
+                      >Skip-gram, CBOW</a
+                    >, <a href="ai/ml/nlp/index.html#glove">GloVe</a>,
+                    <a href="ai/ml/nlp/index.html#analysis_interpretation"
+                      >Анализ и интерпретация</a
+                    >
+                  </li>
+                </ul>
+              </li>
+              <li>
+                Изменена <a href="start.html">стартовая страница</a> (первые
+                шаги)
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.9.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.9.0</h2>
+            <time datetime="2025-08-24">24 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Добавлен раздел с визуализацией личного прогресса в личном
+                кабинете (в
+                <a href="profile.html">профиле)</a>
+              </li>
+              <li>Изменены шапки в страницах <a href="roadmap">роадмапа</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.8.2 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.8.2</h2>
+            <time datetime="2025-08-23">23 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>Изменены стили для <a href="calender">календаря</a></li>
+              <li>
+                Изменены карточки
+                <a href="practise/index.html">практических заданий</a> по ML
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.8.1 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.8.1</h2>
+            <time datetime="2025-08-21">21 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Фикс бага с отображением уведомлений в
+                <a href="profile.html">профиле</a>
+              </li>
+              <li>
+                Правка авторизации, чтобы не перебрасывало каждый раз на главную
+                страницу
+              </li>
+              <li>Фикс темной темы для <a href="calender">календаря</a></li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.8.0 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.8.0</h2>
+            <time datetime="2025-08-21">21 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>Улучшена страница <a href="profile.html">профиля</a></li>
+              <li>
+                Добавлен <a href="calender">календарь</a>, в котором можно:
+                <ul>
+                  <li>Просматривать события (задания, мок-собесы, встречи)</li>
+                  <li>
+                    Там будет отображаться время о дедлайнах, будут указаны
+                    комментарии к заданию, которые могут оставлять как ученики,
+                    так и ментор (что-то типо треда в рамках одного задания)
+                  </li>
+                  <li>
+                    Будет уведомление о непрочитанных уведомлениях (новые
+                    комменты, задания, встречи, моки)
+                  </li>
+                </ul>
+              </li>
+              <li>Немного изменена навигационная панель</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.7.10 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.7.10</h2>
+            <time datetime="2025-08-18">18 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Добавлены материалы по
+                <a href="math/algebra.html#composition">композиции</a>
+                , примеры по
+                <a href="math/algebra.html#svd">SVD</a>
+                и
+                <a href="math/algebra.html#eigenvalues_and_eigenvectors">
+                  собственным векторам
+                </a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.7.9 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.7.9</h2>
+            <time datetime="2025-08-15">15 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>Улучшения и фиксы по стилям</li>
+              <li>Фикс внешнего вида сайта на мобильных устройствах</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.7.8 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.7.8</h2>
+            <time datetime="2025-08-15">15 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>Изменены стили</li>
+              <li>
+                Добавлен
+                <a href="linux/basics.html">Linux</a>
+              </li>
+              <li>
+                Добавлены
+                <a href="ai/ml/dl.html#activation-functions">функции активации</a>
+                : ReLU, Leaky ReLU, ELU, GELU, Sigmoid, Tanh
+              </li>
+              <li>
+                Добавлены материалы по трансформерам:
+                <a href="ai/ml/dl.html#transformer">архитектура</a>
+                ,
+                <a href="ai/ml/dl.html#positional-encoding"
+                  >позиционное кодирование</a
+                >
+                ,
+                <a href="ai/ml/dl.html#encoder-only">encoder-only</a>
+                ,
+                <a href="ai/ml/dl.html#decoder-only">decoder-only модели</a>
+              </li>
+              <li>
+                Добавлены
+                <a href="ai/ml/dl.html#layer-norm">Layer Normalization</a>
+                ,
+                <a href="ai/ml/dl.html#long-context"
+                  >методы увеличения контекста</a
+                >
+              </li>
+              <li>
+                Добавлено замечение к
+                <a href="ai/ml/dl.html#batchnorm">BatchNorm</a>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.7.7 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.7.7</h2>
+            <time datetime="2025-08-14">14 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>
+                Добавлены материалы по механизмам внимания:
+                <a href="ai/ml/dl.html#attention">Attention</a>
+                ,
+                <a href="ai/ml/dl.html#attention-types">виды внимания</a>
+                ,
+                <a href="ai/ml/dl.html#multi-head-attention"
+                  >Multi-Head Attention</a
+                >
+              </li>
+              <li>
+                Добавлены
+                <a href="ai/ml/dl.html#self-attention">Self-Attention</a>
+                ,
+                <a href="ai/ml/dl.html#cross-attention">Cross-Attention</a>
+                ,
+                <a href="ai/ml/dl.html#attention-complexity">
+                  ограничения по сложности
+                </a>
+              </li>
+              <li>
+                Добавлены
+                <a href="ai/ml/dl.html#pool">пулинг</a>
+                ,
+                <a href="ai/ml/dl.html#gradient-problems">проблемы градиентов</a>
+                ,
+                <a href="ai/ml/dl.html#skip-connections">skip-connections</a>
+              </li>
+              <li>Улучшены визуализации и примеры</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Релиз v2.7.6 -->
+        <article class="news-item">
+          <div class="news-header">
+            <h2>Релиз v2.7.6</h2>
+            <time datetime="2025-08-13">13 августа 2025</time>
+          </div>
+          <div class="news-content">
+            <h3>Обновление</h3>
+            <ul>
+              <li>Добавлена лента последних новостей</li>
+              <li>
+                Добавлен GitHub:
+                <a href="github/basics.html">base</a>
+                ,
+                <a href="github/advanced.html">advanced</a>
+                ,
+                <a href="github/workflow.html">workflow</a>
+              </li>
+              <li>
+                Добавлены
+                <a href="ai/ml/dl.html#batchnorm">BatchNorm</a>
+                ,
+                <a href="ai/ml/dl.html#dropout">DropOut</a>
+                ,
+                <a href="ai/ml/dl.html#multicollinearity">мультиколлинеарность</a>
+                ,
+                <a href="ai/ml/dl.html#conv2d">свертка</a>
+              </li>
+              <li>
+                Дополнен
+                <a href="math/numerical.html#mle">
+                  принцип максимума правдоподобия
+                </a>
+              </li>
+              <li>Улучшены цвета блоков кода</li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </main>
+    <!-- Common Scripts -->
+    <script src="authGuard.js"></script>
+    <script src="assets/js/news-page.js"></script>
+    <script src="assets/js/init-page.js"></script>
+  </body>
+</html>

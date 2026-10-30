@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>DL Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">DL</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">DL</h1>
+          <p class="section-shell__desc">Практические задания по глубокому обучению.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:replace:dl-augmentation:start -->
+<li class="question" data-md-source="true" data-md-id="dl-augmentation" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="dl-augmentation">
+    Аугментация текста и изображений
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться проектировать аугментации как проверяемую гипотезу: выбрать преобразования, сохраняющие смысл метки, встроить их только в train-пайплайн и измерить влияние на устойчивость и обобщение модели.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Формат">
+<p>Выполни два небольших эксперимента — один для изображений и один для текста — в Jupyter-ноутбуке или репозитории. Исходные данные и крупные артефакты не коммить. Для каждого эксперимента нужен baseline без аугментаций и хотя бы одна контролируемая версия с ними.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <span class="badge">RandomRotation</span>
+                      <span class="badge">RandomAffine</span>
+                      <span class="badge">RandomCrop</span>
+                      <span class="badge">ColorJitter</span>
+                      <span class="badge">RandomHorizontalFlip</span>
+                      <span class="badge">Back-translation</span>
+                      <span class="badge">Synonym replacement / deletion</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Изображения">
+<ul>
+<li><b>Данные и задача:</b> используй <a href="https://www.cs.toronto.edu/~kriz/cifar.html" target="_blank" rel="noopener">CIFAR-10</a> или собственный размеченный набор; укажи классы, размер train/validation/test и смысл метки. Покажи до/после не менее десяти преобразований разных классов.</li>
+<li><b>Безопасность метки:</b> для каждого преобразования объясни, почему оно допустимо. Например, горизонтальный flip может быть допустим для животных, но опасен для текста, дорожных знаков или медицинских изображений; crop не должен вырезать единственный объект.</li>
+<li><b>Pipeline:</b> собери отдельные transforms: аугментации и нормализация для train, только детерминированная нормализация для validation/test. Зафиксируй seed и параметры силы преобразований.</li>
+<li><b>Контролируемый эксперимент:</b> обучи одну и ту же небольшую CNN без аугментаций, с лёгкой и с более сильной политикой. Сравни validation/test accuracy, loss, разрыв train–validation и типичные ошибки. Не выбирай силу аугментаций по test.</li>
+<li><b>Устойчивость:</b> создай фиксированный набор реалистичных искажений test-изображений и сравни качество baseline и аугментированной модели. Раздели улучшение чистой test-метрики и улучшение robustness.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Текст">
+<ul>
+<li><b>Данные и задача:</b> используй небольшой размеченный текстовый датасет, например Disaster Tweets из задачи по NLP. Зафиксируй, что именно предсказывается, и сформируй train/validation/test до генерации новых примеров.</li>
+<li><b>Аугментации:</b> примени <code>nlpaug</code>, <a href="https://github.com/GEM-benchmark/NL-Augmenter" target="_blank" rel="noopener">NL-Augmenter</a> или собственные правила: замена синонимов, удаление/вставка слов, paraphrase или back-translation. Покажи минимум 20 исходных и преобразованных пар.</li>
+<li><b>Контроль смысла:</b> вручную разметь, сохранила ли аугментация метку, хотя бы для 50 случайных примеров. Отбрось опасные преобразования, особенно меняющие отрицание, имена, числа, географию или факт катастрофы; опиши долю отброшенных примеров.</li>
+<li><b>Оценка:</b> сравни классификатор без аугментаций и с наиболее безопасной политикой по validation/test $F_1$. Проверь отдельно результат на коротких текстах и на исходно редком классе; объясни, если аугментация ухудшила качество.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему аугментацию нельзя применять к validation и test?</b></p>
+<p>Эти выборки имитируют новые исходные объекты. Случайные изменения делают метрику нестабильной и меняют смысл честной проверки.</p>
+</li>
+<li><p><b>Когда аугментация вносит label noise?</b></p>
+<p>Когда преобразование меняет объект или его смысл так, что прежняя метка становится неверной, например меняет смысл текста или удаляет объект с изображения.</p>
+</li>
+<li><p><b>Почему больше аугментаций не всегда лучше?</b></p>
+<p>Слишком сильные или нереалистичные изменения сдвигают train-распределение, повышают шум и могут ухудшить качество на реальных данных.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dl-augmentation:end -->
+
+        <!-- <li class="question">
+          <div class="name" id="dl-embeddings">Эмбеддинги: векторные представления данных</div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Цель" data-type="definition">
+              <p>Получить векторные представления (эмбеддинги) для текстов с помощью готовых моделей</p>
+            </div>
+            <div class="info-card-auto" data-title="Задание" data-type="exercise">
+              <ul>
+                <li><b>Текстовые эмбеддинги:</b> взять набор коротких текстов (твиты, заголовки, отзывы). 
+                  Получить эмбеддинги с помощью предобученной модели (например, <code>sentence-transformers</code>, 
+                  <code>cointegrated/rubert-tiny2</code> или API OpenAI). Реализовать поиск ближайших соседей по
+                   косинусному сходству; опционально — обучить классификатор на эмбеддингах и сравнить с TF-IDF + классификатор.</li>
+                <li><b>Визуализация:</b> снизить размерность эмбеддингов (PCA, t-SNE или UMAP) и построить 
+                  scatter-plot; при наличии меток — раскрасить точки по классам.</li>
+              </ul>
+            </div>
+            <div class="info-card-auto" data-title="Другое" data-type="remark">
+              <ul>
+                <li>Эмбеддинги позволяют унифицировать поиск: один и тот же индекс (например, FAISS, Annoy) для текста и изображений при мультимодальных моделях.</li>
+                <li>Для русского текста удобны модели из <a href="https://huggingface.co/models?language=ru&pipeline_tag=sentence-similarity" rel="noopener" target="_blank">Hugging Face</a> (sentence-similarity).</li>
+              </ul>
+            </div>
+          </div>
+        </li> -->
+
+        <!-- md:replace:dl-self-attention:start -->
+<li class="question" data-md-source="true" data-md-id="dl-self-attention" data-badge-type="additional" data-difficulty="hard">
+  <div class="name question-difficulty-hard question-hard-title" id="dl-self-attention">
+    Self-Attention: реализация на Python
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать scaled dot-product self-attention по формулам, проверить численную корректность и увидеть, как padding и causal mask изменяют доступные токенам позиции.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Формат">
+<p>Подойдёт один Jupyter-ноутбук или небольшой PyTorch-проект. Первая версия не должна вызывать <code>nn.MultiheadAttention</code> или <code>F.scaled_dot_product_attention</code>; эти функции разрешены только как эталон для теста.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Контракт:</b> реализуй <code>scaled_dot_product_attention(q, k, v, mask=None)</code> для батчей формы <code>(batch, heads, seq_len, d_k)</code>. Проверь совместимость размерностей, возвращай и выход, и матрицу attention weights.</li>
+<li><b>Формулы:</b> из входа $X \in \mathbb{R}^{B \times T \times d_{model}}$ получи $Q=XW_Q$, $K=XW_K$, $V=XW_V$, вычисли $\mathrm{softmax}(QK^\top / \sqrt{d_k})V$. Перед <code>softmax</code> вычти максимум по строке либо используй <code>torch.softmax</code>, чтобы избежать численной неустойчивости.</li>
+<li><b>Маски:</b> реализуй padding mask и causal mask. Недоступным позициям добавляй большое отрицательное значение до softmax; после маски проверь, что их веса близки к нулю, а сумма весов по последней оси равна единице для допустимых строк.</li>
+<li><b>Проверки:</b> на маленьком детерминированном тензоре вручную проверь одну строку весов и выход. Сравни выход и градиенты своей реализации с <code>torch.nn.functional.scaled_dot_product_attention</code> при одинаковых <code>Q</code>, <code>K</code>, <code>V</code> и маске; зафиксируй допустимую погрешность <code>allclose</code>.</li>
+<li><b>Визуализация:</b> для короткой последовательности из 5–10 токенов отрисуй heatmap весов без маски и с causal mask, подпиши query/key оси. Объясни, почему в causal-режиме токен не видит будущие позиции.</li>
+<li><b>Расширение:</b> реализуй multi-head attention: разбиение <code>d_model</code> на головы, объединение выходов и проекцию $W_O$. Сравни одну и несколько голов по форме тензоров и числу параметров, не утверждая, что головы автоматически приобретают интерпретируемые роли.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Добавь тесты на форму тензоров, сумму весов, маску, <code>seq_len=1</code> и ошибочные размеры.</li>
+<li>Оцени память матрицы внимания $O(T^2)$ и объясни, почему длинный контекст становится дорогим.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем делить логиты на $\sqrt{d_k}$?</b></p>
+<p>При большом $d_k$ скалярные произведения растут, softmax насыщается и градиенты становятся менее полезными. Масштабирование удерживает логиты в стабильном диапазоне.</p>
+</li>
+<li><p><b>Чем padding mask отличается от causal mask?</b></p>
+<p>Padding mask скрывает технические пустые позиции, а causal mask запрещает доступ к будущим токенам и нужна для авторегрессионной генерации.</p>
+</li>
+<li><p><b>Почему self-attention имеет квадратичную сложность по длине?</b></p>
+<p>Каждая из $T$ query-позиций сравнивается с каждой из $T$ key-позиций, поэтому матрица весов имеет размер $T \times T$.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dl-self-attention:end -->
+              <!-- md:inject:start -->
+<li class="question" data-md-source="true" data-md-id="cv-mnist" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="cv-mnist">
+    MNIST: MLP и CNN на PyTorch
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Построить воспроизводимый PyTorch-эксперимент для классификации рукописных цифр: сравнить MLP и CNN, организовать честные train/validation/test-этапы, диагностировать обучение по кривым и ошибкам классов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй MNIST через <a href="https://pytorch.org/vision/stable/generated/torchvision.datasets.MNIST.html" target="_blank" rel="noopener">torchvision.datasets.MNIST</a> либо <a href="https://www.kaggle.com/datasets/hojjatk/mnist-dataset" target="_blank" rel="noopener">Kaggle</a>. Достаточно Jupyter-ноутбука или небольшого репозитория с <code>train.py</code>; данные и веса моделей не коммить. Зафиксируй версии библиотек, seed и устройство CPU/GPU.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="MNIST" src="../../images/practise/mnist.png" width="1254" height="625" loading="lazy" decoding="async" style="max-width: 700px; width: 100%; height: auto" />
+</figure>
+
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <span class="badge">MLP</span>
+                      <span class="badge">CNN</span>
+                      <a href="https://pytorch.org/docs/stable/generated/torch.nn.Dropout.html" rel="noopener" target="_blank" class="badge badge-link">Dropout</a>
+                      <a href="https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm2d.html" rel="noopener" target="_blank" class="badge badge-link">BatchNorm</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">Accuracy</span>
+                      <span class="badge">Precision / Recall / $F_1$ по классам</span>
+                      <span class="badge">Confusion Matrix</span>
+                      <span class="badge">ROC-AUC one-vs-rest (опционально)</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Данные:</b> покажи форму тензоров и диапазон пикселей, по одному примеру каждой цифры и распределение классов. Раздели исходный train на train/validation со стратификацией; официальный test не используй до окончательного выбора модели.</li>
+<li><b>Preprocessing:</b> нормализуй изображения по статистикам train. Создай отдельные transforms для train и validation/test; объясни, почему аугментации не должны попадать в validation/test. Для основного сравнения не меняй test-процедуру между моделями.</li>
+<li><b>MLP baseline:</b> реализуй MLP, принимающий развёрнутое изображение из 784 признаков. Явно задай размеры слоёв, активации, dropout и функцию потерь <code>CrossEntropyLoss</code>; не применяй <code>softmax</code> перед этим loss.</li>
+<li><b>CNN:</b> реализуй собственный <code>nn.Module</code> с минимум двумя блоками <code>Conv2d</code> + активация + pooling, затем classifier head. Сравни число параметров MLP и CNN и объясни, почему CNN использует пространственную структуру изображения.</li>
+<li><b>Обучение:</b> напиши цикл train/eval с <code>model.train()</code> / <code>model.eval()</code> и <code>torch.no_grad()</code> для оценки. На каждой эпохе логируй train/validation loss, accuracy, learning rate и время; сохрани лучший checkpoint по validation loss или accuracy и документируй правило выбора.</li>
+<li><b>Эксперименты:</b> сравни минимум MLP, CNN и одну регуляризованную/аугментированную версию CNN. Измени за один эксперимент только одну значимую гипотезу: optimizer, learning rate, weight decay, dropout, scheduler или аугментацию. Сведи параметры и validation-результаты в таблицу.</li>
+<li><b>Финальная оценка:</b> один раз проверь выбранный checkpoint на test. Построй classification report, confusion matrix и не менее десяти примеров ошибок с вероятностями/логитами модели; опиши повторяющиеся ошибки.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Используй TensorBoard или Weights &amp; Biases для логов, но не коммить API-ключи.</li>
+<li>В README/ноутбуке запиши команды запуска, seed, лучшую конфигурацию и ограничения: MNIST не отражает сложность реального production-CV.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему нельзя выбирать модель по test-метрике?</b></p>
+<p>Повторный выбор по test адаптирует решение к тестовой выборке и завышает ожидаемое качество. Для выбора нужен validation, а test используется один раз.</p>
+</li>
+<li><p><b>Почему <code>CrossEntropyLoss</code> принимает логиты?</b></p>
+<p>Функция сама выполняет численно устойчивый <code>log_softmax</code>; дополнительный <code>softmax</code> до loss ухудшает вычисления и меняет ожидаемый вход.</p>
+</li>
+<li><p><b>Почему CNN обычно лучше MLP на изображениях?</b></p>
+<p>Свёртки используют локальные связи и общие веса, поэтому распознают одинаковый паттерн в разных позициях и требуют меньше параметров.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

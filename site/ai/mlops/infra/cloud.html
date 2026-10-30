@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Infra</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Cloud</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Infra</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Cloud</h1>
+        <p class="section-shell__desc">Материалы по облачной инфраструктуре.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="cloud_intro" data-interview="2" data-title-link="https://ru.wikipedia.org/wiki/Облачные_вычисления">
+  <div class="name" id="cloud_intro">
+    <a class="question-title-link" href="https://ru.wikipedia.org/wiki/Облачные_вычисления" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое Cloud Computing?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Cloud Computing</b> — модель, в которой мы арендуем вычислительные ресурсы и готовые сервисы у облачного провайдера: виртуальные машины, GPU, хранилища, базы данных, Kubernetes, serverless, сети, мониторинг и другие компоненты инфраструктуры.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В целом есть два пути:</p>
+<ol>
+<li>держать свои серверы дома, в офисе или в <b>ЦОДе</b></li>
+<li>арендовать инфраструктуру у провайдера</li>
+</ol>
+<p>Cloud Computing — это второй вариант, но в более гибкой форме, чем классическая аренда одного VPS. Облако обычно даёт API, панель управления, автоматизацию, оплату по потреблению и набор managed-сервисов, которые можно создать за минуты.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Отличие от VPS">
+<p>VPS — это чаще всего просто виртуальная машина. Облако шире: можно создать managed PostgreSQL, объектное хранилище, Kubernetes-кластер, очередь сообщений, балансировщик, IAM-права, serverless-функцию, secret manager и мониторинг без ручной сборки всего с нуля.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ML Engineer использует облако не ради самого облака, а чтобы быстрее запускать ML-системы:</p>
+<ul>
+<li>обучать модели на CPU/GPU/TPU</li>
+<li>хранить датасеты, модели и артефакты</li>
+<li>запускать batch inference и online inference</li>
+<li>поднимать MLflow, Airflow, Kafka, Kubernetes, feature store</li>
+<li>строить RAG-сервисы с managed DB и object storage</li>
+<li>масштабировать inference под нагрузку</li>
+<li>контролировать стоимость экспериментов</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Ограничения доступа">
+<p>После 2022 года у пользователей из России могут быть ограничения при регистрации и оплате иностранных облаков: часто нужны нероссийский IP, иностранная платёжная карта или юридическая схема доступа. На практике поэтому используют российские облака, self-hosted-инфраструктуру или гибридные варианты.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://ru.wikipedia.org/wiki/%D0%9E%D0%B1%D0%BB%D0%B0%D1%87%D0%BD%D1%8B%D0%B5_%D0%B2%D1%8B%D1%87%D0%B8%D1%81%D0%BB%D0%B5%D0%BD%D0%B8%D1%8F" target="_blank" rel="noopener">Облачные вычисления</a></td><td>Общее определение cloud computing.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/cloud4y/articles/437876/" target="_blank" rel="noopener">«Облака»: в чем преимущество перед корпоративным сервером</a></td><td>Объяснение преимуществ облака: пул ресурсов, виртуализация, сетевой доступ, гибкость, надёжность и оплата по потреблению.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/513892/" target="_blank" rel="noopener">Очередной взгляд на облака. Что такое частное облако?</a></td><td>Материал про частные облака и отличие cloud-подхода от обычной виртуализации.</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=FFGLJZcAg7U" target="_blank" rel="noopener">YouTube: Cloud Computing</a></td><td>Вводное видео по cloud computing .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=OmepbJWefLk" target="_blank" rel="noopener">YouTube: Cloud basics</a></td><td>Базовое видео про облака .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=YJwhQowT84A" target="_blank" rel="noopener">YouTube: Cloud overview</a></td><td>Ещё одно вводное видео по облачным вычислениям.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое облако?</b></p>
+<p>Это аренда вычислительных ресурсов и сервисов через API/панель управления с быстрым выделением, масштабированием и оплатой по потреблению.</p>
+</li>
+<li><p><b>Чем облако отличается от VPS?</b></p>
+<p>VPS даёт виртуальную машину. Облако даёт экосистему: сети, IAM, managed DB, object storage, Kubernetes, serverless, мониторинг, бэкапы и автоматизацию.</p>
+</li>
+<li><p><b>Зачем облако ML Engineer?</b></p>
+<p>Чтобы быстро получать вычисления, GPU, хранилища и managed-сервисы для обучения, экспериментов, inference и MLOps-пайплайнов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cloud_service_models" data-interview="2" data-title-link="https://habr.com/ru/companies/cloud4y/articles/437876/">
+  <div class="name" id="cloud_service_models">
+    <a class="question-title-link" href="https://habr.com/ru/companies/cloud4y/articles/437876/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Какие бывают модели облачных сервисов?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Облачные сервисы часто делят на <b>IaaS</b>, <b>PaaS</b>, <b>SaaS</b>, <b>CaaS</b>, <b>FaaS</b> и managed-сервисы. Разница в том, сколько инфраструктуры провайдер берёт на себя, а сколько остаётся на команде.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<table class="task-table">
+<thead><tr><th>Модель</th><th>Что арендуем</th><th>Пример для ML</th></tr></thead>
+<tbody>
+<tr><td><b>IaaS</b></td><td>Виртуальные машины, диски, сети</td><td>GPU VM для обучения модели</td></tr>
+<tr><td><b>PaaS</b></td><td>Платформу для запуска приложения</td><td>managed runtime для API модели</td></tr>
+<tr><td><b>CaaS</b></td><td>Контейнерную платформу</td><td>managed Kubernetes для inference</td></tr>
+<tr><td><b>FaaS / Serverless</b></td><td>Функции по событию</td><td>обработка загруженного файла или webhook</td></tr>
+<tr><td><b>Managed DB</b></td><td>БД как сервис</td><td>PostgreSQL для метаданных экспериментов</td></tr>
+<tr><td><b>SaaS</b></td><td>Готовое приложение</td><td>hosted MLflow, monitoring, BI</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Чем выше уровень сервиса, тем меньше операционной работы, но тем сильнее vendor lock-in. Виртуальная машина переносится проще, чем serverless-функция с привязкой к IAM, очередям, логам и storage конкретного облака.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для MVP ML-сервиса можно начать с managed-сервисов:</p>
+<ul>
+<li>контейнер с FastAPI inference</li>
+<li>managed PostgreSQL для метаданных</li>
+<li>object storage для моделей и файлов</li>
+<li>managed Kubernetes или serverless containers для запуска</li>
+<li>managed monitoring для метрик</li>
+</ul>
+<p>Так команда быстрее проверит продуктовую гипотезу, не собирая инфраструктуру вручную.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/cloud4y/articles/437876/" target="_blank" rel="noopener">«Облака»: в чем преимущество перед корпоративным сервером</a></td><td>Хорошее вводное объяснение модели облачных ресурсов и сервисов.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое IaaS?</b></p>
+<p>Аренда базовой инфраструктуры: виртуальных машин, дисков, сетей и балансировщиков.</p>
+</li>
+<li><p><b>Что такое managed service?</b></p>
+<p>Сервис, где провайдер берёт на себя часть эксплуатации: обновления, бэкапы, отказоустойчивость, мониторинг и масштабирование.</p>
+</li>
+<li><p><b>Почему vendor lock-in важен для ML Engineer?</b></p>
+<p>ML-пайплайны могут зависеть от конкретных API облака: storage, IAM, очередей, managed training, registry. Чем больше таких зависимостей, тем дороже миграция.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cloud_providers" data-interview="2" data-title-link="https://aws.amazon.com/">
+  <div class="name" id="cloud_providers">
+    <a class="question-title-link" href="https://aws.amazon.com/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Какие бывают облачные провайдеры?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Облачный провайдер</b> — компания, которая предоставляет вычислительные ресурсы и managed-сервисы через интернет: AWS, Google Cloud, Microsoft Azure, Yandex Cloud, Selectel, VK Cloud, Sber Cloud, DigitalOcean, Heroku и другие.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Крупные провайдеры похожи базовыми слоями, но отличаются деталями, зрелостью сервисов, ценами, регионами, доступностью GPU, документацией и ограничениями.</p>
+<table class="task-table">
+<thead><tr><th>Провайдер</th><th>Что важно помнить</th></tr></thead>
+<tbody>
+<tr><td><b>AWS</b></td><td>самый широкий набор сервисов, зрелая экосистема, много сертификаций</td></tr>
+<tr><td><b>Google Cloud</b></td><td>сильные data/ML-сервисы, BigQuery, GKE, Vertex AI</td></tr>
+<tr><td><b>Microsoft Azure</b></td><td>сильная интеграция с Microsoft-экосистемой и enterprise</td></tr>
+<tr><td><b>Yandex Cloud</b></td><td>российский провайдер с managed-сервисами, документацией и сертификацией</td></tr>
+<tr><td><b>Selectel / VK Cloud / Sber Cloud</b></td><td>российские облака и инфраструктурные сервисы</td></tr>
+<tr><td><b>DigitalOcean / Heroku</b></td><td>проще стартовать, меньше enterprise-сложности</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для ML Engineer выбор облака обычно зависит от:</p>
+<ul>
+<li>доступности GPU и нужных типов инстансов</li>
+<li>стоимости хранения и сетевого трафика</li>
+<li>managed Kubernetes и контейнерного registry</li>
+<li>object storage и совместимости с S3 API</li>
+<li>managed DB и очередей</li>
+<li>требований к персональным данным и региону хранения</li>
+<li>того, где уже живёт продуктовая инфраструктура</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://aws.amazon.com/" target="_blank" rel="noopener">AWS</a></td><td>Официальный сайт AWS.</td></tr>
+<tr><td><a href="https://cloud.google.com/" target="_blank" rel="noopener">Google Cloud</a></td><td>Официальный сайт Google Cloud.</td></tr>
+<tr><td><a href="https://azure.microsoft.com/" target="_blank" rel="noopener">Microsoft Azure</a></td><td>Официальный сайт Microsoft Azure.</td></tr>
+<tr><td><a href="https://yandex.cloud/ru/" target="_blank" rel="noopener">Yandex Cloud</a></td><td>Официальный сайт Yandex Cloud.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как выбрать облако для ML-проекта?</b></p>
+<p>Смотреть на доступность GPU, storage, managed Kubernetes, IAM, стоимость, требования по данным, зрелость документации и интеграцию с текущей инфраструктурой.</p>
+</li>
+<li><p><b>Почему AWS/GCP/Azure сложны для новичка?</b></p>
+<p>У них сотни сервисов, отдельные IAM-модели, сети, billing, security-практики и сертификации. Освоить облако целиком быстро не получится.</p>
+</li>
+<li><p><b>Когда self-hosted лучше публичного облака?</b></p>
+<p>Когда есть ограничения по данным, устойчивый объём нагрузки, своя экспертиза эксплуатации или невозможность использовать иностранные облака.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="cloud_for_ml" data-interview="3" data-title-link="https://aws.amazon.com/products/">
+  <div class="name" id="cloud_for_ml">
+    <a class="question-title-link" href="https://aws.amazon.com/products/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Какие облачные сервисы нужны ML Engineer?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Для ML Engineer облако — это набор строительных блоков для обучения, хранения данных, оркестрации пайплайнов, inference и наблюдаемости.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Базовый cloud-набор для ML:</p>
+<table class="task-table">
+<thead><tr><th>Категория</th><th>Зачем нужна</th></tr></thead>
+<tbody>
+<tr><td><b>Compute</b></td><td>обучение, preprocessing, batch jobs, inference</td></tr>
+<tr><td><b>GPU/TPU</b></td><td>обучение и ускоренный inference глубоких моделей</td></tr>
+<tr><td><b>Object Storage</b></td><td>датасеты, модели, логи, артефакты</td></tr>
+<tr><td><b>Managed DB</b></td><td>метаданные экспериментов, статусы задач, продуктовые данные</td></tr>
+<tr><td><b>Kubernetes / Containers</b></td><td>воспроизводимый запуск сервисов и пайплайнов</td></tr>
+<tr><td><b>Queue / Streaming</b></td><td>асинхронные задачи, events, real-time inference</td></tr>
+<tr><td><b>IAM / Secrets</b></td><td>доступы к данным, сервисам и секретам</td></tr>
+<tr><td><b>Monitoring / Logging</b></td><td>latency, ошибки, ресурсы, метрики модели</td></tr>
+<tr><td><b>Container Registry</b></td><td>хранение Docker-образов</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Типичный cloud-пайплайн:</p>
+<ol>
+<li>сырые данные лежат в object storage</li>
+<li>preprocessing запускается как batch job</li>
+<li>признаки пишутся в feature store или БД</li>
+<li>обучение запускается на GPU VM или managed training</li>
+<li>модель сохраняется в registry/object storage</li>
+<li>inference-сервис разворачивается в Kubernetes</li>
+<li>метрики и логи уходят в monitoring</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Самая частая ошибка в ML-облаке — думать только про GPU. На практике стоимость и надёжность часто определяются storage, network egress, простаивающими инстансами, невыключенными notebooks, логами, снапшотами и неверно выбранным классом хранилища.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://aws.amazon.com/products/" target="_blank" rel="noopener">AWS Products</a></td><td>Масштабный каталог облачных сервисов AWS. Полезен, чтобы увидеть ширину облачной экосистемы.</td></tr>
+<tr><td><a href="https://aws.amazon.com/ru/architecture/" target="_blank" rel="noopener">AWS Architecture Center</a></td><td>Архитектурные материалы и референсы AWS.</td></tr>
+<tr><td><a href="https://yandex.cloud/ru/docs" target="_blank" rel="noopener">Yandex Cloud Docs</a></td><td>Документация Yandex Cloud по сервисам платформы.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие cloud-компоненты чаще всего нужны для ML?</b></p>
+<p>Compute/GPU, object storage, managed DB, контейнеры, Kubernetes, registry, IAM, secrets, monitoring и очереди.</p>
+</li>
+<li><p><b>Почему object storage важен в ML?</b></p>
+<p>Он хранит большие датасеты, модели, чекпоинты, артефакты, отчёты и результаты batch inference дешевле и удобнее, чем диск конкретной VM.</p>
+</li>
+<li><p><b>Почему облако может неожиданно стать дорогим?</b></p>
+<p>Из-за простаивающих GPU, больших логов, снапшотов, network egress, неоптимальных классов storage и отсутствия бюджетов/алертов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cloud_cost_security" data-interview="2" data-title-link="https://habr.com/ru/articles/532624/">
+  <div class="name" id="cloud_cost_security">
+    <a class="question-title-link" href="https://habr.com/ru/articles/532624/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Как думать о стоимости и безопасности облака?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Cloud cost &amp; security management</b> — это практики, которые помогают не тратить лишнее, не открывать данные наружу и не давать сервисам больше прав, чем нужно.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer два главных риска в облаке:</p>
+<ol>
+<li><b>Деньги:</b> GPU, большие диски, egress, невыключенные notebooks, снапшоты, логи и масштабирование.</li>
+<li><b>Данные:</b> публичные buckets, лишние IAM-права, секреты в коде, неразделённые окружения, доступ к персональным данным.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Cost минимум">
+<ul>
+<li>включить budgets и billing alerts</li>
+<li>ставить теги/labels на ресурсы</li>
+<li>выключать экспериментальные VM и notebooks</li>
+<li>использовать spot/preemptible-инстансы там, где можно</li>
+<li>хранить датасеты в подходящем классе storage</li>
+<li>чистить старые checkpoints, logs и snapshots</li>
+<li>контролировать network egress</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Security минимум">
+<ul>
+<li>least privilege для IAM</li>
+<li>отдельные service accounts для пайплайнов и сервисов</li>
+<li>секреты в secret manager</li>
+<li>private networks для БД и внутренних сервисов</li>
+<li>шифрование данных at rest и in transit</li>
+<li>аудит действий</li>
+<li>запрет публичных buckets без явной причины</li>
+<li>разделение dev/stage/prod</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Плохой ML-cloud сценарий: ноутбук с ключом администратора запускает обучение на дорогой GPU, пишет временные данные в публичный bucket, забывает выключить инстанс и оставляет месяцы логов.</p>
+<p>Хороший сценарий: отдельный service account, ограниченный bucket, budget alert, lifecycle policy для артефактов, автоматическое выключение idle compute и отдельный project/account для экспериментов.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/532624/" target="_blank" rel="noopener">Как мы случайно сожгли $72 000 за два часа в GCP</a></td><td>Хорошая история о том, почему лимиты и billing alerts не роскошь.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/yandex_cloud_and_infra/articles/760252/" target="_blank" rel="noopener">Сам себе DevOps: доступы в Yandex Cloud</a></td><td>Практический материал про IAM и управление доступами.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/fgts/articles/590423/" target="_blank" rel="noopener">Обеспечение безопасности в OpenStack</a></td><td>Security-взгляд на private cloud.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что настроить перед первым ML-экспериментом в облаке?</b></p>
+<p>Budget alerts, IAM least privilege, отдельный project/account, private storage, secret manager и правила остановки дорогих ресурсов.</p>
+</li>
+<li><p><b>Почему GPU особенно опасны для бюджета?</b></p>
+<p>Они дорогие и часто простаивают между экспериментами. Один забытый инстанс может стоить больше, чем вся остальная инфраструктура.</p>
+</li>
+<li><p><b>Почему нельзя хранить cloud keys в ноутбуке?</b></p>
+<p>Ноутбуки легко попадают в git, шарятся и запускаются в разных окружениях. Лучше использовать roles/service accounts/secret manager.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="aws" data-interview="3" data-title-link="https://aws.amazon.com/">
+  <div class="name" id="aws">
+    <a class="question-title-link" href="https://aws.amazon.com/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что важно знать про AWS?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>AWS (Amazon Web Services)</b> — крупнейшая облачная платформа с большим набором сервисов для compute, storage, networking, databases, analytics, ML, security и developer tools.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer в AWS особенно часто встречаются:</p>
+<table class="task-table">
+<thead><tr><th>Задача</th><th>Сервисы</th></tr></thead>
+<tbody>
+<tr><td>Виртуальные машины</td><td>EC2</td></tr>
+<tr><td>Объектное хранилище</td><td>S3</td></tr>
+<tr><td>Контейнеры</td><td>ECR, ECS, EKS</td></tr>
+<tr><td>Базы данных</td><td>RDS, Aurora, DynamoDB</td></tr>
+<tr><td>Очереди и события</td><td>SQS, SNS, EventBridge</td></tr>
+<tr><td>Serverless</td><td>Lambda</td></tr>
+<tr><td>ML-платформа</td><td>SageMaker</td></tr>
+<tr><td>IAM и секреты</td><td>IAM, KMS, Secrets Manager</td></tr>
+<tr><td>IaC</td><td>CloudFormation, Terraform AWS Provider</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>AWS очень мощный, но требует дисциплины: IAM least privilege, бюджеты и алерты, tagging ресурсов, отдельные аккаунты/environments, выключение экспериментальных GPU, контроль публичных bucket-ов и понимание сетей VPC.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Минимальная AWS-архитектура для ML API:</p>
+<ul>
+<li>модель и артефакты лежат в S3</li>
+<li>Docker-образ лежит в ECR</li>
+<li>inference-сервис работает в ECS или EKS</li>
+<li>метаданные лежат в RDS PostgreSQL</li>
+<li>секреты хранятся в Secrets Manager</li>
+<li>логи и метрики уходят в CloudWatch</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/748276/" target="_blank" rel="noopener">Начало работы с AWS: IAM, Boto3 и Python</a></td><td>Практическое начало: IAM-пользователь, SDK Boto3 и пример Python-кода.</td></tr>
+<tr><td><a href="https://aws.amazon.com/ru/sdk-for-python/" target="_blank" rel="noopener">AWS SDK for Python</a></td><td>Официальная страница Boto3.</td></tr>
+<tr><td><a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/terraform-aws-provider-best-practices/introduction.html" target="_blank" rel="noopener">Terraform AWS Provider Best Practices</a></td><td>Лучшие практики Terraform для AWS.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/513204/" target="_blank" rel="noopener">Опыт подготовки и сдачи AWS Solution Architect Associate</a></td><td>Материал про подготовку к AWS-сертификации.</td></tr>
+<tr><td><a href="https://aws.amazon.com/ru/getting-started/hands-on/?getting-started-all.sort-by=item.additionalFields.sortOrder&getting-started-all.sort-order=asc&awsf.getting-started-category=*all&awsf.getting-started-level=*all&awsf.getting-started-content-type=*all" target="_blank" rel="noopener">AWS Hands-on Tutorials</a></td><td>Практические руководства AWS.</td></tr>
+<tr><td><a href="https://aws.amazon.com/ru/certification/" target="_blank" rel="noopener">AWS Certification</a></td><td>Официальная страница сертификаций AWS.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLg5SS_4L6LYsxrZ_4xE_U95AtGsIB96k9" target="_blank" rel="noopener">AWS playlist</a></td><td>YouTube-плейлист по AWS .</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLhr1KZpdzukdpj-Dp7JWfNu-DbqBhgIlt" target="_blank" rel="noopener">AWS course playlist</a></td><td>Ещё один плейлист по AWS.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие AWS-сервисы стоит знать ML Engineer?</b></p>
+<p>EC2, S3, IAM, ECR, ECS/EKS, RDS, Lambda, CloudWatch, SageMaker, Secrets Manager и SQS.</p>
+</li>
+<li><p><b>Что такое IAM в AWS?</b></p>
+<p>Система управления пользователями, ролями, политиками и правами доступа к ресурсам AWS.</p>
+</li>
+<li><p><b>Почему AWS легко сделать дорогим?</b></p>
+<p>Из-за большого числа сервисов, дорогих инстансов, network egress, забытых ресурсов, логов, снапшотов и отсутствия budget alerts.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="gcp" data-interview="1" data-title-link="https://cloud.google.com/">
+  <div class="name" id="gcp">
+    <a class="question-title-link" href="https://cloud.google.com/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что важно знать про Google Cloud Platform?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Google Cloud Platform (GCP)</b> — облачная платформа Google с сильными сервисами для данных, аналитики, контейнеров и ML.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer в GCP часто важны:</p>
+<table class="task-table">
+<thead><tr><th>Задача</th><th>Сервисы</th></tr></thead>
+<tbody>
+<tr><td>Виртуальные машины</td><td>Compute Engine</td></tr>
+<tr><td>Контейнеры</td><td>Artifact Registry, GKE, Cloud Run</td></tr>
+<tr><td>Объектное хранилище</td><td>Cloud Storage</td></tr>
+<tr><td>Аналитика</td><td>BigQuery</td></tr>
+<tr><td>ML-платформа</td><td>Vertex AI</td></tr>
+<tr><td>Serverless</td><td>Cloud Functions, Cloud Run</td></tr>
+<tr><td>Секреты и доступы</td><td>IAM, Secret Manager</td></tr>
+<tr><td>Monitoring</td><td>Cloud Monitoring, Cloud Logging</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>GCP часто удобен для data/ML-сценариев из-за BigQuery, Vertex AI, GKE и Cloud Storage. Но billing тоже требует внимания: ошибка в коде, масштабировании или лимитах может быстро привести к большой сумме.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для batch scoring можно хранить данные в BigQuery или Cloud Storage, запускать job в Vertex AI или GKE, складывать результаты обратно в BigQuery, а API-слой держать в Cloud Run.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/otus/articles/467749/" target="_blank" rel="noopener">GCP: Разбор вычислительного стека Google Cloud Platform</a></td><td>Обзор compute-стека GCP.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/532624/" target="_blank" rel="noopener">Как мы случайно сожгли $72 000 за два часа в Google Cloud Platform</a></td><td>История о важности лимитов, budget alerts и аккуратной работы с облаком.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/543122/" target="_blank" rel="noopener">Мой опыт с экзаменами GCP</a></td><td>Опыт подготовки к сертификациям GCP.</td></tr>
+<tr><td><a href="https://cloud.google.com/docs" target="_blank" rel="noopener">Google Cloud Docs</a></td><td>Официальная документация GCP.</td></tr>
+<tr><td><a href="https://cloud.google.com/learn/certification?hl=en#why-get-google-cloud-certified" target="_blank" rel="noopener">Google Cloud Certification</a></td><td>Официальные сертификации Google Cloud.</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=jpno8FSqpc8" target="_blank" rel="noopener">GCP video</a></td><td>Видео по Google Cloud .</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие сервисы GCP стоит знать ML Engineer?</b></p>
+<p>Compute Engine, Cloud Storage, BigQuery, GKE, Cloud Run, Vertex AI, IAM, Secret Manager, Cloud Logging и Cloud Monitoring.</p>
+</li>
+<li><p><b>Почему BigQuery часто встречается в ML-проектах?</b></p>
+<p>Это managed data warehouse, удобный для больших SQL-выборок, аналитики и подготовки датасетов.</p>
+</li>
+<li><p><b>Что обязательно настроить в GCP перед экспериментами?</b></p>
+<p>Billing alerts, квоты, IAM-права, project separation и лимиты для дорогих ресурсов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="azure" data-interview="1" data-title-link="https://azure.microsoft.com/">
+  <div class="name" id="azure">
+    <a class="question-title-link" href="https://azure.microsoft.com/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что важно знать про Microsoft Azure?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Microsoft Azure</b> — облачная платформа Microsoft с большим набором сервисов для compute, storage, databases, containers, analytics, AI, DevOps и enterprise-инфраструктуры.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer в Azure часто встречаются:</p>
+<table class="task-table">
+<thead><tr><th>Задача</th><th>Сервисы</th></tr></thead>
+<tbody>
+<tr><td>Виртуальные машины</td><td>Azure Virtual Machines</td></tr>
+<tr><td>Контейнеры</td><td>Azure Container Registry, AKS, Container Apps</td></tr>
+<tr><td>Хранилище</td><td>Blob Storage, File Storage</td></tr>
+<tr><td>Базы данных</td><td>Azure SQL, PostgreSQL, Cosmos DB</td></tr>
+<tr><td>ML-платформа</td><td>Azure Machine Learning</td></tr>
+<tr><td>Секреты</td><td>Key Vault</td></tr>
+<tr><td>Monitoring</td><td>Azure Monitor, Application Insights</td></tr>
+<tr><td>CI/CD</td><td>Azure DevOps, GitHub Actions</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Azure особенно часто встречается в enterprise-компаниях, где уже есть Microsoft-экосистема: Active Directory, Office 365, корпоративные политики безопасности, Windows Server и .NET-сервисы.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>ML API в Azure можно собрать так:</p>
+<ul>
+<li>модель и данные лежат в Blob Storage</li>
+<li>контейнер хранится в Azure Container Registry</li>
+<li>сервис развёрнут в AKS или Container Apps</li>
+<li>секреты лежат в Key Vault</li>
+<li>метрики и ошибки собираются в Azure Monitor/Application Insights</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/epam_systems/articles/650989/" target="_blank" rel="noopener">Azure DevOps: от теории к большой практике</a></td><td>Материал по Azure DevOps и практикам разработки/доставки.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/microsoft/articles/320544/" target="_blank" rel="noopener">Azure понятным языком</a></td><td>Шпаргалка по экосистеме Azure и аналогам сервисов.</td></tr>
+<tr><td><a href="https://learn.microsoft.com/ru-ru/azure/?product=popular" target="_blank" rel="noopener">Azure Documentation</a></td><td>Официальная документация Azure.</td></tr>
+<tr><td><a href="https://azure.microsoft.com/en-us/blog/" target="_blank" rel="noopener">Azure Blog</a></td><td>Официальный блог Azure.</td></tr>
+<tr><td><a href="https://learn.microsoft.com/en-us/credentials/certifications/azure-fundamentals/?practice-assessment-type=certification" target="_blank" rel="noopener">Azure Fundamentals Certification</a></td><td>Сертификация AZ-900.</td></tr>
+<tr><td><a href="https://learn.microsoft.com/en-us/credentials/certifications/devops-engineer/" target="_blank" rel="noopener">DevOps Engineer Expert</a></td><td>Сертификация Azure DevOps Engineer.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLGjZwEtPN7j-Q59JYso3L4_yoCjj2syrM" target="_blank" rel="noopener">Azure playlist</a></td><td>YouTube-плейлист по Azure .</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=10PbGbTUSAg" target="_blank" rel="noopener">Azure video</a></td><td>Видео по Azure .</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие Azure-сервисы стоит знать ML Engineer?</b></p>
+<p>Virtual Machines, Blob Storage, AKS, Container Registry, Azure ML, Key Vault, Azure Monitor, Azure SQL/PostgreSQL.</p>
+</li>
+<li><p><b>Что такое Key Vault?</b></p>
+<p>Managed-хранилище секретов, ключей и сертификатов.</p>
+</li>
+<li><p><b>Почему Azure популярен в enterprise?</b></p>
+<p>Из-за интеграции с Microsoft-экосистемой, корпоративной идентификацией, compliance и существующей инфраструктурой компаний.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="yandex_cloud" data-badge-type="additional" data-interview="2" data-title-link="https://yandex.cloud/ru/">
+  <div class="name" id="yandex_cloud">
+    <a class="question-title-link" href="https://yandex.cloud/ru/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что важно знать про Yandex Cloud?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Yandex Cloud</b> — российская облачная платформа с compute, object storage, managed databases, managed Kubernetes, serverless, IAM, monitoring и data/ML-сервисами.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML Engineer в Yandex Cloud полезны:</p>
+<table class="task-table">
+<thead><tr><th>Задача</th><th>Сервисы</th></tr></thead>
+<tbody>
+<tr><td>Виртуальные машины</td><td>Compute Cloud</td></tr>
+<tr><td>Объектное хранилище</td><td>Object Storage</td></tr>
+<tr><td>Kubernetes</td><td>Managed Service for Kubernetes</td></tr>
+<tr><td>Базы данных</td><td>Managed Service for PostgreSQL/MySQL/ClickHouse и другие</td></tr>
+<tr><td>Data/ML</td><td>DataSphere, Data Proc, DataLens</td></tr>
+<tr><td>Serverless</td><td>Cloud Functions, API Gateway</td></tr>
+<tr><td>Доступы</td><td>IAM, service accounts</td></tr>
+<tr><td>Monitoring</td><td>Monitoring, Logging</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для проектов в России Yandex Cloud часто рассматривают из-за доступности оплаты, русскоязычной документации, размещения данных в российских регионах и managed-сервисов, похожих по идеям на сервисы глобальных облаков.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Для учебного или небольшого ML-сервиса можно использовать Object Storage для моделей, Managed PostgreSQL для метаданных, Container Registry для образов, Managed Kubernetes или serverless containers/functions для запуска inference.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/yandex_cloud_and_infra/articles/760252/" target="_blank" rel="noopener">Сам себе DevOps: как разобраться с доступами в Yandex Cloud</a></td><td>Практический материал про IAM и доступы в Yandex Cloud.</td></tr>
+<tr><td><a href="https://yandex.cloud/ru/docs" target="_blank" rel="noopener">Yandex Cloud Docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://yandex.cloud/ru/docs/tutorials/" target="_blank" rel="noopener">Практические руководства Yandex Cloud</a></td><td>Туториалы по сервисам платформы.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/yandex_cloud_and_infra/articles/" target="_blank" rel="noopener">Yandex Cloud Habr</a></td><td>Статьи Yandex Cloud на Хабре.</td></tr>
+<tr><td><a href="https://yandex.cloud/ru/training/training-pro#devops" target="_blank" rel="noopener">Yandex Cloud Courses for DevOps</a></td><td>Обучение по Yandex Cloud.</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=u9PI_VncAd4" target="_blank" rel="noopener">Yandex Cloud video</a></td><td>Видео по Yandex Cloud .</td></tr>
+<tr><td><a href="https://www.youtube.com/@YandexCloudPlatform/playlists" target="_blank" rel="noopener">Yandex Cloud playlists</a></td><td>Официальные плейлисты Yandex Cloud.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какие сервисы Yandex Cloud стоит знать ML Engineer?</b></p>
+<p>Compute Cloud, Object Storage, Managed Kubernetes, Managed PostgreSQL/ClickHouse, Container Registry, DataSphere, IAM, Monitoring и Logging.</p>
+</li>
+<li><p><b>Что такое service account?</b></p>
+<p>Техническая учётная запись, через которую приложение или пайплайн получает права на облачные ресурсы.</p>
+</li>
+<li><p><b>Почему важно изучать IAM?</b></p>
+<p>Ошибка в правах может открыть доступ к данным, сломать пайплайн или дать сервису больше возможностей, чем ему нужно.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 4</h3>
+<li class="question" data-md-source="true" data-md-id="openstack" data-badge-type="additional" data-interview="1" data-title-link="https://www.openstack.org/">
+  <div class="name" id="openstack">
+    <a class="question-title-link" href="https://www.openstack.org/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое OpenStack?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>OpenStack</b> — open-source платформа для построения private cloud: виртуальные машины, сети, хранилища, образы, identity, API и дополнительные сервисы.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>OpenStack нужен, когда компания хочет облачную модель управления ресурсами, но на своей инфраструктуре: в собственном ЦОДе, у локального провайдера или в контролируемом контуре.</p>
+<p>Типичные компоненты:</p>
+<table class="task-table">
+<thead><tr><th>Компонент</th><th>Роль</th></tr></thead>
+<tbody>
+<tr><td><b>Nova</b></td><td>compute и управление VM</td></tr>
+<tr><td><b>Neutron</b></td><td>сети</td></tr>
+<tr><td><b>Cinder</b></td><td>блочные диски</td></tr>
+<tr><td><b>Swift</b></td><td>object storage</td></tr>
+<tr><td><b>Glance</b></td><td>образы VM</td></tr>
+<tr><td><b>Keystone</b></td><td>identity и access management</td></tr>
+<tr><td><b>Horizon</b></td><td>web-панель</td></tr>
+<tr><td><b>Heat</b></td><td>orchestration</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>OpenStack — мощная, но сложная платформа. Для ML Engineer обычно важно не администрировать OpenStack, а понимать, что private cloud может давать VM/GPU/storage/API как внутренний аналог публичного облака. Если команда маленькая, OpenStack может быть слишком тяжёлым решением.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В компании с ограничениями на публичные облака ML-платформа может жить поверх OpenStack:</p>
+<ul>
+<li>GPU VM выдаются через Nova</li>
+<li>образы окружений хранятся в Glance</li>
+<li>данные лежат в object/block storage</li>
+<li>доступы управляются через Keystone</li>
+<li>Kubernetes поднимается поверх выделенных VM</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/articles/756028/" target="_blank" rel="noopener">Архитектурные нюансы OpenStack. Nova</a></td><td>Разбор принципов работы Nova.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/fgts/articles/590423/" target="_blank" rel="noopener">Обеспечение безопасности в OpenStack</a></td><td>Материал про security-практики OpenStack.</td></tr>
+<tr><td><a href="https://habr.com/ru/companies/mirantis_openstack/articles/240951/" target="_blank" rel="noopener">OpenStack уровня предприятия и DBaaS</a></td><td>Статья про enterprise OpenStack и Database as a Service.</td></tr>
+<tr><td><a href="https://selectel.ru/blog/openstack_vmw/" target="_blank" rel="noopener">OpenStack vs VMware</a></td><td>Сравнение open-source и closed-source подходов к виртуализации/облаку.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/324298/" target="_blank" rel="noopener">Опыт сдачи Certified Openstack Administrator</a></td><td>История подготовки к COA.</td></tr>
+<tr><td><a href="https://docs.openstack.org/2024.1/" target="_blank" rel="noopener">OpenStack Docs</a></td><td>Официальная документация OpenStack.</td></tr>
+<tr><td><a href="https://www.openstack.org/coa/" target="_blank" rel="noopener">Certified OpenStack Administrator</a></td><td>Страница сертификации COA.</td></tr>
+<tr><td><a href="https://www.youtube.com/watch?v=_gWfFEuert8" target="_blank" rel="noopener">OpenStack video</a></td><td>Видео по OpenStack из исходной подборки.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PL1fB0Roqrr0vzgRuPdMPxtFv7ULt_2w66" target="_blank" rel="noopener">OpenStack playlist 1</a></td><td>Плейлист по OpenStack.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLT98CRl2KxKHCPoR1nHmG2Tl5Q4r1-aiJ" target="_blank" rel="noopener">OpenStack playlist 2</a></td><td>Плейлист по OpenStack.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLqk5q82AvsgW-r0d6jfIaxJLhzKBWHP2Z" target="_blank" rel="noopener">OpenStack playlist 3</a></td><td>Плейлист по OpenStack.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое OpenStack?</b></p>
+<p>Open-source платформа для построения private cloud с API для compute, storage, network и identity.</p>
+</li>
+<li><p><b>Чем OpenStack отличается от Proxmox?</b></p>
+<p>OpenStack больше похож на конструктор облачного провайдера с большим числом компонентов и API. Proxmox проще и ближе к управлению виртуализацией/кластерами.</p>
+</li>
+<li><p><b>Когда OpenStack уместен?</b></p>
+<p>Когда нужна private cloud-модель, много команд, автоматизация через API, изоляция tenants и есть компетенции для эксплуатации.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="proxmox" data-badge-type="additional" data-interview="1" data-title-link="https://www.proxmox.com/en/">
+  <div class="name" id="proxmox">
+    <a class="question-title-link" href="https://www.proxmox.com/en/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое Proxmox?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Proxmox VE</b> — open-source платформа виртуализации на базе Debian, KVM и LXC для управления виртуальными машинами, контейнерами, кластером, хранилищами, бэкапами и high availability.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Proxmox часто выбирают для homelab, небольших компаний, внутренних стендов и self-hosted-инфраструктуры, где OpenStack слишком тяжёлый, а одного сервера уже мало.</p>
+<p>Что обычно даёт Proxmox:</p>
+<ul>
+<li>Web UI для управления VM и контейнерами</li>
+<li>KVM-виртуализация</li>
+<li>LXC-контейнеры</li>
+<li>кластер из нескольких нод</li>
+<li>live migration для VM</li>
+<li>централизованные бэкапы</li>
+<li>storage-интеграции</li>
+<li>HA-сценарии</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для ML Engineer Proxmox полезен как способ получить внутреннюю лабораторию: VM с GPU passthrough, self-hosted MLflow, Airflow, MinIO, GitLab Runner, Kubernetes-кластер или тестовые inference-сервисы. Но эксплуатация железа, сети, бэкапов и отказов остаётся на команде.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Self-hosted MLOps-стенд на Proxmox:</p>
+<ul>
+<li>VM под Kubernetes control plane и worker-ноды</li>
+<li>отдельная VM под MLflow/PostgreSQL/MinIO</li>
+<li>GPU VM для обучения</li>
+<li>Proxmox Backup Server для бэкапов</li>
+<li>мониторинг через Prometheus/Grafana</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://habr.com/ru/companies/selectel/articles/483236/" target="_blank" rel="noopener">Магия виртуализации: вводный курс в Proxmox VE</a></td><td>Вводный курс по Proxmox VE.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/733640/" target="_blank" rel="noopener">Как падает и поднимается Proxmox</a></td><td>Практический разбор отказов Proxmox и восстановления.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/797659/" target="_blank" rel="noopener">Личное облако на Proxmox</a></td><td>Пример построения личного облака на Proxmox.</td></tr>
+<tr><td><a href="https://pve.proxmox.com/wiki/Main_Page" target="_blank" rel="noopener">Proxmox Wiki</a></td><td>Официальная wiki.</td></tr>
+<tr><td><a href="https://pve.proxmox.com/pve-docs/" target="_blank" rel="noopener">Proxmox Docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://www.proxmox.com/en/services/training#detail-admin-training" target="_blank" rel="noopener">Proxmox Training</a></td><td>Обучение и сертификация Proxmox.</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLEFo-qGWcO2bIGEy7HbLX2nWfhVj3prmL" target="_blank" rel="noopener">Proxmox playlist 1</a></td><td>Плейлист по Proxmox .</td></tr>
+<tr><td><a href="https://www.youtube.com/playlist?list=PLT98CRl2KxKHnlbYhtABg6cF50bYa8Ulo" target="_blank" rel="noopener">Proxmox playlist 2</a></td><td>Ещё один плейлист по Proxmox.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Proxmox?</b></p>
+<p>Платформа для управления виртуальными машинами и LXC-контейнерами на своих серверах.</p>
+</li>
+<li><p><b>Когда Proxmox лучше OpenStack?</b></p>
+<p>Когда нужна более простая self-hosted-виртуализация без сложности полноценной private cloud-платформы.</p>
+</li>
+<li><p><b>Что важно помнить для ML-нагрузок?</b></p>
+<p>GPU passthrough, дисковая подсистема, сеть, бэкапы, мониторинг и восстановление после сбоев становятся ответственностью команды.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      
+        <!-- Карточка входа в тест -->
+        <div class="quiz-entry" 
+             data-quiz-id="mlops:cloud"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

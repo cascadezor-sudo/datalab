@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="../../../assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prometheus</title>
+  <link href="../../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../../assets/js/components/questions-toc.js"></script>
+  <script src="../../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../../assets/js/core.js"></script>
+  <script defer="" src="../../../assets/js/questions.js"></script>
+  <script defer="" src="../../../assets/js/controls.js"></script>
+  <script defer="" src="../../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../../assets/katex/auto-render.min.js"></script>
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  <script src="../../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../../assets/js/init-head.js"></script>
+  <script src="../../../assets/js/components/navigation.js"></script>
+  <script src="../../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../../assets/js/components/config-loader.js"></script>
+  <script src="../../../assets/js/components/section-hero.js"></script>
+  <script src="../../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../../assets/js/components/info-cards.js"></script>
+  <script src="../../../assets/js/components/quiz.js"></script>
+  <script src="../../../assets/js/components/block-tests.js"></script>
+  <script src="../../../assets/js/components/question-presentation.js"></script>
+  <script src="../../../assets/js/components/question-badges.js"></script>
+  <script src="../../../assets/js/components/term-definitions.js"></script>
+  <script src="../../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <!-- Хлебные крошки: путь к странице для тех, кто пришёл по прямой ссылке. -->
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../../ai/mlops/index.html">MLOps</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__step">Monitoring</span></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Prometheus</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">MLOps</span>
+          <span class="pill pill--soft">Monitoring</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Prometheus</h1>
+        <p class="section-shell__desc">Материалы по метрикам, scraping и alerting.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+      <h3>Блок 1</h3>
+    
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="prometheus_intro" data-interview="3" data-title-link="https://prometheus.io/">
+  <div class="name" id="prometheus_intro">
+    <a class="question-title-link" href="https://prometheus.io/" target="_blank" rel="noopener noreferrer" title="Открыть источник вопроса">Что такое Prometheus?<span class="question-title-link__indicator" aria-hidden="true">↗</span></a>
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Prometheus</b> — open-source система мониторинга и алертинга, которая собирает метрики путём периодического опроса (scraping) HTTP-эндпоинтов. Хранит метрики в собственной time-series БД (TSDB) и предоставляет язык запросов PromQL.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Модель работы Prometheus принципиально отличается от push-based систем: сервисы не отправляют метрики сами, а <b>предоставляют</b> endpoint <code>/metrics</code>, который Prometheus опрашивает по расписанию (обычно каждые 15–30 секунд).</p>
+
+</div>
+<div class="code-block" data-lang="text">Service  ──-&gt;  /metrics endpoint  ←──(scrape)──  Prometheus TSDB
+                                                        │
+                                                   PromQL queries
+                                                        │
+                                                   AlertManager
+                                                        │
+                                                    Grafana</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Это упрощает архитектуру: каждый сервис просто выставляет метрики, а Prometheus сам решает, как часто их собирать.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Зачем это ML Engineer">
+<p>ML-сервисы в production нужно мониторить иначе, чем обычные API:</p>
+<ul>
+<li><b>Latency inference</b> — время ответа модели по перцентилям (p50, p95, p99)</li>
+<li><b>Throughput</b> — сколько запросов в секунду обрабатывает inference-сервис</li>
+<li><b>Дрейф данных</b> — метрики распределения входящих признаков и предсказаний</li>
+<li><b>Качество модели</b> — точность на свежей разметке, A/B-метрики</li>
+<li><b>Ресурсы</b> — GPU memory utilization, CPU, RAM во время обучения и inference</li>
+<li><b>Feature pipeline</b> — consumer lag, время обновления признаков в feature store</li>
+<li><b>Батчевые пайплайны</b> — время выполнения, количество обработанных записей, ошибки</li>
+</ul>
+<p>Prometheus + Grafana — стандартный стек для всего этого в большинстве ML-команд.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Prometheus vs облачные решения">
+<p>Prometheus — self-hosted. В облачных стеках есть managed-аналоги:</p>
+<table class="task-table">
+<thead><tr><th>Инструмент</th><th>Суть</th></tr></thead>
+<tbody>
+<tr><td><b>Grafana Cloud</b></td><td>Managed Prometheus + Grafana</td></tr>
+<tr><td><b>AWS CloudWatch</b></td><td>Метрики в AWS (не Prometheus-совместимый, но Prometheus Remote Write поддерживается)</td></tr>
+<tr><td><b>Google Cloud Monitoring</b></td><td>Prometheus-совместимый managed</td></tr>
+<tr><td><b>Datadog</b></td><td>Полностью managed, Prometheus-метрики импортируются</td></tr>
+<tr><td><b>VictoriaMetrics</b></td><td>Self-hosted, Prometheus-совместимый, эффективнее при большом объёме</td></tr>
+</tbody>
+</table><p>Многие компании начинают с self-hosted Prometheus, а потом переходят на Grafana Cloud или VictoriaMetrics при росте нагрузки.</p>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://prometheus.io/docs/introduction/overview/" target="_blank" rel="noopener">Официальная документация Prometheus</a></td><td>Полная документация.</td></tr>
+<tr><td><a href="https://www.oreilly.com/library/view/prometheus-up/9781492034131/" target="_blank" rel="noopener">Prometheus: Up &amp; Running (O&#39;Reilly)</a></td><td>Книга по Prometheus от Brian Brazil.</td></tr>
+<tr><td><a href="https://habr.com/ru/articles/696908/" target="_blank" rel="noopener">Мониторинг с Prometheus. Хабр</a></td><td>Введение на русском языке.</td></tr>
+<tr><td><a href="https://promlabs.com/promql-cheat-sheet/" target="_blank" rel="noopener">Prometheus Cheat Sheet</a></td><td>Шпаргалка по PromQL.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как Prometheus собирает метрики?</b></p>
+<p>По модели pull: сам опрашивает <code>/metrics</code> endpoint-ы сервисов по расписанию (scraping). Сервисы не отправляют данные сами.</p>
+</li>
+<li><p><b>Что хранит Prometheus?</b></p>
+<p>Time-series данные: каждая метрика — последовательность пар (timestamp, значение), идентифицированная именем и набором labels.</p>
+</li>
+<li><p><b>Какие метрики ML-сервиса важно мониторить через Prometheus?</b></p>
+<p>Latency inference (p95/p99), throughput (RPS), ошибки, распределение предсказаний, GPU utilization, consumer lag feature pipeline, время выполнения батчевых пайплайнов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="prometheus_metrics_types" data-interview="3">
+  <div class="name" id="prometheus_metrics_types">
+    Типы метрик в Prometheus
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Prometheus поддерживает четыре типа метрик:</p>
+<table class="task-table">
+<thead><tr><th>Тип</th><th>Суть</th><th>Пример</th></tr></thead>
+<tbody>
+<tr><td><b>Counter</b></td><td>Монотонно возрастающий счётчик, только увеличивается</td><td>число запросов, число ошибок</td></tr>
+<tr><td><b>Gauge</b></td><td>Произвольное значение, может расти и падать</td><td>GPU memory, queue size, температура</td></tr>
+<tr><td><b>Histogram</b></td><td>Распределение значений по бакетам + сумма + count</td><td>latency запросов, размер батча</td></tr>
+<tr><td><b>Summary</b></td><td>Квантили на стороне клиента + сумма + count</td><td>p50/p95/p99 latency</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Counter</b> — только растёт (сброс при рестарте). В PromQL используют <code>rate()</code> или <code>increase()</code> для получения скорости роста:</p>
+
+</div>
+<div class="code-block" data-lang="text">rate(http_requests_total[5m])  -&gt;  запросов в секунду за последние 5 минут</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Gauge</b> — мгновенное значение. Можно брать напрямую или с агрегацией:</p>
+
+</div>
+<div class="code-block" data-lang="text">gpu_memory_used_bytes / gpu_memory_total_bytes * 100  -&gt;  % GPU памяти</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Histogram</b> — записывает распределение. Автоматически создаёт три временных ряда:</p>
+<ul>
+<li><code>_bucket{le=&quot;0.1&quot;}</code> — сколько наблюдений $\leq 0.1$ сек</li>
+<li><code>_sum</code> — сумма всех значений</li>
+<li><code>_count</code> — число наблюдений</li>
+</ul>
+<p>В PromQL: <code>histogram_quantile(0.95, rate(latency_seconds_bucket[5m]))</code> — p95 latency.</p>
+<p><b>Summary vs Histogram:</b> Summary считает квантили на клиенте (нельзя агрегировать по нескольким инстансам). Histogram считает квантили на сервере через PromQL, поэтому предпочтительнее для inference-сервисов с несколькими репликами.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Какой тип выбрать для ML">
+<table class="task-table">
+<thead><tr><th>Что измеряем</th><th>Тип</th><th>Почему</th></tr></thead>
+<tbody>
+<tr><td>Число inference-запросов</td><td>Counter</td><td>Только растёт, нужна скорость</td></tr>
+<tr><td>Число ошибок</td><td>Counter</td><td>Только растёт</td></tr>
+<tr><td>GPU memory utilization</td><td>Gauge</td><td>Может падать и расти</td></tr>
+<tr><td>Размер очереди задач</td><td>Gauge</td><td>Текущее значение</td></tr>
+<tr><td>Latency предсказания</td><td>Histogram</td><td>Нужны перцентили по нескольким репликам</td></tr>
+<tr><td>Распределение предсказаний модели</td><td>Histogram</td><td>Нужны бакеты для дрейф-мониторинга</td></tr>
+<tr><td>Значение признака (для дрейфа)</td><td>Histogram</td><td>Отслеживаем сдвиг распределения</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример названий метрик">
+<p>Prometheus-конвенция: <code>&lt;namespace&gt;_&lt;subsystem&gt;_&lt;name&gt;_&lt;unit&gt;</code>.</p>
+
+</div>
+<div class="code-block" data-lang="text">inference_requests_total              # Counter: всего запросов
+inference_errors_total                # Counter: всего ошибок
+inference_latency_seconds             # Histogram: latency
+inference_prediction_score            # Histogram: распределение score модели
+feature_store_lookup_latency_seconds  # Histogram: latency обращения к feature store
+model_gpu_memory_bytes                # Gauge: GPU memory
+batch_job_processed_records_total     # Counter: обработано записей в batch pipeline</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем Counter отличается от Gauge?</b></p>
+<p>Counter только растёт (сброс при рестарте), Gauge может принимать любое значение. Counter используют для подсчёта событий (запросы, ошибки), Gauge — для состояния (память, очередь).</p>
+</li>
+<li><p><b>Почему для latency нужен Histogram, а не Gauge?</b></p>
+<p>Gauge показал бы только последнее значение. Histogram фиксирует распределение всех измерений и позволяет вычислить перцентили (p95, p99) через <code>histogram_quantile()</code>.</p>
+</li>
+<li><p><b>Чем Histogram лучше Summary для inference-сервиса с несколькими репликами?</b></p>
+<p>Summary считает квантили локально на каждом инстансе, их нельзя агрегировать. Histogram хранит бакеты, которые можно суммировать по всем репликам и считать единый p95.</p>
+</li>
+<li><p><b>Как называть метрики по конвенции Prometheus?</b></p>
+<p><code>&lt;namespace&gt;_&lt;subsystem&gt;_&lt;name&gt;_&lt;unit&gt;</code>, единицы измерения в конце (<code>_seconds</code>, <code>_bytes</code>, <code>_total</code>). <code>_total</code> — суффикс для Counter.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->        <!-- md:inject:start -->
+        <h3 data-md-source="true">Блок 2</h3>
+<li class="question" data-md-source="true" data-md-id="prometheus_python" data-interview="2">
+  <div class="name" id="prometheus_python">
+    Инструментирование Python-сервисов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b><code>prometheus_client</code></b> — официальная Python-библиотека для инструментирования сервисов. Позволяет объявить метрики в коде и автоматически экспортировать их через HTTP-эндпоинт <code>/metrics</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Минимальный workflow:</p>
+<ol>
+<li>Объявить метрики как глобальные объекты</li>
+<li>В нужных местах кода обновлять метрики (<code>.inc()</code>, <code>.set()</code>, <code>.observe()</code>)</li>
+<li>Запустить HTTP-сервер метрик или подключить middleware к FastAPI/Flask</li>
+<li>Добавить сервис в <code>prometheus.yml</code> (scrape config)</li>
+</ol>
+
+</div>
+<div class="code-block" data-lang="bash">pip install prometheus-client</div><h3>Инструментирование FastAPI inference-сервиса</h3>
+<div class="code-block" data-lang="python">from fastapi import FastAPI, Request
+from prometheus_client import Counter, Histogram, Gauge, make_asgi_app
+import time
+
+app = FastAPI()
+
+# --- Метрики ---
+REQUEST_COUNT = Counter(
+    "inference_requests_total",
+    "Всего inference-запросов",
+    ["model_name", "status"],   # labels
+)
+REQUEST_LATENCY = Histogram(
+    "inference_latency_seconds",
+    "Latency inference в секундах",
+    ["model_name"],
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+)
+PREDICTION_SCORE = Histogram(
+    "inference_prediction_score",
+    "Распределение предсказаний модели",
+    ["model_name"],
+    buckets=[0.1 * i for i in range(11)],
+)
+MODEL_LOADED = Gauge(
+    "inference_model_loaded",
+    "1 если модель загружена, 0 если нет",
+    ["model_name"],
+)
+
+# Экспортируем /metrics как ASGI-приложение
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
+# --- Inference endpoint ---
+@app.post("/predict")
+async def predict(request: Request):
+    model_name = "recommender_v3"
+    start = time.time()
+    try:
+        body = await request.json()
+        score = model.predict(body["features"])    # ваша модель
+
+        REQUEST_COUNT.labels(model_name=model_name, status="ok").inc()
+        PREDICTION_SCORE.labels(model_name=model_name).observe(score)
+        return {"score": score}
+    except Exception as e:
+        REQUEST_COUNT.labels(model_name=model_name, status="error").inc()
+        raise
+    finally:
+        REQUEST_LATENCY.labels(model_name=model_name).observe(time.time() - start)
+
+# При старте сервиса
+MODEL_LOADED.labels(model_name="recommender_v3").set(1)</div><h3>Scrape-конфигурация Prometheus</h3>
+<div class="code-block" data-lang="yaml"># prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "inference-service"
+    static_configs:
+      - targets: ["inference-service:8000"]
+    metrics_path: "/metrics"
+
+  - job_name: "feature-pipeline"
+    static_configs:
+      - targets: ["feature-pipeline:8001"]
+
+  # В Kubernetes — через service discovery
+  - job_name: "kubernetes-pods"
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Context manager</b> для автоматического измерения latency:</p>
+
+</div>
+<div class="code-block" data-lang="python">with REQUEST_LATENCY.labels(model_name="v3").time():
+    score = model.predict(features)</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Декоратор</b> для счётчика вызовов функции:</p>
+
+</div>
+<div class="code-block" data-lang="python">@REQUEST_COUNT.labels(model_name="v3", status="ok").count_exceptions()
+def predict(features):
+    return model.predict(features)</div><h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://prometheus.github.io/client_python/" target="_blank" rel="noopener">prometheus_client Python docs</a></td><td>Официальная документация библиотеки.</td></tr>
+<tr><td><a href="https://www.datadoghq.com/blog/engineering/prometheus-metric-types/" target="_blank" rel="noopener">Instrumenting a FastAPI service</a></td><td>Руководство по инструментированию FastAPI.</td></tr>
+<tr><td><a href="https://prometheus.io/docs/practices/naming/" target="_blank" rel="noopener">Prometheus Best Practices: Naming</a></td><td>Конвенция именования метрик.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что нужно сделать, чтобы Prometheus начал собирать метрики с Python-сервиса?</b></p>
+<p>Объявить метрики через <code>prometheus_client</code>, обновлять их в коде, выставить endpoint <code>/metrics</code> и добавить сервис в <code>scrape_configs</code> в <code>prometheus.yml</code>.</p>
+</li>
+<li><p><b>Зачем нужны labels в метриках?</b></p>
+<p>Labels позволяют разбить метрику по измерениям (модель, статус, регион) без создания отдельных метрик. В PromQL потом можно фильтровать и агрегировать по любому label.</p>
+</li>
+<li><p><b>Почему важно не злоупотреблять количеством уникальных значений labels?</b></p>
+<p>Каждая уникальная комбинация labels создаёт отдельный time series. Высокая cardinality (user_id, request_id как labels) быстро переполняет Prometheus TSDB — это называется «кардинальность взрывается».</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="prometheus_promql" data-interview="1">
+  <div class="name" id="prometheus_promql">
+    PromQL: запросы к метрикам
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>PromQL</b> (Prometheus Query Language) — язык запросов к time-series данным Prometheus. Возвращает instant vector (значения в момент времени), range vector (значения за период) или scalar.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><b>Базовая структура:</b> <code>metric_name{label=&quot;value&quot;}[duration]</code></p>
+<table class="task-table">
+<thead><tr><th>Конструкция</th><th>Пример</th><th>Что возвращает</th></tr></thead>
+<tbody>
+<tr><td>Instant vector</td><td><code>inference_requests_total</code></td><td>текущее значение по каждому label-набору</td></tr>
+<tr><td>Label filter</td><td><code>inference_requests_total{status=&quot;error&quot;}</code></td><td>только ошибки</td></tr>
+<tr><td>Range vector</td><td><code>inference_requests_total[5m]</code></td><td>все значения за 5 минут</td></tr>
+<tr><td><code>rate()</code></td><td><code>rate(inference_requests_total[5m])</code></td><td>запросов/сек (по range vector Counter)</td></tr>
+<tr><td><code>increase()</code></td><td><code>increase(inference_requests_total[1h])</code></td><td>абсолютный прирост за час</td></tr>
+<tr><td><code>histogram_quantile()</code></td><td><code>histogram_quantile(0.95, rate(inference_latency_seconds_bucket[5m]))</code></td><td>p95 latency</td></tr>
+<tr><td>Агрегация</td><td><code>sum by (model_name) (rate(...))</code></td><td>суммирует по model_name</td></tr>
+<tr><td>Деление</td><td><code>errors / total * 100</code></td><td>error rate в %</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>Throughput (RPS):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">sum by (model_name) (
+  rate(inference_requests_total[5m])
+)</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>Error rate (%):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">100 * sum by (model_name) (
+  rate(inference_requests_total{status="error"}[5m])
+) / sum by (model_name) (
+  rate(inference_requests_total[5m])
+)</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>p95 latency:</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">histogram_quantile(
+  0.95,
+  sum by (model_name, le) (
+    rate(inference_latency_seconds_bucket[5m])
+  )
+)</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>GPU memory utilization (%):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">100 * model_gpu_memory_bytes{type="used"}
+    / model_gpu_memory_bytes{type="total"}</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>Kafka consumer lag (для feature pipeline):</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">sum by (consumergroup, topic) (
+  kafka_consumergroup_lag
+)</div>
+<div class="info-card-auto" data-type="remark" data-title="Часто используемые запросы для ML-сервисов">
+<p><b>Среднее время batch job за последние 24 часа:</b></p>
+
+</div>
+<div class="code-block" data-lang="promql">increase(batch_job_duration_seconds_sum[24h])
+/ increase(batch_job_duration_seconds_count[24h])</div>
+<div class="info-card-auto" data-type="remark" data-title="Основные функции PromQL">
+<table class="task-table">
+<thead><tr><th>Функция</th><th>Применение</th></tr></thead>
+<tbody>
+<tr><td><code>rate(v[d])</code></td><td>скорость роста Counter за период <code>d</code></td></tr>
+<tr><td><code>increase(v[d])</code></td><td>абсолютный прирост Counter за период</td></tr>
+<tr><td><code>histogram_quantile(φ, v)</code></td><td>перцентиль из Histogram</td></tr>
+<tr><td><code>sum by (labels) (v)</code></td><td>агрегация суммой по label</td></tr>
+<tr><td><code>avg by (labels) (v)</code></td><td>среднее по label</td></tr>
+<tr><td><code>max by (labels) (v)</code></td><td>максимум по label</td></tr>
+<tr><td><code>topk(n, v)</code></td><td>n наибольших значений</td></tr>
+<tr><td><code>absent(v)</code></td><td>возвращает 1, если метрика отсутствует (алерт на пропавший сервис)</td></tr>
+<tr><td><code>predict_linear(v[d], t)</code></td><td>линейный прогноз значения через <code>t</code> секунд</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://prometheus.io/docs/prometheus/latest/querying/basics/" target="_blank" rel="noopener">PromQL docs</a></td><td>Официальная документация PromQL.</td></tr>
+<tr><td><a href="https://promlabs.com/promql-cheat-sheet/" target="_blank" rel="noopener">PromQL Cheat Sheet</a></td><td>Шпаргалка по PromQL.</td></tr>
+<tr><td><a href="https://www.robustperception.io/tag/promql/" target="_blank" rel="noopener">Robust Perception: PromQL for Humans</a></td><td>Статьи о продвинутом PromQL.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен <code>rate()</code> для Counter, а не просто сырое значение?</b></p>
+<p>Counter только растёт — сырое значение показывает общее накопленное число. <code>rate()</code> даёт скорость изменения (событий в секунду), что практически полезнее и правильно обрабатывает сброс при рестарте.</p>
+</li>
+<li><p><b>Как получить p95 latency из Histogram?</b></p>
+<p><code>histogram_quantile(0.95, rate(latency_seconds_bucket[5m]))</code> — берёт бакеты Histogram за последние 5 минут и вычисляет 95-й перцентиль.</p>
+</li>
+<li><p><b>Что делает <code>sum by (model_name)</code> и зачем это нужно?</b></p>
+<p>Агрегирует метрику, суммируя по всем инстансам/репликам, оставляя разбивку только по <code>model_name</code>. Позволяет видеть суммарный RPS сервиса, а не отдельно по каждой реплике.</p>
+</li>
+<li><p><b>Как написать запрос, который сработает, когда сервис перестал слать метрики?</b></p>
+<p><code>absent(up{job=&quot;inference-service&quot;} == 1)</code> — вернёт значение, если метрика <code>up</code> для нужного job-а отсутствует или равна 0.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="prometheus_alerting" data-interview="2">
+  <div class="name" id="prometheus_alerting">
+    Алертинг: Alerting Rules и AlertManager
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Alerting Rules</b> — PromQL-выражения в Prometheus, которые при выполнении условия генерируют алерт. <b>AlertManager</b> — отдельный компонент, получающий алерты от Prometheus и направляющий уведомления в Slack, PagerDuty, email, Telegram и другие каналы.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Цепочка алертинга:</p>
+
+</div>
+<div class="code-block" data-lang="text">Prometheus evaluates rules every 15s
+        ↓ rule fires
+Prometheus sends alert to AlertManager
+        ↓ routing + grouping + silencing
+AlertManager sends notification
+        ↓
+Slack / PagerDuty / Email / Telegram</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Alerting Rule имеет три состояния:</p>
+<ul>
+<li><b>inactive</b> — условие не выполняется</li>
+<li><b>pending</b> — условие выполняется, но ещё не прошёл <code>for</code> (grace period)</li>
+<li><b>firing</b> — условие выполняется дольше <code>for</code> — алерт активен</li>
+</ul>
+
+</div>
+<h3>Alerting Rules для ML-сервисов</h3>
+<div class="code-block" data-lang="yaml"># alerts/inference.yml
+groups:
+  - name: inference
+    rules:
+
+      # Сервис недоступен
+      - alert: InferenceServiceDown
+        expr: absent(up{job="inference-service"} == 1)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Inference-сервис недоступен"
+          description: "Job {{ $labels.job }} не отвечает более 1 минуты."
+
+      # Высокий error rate
+      - alert: InferenceHighErrorRate
+        expr: |
+          100 * sum by (model_name) (
+            rate(inference_requests_total{status="error"}[5m])
+          ) / sum by (model_name) (
+            rate(inference_requests_total[5m])
+          ) &gt; 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий error rate inference"
+          description: "Модель {{ $labels.model_name }}: error rate {{ $value | humanize }}% &gt; 5%"
+
+      # p95 latency выше порога
+      - alert: InferenceHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (model_name, le) (
+              rate(inference_latency_seconds_bucket[5m])
+            )
+          ) &gt; 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency inference &gt; 500ms"
+          description: "Модель {{ $labels.model_name }}: p95={{ $value | humanizeDuration }}"
+
+      # Kafka consumer lag растёт
+      - alert: FeaturePipelineLagHigh
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag) &gt; 100000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer lag feature pipeline слишком высок"
+          description: "Group={{ $labels.consumergroup }}, lag={{ $value }}"</div><h3>AlertManager routing</h3>
+<div class="code-block" data-lang="yaml"># alertmanager.yml
+global:
+  slack_api_url: "https://hooks.slack.com/services/..."
+
+route:
+  receiver: "slack-ml-team"
+  group_by: ["alertname", "model_name"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    - match:
+        severity: critical
+      receiver: "pagerduty-oncall"
+    - match:
+        severity: warning
+      receiver: "slack-ml-team"
+
+receivers:
+  - name: "slack-ml-team"
+    slack_configs:
+      - channel: "#ml-alerts"
+        title: "{{ .GroupLabels.alertname }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+
+  - name: "pagerduty-oncall"
+    pagerduty_configs:
+      - service_key: "&lt;key&gt;"</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Практики хорошего алертинга:</b></p>
+<ul>
+<li>Алерт должен требовать <b>действия человека</b> — не плоди алерты на всё подряд</li>
+<li>Используй <code>for: 5m</code> чтобы не получать шум от временных всплесков</li>
+<li>Severity: <code>critical</code> — будит ночью, <code>warning</code> — в Slack днём</li>
+<li>Алертируй на <b>симптомы</b> (error rate, latency, lag), а не только на причины (CPU, disk)</li>
+<li>Используй <code>group_by</code> и <code>group_interval</code> чтобы не получать шторм из 100 одинаковых уведомлений</li>
+</ul>
+
+</div>
+<h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/" target="_blank" rel="noopener">Alerting Rules docs</a></td><td>Официальная документация.</td></tr>
+<tr><td><a href="https://prometheus.io/docs/alerting/latest/alertmanager/" target="_blank" rel="noopener">AlertManager docs</a></td><td>Документация AlertManager.</td></tr>
+<tr><td><a href="https://awesome-prometheus-alerts.grep.to/" target="_blank" rel="noopener">Awesome Prometheus Alerts</a></td><td>Готовые шаблоны правил алертинга.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое <code>for: 5m</code> в alerting rule?</b></p>
+<p>Grace period: алерт переходит в firing только если условие выполняется непрерывно 5 минут. Это защищает от шума при кратковременных всплесках.</p>
+</li>
+<li><p><b>Чем отличается Prometheus Alerting Rules от AlertManager?</b></p>
+<p>Prometheus evaluates rules и генерирует алерты. AlertManager получает алерты и решает, куда отправить уведомление (Slack, PagerDuty), с учётом routing, grouping и silencing.</p>
+</li>
+<li><p><b>На что правильно алертировать в ML-сервисе?</b></p>
+<p>На симптомы, которые влияют на пользователей: высокий error rate, p95 latency &gt; порога, недоступность сервиса, рост consumer lag. Не стоит алертировать напрямую на CPU/RAM без корреляции с деградацией сервиса.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Блок 3</h3>
+<li class="question" data-md-source="true" data-md-id="prometheus_exporters" data-badge-type="additional" data-interview="1">
+  <div class="name" id="prometheus_exporters">
+    Экспортёры: инфраструктурные метрики
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Exporter</b> — отдельный процесс, который читает метрики из системы, не поддерживающей Prometheus нативно, и переводит их в Prometheus-формат. Prometheus scrape-ит exporter так же, как и любой другой сервис.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Большинство инфраструктурных компонентов не умеют экспортировать метрики в Prometheus. Для них существуют готовые экспортёры:</p>
+<table class="task-table">
+<thead><tr><th>Экспортёр</th><th>Что мониторит</th><th>Ключевые метрики для ML</th></tr></thead>
+<tbody>
+<tr><td><b>node_exporter</b></td><td>Linux-узел (CPU, RAM, disk, network)</td><td>CPU во время обучения, disk I/O датасетов</td></tr>
+<tr><td><b>nvidia_gpu_exporter</b></td><td>GPU NVIDIA</td><td>GPU utilization, memory, temperature</td></tr>
+<tr><td><b>kafka_exporter</b></td><td>Apache Kafka</td><td>consumer lag, messages/s, under-replicated partitions</td></tr>
+<tr><td><b>postgres_exporter</b></td><td>PostgreSQL</td><td>connections, query latency, replication lag</td></tr>
+<tr><td><b>redis_exporter</b></td><td>Redis</td><td>memory, hit rate, latency (для feature store)</td></tr>
+<tr><td><b>kube-state-metrics</b></td><td>Kubernetes объекты</td><td>pod restart count, deployment status</td></tr>
+<tr><td><b>blackbox_exporter</b></td><td>HTTP/TCP probe</td><td>доступность inference endpoint снаружи</td></tr>
+</tbody>
+</table>
+</div>
+<h3>Docker Compose с node_exporter и GPU exporter</h3>
+<div class="code-block" data-lang="yaml">version: "3.8"
+services:
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+    ports:
+      - "9100:9100"
+
+  nvidia-gpu-exporter:
+    image: utkuozdemir/nvidia_gpu_exporter:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "9835:9835"
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    command: ["--kafka.server=kafka:9092"]
+    ports:
+      - "9308:9308"</div>
+<div class="info-card-auto" data-type="example" data-title="Docker Compose с node_exporter и GPU exporter">
+<p>Scrape-конфиг в <code>prometheus.yml</code>:</p>
+
+</div>
+<div class="code-block" data-lang="yaml">scrape_configs:
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+  - job_name: "gpu"
+    static_configs:
+      - targets: ["nvidia-gpu-exporter:9835"]
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]</div>
+<div class="info-card-auto" data-type="remark" data-title="GPU мониторинг для ML">
+<p>Ключевые GPU-метрики во время обучения и inference:</p>
+
+</div>
+<div class="code-block" data-lang="promql"># GPU utilization (%), хочется &gt; 80% при обучении
+avg by (gpu) (nvidia_gpu_duty_cycle)
+
+# GPU memory занята (GB)
+nvidia_gpu_memory_used_bytes / 1e9
+
+# Температура GPU
+nvidia_gpu_temperature_celsius
+
+# Алерт: температура &gt; 85°C
+alert: GPUOverheating
+expr: nvidia_gpu_temperature_celsius &gt; 85
+for: 2m</div><h2>Links</h2>
+
+<div class="info-card-auto" data-type="remark" data-title="Полезные ссылки">
+<table class="task-table">
+<thead><tr><th>Ресурс</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><a href="https://prometheus.io/docs/instrumenting/exporters/" target="_blank" rel="noopener">Exporters and Integrations</a></td><td>Официальный список экспортёров.</td></tr>
+<tr><td><a href="https://github.com/utkuozdemir/nvidia_gpu_exporter" target="_blank" rel="noopener">nvidia_gpu_exporter</a></td><td>GPU exporter для Prometheus.</td></tr>
+<tr><td><a href="https://github.com/danielqsj/kafka_exporter" target="_blank" rel="noopener">kafka_exporter</a></td><td>Kafka exporter.</td></tr>
+<tr><td><a href="https://github.com/prometheus-community/postgres_exporter" target="_blank" rel="noopener">postgres_exporter</a></td><td>PostgreSQL exporter.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен exporter, если сервис сам не поддерживает Prometheus?</b></p>
+<p>Exporter читает метрики через нативный API системы (NVIDIA SMI, Kafka JMX, postgres stats) и транслирует их в Prometheus text format. Prometheus scrape-ит exporter, не зная ничего об оригинальном протоколе.</p>
+</li>
+<li><p><b>Какой exporter важен для мониторинга обучения моделей на GPU?</b></p>
+<p><code>nvidia_gpu_exporter</code> — показывает utilization, memory, температуру. Полезно убедиться, что GPU действительно загружен на 80–100% во время обучения, а не простаивает из-за узкого места в data loading.</p>
+</li>
+<li><p><b>Что мониторит <code>blackbox_exporter</code> и зачем он нужен?</b></p>
+<p>Выполняет HTTP/TCP probe на эндпоинт снаружи и измеряет доступность и latency. Это «взгляд пользователя» — позволяет обнаружить недоступность сервиса до того, как пожалуются пользователи.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+  </main>
+  <script src="../../../authGuard.js"></script>
+  <button id="scrollToTopBtn" aria-label="Наверх">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <script src="../../../assets/js/init-page.js"></script>
+</body>
+</html>

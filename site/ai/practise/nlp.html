@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>NLP Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">NLP</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">NLP</h1>
+          <p class="section-shell__desc">Практические задания по обработке естественного языка.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3 data-md-source="true">Text Classification</h3>
+        <!-- md:replace:nlp-text-classification1:start -->
+<li class="question" data-md-source="true" data-md-id="nlp-text-classification1" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="nlp-text-classification1">
+    Классификация твиттов I: классические методы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Построить честный baseline для бинарной классификации текстов: исследовать твиты, сравнить sparse-представления и классические модели, выбрать порог по валидации и разобрать ошибки, а не только одну итоговую метрику.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй <a href="https://www.kaggle.com/competitions/nlp-getting-started/data" target="_blank" rel="noopener">Natural Language Processing with Disaster Tweets</a>. Цель <code>target=1</code> означает реальное сообщение о катастрофе, <code>0</code> — нет. Работай с размеченным <code>train.csv</code>: Kaggle <code>test.csv</code> не содержит target и нужен только для опционального submission. Достаточно Jupyter-ноутбука; не коммить данные и Kaggle credentials.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Disaster Tweets" src="../../images/practise/distw.png" width="590" height="590" loading="lazy" decoding="async" style="max-width: 350px; width: 100%; height: auto" />
+</figure>
+
+<div class="badges-block">
+                  <div class="badges-block-label">Представления</div>
+                  <div class="badges-container">
+                      <span class="badge">Bag of Words</span>
+                      <span class="badge">TF-IDF word n-grams</span>
+                      <span class="badge">TF-IDF character n-grams</span>
+                      <span class="badge">GloVe / Word2Vec (опционально)</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html" rel="noopener" target="_blank" class="badge badge-link">Logistic Regression</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html" rel="noopener" target="_blank" class="badge badge-link">Linear SVM</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.ComplementNB.html" rel="noopener" target="_blank" class="badge badge-link">ComplementNB</a>
+                      <span class="badge">Random Forest / CatBoost (как необязочное сравнение)</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>EDA и качество данных:</b> изучи баланс классов, длину текста, дубликаты, пустые <code>keyword</code>/<code>location</code>, URL, хештеги, mentions, emoji и примеры неоднозначных твитов. Проверь, не встречается ли один и тот же текст в разных split; дубликаты обрабатывай до обучения и зафиксируй правило.</li>
+<li><b>Разбиение:</b> сделай стратифицированный train/validation split с фиксированным seed. Не используй Kaggle test для выбора модели, токенизатора, порога или очистки.</li>
+<li><b>Предобработка как эксперимент:</b> подготовь как минимум два варианта: минимальный (сохранить слова, хештеги и числа) и нормализованный. Объясни каждую операцию и покажи, почему нельзя бездумно удалять <code>not</code>, эмодзи, цифры, хештеги и пунктуацию.</li>
+<li><b>Baseline:</b> обучи <code>DummyClassifier</code> и один простой TF-IDF + Logistic Regression pipeline. Все шаги vectorizer и classifier fitятся только на train.</li>
+<li><b>Сравнение представлений:</b> сравни word BoW/TF-IDF, word n-grams и character n-grams минимум на Logistic Regression; затем добавь Linear SVM или ComplementNB. Random Forest/CatBoost можно применять только к sparse/агрегированным признакам с ясным обоснованием, а не как обязательную замену линейным моделям.</li>
+<li><b>Оценка:</b> посчитай validation Accuracy, precision, recall, $F_1$, PR-AUC и confusion matrix; основной критерий — $F_1$ положительного класса. Покажи top positive/negative коэффициенты линейной модели, учитывая, что они отражают корреляцию, а не причинность.</li>
+<li><b>Порог и ошибки:</b> подбери порог вероятности по validation, если он отличается от 0.5, и объясни бизнес-цену FP/FN. Разбери не менее 20 FP/FN, сгруппируй причины: сарказм, контекст, многозначность, ссылки, опечатки, неявное упоминание события.</li>
+<li><b>Итог:</b> зафиксируй таблицу конфигураций и результатов, выбери модель с учётом качества, скорости и интерпретируемости. Опционально после выбора обучи на всех размеченных данных и подготовь Kaggle submission.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему TF-IDF fitится только на train?</b></p>
+<p>IDF зависит от частот документов. Если он видит validation/test, информация о распределении проверки попадает в признаки обучения.</p>
+</li>
+<li><p><b>Когда character n-grams полезны?</b></p>
+<p>Они устойчивее к опечаткам, вариациям хештегов, именам и морфологии, но могут увеличить размерность и улавливать шум.</p>
+</li>
+<li><p><b>Почему Accuracy недостаточна для анализа?</b></p>
+<p>Она не показывает, сколько реальных сообщений о катастрофе пропущено и сколько ложных тревог создано. Для этого нужны Precision, Recall, $F_1$ и матрица ошибок.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:nlp-text-classification1:end -->
+        <!-- md:replace:nlp-text-classification2:start -->
+<li class="question" data-md-source="true" data-md-id="nlp-text-classification2" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="nlp-text-classification2">
+    Классификация твиттов II: трансформеры
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Продолжить <a href="#nlp-text-classification1">часть I</a>: сравнить frozen embeddings и end-to-end fine-tuning трансформера на том же split, контролируя ресурсы, длину последовательности и риск переобучения.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй тот же <a href="https://www.kaggle.com/competitions/nlp-getting-started/data" target="_blank" rel="noopener">Disaster Tweets</a>, тот же train/validation split и метрики части I. Достаточно Jupyter-ноутбука или небольшого репозитория с <code>train.py</code>. Не переопределяй split после того, как увидел результаты baseline.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Подходы</div>
+                  <div class="badges-container">
+                      <span class="badge">Frozen transformer embeddings + linear classifier</span>
+                      <span class="badge">Fine-tuning BERT-like encoder</span>
+                      <a href="https://huggingface.co/docs/transformers/index" rel="noopener" target="_blank" class="badge badge-link">Hugging Face Transformers</a>
+                      <span class="badge">Early stopping / scheduler</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <span class="badge"><code>distilbert-base-uncased</code> или аналогичная компактная модель</span>
+                      <span class="badge"><code>roberta-base</code> (при достаточных ресурсах)</span>
+                      <span class="badge">Logistic Regression / MLP head</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Токенизация:</b> выбери checkpoint и его tokenizer, объясни язык, размер модели и ограничения ресурсов. Построй распределение длин после токенизации и зафиксируй <code>max_length</code>: покажи долю обрезанных твитов, а не выбирай длину наугад. Не делай лемматизацию и ручную очистку, если они конфликтуют с pretraining токенизатора.</li>
+<li><b>Frozen embeddings:</b> извлеки embeddings в <code>model.eval()</code> и <code>torch.no_grad()</code>; явно выбери pooling (например, CLS или masked mean pooling). На одинаковом split обучи Logistic Regression или небольшой MLP, сравни с классическим лучшим baseline.</li>
+<li><b>Fine-tuning:</b> дообучи sequence-classification checkpoint на train. Настрой DataLoader, dynamic padding/collator, <code>AdamW</code>, learning rate, число эпох, weight decay, scheduler и early stopping по validation $F_1$. Логируй train/validation loss, $F_1$, learning rate, время и максимальную память GPU, если она доступна.</li>
+<li><b>Контроль экспериментов:</b> используй один seed и фиксируй версии моделей/библиотек. Проводя tuning, изменяй ограниченный набор параметров и используй validation; не подбирай <code>max_length</code>, epoch или порог по Kaggle test.</li>
+<li><b>Оценка и анализ:</b> сравни TF-IDF baseline, frozen embeddings и fine-tuned трансформер по Accuracy, precision, recall, $F_1$, PR-AUC, времени обучения, времени инференса и числу параметров. Для выбранной модели подбери порог на validation и разберись с FP/FN; отдельно покажи ошибки на длинных и коротких твитах.</li>
+<li><b>Ответственное использование:</b> проверь, не ухудшилась ли метрика заметно для текстов с разными диалектами/именами/хештегами. Не делай вывод о намерении или реальном событии человека исключительно по предсказанию модели.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем frozen embeddings отличаются от fine-tuning?</b></p>
+<p>В первом случае веса трансформера не меняются и обучается только классификатор. Fine-tuning обновляет веса модели под задачу, требует больше ресурсов и может дать лучшее качество.</p>
+</li>
+<li><p><b>Почему <code>max_length</code> влияет на качество и стоимость?</b></p>
+<p>Слишком короткое ограничение отбрасывает контекст, а стоимость self-attention растёт примерно квадратично с длиной последовательности.</p>
+</li>
+<li><p><b>Почему нужно использовать tokenizer выбранного checkpoint?</b></p>
+<p>Модель была предобучена на конкретном словаре и правилах разбиения. Другой tokenizer создаёт несовместимые ID токенов и ломает входное представление.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:nlp-text-classification2:end -->
+
+        <!-- <li class="question" data-badge-type="additional">
+          <div class="name" id="nlp-text-summarization">
+            Суммаризация новостей
+          </div>
+          <div class="content">
+            <div class="info-card-auto" data-title="Цель" data-type="definition">
+                <p>Научиться автоматически создавать краткие и информативные аннотации к новостным статьям: анализировать тексты, строить и обучать модели суммаризации (extractive и abstractive), сравнивать их по метрикам качества (ROUGE, BLEU и др.), а также интерпретировать результаты и выбирать лучшие подходы для генерации кратких пересказов.</p>
+              </div>
+              <div class="info-card-auto" data-title="Задача" data-type="remark">
+                <p>Провести эксперимент по автоматической суммаризации новостей из <a href="https://www.kaggle.com/datasets/phoenix120/gazeta-summaries" rel="noopener" target="_blank">Gazeta Summaries</a>. Подготовить бейзлайн, обучить несколько моделей (encoder–decoder и decoder-only), оценить качество, сделать выводы.</p>
+            </div>
+              <figure style="text-align: center">
+                <img src="../../images/practise/g.avif" style="max-width: 500px; width: 100%" />
+              </figure>
+    
+            
+              <div class="comparison-card" style="margin-bottom: 24px;">
+                <div class="comparison-card-header primary">
+                  Основные шаги
+                </div>
+                <ul class="comparison-card-content">
+                  <li><b>EDA:</b> Исследовать датасет, посмотреть длины текстов, распределения.</li>
+                  <li><b>Метрики:</b>
+                    <div class="badges-container" style="margin-top: 8px;">
+                      <span class="badge">ROUGE</span>
+                      <span class="badge">BLEU</span>
+                      <span class="badge">METEOR</span>
+                    </div>
+                  </li>
+                  <li><b>Модели:</b> Обучить:
+                    <div class="badges-container" style="margin-top: 8px;">
+                      <span class="badge">T5 (encoder–decoder)</span>
+                      <span class="badge">LLaMA (decoder-only)</span>
+                      <span class="badge">Qwen (decoder-only)</span>
+                      <span class="badge">Mistral (decoder-only)</span>
+                    </div>
+                    Режимы обучения:
+                    <div class="badges-container" style="margin-top: 8px;">
+                      <span class="badge">Только голова (only head)</span>
+                      <span class="badge">QLoRA + unsloth</span>
+                      <span class="badge">Полное обучение</span>
+                    </div>
+                  </li>
+                </ul>
+                <div class="comparison-card-subtitle">
+                  <b>NOTE: Используй train/val для экспериментов, test для финальной оценки.</b>
+                </div>
+              </div>
+              
+              <div class="comparison-card">
+                <div class="comparison-card-header warning">
+                  Выводы
+                </div>
+                <ul class="comparison-card-content">
+                  <li><b>Выводы:</b> Какие модели дали лучший результат, почему; что можно улучшить.</li>
+                </ul>
+              </div>
+          </div>
+
+        </li> -->
+
+        <!-- RAG -->
+        <!-- faiss indeces -->
+
+        <h3 data-md-source="true">RAG</h3>
+        <!-- md:replace:nlp-qa-rag:start -->
+<li class="question" data-md-source="true" data-md-id="nlp-qa-rag" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="nlp-qa-rag">
+    Научный ассистент I: поиск evidence в статьях
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Построить и измерить retrieval-слой научного ассистента: по вопросу к статье находить фрагменты полного текста, которые содержат размеченные QASPER evidence. Генерация LLM в этой части не требуется.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй <a href="https://allenai.org/data/qasper" target="_blank" rel="noopener">QASPER</a> — вопросы и ответы по полным NLP-статьям с разметкой evidence и unanswerable-кейсами. Для учебного запуска зафиксируй подмножество 100–200 статей и seed выборки; бери все связанные с выбранными статьями вопросы.</p>
+<p>Достаточно Jupyter-ноутбука. Не коммить скачанные статьи, построенные индексы, embeddings и API-ключи. В части II этот эксперимент станет основой отдельного RAG-проекта.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Подходы</div>
+                  <div class="badges-container">
+                      <span class="badge">BM25</span>
+                      <span class="badge">Dense retrieval</span>
+                      <span class="badge">Fixed-size chunking + overlap</span>
+                      <span class="badge">Section / paragraph chunking</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">Recall@1 / @3 / @5</span>
+                      <span class="badge">MRR</span>
+                      <span class="badge">nDCG@k</span>
+                      <span class="badge">Latency</span>
+                      <span class="badge">Размер индекса</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Данные и корпус">
+<ul>
+<li><b>EDA:</b> изучи статьи, секции, абзацы, вопросы, типы ответов, evidence и unanswerable-кейсы. Зафиксируй число выбранных статей, вопросов, среднюю длину статьи и распределение типов ответов.</li>
+<li><b>Разделение:</b> раздели вопросы на train/validation/test по <code>paper_id</code>, чтобы похожие вопросы к одной статье не попадали в разные сплиты. На validation выбирай chunking, embedding-модель и параметры retriever; test не используй до окончательной проверки.</li>
+<li><b>Нормализация:</b> преобразуй полные статьи в документы с <code>paper_id</code>, заголовком, секцией, номером абзаца и исходным текстом. Gold answer и evidence нужны только для оценки и не должны попадать в индекс или вход retriever.</li>
+<li><b>Chunking:</b> сравни две стратегии: фиксированный размер в токенах с overlap и разбиение по секциям/абзацам. Зафиксируй правила для заголовков и таблиц, число/среднюю длину chunk, размер индекса и связь каждого chunk с исходным фрагментом.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Retrieval и оценка">
+<ul>
+<li><b>Baseline:</b> реализуй BM25 и dense retrieval с открытой embedding-моделью. Для обоих подходов возвращай <code>chunk_id</code>, score и метаданные; не используй <code>paper_id</code> вопроса как фильтр, если это не выделено отдельным диагностическим режимом.</li>
+<li><b>Метрики:</b> на validation сравни Recall@1/@3/@5, MRR, nDCG@k и latency. Считай попадание по ID evidence/chunk или по заранее описанному правилу overlap с gold evidence; применяй одну и ту же схему ко всем методам.</li>
+<li><b>Анализ:</b> составь таблицу параметров и метрик. Разбери не менее 20 ошибок: неподходящий размер chunk, evidence в нескольких секциях, недостаточный <code>k</code>, лексическое несовпадение вопроса и статьи, failure dense/BM25 retrieval.</li>
+<li><b>Финальная проверка:</b> после выбора лучшей конфигурации единожды рассчитай те же retrieval-метрики на test. Сохрани примеры запросов, найденных фрагментов и gold evidence для передачи в часть II.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем разделять вопросы по <code>paper_id</code>, а не случайно?</b></p>
+<p>Вопросы к одной статье часто похожи и используют одинаковые формулировки. Случайное разделение позволит retriever настроиться на этот документ и завысит оценку на validation/test.</p>
+</li>
+<li><p><b>Почему Recall@k недостаточен сам по себе?</b></p>
+<p>Он показывает, попало ли evidence в top-k, но не учитывает позицию. MRR и nDCG дополнительно различают evidence на первом и пятом месте.</p>
+</li>
+<li><p><b>Зачем сохранять метаданные chunk?</b></p>
+<p>Они связывают найденный текст с исходной статьёй, секцией и абзацем, позволяют корректно оценить evidence и позже построить проверяемые citations.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:nlp-qa-rag:end -->
+<!-- md:inject:section:RAG:start -->
+<li class="question" data-md-source="true" data-md-id="nlp-qa-rag-part2" data-difficulty="hard">
+  <div class="name question-difficulty-hard question-hard-title" id="nlp-qa-rag-part2">
+    Научный ассистент II: grounded RAG-проект
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Превратить retriever из <a href="#nlp-qa-rag">части I</a> в воспроизводимую RAG-систему: улучшить поиск, сгенерировать ответ только по найденным evidence, вернуть читаемые citations и безопасно отказаться от ответа при недостатке данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Входные артефакты">
+<p>Создай самостоятельный репозиторий <code>qasper-rag/</code> с <code>src/</code>, <code>notebooks/</code>, <code>tests/</code>, <code>data/README.md</code>, <code>README.md</code>, <code>.env.example</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>. Используй тот же QASPER subset, split, rules chunking и test-набор, что в части I; не коммить данные, индекс, embeddings, model weights, результаты с токенами и secrets.</p>
+<p>Допускается локальная open-source LLM или API. Зафиксируй модель, её версию, prompt, temperature, top-k, лимиты токенов и provider в конфигурации; ключи передавай только через окружение.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Подходы</div>
+                  <div class="badges-container">
+                      <span class="badge">Hybrid retrieval / RRF</span>
+                      <span class="badge">Cross-encoder reranking</span>
+                      <span class="badge">Retrieval-only extractive answer</span>
+                      <span class="badge">Grounded generation with citations</span>
+                      <span class="badge">Abstention</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">Recall@k, MRR, nDCG@k</span>
+                      <span class="badge">Exact Match / token $F_1$</span>
+                      <span class="badge">ROUGE-L</span>
+                      <span class="badge">Accuracy отказа</span>
+                      <span class="badge">Citation precision / recall</span>
+                      <span class="badge">Latency / стоимость</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Retriever и контракты">
+<ul>
+<li><b>Улучшение поиска:</b> переиспользуй лучший retriever части I и добавь hybrid retrieval через RRF либо cross-encoder reranker. Сравни baseline и улучшение на validation по тем же Recall@k, MRR, nDCG@k и latency; в README объясни, оправдано ли усложнение.</li>
+<li><b>Контракт данных:</b> опиши Pydantic/JSON-модели <code>Chunk</code>, <code>RetrievedChunk</code>, <code>RagRequest</code> и <code>RagResponse</code>. <code>RagResponse</code> содержит <code>answer</code>, <code>citations</code> (список <code>chunk_id</code>), <code>abstained</code> и <code>reason</code>; валидация запрещает citation, отсутствующую среди retrieved chunks.</li>
+<li><b>Граница контекста:</b> генератор получает только <code>question</code> и top-k <code>RetrievedChunk</code>, но никогда gold answer/evidence. Собери prompt, который запрещает опираться на внешние знания, требует citations и предписывает <code>abstained=true</code>, если evidence нет или вопрос не имеет ответа.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Генерация, оценка и проект">
+<ul>
+<li><b>Режимы:</b> на неизменном test сравни retrieval-only extractive ответ, closed-book LLM и grounded RAG. Для closed-book режима явно не передавай chunks; для RAG сохраняй все найденные chunks, prompt и ответ для аудита.</li>
+<li><b>Ответы:</b> оцени короткие/извлекаемые ответы через Exact Match и token $F_1$, free-form — через ROUGE-L. Отдельно оцени unanswerable: accuracy отказа, ложные ответы и ложные отказы. LLM-as-a-judge/Ragas разрешены только как дополнительная оценка с описанным prompt и ручной выборкой.</li>
+<li><b>Grounding:</b> посчитай citation precision/recall: подтверждает ли cited chunk ответ и покрывает ли evidence. Вручную разбери минимум 30 test-кейсов, включая хороший retrieval с галлюцинацией, плохой retrieval с удачным ответом, верный отказ и ложный уверенный ответ.</li>
+<li><b>Тесты:</b> unit-тестами покрой детерминированный chunking, метаданные, RRF/reranking adapter, JSON/Pydantic-контракт, отказ без evidence и запрет передавать генератору gold answer. Тесты не должны требовать сети, LLM или скачивания QASPER.</li>
+<li><b>Документация и качество:</b> README включает источник и лицензию QASPER, установку через <code>uv</code>, подготовку данных, построение индекса, команды запуска/eval, результаты validation/test, примеры с citations, latency/стоимость и ограничения. На чистой машине должны проходить <code>uv sync</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему ответ нужно оценивать вместе с citations?</b></p>
+<p>Совпадающий с эталоном текст может быть получен без опоры на найденный контекст. Citations позволяют проверить groundedness и источник конкретного утверждения.</p>
+</li>
+<li><p><b>Зачем сравнивать RAG с retrieval-only и closed-book режимами?</b></p>
+<p>Retrieval-only показывает потолок извлечения, closed-book — знания модели без корпуса, а RAG — эффект их соединения. Это локализует причину улучшения или ошибки.</p>
+</li>
+<li><p><b>Почему отказ от ответа — полезная функция?</b></p>
+<p>При отсутствии evidence безопаснее признать ограничение системы, чем сгенерировать уверенную галлюцинацию. Unanswerable-кейсы измеряют эту способность.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:RAG:end -->
+
+        
+        
+
+        <!-- LLM Agents -->
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Agents</h3>
+<li class="question" data-md-source="true" data-md-id="nlp-agents-llamaindex">
+  <div class="name" id="nlp-agents-llamaindex">
+    Агент поддержки маркетплейса I: LlamaIndex
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Построить <b>single-agent</b> систему поддержки маркетплейса на <code>LlamaIndex</code>. Агент читает сведения о заказе из локальной SQLite-базы, находит учебное правило в локальной базе знаний, при необходимости загружает skill и выдаёт оператору строго валидированное решение. В этой и следующих частях нельзя менять данные или совершать реальные возвраты: система только готовит рекомендацию.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Сквозной сценарий и данные">
+<p>Используй <a href="https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce" target="_blank" rel="noopener">Brazilian E-Commerce Public Dataset by Olist</a>: это анонимизированные данные о заказах, товарах, доставке и отзывах. Скачай CSV самостоятельно и не добавляй их в git.</p>
+<p>Создай учебную, а не реальную, базу правил <code>knowledge_base/</code>: правила возврата, инцидента доставки и безопасного ответа клиенту. Скрипт <code>scripts/prepare_data.py</code> должен собрать из CSV локальную SQLite-базу и сформировать общий неизменяемый набор из <code>12</code> кейсов в <code>data/eval/</code>. У каждого кейса есть <code>case_id</code>, <code>order_id</code>, сообщение клиента, ожидаемое решение и список обязательных evidence.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Безопасность и границы">
+<p>Правила в <code>knowledge_base/</code> — вымышленная учебная политика, а не политика Olist. Все tools работают только на чтение; SQL-запросы параметризованы. Не выводи в логах ключи API и не публикуй сырые данные, <code>.env</code> или реальные credentials.</p>
+
+</div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <a href="https://docs.llamaindex.ai/" rel="noopener" target="_blank" class="badge badge-link">LlamaIndex</a>
+                      <a href="https://docs.pydantic.dev/" rel="noopener" target="_blank" class="badge badge-link">Pydantic</a>
+                      <a href="https://docs.astral.sh/uv/" rel="noopener" target="_blank" class="badge badge-link">uv</a>
+                      <a href="https://docs.astral.sh/ruff/" rel="noopener" target="_blank" class="badge badge-link">Ruff</a>
+                      <a href="https://docs.pytest.org/" rel="noopener" target="_blank" class="badge badge-link">pytest</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <span class="badge">Single agent</span>
+                      <span class="badge">Function / tool calling</span>
+                      <span class="badge">Structured output</span>
+                      <span class="badge">Progressive disclosure для skills</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Проект и контракты">
+<p>Собери отдельный репозиторий <code>agent-llamaindex/</code>, а не notebook. В корне обязательны <code>src/</code>, <code>tests/</code>, <code>skills/</code>, <code>knowledge_base/</code>, <code>scripts/</code>, <code>data/</code>, <code>README.md</code>, <code>.env.example</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>.</p>
+<ul>
+<li>Зафиксируй Python <code>3.12</code>, зависимости через <code>uv</code>, Ruff и pytest в <code>pyproject.toml</code>.</li>
+<li>Опиши Pydantic-модели <code>SupportCase</code>, <code>OrderFacts</code>, <code>PolicyAssessment</code> и <code>SupportDecision</code>.</li>
+<li>В <code>SupportDecision</code> обязательно укажи: решение из ограниченного <code>enum</code>, факты заказа, evidence из policy, ответ клиенту, <code>needs_human_review</code> и confidence.</li>
+<li>Добавь CLI <code>marketplace-support solve --case &lt;json&gt;</code>, который читает один кейс и печатает валидированный <code>SupportDecision</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Skills и read-only tools">
+<p>Создай три самостоятельных skills: <code>skills/refund-decision/SKILL.md</code>, <code>skills/delivery-incident/SKILL.md</code>, <code>skills/customer-communication/SKILL.md</code>. В YAML-frontmatter каждого укажи короткие <code>name</code> и <code>description</code>, а в теле — пошаговую инструкцию и разрешённые tools.</p>
+<ul>
+<li>Агент сначала получает только каталог названий и descriptions, затем вызывает <code>load_skill(name)</code> лишь для подходящего skill.</li>
+<li>Реализуй tools: получить заказ и позиции, получить отзыв/снимок доставки, найти policy evidence и загрузить skill.</li>
+<li>Каждый tool возвращает типизированный безопасный результат; неизвестный заказ, неполные данные и пустой поиск policy не должны превращаться в выдуманные факты.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="LlamaIndex-агент">
+<p>Собери один <code>FunctionAgent</code> с минимальным набором tools, системной инструкцией и <code>SupportDecision</code> как <code>output_cls</code>.</p>
+<ul>
+<li>Агент самостоятельно выбирает порядок вызова tools и skills, но не имеет права выдать финальное решение без evidence из policy.</li>
+<li>Сохраняй компактный trace вызовов tools: имя tool, безопасные аргументы, результат/ошибку и порядок шага. Покажи его в CLI вместе с итогом.</li>
+<li>Обработай статус <code>needs_human_review=True</code> для случаев, где данных или правила недостаточно.</li>
+<li>Прогони все <code>12</code> общих кейсов и сохрани таблицу: решение, требуемые/найденные evidence, число tool calls и замечания.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Качество проекта">
+<ul>
+<li>Тестами pytest покрой SQLite tools, поиск policy, skill routing, Pydantic validation, неизвестный заказ, неполный кейс, неверный результат tool и end-to-end сценарий с fake/scripted LLM.</li>
+<li>Тесты не должны обращаться в сеть или требовать API-ключ.</li>
+<li>В <code>README.md</code> опиши архитектуру, подготовку Olist-данных, переменные <code>OPENAI_API_KEY</code>, <code>OPENAI_BASE_URL</code>, <code>MODEL_NAME</code>, запуск CLI, тесты и ограничения данных.</li>
+<li>Убедись, что на чистой машине проходят <code>uv sync --all-groups</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем single agent отличается от фиксированной цепочки?</b></p>
+<p>Single agent сам выбирает следующий tool и порядок действий на основании состояния задачи; в фиксированной цепочке порядок этапов определён программой заранее.</p>
+</li>
+<li><p><b>Зачем <code>SupportDecision</code> описывать Pydantic-моделью?</b></p>
+<p>Контракт валидирует типы и обязательные поля, не позволяет передать произвольный текст вместо решения и делает результат удобным для CLI, тестов и следующего сервиса.</p>
+</li>
+<li><p><b>Чем skill отличается от tool?</b></p>
+<p>Skill — загружаемая по требованию инструкция и доменная процедура; tool — исполняемая функция, которая получает или обрабатывает данные. Skill может объяснять, когда и как вызвать tools.</p>
+</li>
+<li><p><b>Почему агенту нельзя давать право на возврат денег в этой работе?</b></p>
+<p>Учебные данные и правила не являются production-источником истины. Read-only рекомендация безопаснее, а решение с недостаточными evidence должно быть передано человеку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="nlp-agents-langchain">
+  <div class="name" id="nlp-agents-langchain">
+    Агент поддержки маркетплейса II: LangChain
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Перенести тот же сценарий поддержки в отдельный проект на <code>LangChain</code> и сравнить single-agent подход с <b>multi-agent supervisor</b>. Supervisor сам решает, каких специалистов вызвать, а Langfuse собирает один trace с делегированиями, LLM generations, tool calls, latency и usage.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Входные артефакты">
+<p>Создай независимый репозиторий <code>agent-langchain/</code> с <code>src/</code>, <code>tests/</code>, <code>skills/</code>, <code>knowledge_base/</code>, <code>scripts/</code>, <code>data/</code>, <code>README.md</code>, <code>.env.example</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>. Используй неизменяемые <code>12</code> eval-кейсов, SQLite-схему, учебные policies и Pydantic-контракты из части I; их можно скопировать в новый проект, но не импортировать из соседнего репозитория.</p>
+<p>В проекте остаются те же read-only tools и skills <code>skills/refund-decision/SKILL.md</code>, <code>skills/delivery-incident/SKILL.md</code>, <code>skills/customer-communication/SKILL.md</code>. Все участники системы видят только те tools и skills, которые нужны их роли.</p>
+
+</div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <a href="https://docs.langchain.com/oss/python/langchain/overview" rel="noopener" target="_blank" class="badge badge-link">LangChain</a>
+                      <a href="https://langfuse.com/docs/integrations/frameworks/langchain" rel="noopener" target="_blank" class="badge badge-link">Langfuse</a>
+                      <a href="https://docs.pydantic.dev/" rel="noopener" target="_blank" class="badge badge-link">Pydantic</a>
+                      <span class="badge"><code>uv</code></span>
+                      <span class="badge"><code>ruff</code></span>
+                      <span class="badge"><code>pytest</code></span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <span class="badge">Supervisor / subagents-as-tools</span>
+                      <span class="badge">Tool calling</span>
+                      <span class="badge">Skills с progressive disclosure</span>
+                      <span class="badge">Agent traces и observability</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Multi-agent архитектура">
+<p>Реализуй supervisor и трёх специализированных агентов. Каждый агент возвращает Pydantic-модель, а supervisor формирует окончательный <code>SupportDecision</code>.</p>
+<ul>
+<li><b><code>OrderAnalyst</code></b> владеет tools для SQLite и возвращает <code>OrderFacts</code>; не читает policy и не пишет клиенту.</li>
+<li><b><code>PolicySpecialist</code></b> ищет evidence, подгружает подходящий skill и возвращает <code>PolicyAssessment</code>; не имеет доступа к SQL.</li>
+<li><b><code>ResponseReviewer</code></b> проверяет черновик на наличие фактов и evidence, выбирает <code>needs_human_review</code> и формулирует безопасный ответ.</li>
+<li><b>Supervisor</b> передаёт задачи специалистам как tools, не обращается к базе напрямую и не подменяет их типизированные результаты текстовыми догадками.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Langfuse: обязательная наблюдаемость">
+<p>Подключи <code>langfuse.langchain.CallbackHandler</code> к вызову supervisor и ко всем вызовам subagent. Передавай handler через callback config, чтобы одна обработка кейса была видна как единый trace с вложенными агентами и tools.</p>
+<ul>
+<li>Добавь в <code>.env.example</code>: <code>LANGFUSE_PUBLIC_KEY</code>, <code>LANGFUSE_SECRET_KEY</code>, <code>LANGFUSE_HOST</code>, <code>LANGFUSE_TRACING_ENVIRONMENT</code>.</li>
+<li>Для каждого запуска установи <code>trace_name</code>, <code>session_id=case_id</code>, теги <code>langchain</code> и <code>multi-agent</code>, а в metadata — framework, evaluation case и версию проекта.</li>
+<li>CLI после <code>SupportDecision</code> выводит URL trace, но только если Langfuse настроен.</li>
+<li>При отсутствии ключей telemetry factory возвращает no-op handler: offline-тесты проходят без сети, а демонстрационный запуск с реальной LLM и Langfuse обязателен.</li>
+<li>В README помести скриншот или доступную преподавателю ссылку на trace: должны быть видны делегирования, LLM generations, tool calls, latency и token/cost metadata. Не публикуй secrets.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Тесты, документация и эксперименты">
+<ul>
+<li>Добавь unit-тесты tools, поиска policy, skill routing и Pydantic contracts; интеграционные тесты успешного, неполного и несуществующего заказа, а также неверного tool result.</li>
+<li>Замени telemetry factory fake callback в тестах и проверь, что supervisor и subagent получают callback config с общим <code>session_id</code> и tags.</li>
+<li>Прогони 12 eval-кейсов и в README запиши решение, evidence, число вызовов каждого агента/tools, latency и token/cost из Langfuse.</li>
+<li>Документация должна содержать установку, <code>.env</code>, запуск, скриншот/trace, архитектуру ролей, тесты, лицензию Olist-данных и ограничение read-only режима.</li>
+<li>На чистой машине должны пройти <code>uv sync --all-groups</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем делить систему на <code>OrderAnalyst</code>, <code>PolicySpecialist</code> и <code>ResponseReviewer</code>?</b></p>
+<p>Роли изолируют контекст и права доступа: аналитик работает с фактами, специалист — с правилами, reviewer — с безопасностью и финальной формой ответа. Это уменьшает вероятность смешать источники и полномочия.</p>
+</li>
+<li><p><b>Почему supervisor не должен иметь прямой доступ ко всем tools?</b></p>
+<p>Минимальные права делают делегирование проверяемым и снижают риск, что orchestration-агент обойдёт специализированные проверки или использует нерелевантный источник.</p>
+</li>
+<li><p><b>Что должен показывать один Langfuse trace для multi-agent кейса?</b></p>
+<p>Корневой запрос, вложенные вызовы агентов, LLM generations, tools, их входы/выходы, порядок, ошибки, latency, usage и связанные metadata позволяют восстановить фактическую траекторию решения.</p>
+</li>
+<li><p><b>Почему Langfuse не должен быть обязательным для pytest?</b></p>
+<p>Тесты должны быть быстрыми, детерминированными и не зависеть от сети, ключей и внешнего сервиса. Интеграция с Langfuse проверяется через fake/no-op adapter, а настоящая трассировка — отдельным демонстрационным запуском.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="nlp-agents-langgraph" data-difficulty="hard">
+  <div class="name question-difficulty-hard question-hard-title" id="nlp-agents-langgraph">
+    Агент поддержки маркетплейса III: LangGraph + Langfuse
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Собрать отдельную multi-agent систему на <code>LangGraph</code>, где поток управления задан программой как граф состояний. На тех же данных и контрактах реализуй параллельный анализ заказа и policy, ревью с ограниченным циклом доработки, checkpoint/recovery и детальную наблюдаемость в Langfuse.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Входные артефакты">
+<p>Создай независимый репозиторий <code>agent-langgraph/</code> с <code>src/</code>, <code>tests/</code>, <code>skills/</code>, <code>knowledge_base/</code>, <code>scripts/</code>, <code>data/</code>, <code>README.md</code>, <code>.env.example</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>. Не импортируй код из частей I–II: проект должен запускаться самостоятельно на общем наборе 12 eval-кейсов.</p>
+<p>Сохрани единые <code>SupportCase</code>, <code>OrderFacts</code>, <code>PolicyAssessment</code>, <code>SupportDecision</code>, SQLite tools и skills <code>skills/refund-decision/SKILL.md</code>, <code>skills/delivery-incident/SKILL.md</code>, <code>skills/customer-communication/SKILL.md</code>. Внутреннее состояние графа опиши через <code>TypedDict</code>; внешние и межагентные сообщения валидируй Pydantic-моделями.</p>
+
+</div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <a href="https://langchain-ai.github.io/langgraph/" rel="noopener" target="_blank" class="badge badge-link">LangGraph</a>
+                      <a href="https://langfuse.com/guides/cookbook/integration_langgraph" rel="noopener" target="_blank" class="badge badge-link">Langfuse + LangGraph</a>
+                      <a href="https://docs.langchain.com/oss/python/langchain/overview" rel="noopener" target="_blank" class="badge badge-link">LangChain</a>
+                      <span class="badge"><code>uv</code></span>
+                      <span class="badge"><code>ruff</code></span>
+                      <span class="badge"><code>pytest</code></span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <span class="badge">State graph</span>
+                      <span class="badge">Multi-agent orchestration</span>
+                      <span class="badge">Conditional edges и bounded retry</span>
+                      <span class="badge">Checkpoint / recovery</span>
+                      <span class="badge">Agent traces</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Граф и контракты">
+<p>Собери граф с обязательным маршрутом <code>intake</code> -&gt; <code>order_analysis</code> + <code>policy_analysis</code> -&gt; <code>draft</code> -&gt; <code>review</code> -&gt; <code>finish/revise</code>.</p>
+<ul>
+<li><code>intake</code> валидирует <code>SupportCase</code> и создаёт trace context.</li>
+<li><code>order_analysis</code> вызывает только order tools и записывает <code>OrderFacts</code>; <code>policy_analysis</code> подгружает skill, ищет evidence и записывает <code>PolicyAssessment</code>. Эти ветви запускаются независимо.</li>
+<li><code>draft</code> строит <code>SupportDecision</code>, а <code>review</code> проверяет фактологичность и обязательные evidence.</li>
+<li>Условное ребро ведёт к <code>finish</code>, если reviewer одобрил черновик, либо к повторному <code>draft</code>; после двух ревизий граф завершает кейс с <code>needs_human_review=True</code>.</li>
+<li>Добавь checkpoint и CLI-сценарий, который возобновляет незавершённый запуск без потери уже полученных facts и evidence.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Langfuse: один trace на выполнение графа">
+<p>Сделай Langfuse обязательным для демонстрационного запуска. Создай один корневой trace на <code>case_id</code>, передай <code>CallbackHandler</code> в config graph и добавь вложенные observations для узлов <code>intake</code>, <code>order_analysis</code>, <code>policy_analysis</code>, <code>draft</code>, <code>review</code> и связанных agent/tool calls.</p>
+<ul>
+<li>Используй те же переменные окружения, что в части II, и безопасный no-op telemetry adapter без ключей.</li>
+<li>Через общие trace attributes задай <code>trace_name</code>, <code>session_id=case_id</code>, tags <code>langgraph</code>, <code>multi-agent</code>, metadata с framework, eval case и номером ревизии.</li>
+<li>CLI печатает URL trace корневого выполнения после финального решения.</li>
+<li>В README приведи скриншот или доступную преподавателю ссылку на trace-дерево. По нему должно быть видно параллельные ветви, условный переход, повторную ревизию при необходимости и все tools/LLM generations.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Тесты, оценка и сравнение">
+<ul>
+<li>Unit-тестами покрой nodes, tools, skills, contracts и telemetry context. Используй fake LLM и fake/no-op callback, поэтому pytest не требует ключей и сети.</li>
+<li>Интеграционно проверь обе условные ветви, лимит двух ревизий, неизвестный заказ, неполные evidence, неверный tool result и восстановление из checkpoint.</li>
+<li>Прогони все 12 кейсов и сравни с частями I–II: корректность решения/evidence, число agent/tool calls, latency, token/cost, удобство отладки и сложность кода.</li>
+<li>В <code>README.md</code> добавь таблицу сравнения LlamaIndex, LangChain и LangGraph по контролю потока, state, делегированию, skills/tools, structured output, тестируемости, Langfuse observability и результатам общего eval-набора.</li>
+<li>Документация должна содержать установку, подготовку данных, <code>.env</code>, CLI, Ruff/pytest, recovery-сценарий, trace-скриншот и запрет на коммит secrets/сырых данных.</li>
+<li>На чистой машине должны пройти <code>uv sync --all-groups</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>В чём практическое отличие LangGraph от supervisor в LangChain?</b></p>
+<p>В LangGraph разработчик явно задаёт state, nodes, conditional edges и границы цикла. Supervisor в LangChain в большей степени позволяет LLM выбирать траекторию делегирования самостоятельно.</p>
+</li>
+<li><p><b>Почему state графа лучше хранить отдельно от Pydantic-контрактов?</b></p>
+<p><code>TypedDict</code> удобно описывает внутренние каналы и накопление состояния графа, а Pydantic строго валидирует payloads, которые пересекают границы nodes, агентов, CLI и тестов.</p>
+</li>
+<li><p><b>Зачем ограничивать число итераций в агентной системе?</b></p>
+<p>Bounded retry защищает систему от бесконечного цикла, ограничивает стоимость и latency. После исчерпания лимита безопаснее передать кейс человеку.</p>
+</li>
+<li><p><b>Как Langfuse помогает отладить conditional edge и recovery?</b></p>
+<p>Один root trace связывает observations всех nodes, показывает фактический маршрут, номера ревизий, tools и ошибки. По trace можно увидеть место остановки и проверить, что после recovery уже полученные данные не вычислялись заново.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Tokenization</h3>
+<li class="question" data-md-source="true" data-md-id="nlp-tokenizers-comparison">
+  <div class="name" id="nlp-tokenizers-comparison">
+    Сравнение токенизаторов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Сравнить, как готовые предобученные токенизаторы разбивают один и тот же текст на подслова. Нужно увидеть разницу между <b>BPE</b>, <b>WordPiece</b>, <b>Unigram</b> и <b>SentencePiece</b> по длине последовательности, специальным токенам, обработке редких слов, кириллицы, пунктуации, чисел и смешанного текста.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Токенизаторы обучать самостоятельно не нужно. Используй только готовые токенизаторы через <code>transformers.AutoTokenizer.from_pretrained(...)</code>.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <span class="badge">BPE</span>
+                      <span class="badge">WordPiece</span>
+                      <span class="badge">Unigram</span>
+                      <span class="badge">SentencePiece</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <a href="https://huggingface.co/docs/transformers/index" rel="noopener" target="_blank" class="badge badge-link">Hugging Face Transformers</a>
+                      <a href="https://huggingface.co/docs/transformers/model_doc/auto#transformers.AutoTokenizer" rel="noopener" target="_blank" class="badge badge-link">AutoTokenizer</a>
+                      <span class="badge"><code>pandas</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="remark" data-title="Готовые токенизаторы">
+<p>Используй эти предобученные токенизаторы:</p>
+<ul>
+<li><b>BPE / byte-level BPE:</b> <a href="https://huggingface.co/docs/transformers/model_doc/gpt2" target="_blank" rel="noopener">GPT-2</a>, <code>AutoTokenizer.from_pretrained(&quot;gpt2&quot;)</code>.</li>
+<li><b>WordPiece:</b> <a href="https://huggingface.co/bert-base-uncased" target="_blank" rel="noopener">BERT base uncased</a>, <code>AutoTokenizer.from_pretrained(&quot;bert-base-uncased&quot;)</code>.</li>
+<li><b>Unigram:</b> <a href="https://huggingface.co/albert/albert-base-v2" target="_blank" rel="noopener">ALBERT base v2</a>, <code>AutoTokenizer.from_pretrained(&quot;albert/albert-base-v2&quot;)</code>.</li>
+<li><b>SentencePiece:</b> <a href="https://huggingface.co/google/mt5-small" target="_blank" rel="noopener">mT5 small</a>, <code>AutoTokenizer.from_pretrained(&quot;google/mt5-small&quot;)</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Текст для сравнения">
+<p>Можно использовать этот небольшой текст: <code>Transformers changed NLP because subword tokenization handles rare words. Сегодня ML-инженер сравнивает BPE, WordPiece, Unigram и SentencePiece. Unbelievable tokenization examples: ChatGPT-2026, e-mail, C++, naïve, Москва.</code></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Если хочешь взять свой текст, он должен содержать английский, русский, редкие/длинные слова, числа, дефисы и пунктуацию.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Загрузка:</b> загрузи четыре токенизатора из блока выше через <code>AutoTokenizer.from_pretrained(...)</code>.</li>
+<li><b>Токенизация:</b> для одного и того же текста получи <code>tokens</code>, <code>input_ids</code>, <code>attention_mask</code> и результат <code>decode(input_ids)</code>.</li>
+<li><b>Таблица сравнения:</b> собери <code>pandas.DataFrame</code> со столбцами:<ul>
+<li><code>method</code>: BPE / WordPiece / Unigram / SentencePiece;</li>
+<li><code>model_id</code>: строка, переданная в <code>from_pretrained</code>;</li>
+<li><code>vocab_size</code>;</li>
+<li><code>num_tokens_without_special</code>;</li>
+<li><code>num_tokens_with_special</code>;</li>
+<li><code>num_unique_tokens</code>;</li>
+<li><code>unk_count</code>;</li>
+<li><code>chars_per_token</code>;</li>
+<li><code>special_tokens</code>;</li>
+<li><code>decoded_equals_original</code> или краткое описание отличий после <code>decode</code>.</li>
+</ul>
+</li>
+<li><b>Разбор токенов:</b> отдельно сравни, как каждый токенизатор разбивает слова и фрагменты <code>Transformers</code>, <code>ML-инженер</code>, <code>Unbelievable</code>, <code>ChatGPT-2026</code>, <code>e-mail</code>, <code>C++</code>, <code>naïve</code>, <code>Москва</code>.</li>
+<li><b>Мини-задача над токенизированным текстом:</b> представь, что у модели контекстное окно всего <code>32</code> токена. Для каждого токенизатора разбей текст на чанки не длиннее <code>32</code> токенов, затем сравни:<ul>
+<li>сколько чанков получилось;</li>
+<li>сколько символов в среднем помещается в один чанк;</li>
+<li>где проходят границы чанков;</li>
+<li>какой токенизатор эффективнее упаковывает этот конкретный текст.</li>
+</ul>
+</li>
+<li><b>Вывод:</b> объясни, почему один и тот же текст даёт разное число токенов, где появляются <code>[UNK]</code>/<code>&lt;unk&gt;</code>, какие токенизаторы лучше справились с русским и смешанным текстом, и почему сравнение токенизаторов важно для стоимости инференса и длины контекста.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Подсказка">
+<p>Для честного сравнения сначала токенизируй без специальных токенов: <code>tokenizer(text, add_special_tokens=False)</code>, а затем отдельно с <code>add_special_tokens=True</code>. Так будет видно, какие токены добавляет конкретная модель: <code>[CLS]</code>, <code>[SEP]</code>, <code>&lt;s&gt;</code>, <code>&lt;/s&gt;</code> и другие.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

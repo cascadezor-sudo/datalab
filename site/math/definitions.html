@@ -1,0 +1,1185 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Обозначения</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link href="../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/math-video-resources.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">math</span>
+            <span class="pill pill--soft">Обозначения</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count"
+              >0 вопросов</span
+            >
+          </div>
+          <h1 id="title" class="section-shell__title">Обозначения</h1>
+          <p class="section-shell__desc">
+            Вопросы по математическим обозначениям.
+          </p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">
+              Случайный вопрос
+            </button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <section class="math-video-resources" aria-labelledby="math-videos-title">
+        <p class="math-video-resources__eyebrow">Перед вопросами</p>
+        <h2 id="math-videos-title" class="math-video-resources__title">Видео, которые помогут разобраться в математике для ML</h2>
+        <p class="math-video-resources__intro">Посмотрите их целиком или возвращайтесь к нужным темам, когда встречаете незнакомое понятие в вопросах ниже.</p>
+        <ul class="math-video-resources__list">
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://www.youtube.com/watch?v=FZ-7aoMtTaQ"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-for-ml.webp"
+                  alt="Превью видео «Математика для ML: теория вероятностей, математическая статистика и оптимизация»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Математика для ML: теория вероятностей, математическая
+                статистика и оптимизация ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Разбор трёх разделов, без которых не обойтись ML-инженеру:
+                теорвер, матстат и оптимизация — что именно спрашивают и зачем
+                это нужно на практике.</span
+              >
+            </a>
+          </li>
+          <li>
+            <a
+              class="math-video-resources__link"
+              href="https://youtu.be/5uBGv5ul5To"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="math-video-resources__thumb">
+                <img
+                  src="../assets/images/video/math-interview-ml.webp"
+                  alt="Превью видео «Собес: математика ML»"
+                  width="800"
+                  height="450"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span class="math-video-resources__link-title"
+                >Популярные вопросы по математике для ML и DS ↗</span
+              >
+              <span class="math-video-resources__link-description"
+                >Линейная алгебра, матанализ, векторы и матрицы, нормы,
+                косинусная близость, ранг, базис, производная, градиент и
+                экстремумы, аппроксимация, интерполяция и экстраполяция.</span
+              >
+            </a>
+          </li>
+        </ul>
+      </section>
+      <!-- <div class="proof-type">
+    Показывать
+    <select id="select-proof-type" name="select-proof-type">
+      <option value="proofs">доказательства полностью</option>
+      <option value="ideas">только идеи доказательств</option>
+    </select>
+  </div> -->
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$
+        $\global\def\abs#1{\left\lvert #1 \right\rvert}$
+        $\global\def\norm#1{\left\lVert #1 \right\rVert}$
+        $\global\def\dp#1#2{\,#1 \cdot #2\,}$ $\global\def\vp#1#2{#1 \times
+        #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$
+        $\global\def\pdv2#1#2{\frac{\partial^2 #1}{\partial #2^2}}$
+        $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$
+        $\global\def\paren#1{\left( #1 \right)}$
+        $\global\def\angset#1{\left\lang #1 \right\rang}$
+        $\global\def\mbox#1{\text{#1}}$ $\global\def\div{\text{div}\,}$
+        $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$
+        $\global\def\vb#1{\textbf{#1}}$ $\global\def\rddots{\cdot^{\displaystyle
+        \cdot^{\displaystyle \cdot}}}$ $\global\def\op#1{\mathrm{#1}\,}$
+        $\global\def\diag{\mathrm{diag}\,}$ $\global\def\rank{\mathrm{rank}\,}$
+        $\global\def\Sh{\,\mathrm{Sh}}$ $\global\def\Sp{\,\mathrm{Sp}\,}$
+        $\global\def\proj{\mathrm{proj}}$ $\global\def\grad{\,\mathrm{grad}\,}$
+        $\global\def\const{\text{const}\,}$ $\global\def\res{\text{res}\,}$
+        $\global\def\Res{\text{Res}\,}$ $\global\def\Lin{\,\text{Lin}\,}$
+        $\global\def\Re{\text{Re}\,}$ $\global\def\Im{\text{Im}\,}$
+        $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3>Блок 1</h3>
+        <!-- md:replace:summation_and_product:start -->
+<li class="question" data-md-source="true" data-md-id="summation_and_product" data-interview="1">
+  <div class="name" id="summation_and_product">
+    Запись суммирования и произведения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Запись суммирования и произведения: если мы складываем/умножаем и т.д. $n$ объектов, то запись можно сократить:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\begin{aligned} a_1+a_2+\dots+a_n=\sum_{i=1}^n a_i\\ a_1\cdot a_2\cdot \;\dots\; \cdot a_n=\prod_{i=1}^n a_i \end{aligned}$$">$$\begin{aligned} a_1+a_2+\dots+a_n=\sum_{i=1}^n a_i\\ a_1\cdot a_2\cdot \;\dots\; \cdot a_n=\prod_{i=1}^n a_i \end{aligned}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Символ $\sum$ (сигма) и $\prod$ (пи) — это просто краткая запись длинных сумм и произведений. Нижний индекс ($i=1$) говорит, с какого числа начать, верхний ($n$) — до какого дойти. На каждом шаге $i$ увеличивается на единицу.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p><span class="latex-copy-wrap" data-latex="$$\sum_{i=1}^4 i^2 = 1^2 + 2^2 + 3^2 + 4^2 = 1 + 4 + 9 + 16 = 30$$">$$\sum_{i=1}^4 i^2 = 1^2 + 2^2 + 3^2 + 4^2 = 1 + 4 + 9 + 16 = 30$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p><span class="latex-copy-wrap" data-latex="$$\prod_{i=1}^4 i = 1 \cdot 2 \cdot 3 \cdot 4 = 24$$">$$\prod_{i=1}^4 i = 1 \cdot 2 \cdot 3 \cdot 4 = 24$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В ML эти символы встречаются повсюду. Например, функция потерь MSE — это сумма по всем объектам выборки:</p>
+<p><span class="latex-copy-wrap" data-latex="$$L = \frac{1}{n}\sum_{i=1}^n (y_i - \hat{y}_i)^2$$">$$L = \frac{1}{n}\sum_{i=1}^n (y_i - \hat{y}_i)^2$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>А функция правдоподобия — это произведение:</p>
+<p><span class="latex-copy-wrap" data-latex="$$L(\theta) = \prod_{i=1}^n f(x_i | \theta)$$">$$L(\theta) = \prod_{i=1}^n f(x_i | \theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Без понимания этих символов читать формулы ML практически невозможно.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает запись $\sum_{i=1}^n a_i$?</b></p>
+<p>Сумма $a_1 + a_2 + \cdots + a_n$: начинаем с $i=1$, прибавляем каждый $a_i$ и увеличиваем $i$ на 1 до $n$.</p>
+</li>
+<li><p><b>Что означает запись $\prod_{i=1}^n a_i$?</b></p>
+<p>Произведение $a_1 \cdot a_2 \cdot \ldots \cdot a_n$: символ $\prod$ (пи) означает то же самое, что $\sum$, но для перемножения.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:summation_and_product:end -->
+        <!-- md:replace:membership:start -->
+<li class="question" data-md-source="true" data-md-id="membership" data-interview="1">
+  <div class="name" id="membership">
+    Символ принадлежности
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\in$ — символ <b>принадлежности</b> элемента к множеству.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<ul>
+<li>$x\in \mathbb{R}$ означает <b>число $x$ принадлежит множеству вещественных чисел</b>.</li>
+<li>$x\in \mathbb{R}^n$ означает, что $x$ — $n$-мерный вектор: <b>вектор $x$ принадлежит $n$-мерному пространству вещественных чисел</b>.</li>
+<li>$x\not\in \mathbb{R}$ — <b>$x$ не принадлежит множеству вещественных чисел</b>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\subset$ — тоже символ принадлежности, но <b>множеств</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Выражение &quot;множество $A$ принадлежит множеству $B$&quot; будет записано как $A\subset B$, то есть $B$ полностью содержит в себе элементы множества $A$.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Не путайте $\in$ и $\subset$: первый применяется к <b>элементу</b> и множеству, второй — к двум <b>множествам</b>.</p>
+<ul>
+<li>$3 \in \mathbb{N}$ — число $3$ принадлежит натуральным числам.</li>
+<li>$\mathbb{N} \subset \mathbb{Z}$ — натуральные числа — подмножество целых (все натуральные являются целыми, но не наоборот).</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В ML запись $\theta \in \mathbb{R}^n$ встречается повсюду: параметры модели — это вектор из $n$ вещественных чисел. Или $y \in \{0, 1\}$ — метка принадлежит множеству из двух значений. Или $f: \mathbb{R}^d \to \mathbb{R}$ — функция, которая отображает вектор признаков в вещественное число (предсказание).</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает символ $\in$ и чем он отличается от $\subset$?</b></p>
+<p>$\in$ — символ принадлежности элемента множеству ($x \in A$: элемент $x$ входит в $A$). $\subset$ — символ вложенности множеств ($A \subset B$: все элементы $A$ являются элементами $B$).</p>
+</li>
+<li><p><b>Что означает запись $x \in \mathbb{R}^n$?</b></p>
+<p>Что $x$ — $n$-мерный вектор вещественных чисел, то есть упорядоченный набор из $n$ вещественных чисел.</p>
+</li>
+<li><p><b>Приведите пример использования $\in$ и $\subset$ на примере числовых множеств.</b></p>
+<p>$3 \in \mathbb{N}$ — число $3$ принадлежит натуральным числам. $\mathbb{N} \subset \mathbb{Z}$ — натуральные числа являются подмножеством целых.</p>
+</li>
+<li><p><b>Как символ принадлежности используется в ML-нотации?</b></p>
+<p>Например, $\theta \in \mathbb{R}^n$ — параметры модели, $y \in \{0, 1\}$ — метка бинарной классификации, $f: \mathbb{R}^d \to \mathbb{R}$ — модель, отображающая вектор признаков в предсказание.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:membership:end -->
+        <!-- md:replace:vector_notation:start -->
+<li class="question" data-md-source="true" data-md-id="vector_notation" data-interview="1">
+  <div class="name" id="vector_notation">
+    Обозначение векторов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Иногда векторы обозначаются жирным шрифтом, чтобы было удобнее отличать их от чисел (скаляров): $\mathbf{x}\in\mathbb{R}^n, x\in \mathbb{R}$.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Скаляр — это одно число. Вектор — это упорядоченный набор чисел. Разные книги и статьи используют разные соглашения: жирный строчный $\mathbf{x}$, надчёркивание $\vec{x}$ или просто $x$ без украшений (тогда приходится понимать из контекста). В ML-литературе чаще всего встречается жирное начертание.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<ul>
+<li>$x \in \mathbb{R}$ — скаляр: например, рост конкретного человека ($x = 175$ см)</li>
+<li>$\mathbf{x} \in \mathbb{R}^n$ — вектор: например, признаки одного объекта в датасете — рост, вес, возраст сразу вместе:</li>
+</ul>
+<p><span class="latex-copy-wrap" data-latex="$$\mathbf{x} = \begin{bmatrix} 175 \\ 70 \\ 25 \end{bmatrix} \in \mathbb{R}^3$$">$$\mathbf{x} = \begin{bmatrix} 175 \\ 70 \\ 25 \end{bmatrix} \in \mathbb{R}^3$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>В чём разница между скаляром и вектором?</b></p>
+<p>Скаляр — одно число ($x \in \mathbb{R}$). Вектор — упорядоченный набор чисел ($\mathbf{x} \in \mathbb{R}^n$).</p>
+</li>
+<li><p><b>Зачем в ML-литературе используют жирное начертание $\mathbf{x}$ для векторов?</b></p>
+<p>Чтобы визуально отличать векторы от скаляров в формулах, особенно когда используются обе нотации в одном выражении.</p>
+</li>
+<li><p><b>Что означает $\mathbf{x} \in \mathbb{R}^3$?</b></p>
+<p>Вектор $\mathbf{x}$ из трёх вещественных чисел, например $\mathbf{x} = (175, 70, 25)^\top$ — описание объекта тремя признаками (рост, вес, возраст).</p>
+</li>
+<li><p><b>Какие другие обозначения для векторов встречаются помимо жирного шрифта?</b></p>
+<p>Надчёркивание $\vec{x}$ или просто $x$ без украшений (тогда принадлежность к вектору понимается из контекста). В ML-литературе наиболее распространено жирное начертание $\mathbf{x}$.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:vector_notation:end -->
+        <!-- md:replace:strong_less_than_greater_than:start -->
+<li class="question" data-md-source="true" data-md-id="strong_less_than_greater_than" data-badge-type="additional" data-interview="1">
+  <div class="name" id="strong_less_than_greater_than">
+    Сильно меньше/больше
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Символы $\ll$ и $\gg$ используются для обозначения сильно меньшего и сильно большего соотношения между числами.</p>
+<ul>
+<li>$\ll$ — сильно меньше</li>
+<li>$\gg$ — сильно больше</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Например, $1 \ll 10^8$ означает, что 1 сильно меньше $10^8$, а $10^8 \gg 1$ означает, что $10^8$ сильно больше 1.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Есть варианты для подчеркивания еще большего и меньшего соотношения между числами:</p>
+<ul>
+<li>$\lll$ — сильно сильно меньше</li>
+<li>$\ggg$ — сильно сильно больше</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Например, $1 \lll 10^{50}$ означает, что 1 сильно сильно меньше $10^{50}$, а $10^{50} \ggg 1$ означает, что $10^{50}$ сильно сильно больше 1.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означают символы $\ll$ и $\gg$?</b></p>
+<p>$\ll$ — &quot;сильно меньше&quot;, $\gg$ — &quot;сильно больше&quot;. Используются, когда одно число на много порядков превосходит другое.</p>
+</li>
+<li><p><b>Приведите пример использования $\ll$ в контексте числовых значений.</b></p>
+<p>$\eta \ll 1$ — learning rate много меньше единицы, например $\eta = 10^{-3}$. Запись подчёркивает, что шаг обучения очень мал по сравнению с масштабом параметров.</p>
+</li>
+<li><p><b>Чем $\ll$ отличается от обычного знака $&lt;$?</b></p>
+<p>$&lt;$ означает просто &quot;меньше&quot;, $\ll$ — &quot;несравнимо меньше&quot;, то есть разрыв между значениями очень велик (как правило, на несколько порядков).</p>
+</li>
+<li><p><b>Когда может встретиться символ $\gg$ в формулах машинного обучения?</b></p>
+<p>Например, $n \gg p$ — число объектов намного больше числа признаков, что является стандартным предположением классических статистических методов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:strong_less_than_greater_than:end -->
+        <!-- md:replace:cup_cap:start -->
+<li class="question" data-md-source="true" data-md-id="cup_cap" data-interview="1">
+  <div class="name" id="cup_cap">
+    Символ объединения и пересечения множеств
+  </div>
+  <div class="content">
+    <h3>Объединение</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\cup$ — символ <b>объединения</b> множеств.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если $A = \{1,2,3\}$ и $B = \{2,3,4\}$, то $A \cup B = \{1,2,3,4\}$ — множество всех элементов, которые принадлежат либо $A$, либо $B$, либо обоим.</p>
+
+</div>
+<h3>Пересечение</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\cap$ — символ <b>пересечения</b> множеств.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если $A = \{1,2,3\}$ и $B = \{2,3,4\}$, то $A \cap B = \{2,3\}$ — множество всех элементов, которые принадлежат и $A$, и $B$.</p>
+
+</div>
+<h3>Диаграмма Венна</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Диаграмма Венна — это графическое представление множеств и операций над ними.</p>
+<figure style="text-align: center">
+  <img alt="Диаграмма Венна" src="../images/math/definitions/venn.png" width="267" height="302" loading="lazy" decoding="async" style="max-width: 200px; width: 100%; height: auto" />
+  <figcaption>
+    Диаграмма Венна для двух множеств $A$ и $B$. $A \cup B$ — объединение, $A \cap B$ — пересечение
+  </figcaption>
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означают символы $\cup$ и $\cap$?</b></p>
+<p>$\cup$ — объединение: все элементы, которые входят хотя бы в одно из множеств. $\cap$ — пересечение: только те элементы, которые входят в оба множества одновременно.</p>
+</li>
+<li><p><b>Что такое диаграмма Венна и как на ней изображаются объединение и пересечение?</b></p>
+<p>Диаграмма Венна — графическое представление множеств в виде перекрывающихся кругов. $A \cup B$ — оба круга целиком. $A \cap B$ — только область перекрытия.</p>
+</li>
+<li><p><b>Как символы $\cup$ и $\cap$ могут встречаться при работе с данными в ML?</b></p>
+<p>$\text{train} \cup \text{val}$ — объединение обучающей и валидационной выборок. $\text{group\_A} \cap \text{group\_B}$ — пересечение групп A и B в A/B-тесте (нежелательное явление).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:cup_cap:end -->
+        <!-- md:replace:quantors:start -->
+<li class="question" data-md-source="true" data-md-id="quantors" data-badge-type="additional" data-interview="1">
+  <div class="name" id="quantors">
+    Кванторы
+  </div>
+  <div class="content">
+    <h3>Квантор всеобщности</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\forall$ — символ <b>для всех</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$\forall x \in \mathbb{R}, \; x^2 \geq 0$ — &quot;для любого вещественного числа $x$ квадрат $x^2$ неотрицателен&quot;.</p>
+
+</div>
+<h3>Квантор существования</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\exists$ — символ <b>существует</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$\exists x \in \mathbb{R}: x^2 = 4$ — &quot;существует вещественное число $x$, квадрат которого равен 4&quot; (например, $x=2$ или $x=-2$).</p>
+
+</div>
+<h3>Отрицание</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\nexists$ — символ <b>не существует</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$\nexists x \in \mathbb{R}: x^2 = -1$ — &quot;не существует вещественного числа $x$, квадрат которого равен $-1$&quot;.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Кванторы — стандартный язык математических утверждений. Несколько примеров из ML-формул:</p>
+<ul>
+<li>&quot;$\forall i \in \{1, \dots, n\}$&quot; — утверждение справедливо для каждого объекта выборки.</li>
+<li>&quot;$\exists w^*: L(w^*) = \min_w L(w)$&quot; — существует оптимальный вектор параметров.</li>
+</ul>
+<p>На практике в коде кванторы заменяются циклами и операциями над массивами, но в математических утверждениях они выражают общность или существование без явного перебора.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означают символы $\forall$ и $\exists$?</b></p>
+<p>$\forall$ — &quot;для всех&quot; (квантор всеобщности). $\exists$ — &quot;существует&quot; (квантор существования). $\nexists$ — &quot;не существует&quot;.</p>
+</li>
+<li><p><b>Что означает запись $\forall x \in \mathbb{R}, x^2 \geq 0$?</b></p>
+<p>Для любого вещественного числа $x$ выполняется $x^2 \geq 0$.</p>
+</li>
+<li><p><b>Что означает $\exists w^*: L(w^*) = \min_w L(w)$ в контексте обучения модели?</b></p>
+<p>Существует оптимальный вектор параметров $w^*$, при котором функция потерь достигает минимума.</p>
+</li>
+<li><p><b>Как кванторы связаны с практикой программирования в ML?</b></p>
+<p>$\forall i \in \{1, \ldots, n\}$ — в коде реализуется как цикл или операция над массивом. Кванторы позволяют кратко записать утверждения, которые в коде требуют явного перебора.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:quantors:end -->
+        <!-- md:replace:indicator_function:start -->
+<li class="question" data-md-source="true" data-md-id="indicator_function" data-badge-type="required later" data-interview="2">
+  <div class="name" id="indicator_function">
+    Индикаторная функция
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\mathbb{I}[\text{"некоторое условие"}]$ — индикаторная функция от <b>некоторого условия</b>. Она равна 1, если условие выполняется, и 0 в противном случае.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Иногда используют обозначение $[\text{"некоторое условие"}]$ вместо $\mathbb{I}[\text{"некоторое условие"}]$.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Пояснение">
+<p>Индикаторная функция — это математический способ сказать &quot;если условие выполнено — засчитываем единицу, иначе ноль&quot;. Это позволяет компактно записывать условные суммы и вероятности.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$L(a,x) = \mathbb{I}[a(x) \ne y(x)]$ — 0-1 функция потерь. Равна $1$, если $a(x) \ne y(x)$ (предсказание не совпадает с истинным значением) и $0$, если $a(x) = y(x)$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\begin{aligned} L(a,x) = \mathbb{I}[a(x) \ne y(x)] = \begin{cases} 1, &amp; \text{если } a(x) \ne y(x) \\ 0, &amp; \text{если } a(x) = y(x) \end{cases} \end{aligned}$$">$$\begin{aligned} L(a,x) = \mathbb{I}[a(x) \ne y(x)] = \begin{cases} 1, &amp; \text{если } a(x) \ne y(x) \\ 0, &amp; \text{если } a(x) = y(x) \end{cases} \end{aligned}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Сумма индикаторных функций по выборке даёт <b>количество</b> объектов, удовлетворяющих условию:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i] = \text{число ошибок классификатора}$$">$$\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i] = \text{число ошибок классификатора}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Доля ошибок (accuracy error) — это то же самое, делённое на $n$. Таким образом, метрика <b>доля ошибок классификации</b> записывается через индикаторную функцию:</p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{Error} = \frac{1}{n}\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i]$$">$$\text{Error} = \frac{1}{n}\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое индикаторная функция $\mathbb{I}[\text{условие}]$ и каковы её возможные значения?</b></p>
+<p>Индикаторная функция равна $1$, если условие выполняется, и $0$ в противном случае.</p>
+</li>
+<li><p><b>Как записать 0-1 функцию потерь через индикаторную функцию?</b></p>
+<p>$L(a, x) = \mathbb{I}[a(x) \ne y(x)]$ — равна $1$ при ошибке классификатора и $0$ при верном предсказании.</p>
+</li>
+<li><p><b>Что вычисляет сумма $\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i]$?</b></p>
+<p>Общее количество ошибок классификатора на выборке из $n$ объектов.</p>
+</li>
+<li><p><b>Как выразить метрику &quot;доля ошибок классификации&quot; через индикаторную функцию?</b></p>
+<p><span class="latex-copy-wrap" data-latex="$$\text{Error} = \frac{1}{n}\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i]$$">$$\text{Error} = \frac{1}{n}\sum_{i=1}^n \mathbb{I}[a(x_i) \ne y_i]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Это доля объектов, на которых предсказание $a(x_i)$ не совпало с истинной меткой $y_i$.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:indicator_function:end -->
+        <!-- md:replace:dominance:start -->
+<li class="question" data-md-source="true" data-md-id="dominance" data-badge-type="additional" data-interview="1">
+  <div class="name" id="dominance">
+    Доминирование
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Символ $\succ$ обозначает <b>строгое доминирование</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Символ $\succ$ может встретиться в LLM задачах, когда аннотаторам (разметчикам) нужно выбрать лучший ответ среди нескольких вариантов, которые сгенерировала большая языковая модель (LLM) (см. <a href="../ai/ml/nlp/base.html#llm-training-pipeline" target="_blank" rel="noopener">алгоритм обучения LLM</a>).</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Например, $A \succ B$ означает, что $A$ строго доминирует над $B$.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает символ $\succ$?</b></p>
+<p>Символ $\succ$ обозначает строгое доминирование: $A \succ B$ означает, что $A$ строго лучше $B$ по некоторому критерию.</p>
+</li>
+<li><p><b>В каком контексте ML-задач используется символ $\succ$?</b></p>
+<p>В задачах обучения больших языковых моделей (LLM), когда аннотаторы сравнивают ответы модели и указывают, какой из них лучше: $y_{\text{chosen}} \succ y_{\text{rejected}}$.</p>
+</li>
+<li><p><b>Чем $\succ$ отличается от обычного знака $&gt;$?</b></p>
+<p>$&gt;$ используется для сравнения числовых значений. $\succ$ — для сравнения объектов по предпочтению или качеству, когда численного значения нет, а есть лишь ранжирование.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dominance:end -->
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="argmin_argmax" data-badge-type="additional" data-interview="2">
+  <div class="name" id="argmin_argmax">
+    argmin и argmax
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\arg\min_x f(x)$ — значение аргумента $x$, при котором функция $f(x)$ достигает <b>минимума</b>.</p>
+<p>$\arg\max_x f(x)$ — значение аргумента $x$, при котором функция $f(x)$ достигает <b>максимума</b>.</p>
+<p>Для сравнения: $\min_x f(x)$ и $\max_x f(x)$ — само экстремальное <b>значение</b> функции, а не аргумент.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Пусть $f(x) = (x-3)^2$. Тогда:</p>
+<ul>
+<li>$\arg\min_x f(x) = 3$ — точка минимума</li>
+<li>$\min_x f(x) = 0$ — значение в минимуме</li>
+</ul>
+<p>В ML: $\hat{\theta} = \arg\min_\theta L(\theta)$ — вектор параметров, минимизирующий функцию потерь.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В задаче классификации $\hat{y} = \arg\max_{k} P(y=k \mid x)$ — предсказанный класс: тот, для которого модель выдала наибольшую вероятность.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Только обозначение">
+<p>Здесь дано первичное знакомство с символами $\arg\min$ и $\arg\max$. Постановка задачи оптимизации, условия существования минимума и связь с градиентным спуском разобраны подробно в разделе <b>Численные методы $\to$ Задача оптимизации</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем $\arg\min_\theta L(\theta)$ отличается от $\min_\theta L(\theta)$?</b></p>
+<p>$\arg\min$ — это <b>аргумент</b> (значение $\theta$), при котором $L$ минимальна. $\min$ — само <b>минимальное значение</b> функции потерь.</p>
+</li>
+<li><p><b>Что означает $\hat{y} = \arg\max_k P(y=k \mid x)$?</b></p>
+<p>Предсказанный класс — тот $k$, для которого вероятность максимальна (правило максимального правдоподобия).</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="expectation_variance_notation" data-interview="2">
+  <div class="name" id="expectation_variance_notation">
+    Обозначения математического ожидания и дисперсии
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В формулах используются несколько равнозначных обозначений:</p>
+<p><b>Математическое ожидание:</b></p>
+<ul>
+<li>$\mathbb{E}[X]$ или $\mathbf{E}[X]$ или $E[X]$ — ожидаемое значение случайной величины $X$</li>
+<li>$\mathbb{E}_x[f(x)]$ — ожидание по распределению $x$</li>
+</ul>
+<p><b>Дисперсия:</b></p>
+<ul>
+<li>$\mathbb{D}[X]$ или $\mathbf{D}[X]$ — в российских учебниках</li>
+<li>$\mathrm{Var}(X)$ или $\sigma^2$ — в западной литературе и ML</li>
+</ul>
+<p><b>Стандартное отклонение:</b></p>
+<ul>
+<li>$\sigma = \sqrt{\mathrm{Var}(X)}$</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Все эти обозначения означают одно и то же. $\mathbb{D}$ встречается в российских учебниках, $\mathrm{Var}$ — в ML-статьях и коде (например, <code>np.var(x)</code>). Определения и формулы — на страницах по математическому ожиданию и дисперсии.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Одно и то же, разные обозначения:
+<span class="latex-copy-wrap" data-latex="$$\mathbb{D}[\xi] = \mathrm{Var}(X) = \sigma^2 = \mathbb{E}[(X - \mathbb{E}[X])^2]$$">$$\mathbb{D}[\xi] = \mathrm{Var}(X) = \sigma^2 = \mathbb{E}[(X - \mathbb{E}[X])^2]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Только обозначение">
+<p>Здесь собраны обозначения для первичного знакомства. Формулы, свойства и интерпретации математического ожидания и дисперсии разобраны подробно в разделе <b>Теория вероятностей $\to$ Математическое ожидание</b> и <b>Дисперсия</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как обозначается математическое ожидание в ML-литературе?</b></p>
+<p>Чаще всего $\mathbb{E}[X]$ или $E[X]$. В российских учебниках иногда $M[X]$.</p>
+</li>
+<li><p><b>Чем $\mathbb{D}[X]$ и $\mathrm{Var}(X)$ отличаются по смыслу?</b></p>
+<p>Ничем — это одна и та же величина (дисперсия). Разница только в нотации: $\mathbb{D}$ — российская традиция, $\mathrm{Var}$ — западная.</p>
+</li>
+<li><p><b>Как связаны $\mathrm{Var}(X)$ и $\sigma$?</b></p>
+<p>$\sigma = \sqrt{\mathrm{Var}(X)}$ — стандартное отклонение, дисперсия без квадратного корня.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="absolute_value" data-interview="1">
+  <div class="name" id="absolute_value">
+    Абсолютное значение и норма вектора
+  </div>
+  <div class="content">
+    <h3>Абсолютное значение</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$|x|$ — <b>модуль</b> (абсолютное значение) числа $x$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$|x| = \begin{cases} x, &amp; x \geq 0 \\ -x, &amp; x &lt; 0 \end{cases}$$">$$|x| = \begin{cases} x, &amp; x \geq 0 \\ -x, &amp; x &lt; 0 \end{cases}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$|{-3}| = 3$, $|5| = 5$, $|0| = 0$.</p>
+
+</div>
+<h3>Норма вектора</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\|\mathbf{x}\|$ — <b>норма</b> вектора $\mathbf{x}$ (его «длина»). Конкретный вид нормы уточняется индексом: $\|\mathbf{x}\|_2$ — евклидова, $\|\mathbf{x}\|_1$ — сумма модулей.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Не путайте: $|x|$ — модуль <b>числа</b>, $\|\mathbf{x}\|$ — норма <b>вектора</b>. Ещё $|A|$ иногда обозначает <b>определитель матрицы</b> $A$ (см. страницу по определителям). Из контекста всегда видно, что имеется в виду.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Только обозначение">
+<p>Здесь дано первичное знакомство с символами $|\cdot|$ и $\|\cdot\|$. Свойства нормы, виды норм ($L_1$, $L_2$, $L_p$) и их роль в ML разобраны подробно в разделе <b>Математический анализ $\to$ Нормы</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чему равно $|{-7}|$?</b></p>
+<p>$|{-7}| = 7$. Модуль всегда неотрицателен.</p>
+</li>
+<li><p><b>Чем $\|\mathbf{x}\|$ отличается от $|x|$?</b></p>
+<p>$|x|$ — модуль числа (скаляра). $\|\mathbf{x}\|$ — норма вектора (обобщение понятия длины на многомерный случай).</p>
+</li>
+<li><p><b>Что означает $|A|$ и как понять из контекста?</b></p>
+<p>Если $A$ — матрица, то $|A| = \det A$ (определитель). Если $A$ — число или выражение — это модуль. Двойные вертикальные черты $\|\cdot\|$ всегда означают норму вектора.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="approx_proportional" data-interview="1">
+  <div class="name" id="approx_proportional">
+    Приближённое равенство и пропорциональность
+  </div>
+  <div class="content">
+    <h3>Приближённое равенство</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\approx$ — символ <b>приближённого равенства</b>: значения близки, но не обязательно совпадают.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$\pi \approx 3.14$, $\sqrt{2} \approx 1.41$. В численных методах: $\theta^{(t+1)} \approx \theta^*$ — параметры после достаточного числа шагов близки к оптимуму.</p>
+
+</div>
+<h3>Пропорциональность</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\propto$ — символ <b>пропорциональности</b>: $a \propto b$ означает, что $a = c \cdot b$ для некоторой <b>положительной</b> константы $c$, которая не зависит от рассматриваемых переменных.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>В теореме Байеса:
+<span class="latex-copy-wrap" data-latex="$$P(\theta \mid x) \propto P(x \mid \theta)\,P(\theta)$$">$$P(\theta \mid x) \propto P(x \mid \theta)\,P(\theta)$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span>
+Апостериорное распределение пропорционально правдоподобию, умноженному на априорное — нормировочная константа $P(x)$ опущена, так как она не зависит от $\theta$.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>В чём разница между $=$ и $\approx$?</b></p>
+<p>$=$ — точное равенство, $\approx$ — значения близки, но могут отличаться (из-за округления, аппроксимации и т.п.).</p>
+</li>
+<li><p><b>Что означает запись $a \propto b$?</b></p>
+<p>$a$ и $b$ отличаются лишь на постоянный положительный множитель: $a = c \cdot b$ при некотором $c &gt; 0$. Всё, что не зависит от переменных интереса, можно «спрятать» в эту константу.</p>
+</li>
+<li><p><b>Зачем $\propto$ используется в формуле Байеса?</b></p>
+<p>Нормировочная константа $P(x)$ не зависит от параметра $\theta$ и потому не влияет на форму апостериорного распределения. Запись через $\propto$ сохраняет суть, не загромождая формулу.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="interval_notation" data-interview="1">
+  <div class="name" id="interval_notation">
+    Обозначение интервалов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Интервал — это множество вещественных чисел, заключённых между двумя границами. Тип скобок указывает, включены ли границы:</p>
+<table class="task-table">
+<thead><tr><th>Запись</th><th>Название</th><th>Условие</th></tr></thead>
+<tbody>
+<tr><td>$[a, b]$</td><td>отрезок</td><td>$a \leq x \leq b$</td></tr>
+<tr><td>$(a, b)$</td><td>интервал (открытый)</td><td>$a &lt; x &lt; b$</td></tr>
+<tr><td>$[a, b)$</td><td>полуинтервал</td><td>$a \leq x &lt; b$</td></tr>
+<tr><td>$(a, b]$</td><td>полуинтервал</td><td>$a &lt; x \leq b$</td></tr>
+<tr><td>$[a, +\infty)$</td><td>луч</td><td>$x \geq a$</td></tr>
+<tr><td>$(-\infty, b)$</td><td>луч</td><td>$x &lt; b$</td></tr>
+<tr><td>$(-\infty, +\infty)$</td><td>вся числовая прямая</td><td>$x \in \mathbb{R}$</td></tr>
+</tbody>
+</table><p>Квадратная скобка <code>[</code> или <code>]</code> — граница <b>включена</b>. Круглая <code>(</code> или <code>)</code> — <b>не включена</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<ul>
+<li>$x \in [0, 1]$ — вероятность: от 0 до 1 включительно.</li>
+<li>$\eta \in (0, 1)$ — learning rate: строго больше 0, строго меньше 1 (исключаем «нулевой» и «единичный» шаг).</li>
+<li>$\sigma^2 \in [0, +\infty)$ — дисперсия: неотрицательна.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем отличается $[a,b]$ от $(a,b)$?</b></p>
+<p>$[a,b]$ включает оба конца ($a \leq x \leq b$), $(a,b)$ — нет ($a &lt; x &lt; b$).</p>
+</li>
+<li><p><b>Почему learning rate записывают как $\eta \in (0,1)$, а не $[0,1]$?</b></p>
+<p>При $\eta = 0$ обучения не происходит, при $\eta = 1$ шаг слишком большой — обе границы исключены как деgenerate cases.</p>
+</li>
+<li><p><b>Что означает $[0, +\infty)$ и почему $+\infty$ всегда в круглой скобке?</b></p>
+<p>Все числа $x \geq 0$. Бесконечность не является числом и не может быть «достигнута», поэтому скобка всегда круглая.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="set_difference" data-interview="1">
+  <div class="name" id="set_difference">
+    Разность множеств
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$A \setminus B$ — <b>разность множеств</b>: элементы, которые принадлежат $A$, но <b>не</b> принадлежат $B$:</p>
+<p><span class="latex-copy-wrap" data-latex="$$A \setminus B = \{x \mid x \in A \text{ и } x \notin B\}$$">$$A \setminus B = \{x \mid x \in A \text{ и } x \notin B\}$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если $A = \{1,2,3,4\}$ и $B = \{3,4,5\}$, то $A \setminus B = \{1,2\}$.</p>
+<p>В анализе: $\mathbb{R} \setminus \{0\}$ — вещественные числа <b>кроме нуля</b> (область определения $f(x) = 1/x$).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Частный случай: <b>дополнение</b> $\overline{A}$ (или $A^c$) — это $U \setminus A$, где $U$ — универсальное множество. Например, если $U = \mathbb{R}$ и $A = [0, +\infty)$, то $\overline{A} = (-\infty, 0)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает $A \setminus B$?</b></p>
+<p>Элементы, которые есть в $A$, но отсутствуют в $B$.</p>
+</li>
+<li><p><b>Что такое $\mathbb{R} \setminus \{0\}$?</b></p>
+<p>Все вещественные числа, кроме нуля. Используется, когда 0 — точка разрыва или деление на нуль.</p>
+</li>
+<li><p><b>Чем разность $A \setminus B$ отличается от пересечения $A \cap B$?</b></p>
+<p>$A \cap B$ — общие элементы. $A \setminus B$ — то, что есть в $A$ и <b>не</b> входит в $B$.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="function_notation" data-interview="1">
+  <div class="name" id="function_notation">
+    Обозначение функций
+  </div>
+  <div class="content">
+    <h3>Тип отображения</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$f: X \to Y$ — функция $f$, которая принимает аргументы из множества $X$ (<b>область определения</b>) и возвращает значения из множества $Y$ (<b>область значений</b>).</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$f: \mathbb{R}^d \to \mathbb{R}$ — модель, принимающая вектор $d$ признаков и возвращающая вещественное число (предсказание).</p>
+
+</div>
+<h3>Правило соответствия</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$x \mapsto f(x)$ — стрелка с хвостиком: читается «$x$ отображается в $f(x)$». Указывает <b>конкретное правило</b>, по которому вычисляется значение.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>$x \mapsto x^2$ — функция, возводящая число в квадрат. То же самое, что $f(x) = x^2$.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Различие: $\to$ описывает <b>типы</b> (область определения и значений), $\mapsto$ описывает <b>вычисление</b>. Пример:
+<span class="latex-copy-wrap" data-latex="$$f: \mathbb{R} \to \mathbb{R}, \quad x \mapsto x^2$$">$$f: \mathbb{R} \to \mathbb{R}, \quad x \mapsto x^2$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span>
+Первая часть говорит, что $f$ берёт вещественные числа и возвращает вещественные; вторая — что именно делает: возводит в квадрат.</p>
+
+</div>
+<h3>Обратная функция</h3>
+
+<div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$f^{-1}$ — <b>обратная функция</b>: если $f(x) = y$, то $f^{-1}(y) = x$. Не путать с $\frac{1}{f(x)}$.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Только обозначение">
+<p>Здесь дано первичное знакомство с нотацией функций. Понятие области определения, области значений, непрерывности, производной и обратной функции разобраны подробно в разделе <b>Математический анализ $\to$ Функции одной переменной</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает $f: \mathbb{R}^d \to \mathbb{R}$?</b></p>
+<p>Функция $f$ принимает $d$-мерный вещественный вектор и возвращает одно вещественное число.</p>
+</li>
+<li><p><b>Чем $\to$ отличается от $\mapsto$?</b></p>
+<p>$\to$ описывает типы: из какого множества в какое. $\mapsto$ описывает правило вычисления: что происходит с конкретным элементом.</p>
+</li>
+<li><p><b>Что такое $f^{-1}(y)$?</b></p>
+<p>Обратная функция: то значение $x$, при котором $f(x) = y$. Не путать с $1/f(y)$.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="log_ln_notation" data-interview="2">
+  <div class="name" id="log_ln_notation">
+    Логарифм: обозначения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>$\log_a x$ — логарифм $x$ по основанию $a$: ответ на вопрос «в какую степень нужно возвести $a$, чтобы получить $x$».</p>
+<p><span class="latex-copy-wrap" data-latex="$$\log_a x = y \iff a^y = x, \quad a &gt; 0,\; a \neq 1,\; x &gt; 0$$">$$\log_a x = y \iff a^y = x, \quad a &gt; 0,\; a \neq 1,\; x &gt; 0$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Частные случаи:</p>
+<ul>
+<li>$\ln x = \log_e x$ — <b>натуральный</b> логарифм (основание $e \approx 2.718$)</li>
+<li>$\log_2 x$ — двоичный логарифм (основание 2)</li>
+<li>$\lg x = \log_{10} x$ — десятичный логарифм</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><b>Соглашение в ML:</b> запись $\log$ без указания основания в формулах потерь (кросс-энтропия, KL-дивергенция, MLE) почти всегда означает <b>натуральный логарифм</b> $\ln$. Это влияет только на масштаб константы, но не на форму оптимизации.</p>
+<p>В теории информации чаще используют $\log_2$ (единица измерения — биты), в ML — $\ln$ (нэты). В коде: <code>numpy.log</code> — натуральный; <code>numpy.log2</code> и <code>numpy.log10</code> — соответственно.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Кросс-энтропия в задаче бинарной классификации:
+<span class="latex-copy-wrap" data-latex="$$H(y, \hat{y}) = -\bigl[y \log \hat{y} + (1-y)\log(1-\hat{y})\bigr]$$">$$H(y, \hat{y}) = -\bigl[y \log \hat{y} + (1-y)\log(1-\hat{y})\bigr]$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span>
+Здесь $\log$ — натуральный логарифм. Функция определена только при $\hat{y} \in (0,1)$.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Только обозначение">
+<p>Здесь дано первичное знакомство с нотацией логарифма. Свойства логарифма, формулы дифференцирования и роль $\ln$ в функциях потерь разобраны подробно в разделе <b>Математический анализ $\to$ Производные</b> и <b>Теория информации $\to$ Кросс-энтропия</b>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает $\log_a x$?</b></p>
+<p>Степень, в которую надо возвести $a$, чтобы получить $x$: $a^{\log_a x} = x$.</p>
+</li>
+<li><p><b>Чем $\ln$ отличается от $\log$?</b></p>
+<p>$\ln x = \log_e x$ — натуральный логарифм. В ML запись $\log$ без основания обычно означает именно $\ln$.</p>
+</li>
+<li><p><b>Почему выбор основания не влияет на результат оптимизации?</b></p>
+<p>$\log_a x = \frac{\ln x}{\ln a}$: логарифмы по разным основаниям отличаются на константу. Минимум функции потерь не зависит от масштабирования на константу.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->
+      </ol>
+    </main>
+    <script src="../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body>
+</html>

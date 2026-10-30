@@ -1,0 +1,1093 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Вопросы по CV</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/code-styles.css" rel="stylesheet" />
+    <link href="../../assets/css/cards.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Интервью</span>
+            <span class="pill pill--soft">Computer Vision</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Вопросы по CV</h1>
+          <p class="section-shell__desc">Вопросы по компьютерному зрению с собеседований.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <!-- md:inject:start -->
+        <h3 data-md-source="true">Классический CV</h3>
+<li class="question" data-md-source="true" data-md-id="cv-image-representation-interview">
+  <div class="name" id="cv-image-representation-interview">
+    Как изображение представлено в памяти и какие бывают цветовые пространства?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Изображение — это трёхмерный тензор $H \times W \times C$: высота, ширина и число каналов. Для 8-битного RGB каждый элемент — целое число от 0 до 255, для обученных сетей его почти всегда переводят в <code>float32</code> и нормируют. В PyTorch принят порядок осей <code>CHW</code> (канал первый), в OpenCV и PIL — <code>HWC</code>, причём OpenCV читает картинку в порядке каналов <b>BGR</b>, а не RGB. Половина «странных» багов в CV — это перепутанный порядок осей или каналов.</p>
+<p>Цветовые пространства решают разные задачи. <b>RGB</b> — то, как изображение хранится и показывается, но его каналы сильно скоррелированы и меняются все сразу при изменении освещения. <b>HSV/HSL</b> разделяет тон (Hue), насыщенность и яркость, поэтому пороговая сегментация по цвету («найти все красные объекты») в HSV устойчивее к тени и засветке. <b>Lab</b> спроектирован так, чтобы евклидово расстояние примерно соответствовало воспринимаемой человеком разнице цветов, — его берут для цветокоррекции, сравнения цветов и как основу для CIEDE2000. <b>Grayscale</b> — одна яркостная плоскость, достаточная для градиентных детекторов и экономящая в три раза память.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему нормализация — не формальность">
+<p>Свёрточная сеть — это композиция линейных операций; если вход имеет масштаб $[0, 255]$, то активации первых слоёв в сотни раз больше, чем ожидают инициализация и оптимизатор, и обучение либо разваливается, либо идёт очень медленно. Поэтому вход приводят к $[0, 1]$ и вычитают среднее с делением на стандартное отклонение по каналам (для ImageNet — <code>mean = [0.485, 0.456, 0.406]</code>, <code>std = [0.229, 0.224, 0.225]</code>). Ключевое требование: <b>та же самая нормализация должна применяться и на инференсе</b>, иначе модель видит другое распределение входа.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые ошибки">
+<p>Забыть про BGR при переходе с OpenCV на PyTorch — модель будет работать, но качество молча просядет, потому что красный и синий каналы поменялись местами. Второе: применить нормализацию ImageNet к домену, где статистика другая (спутниковые снимки, медицинские изображения, рентген), не проверив, помогает ли она. Третье: делать <code>resize</code> без сохранения пропорций там, где геометрия объекта важна (детекция, OCR).</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-filters-convolution-interview">
+  <div class="name" id="cv-filters-convolution-interview">
+    Что такое свёртка изображения с ядром и какие бывают классические фильтры?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Свёртка — это скользящее окно: маленькая матрица весов (ядро, kernel) прикладывается к каждому положению изображения, соответствующие числа перемножаются и складываются, результат записывается в выходную карту. Формально для двумерного случая</p>
+<p><span class="latex-copy-wrap" data-latex="\[(I * K)(i, j) = \sum_{m} \sum_{n} I(i - m,\, j - n) \, K(m, n).\]">\[(I * K)(i, j) = \sum_{m} \sum_{n} I(i - m,\, j - n) \, K(m, n).\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>То есть каждое значение выхода — это взвешенная сумма локальной окрестности пикселя, а веса задают, что именно мы ищем.</p>
+<p>Классические ядра: <b>box filter</b> и <b>гауссово</b> размытие (усреднение, подавление шума), <b>Собель/Превитт</b> (приближение частных производных $\partial I/\partial x$, $\partial I/\partial y$ — то есть детектор границ), <b>Лапласиан</b> (вторая производная, реагирует на резкие перепады во всех направлениях), <b>unsharp mask</b> (повышение резкости через вычитание размытой версии). В нейросетях такие ядра не задаются руками — они обучаются, но первые слои обученной CNN действительно сходятся к чему-то очень похожему на детекторы границ и цветовых пятен.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему гаусс — «правильное» размытие">
+<p>Гауссово ядро — единственное сепарабельное радиально-симметричное ядро: двумерную свёртку $k \times k$ можно заменить на две одномерные ($1 \times k$ и $k \times 1$), что снижает стоимость с $O(k^2)$ до $O(2k)$ на пиксель. Кроме того, у гаусса нет резких «звонов» в частотной области, поэтому он не создаёт артефактов, которые даёт простое усреднение по квадрату.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Корреляция vs свёртка">
+<p>Строго говоря, в свёртке ядро переворачивается, а в кросс-корреляции — нет. Все ML-фреймворки (<code>torch.nn.Conv2d</code>, TensorFlow) реализуют именно <b>кросс-корреляцию</b>, но называют её свёрткой. Для обучаемых весов разницы нет — сеть просто выучит перевёрнутое ядро; разница важна только когда вы вручную задаёте несимметричное ядро.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-canny-interview">
+  <div class="name" id="cv-canny-interview">
+    Как работает детектор границ Кэнни?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Canny — это пятишаговый конвейер, а не одно ядро:</p>
+<ol>
+<li><b>Сглаживание гауссом</b> — убираем шум, чтобы производная не реагировала на отдельные пиксели.</li>
+<li><b>Градиент</b> — оператором Собеля считаем $G_x$, $G_y$, из них модуль $|G| = \sqrt{G_x^2 + G_y^2}$ и направление $\theta = \arctan(G_y / G_x)$.</li>
+<li><b>Non-maximum suppression</b> — вдоль направления градиента оставляем только локальный максимум. Это превращает «толстую» полосу отклика в линию толщиной в один пиксель.</li>
+<li><b>Двойной порог</b> — пиксели с $|G| &gt; T_{high}$ считаются сильными границами, с $|G| &lt; T_{low}$ — отбрасываются, промежуточные становятся «слабыми кандидатами».</li>
+<li><b>Hysteresis (связность)</b> — слабый кандидат остаётся, только если он связан цепочкой с сильной границей. Это и есть главная идея Кэнни: граница — это протяжённая структура, а не одиночный пиксель.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему два порога, а не один">
+<p>Один порог всегда даёт компромисс между разрывами и мусором: высокий рвёт контуры в местах слабого контраста, низкий пропускает шум. Гистерезис снимает этот компромисс: жёсткий порог решает, где граница точно есть, а мягкий — только продолжает уже начатую линию. На практике берут $T_{high} / T_{low} \approx 2{:}1$ или $3{:}1$ и подбирают их от статистики градиента конкретного домена (например, по медиане яркости).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что спрашивают дальше">
+<p>Типичный follow-up: «зачем Canny в 2026 году, если есть сегментационные сети?». Ответ: он детерминирован, не требует данных и обучения, работает за миллисекунды на CPU и остаётся рабочим инструментом для препроцессинга (поиск документа/таблицы на скане, выделение контура детали на конвейере, ControlNet-условие для генеративных моделей). Плохой ответ — «это устарело», хороший — «это дешёвый baseline и полезный признак там, где границы физически определены».</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-sift-hog-interview">
+  <div class="name" id="cv-sift-hog-interview">
+    Что такое SIFT и HOG и зачем они нужны в эпоху нейросетей?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>SIFT</b> (Scale-Invariant Feature Transform) — детектор и дескриптор локальных особых точек. Он ищет экстремумы в пирамиде разностей гауссиан (DoG), то есть точки, устойчивые к масштабу, приписывает каждой доминирующее направление градиента (устойчивость к повороту) и описывает окрестность гистограммами градиентов в сетке $4 \times 4$ по 8 направлений — итого вектор из 128 чисел. Такие дескрипторы можно сопоставлять между кадрами по расстоянию, поэтому SIFT — фундамент для сшивки панорам, SfM/SLAM, поиска дубликатов и оценки гомографии.</p>
+<p><b>HOG</b> (Histogram of Oriented Gradients) — не про точки, а про целое окно: изображение режется на ячейки, в каждой считается гистограмма направлений градиента, гистограммы нормируются по блокам, и конкатенация даёт вектор признаков окна. Связка HOG + линейный SVM + скользящее окно была стандартом детекции пешеходов до эпохи CNN.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это всё ещё спрашивают">
+<p>Оба метода — ручной аналог того, что делает первый слой CNN: локальные градиенты, агрегация по окрестности, нормализация. Вопрос на собеседовании обычно проверяет не знание констант, а понимание, <b>какие инварианты</b> строит алгоритм: SIFT явно закладывает инвариантность к масштабу и повороту и устойчивость к освещению через нормализацию, CNN получает инвариантность из данных и аугментаций. Это же объясняет, когда классика выигрывает: когда данных мало или их нет вовсе.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Где классика до сих пор побеждает">
+<p>Геометрические задачи: сопоставление точек между кадрами, калибровка камеры, стерео, оценка позы, склейка снимков. Здесь нужны точные субпиксельные соответствия, а не семантика, и SIFT/ORB работают без обучения на любом домене. В современных пайплайнах их всё чаще заменяют обучаемыми SuperPoint + LightGlue, но постановка задачи и метрики те же.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-histogram-equalization-interview">
+  <div class="name" id="cv-histogram-equalization-interview">
+    Что такое выравнивание гистограммы и когда оно помогает?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Гистограмма изображения — распределение яркостей: сколько пикселей имеют значение 0, 1, …, 255. Если снимок недоэкспонирован, вся масса гистограммы сжата в узкий диапазон, и детали визуально теряются.</p>
+<p><b>Histogram equalization</b> растягивает это распределение: строится накопленная функция распределения (CDF) яркостей, и она же используется как отображение старой яркости в новую. Формально $y = \text{round}\big(255 \cdot \text{CDF}(x)\big)$. Результат — распределение, близкое к равномерному: контраст растёт, редкие уровни яркости раздвигаются.</p>
+<p><b>CLAHE</b> (Contrast Limited Adaptive Histogram Equalization) делает то же самое локально, по тайлам $8 \times 8$, и ограничивает высоту гистограммы (clip limit), чтобы не усиливать шум в однородных областях. На практике почти всегда берут CLAHE, а не глобальную версию.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему глобальное выравнивание часто портит картинку">
+<p>Глобальный вариант применяет одно преобразование ко всему кадру: если половина снимка — тёмный фон, а половина — засвеченный объект, оптимум для одной половины разрушает другую. Плюс в почти однородных областях CDF растёт ступеньками, и выравнивание вытаскивает наружу шум сенсора, который до этого был незаметен. Ограничение контраста в CLAHE как раз обрезает «хвост» гистограммы, распределяя лишнюю массу равномерно, — шум не усиливается настолько.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про цветные изображения">
+<p>Выравнивать каждый канал RGB независимо нельзя — меняются соотношения каналов и цвета «уплывают». Правильный путь: перевести в YCrCb или Lab, выровнять только яркостный канал ($Y$ или $L$), вернуть обратно.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">CNN и свёртки</h3>
+<li class="question" data-md-source="true" data-md-id="cv-cnn-vs-mlp-interview">
+  <div class="name" id="cv-cnn-vs-mlp-interview">
+    Почему для изображений используют CNN, а не полносвязную сеть?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Три причины: параметры, локальность и инвариантность к сдвигу.</p>
+<p><b>Параметры.</b> Полносвязный слой на входе $224 \times 224 \times 3$ с 1000 нейронов — это $224 \cdot 224 \cdot 3 \cdot 1000 \approx 150$ млн весов только в первом слое. Свёрточный слой с 64 ядрами $3 \times 3 \times 3$ — это $64 \cdot (3 \cdot 3 \cdot 3 + 1) = 1792$ веса. Разница в пять порядков при том же входе.</p>
+<p><b>Локальность и разделяемые веса.</b> Признак «вертикальная граница» одинаково полезен в любом месте кадра, поэтому логично применять одно и то же ядро ко всем позициям, а не учить отдельный вес для каждого пикселя. Это встроенный в архитектуру приор о структуре изображений.</p>
+<p><b>Эквивариантность к сдвигу.</b> Если объект сдвинуть на несколько пикселей, карта признаков сдвинется так же — свёртка эквивариантна сдвигу, а последующий pooling или global average pooling делает предсказание уже инвариантным. Полносвязная сеть такого свойства не имеет и вынуждена выучивать каждое положение объекта отдельно, что требует на порядки больше данных.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как это связано с данными">
+<p>Архитектурный приор — это способ вложить знание о задаче в модель вместо того, чтобы добывать его из данных. Именно поэтому CNN обучаются на десятках тысяч картинок, а Vision Transformer, у которого этого приора нет, требует либо миллионов изображений, либо сильных аугментаций и дистилляции, чтобы догнать CNN на малых датасетах.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Не путайте эквивариантность и инвариантность">
+<p>Свёртка <b>эквивариантна</b>: сдвиг входа даёт сдвиг выхода. Инвариантность (выход не меняется) появляется только после агрегирующей операции — pooling, global average pooling или голосования. Утверждение «CNN инвариантна к сдвигу» без этой оговорки — типичная неточность, за которую цепляются на собеседовании. К повороту и масштабу CNN не инвариантна вообще, это добирается аугментациями.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-conv-output-params-interview">
+  <div class="name" id="cv-conv-output-params-interview">
+    Как посчитать размер выхода и число параметров свёрточного слоя?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Размер выхода по одной оси:</p>
+<p><span class="latex-copy-wrap" data-latex="\[H_{out} = \left\lfloor \frac{H_{in} + 2p - d(k - 1) - 1}{s} \right\rfloor + 1,\]">\[H_{out} = \left\lfloor \frac{H_{in} + 2p - d(k - 1) - 1}{s} \right\rfloor + 1,\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $k$ — размер ядра, $p$ — padding, $s$ — stride, $d$ — dilation. При $d = 1$ формула упрощается до $\lfloor (H_{in} + 2p - k)/s \rfloor + 1$.</p>
+<p>Число обучаемых параметров: $(k_h \cdot k_w \cdot C_{in} + 1) \cdot C_{out}$, где $+1$ — bias на выходной канал (его нет, если <code>bias=False</code>, что обычно и делают перед BatchNorm).</p>
+<p>Число операций (MACs) на весь выход: $H_{out} \cdot W_{out} \cdot C_{out} \cdot k_h \cdot k_w \cdot C_{in}$. Именно эта величина, а не число параметров, определяет время инференса.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Конкретный расчёт">
+<p>Вход $224 \times 224 \times 3$, слой <code>Conv2d(3, 64, kernel_size=7, stride=2, padding=3)</code>.</p>
+<p>Выход: $\lfloor (224 + 6 - 7)/2 \rfloor + 1 = \lfloor 111.5 \rfloor + 1 = 112$, то есть $112 \times 112 \times 64$.</p>
+<p>Параметры: $(7 \cdot 7 \cdot 3 + 1) \cdot 64 = 148 \cdot 64 = 9472$.</p>
+<p>MACs: $112 \cdot 112 \cdot 64 \cdot 7 \cdot 7 \cdot 3 \approx 118$ млн. Это первый слой ResNet-50.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему «same padding» — это $p = (k-1)/2$">
+<p>Чтобы при $s = 1$ размер не менялся, нужно $H_{in} + 2p - k + 1 = H_{in}$, откуда $p = (k-1)/2$. Для $k = 3$ это $p = 1$, для $k = 5$ — $p = 2$. Для чётных $k$ целого решения нет, поэтому в CV почти всегда используют нечётные ядра: у них есть центральный пиксель и симметричный padding.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушка про параметры и память">
+<p>Число параметров не зависит от разрешения входа, а потребление памяти при обучении — зависит, и линейно: активации всех слоёв хранятся для backward. Поэтому «модель на 25 млн параметров» может не влезть в GPU при батче 32 и разрешении $1024 \times 1024$, хотя веса занимают всего 100 МБ. На собеседовании это любимый уточняющий вопрос.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-receptive-field-interview">
+  <div class="name" id="cv-receptive-field-interview">
+    Что такое receptive field и как его увеличить?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Receptive field (рецептивное поле) нейрона — область входного изображения, которая вообще может повлиять на его значение. Для стека свёрток он растёт по рекуррентной формуле</p>
+<p><span class="latex-copy-wrap" data-latex="\[r_{l} = r_{l-1} + (k_l - 1) \cdot \prod_{i &lt; l} s_i,\]">\[r_{l} = r_{l-1} + (k_l - 1) \cdot \prod_{i &lt; l} s_i,\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>то есть каждый следующий слой добавляет $(k-1)$, умноженное на накопленный stride. Без stride два слоя $3 \times 3$ дают $5 \times 5$, три — $7 \times 7$: рост линейный и медленный. Со stride 2 рост становится экспоненциальным по числу downsample-этапов.</p>
+<p>Способы увеличить рецептивное поле: больше слоёв, ядра большего размера, stride/pooling (даунсемплинг), dilated (atrous) свёртки, pyramid pooling (ASPP, PPM), а также глобальные механизмы — global average pooling, self-attention, non-local блоки.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это важно на практике">
+<p>Если объект на изображении больше рецептивного поля выходного нейрона, сеть физически не может «увидеть» его целиком и вынуждена решать задачу по фрагменту. Классический симптом: сегментация крупных однородных объектов (дорога, небо, поле) разваливается на пятна, потому что модель по локальному фрагменту не отличает асфальт от бетонной стены. Отсюда ASPP в DeepLab и pyramid pooling в PSPNet — они добирают контекст без роста числа параметров.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Теоретическое и эффективное поле">
+<p>Формула даёт теоретический размер, но вклад пикселей внутри него распределён примерно как гауссиана: центр влияет сильно, края — почти нет. Эффективное рецептивное поле оказывается заметно меньше теоретического (примерно как $\sqrt{L}$ вместо $L$ для $L$ слоёв). Поэтому в реальности берут запас: считают, что нужно теоретическое поле в 2–3 раза больше типичного объекта.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-conv-types-interview">
+  <div class="name" id="cv-conv-types-interview">
+    Чем отличаются depthwise separable, dilated и transposed свёртки?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Depthwise separable</b> — обычная свёртка, разложенная на две: depthwise (одно ядро $k \times k$ на каждый входной канал, каналы не смешиваются) и pointwise $1 \times 1$ (смешивает каналы). Стоимость падает с $k^2 C_{in} C_{out}$ до $k^2 C_{in} + C_{in} C_{out}$, то есть примерно в $1/k^2 + 1/C_{out}$ раз — для $3 \times 3$ это в 8–9 раз. Основа MobileNet, EfficientNet, Xception.</p>
+<p><b>Dilated (atrous)</b> — ядро с «дырками»: между соседними весами вставляется $d - 1$ пропуск. Рецептивное поле растёт как $k + (k-1)(d-1)$, а число параметров и разрешение выхода не меняются. Основа DeepLab и ASPP.</p>
+<p><b>Transposed (deconvolution)</b> — операция, увеличивающая пространственный размер: каждый входной пиксель «размазывается» ядром на выходную сетку. Используется в декодерах U-Net, GAN, автоэнкодерах. Это не обратная свёртка в математическом смысле, а свёртка с транспонированной матрицей развёртки.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему depthwise separable почти не теряет качество">
+<p>Обычная свёртка одновременно решает две разные задачи: находит пространственные паттерны и смешивает каналы. Эти задачи почти независимы, и их факторизация теряет мало информации, зато радикально экономит вычисления. Расплата — низкая арифметическая интенсивность: depthwise-слой упирается в память, а не в вычисления, поэтому реальное ускорение на GPU часто меньше теоретического (на мобильных CPU — ближе к теории).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Шахматные артефакты у transposed свёртки">
+<p>Когда stride не делит нацело размер ядра (классика: $k = 3$, $s = 2$), выходные пиксели получают разное число вкладов, и на картинке появляется регулярная «шахматка». Стандартное лечение — заменить transposed свёртку на <code>Upsample(scale_factor=2, mode=&#39;nearest&#39;/&#39;bilinear&#39;)</code> + обычную <code>Conv2d(3×3)</code>, либо использовать <code>k</code>, кратное <code>s</code> (например $4 \times 4$ со stride 2), либо PixelShuffle.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Ещё пара типов, которые стоит назвать">
+<p><b>Grouped convolution</b> — промежуточный вариант: каналы делятся на $g$ групп, каждая свёртывается независимо (при $g = C_{in}$ это depthwise); используется в ResNeXt. <b>Deformable convolution</b> — обучаемые сдвиги точек выборки ядра, полезна для объектов сложной формы. <b>$1 \times 1$</b> — чисто канальное смешивание, о ней отдельный вопрос.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-1x1-conv-interview">
+  <div class="name" id="cv-1x1-conv-interview">
+    Зачем нужна свёртка 1×1?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Свёртка $1 \times 1$ не смотрит на соседей — она применяет один и тот же полносвязный слой к вектору признаков каждого пикселя независимо. Отсюда четыре роли:</p>
+<ol>
+<li><b>Изменение числа каналов.</b> Это самый дешёвый способ сжать $C_{in} \to C_{out}$: bottleneck-блок ResNet-50 сжимает 256 каналов до 64 свёрткой $1\times1$, делает дорогую $3\times3$ на 64 каналах и разжимает обратно до 256. Без bottleneck та же $3\times3$ на 256 каналах стоила бы в 16 раз дороже.</li>
+<li><b>Нелинейное смешивание каналов.</b> С активацией после неё это MLP по каналам — «network in network».</li>
+<li><b>Согласование размерностей</b> в residual- и skip-связях, когда число каналов на ветках не совпадает.</li>
+<li><b>Замена полносвязного слоя</b> в fully convolutional сетях: классификационная голова становится $1\times1$-свёрткой, и сеть начинает принимать вход произвольного размера.</li>
+</ol>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Арифметика экономии">
+<p>В bottleneck-блоке ResNet: прямая свёртка $3\times3$ с 256 на 256 каналов стоит $9 \cdot 256 \cdot 256 \approx 590$ тыс. MAC на пиксель. Bottleneck: $1 \cdot 256 \cdot 64 + 9 \cdot 64 \cdot 64 + 1 \cdot 64 \cdot 256 \approx 70$ тыс. — в 8 раз дешевле при сопоставимом качестве. Именно это позволило растить глубину до 50–152 слоёв в фиксированном бюджете вычислений.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-pooling-interview">
+  <div class="name" id="cv-pooling-interview">
+    Зачем нужен pooling и чем его заменяют в современных сетях?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Pooling решает три задачи: уменьшает пространственное разрешение (а значит, и вычисления в следующих слоях), быстро наращивает рецептивное поле и даёт локальную инвариантность к небольшим сдвигам. <b>Max pooling</b> берёт максимум по окну — сохраняет самый сильный отклик, то есть «признак присутствует где-то в этом окне». <b>Average pooling</b> усредняет — мягче, чаще используется в конце сети.</p>
+<p><b>Global Average Pooling</b> — усреднение по всей пространственной карте: превращает $H \times W \times C$ в вектор длины $C$. Он заменил гигантские полносвязные головы (в VGG на них приходилось ~90 % всех параметров), сильно снизил переобучение и сделал сеть независимой от размера входа.</p>
+<p>В современных архитектурах промежуточный max pooling часто заменяют на <b>свёртку со stride 2</b>: она делает то же уменьшение, но с обучаемыми весами. В ResNet, ConvNeXt и большинстве детекторов downsample делается именно свёрткой; классический max pooling остался почти только в первом стволе сети (stem).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему pooling теряет информацию — и когда это критично">
+<p>Pooling $2\times2$ выбрасывает три четверти пространственной информации. Для классификации это не проблема — важно «что», а не «где». Для сегментации, детекции мелких объектов и OCR потеря разрешения критична, поэтому там либо сохраняют skip-connections (U-Net, FPN), чтобы вернуть детали из ранних слоёв, либо вообще отказываются от даунсемплинга в пользу dilated свёрток (DeepLab).</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Типовая ошибка про инвариантность">
+<p>Утверждение «pooling делает сеть инвариантной к сдвигу» верно только локально — max pooling $2\times2$ поглощает сдвиг на 1 пиксель, не больше. Более того, из-за нарушения теоремы Котельникова при даунсемплинге CNN оказываются заметно <b>не</b> устойчивы к сдвигу: сдвиг на один пиксель может изменить предсказание. Отсюда работы вроде anti-aliased downsampling (BlurPool), где перед прореживанием ставят низкочастотный фильтр.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-batchnorm-interview">
+  <div class="name" id="cv-batchnorm-interview">
+    Почему в CV доминирует BatchNorm и когда он ломается?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>BatchNorm нормирует активации по батчу и по пространственным осям — для тензора $[N, C, H, W]$ статистика считается по $N \cdot H \cdot W$ значениям отдельно для каждого канала, затем применяются обучаемые $\gamma$ и $\beta$:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\hat{x} = \frac{x - \mu_c}{\sqrt{\sigma_c^2 + \varepsilon}}, \qquad y = \gamma_c \hat{x} + \beta_c.\]">\[\hat{x} = \frac{x - \mu_c}{\sqrt{\sigma_c^2 + \varepsilon}}, \qquad y = \gamma_c \hat{x} + \beta_c.\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Это работает в CV, потому что канал свёрточной сети — это «детектор признака», и усреднять его отклик по всем позициям и по батчу статистически осмысленно: выборка из $N \cdot H \cdot W$ элементов большая, оценка $\mu$ и $\sigma$ устойчива.</p>
+<p>Эффекты: обучение сходится быстрее и допускает больший learning rate, сеть менее чувствительна к инициализации, а шум от мини-батчевой оценки статистик работает как регуляризация.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему в трансформерах используют LayerNorm">
+<p>В NLP и в ViT последовательности имеют разную длину, батчи часто маленькие, а зависимость от других элементов батча нежелательна (особенно при авторегрессионной генерации). LayerNorm нормирует по признакам <b>внутри одного объекта</b>, поэтому не зависит ни от размера батча, ни от соседей по батчу, и одинаково ведёт себя при обучении и инференсе — режима «running statistics» у него просто нет.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Где BatchNorm ломается">
+<p>Малый батч (1–4 объекта, типично для детекции и сегментации в высоком разрешении) — оценка $\mu, \sigma$ шумная, качество падает; лечится GroupNorm, SyncBN между GPU или замороженным BN. Второе: расхождение train/eval — при обучении используется статистика батча, на инференсе — накопленные running mean/var; забытый <code>model.eval()</code> даёт непредсказуемые предсказания. Третье: fine-tuning на маленьком датасете другого домена — running statistics подтягиваются к новому домену и ломают предобученные веса, поэтому BN часто замораживают. Четвёртое: BN «протаскивает» информацию между объектами батча — это утечка в задачах вроде contrastive learning, где её специально устраняют (Shuffle BN).</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Архитектуры</h3>
+<li class="question" data-md-source="true" data-md-id="cv-resnet-residual-interview">
+  <div class="name" id="cv-resnet-residual-interview">
+    Зачем нужны residual-связи и что именно они чинят?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Residual-блок вычисляет $y = F(x) + x$ вместо $y = F(x)$: сеть учит не само преобразование, а поправку к тождественному отображению.</p>
+<p>Проблема, которую это решает, — <b>деградация</b>: до ResNet 56-слойная сеть показывала ошибку <b>хуже</b>, чем 20-слойная, причём и на обучении тоже, то есть дело было не в переобучении, а в оптимизации. Если добавленные слои не нужны, сети трудно выучить в них тождественное отображение через стек нелинейностей; в residual-форме для этого достаточно занулить веса $F$, что оптимизатор находит легко.</p>
+<p>Второй эффект — градиентный поток. Производная $\partial y / \partial x = I + \partial F / \partial x$ содержит единичную матрицу, поэтому градиент по короткому пути доходит до ранних слоёв неослабленным, и затухание градиента перестаёт ограничивать глубину.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Ансамблевая интерпретация">
+<p>Сеть из $n$ residual-блоков разворачивается в сумму $2^n$ путей разной длины — от «пропустить всё» до «пройти через все блоки». Эмпирически основной вклад дают относительно короткие пути, а сеть ведёт себя как неявный ансамбль сетей разной глубины. Это объясняет, почему удаление одного блока из обученного ResNet почти не портит качество, тогда как удаление слоя из VGG ломает её полностью.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Порядок операций внутри блока">
+<p>В оригинальном ResNet порядок <code>conv → BN → ReLU</code>, а сложение с шорткатом идёт перед последней ReLU. В pre-activation варианте (ResNet v2) порядок <code>BN → ReLU → conv</code>, и путь шортката становится полностью «чистым» — без нелинейностей. Это заметно улучшает обучение очень глубоких сетей (1000+ слоёв) и стало стандартом в большинстве современных блоков.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-architectures-compare-interview">
+  <div class="name" id="cv-architectures-compare-interview">
+    Чем отличаются VGG, ResNet, Inception, MobileNet и EfficientNet?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>VGG</b> — однородный стек свёрток $3\times3$ и pooling. Главный вклад: показала, что два слоя $3\times3$ дают то же рецептивное поле, что один $5\times5$, но дешевле и с двумя нелинейностями. Минус — огромные полносвязные головы: 138 млн параметров, из них ~90 % в классификаторе.</p>
+<p><b>Inception (GoogLeNet)</b> — параллельные ветки с разными ядрами ($1\times1$, $3\times3$, $5\times5$, pooling) в одном блоке: сеть сама выбирает масштаб. Bottleneck-свёртки $1\times1$ удерживают стоимость. Идея — multi-scale обработка внутри слоя.</p>
+<p><b>ResNet</b> — residual-связи, bottleneck-блоки, глубина 50–152 слоя. Стал дефолтным backbone на десятилетие.</p>
+<p><b>MobileNet</b> — depthwise separable свёртки, inverted residual + linear bottleneck (v2), squeeze-and-excitation и h-swish (v3). Цель — мобильный инференс, ~4 млн параметров.</p>
+<p><b>EfficientNet</b> — compound scaling: глубина, ширина и разрешение масштабируются согласованно по одному коэффициенту $\phi$ ($d = \alpha^\phi$, $w = \beta^\phi$, $r = \gamma^\phi$ при $\alpha\beta^2\gamma^2 \approx 2$), базовая сеть найдена NAS. Даёт лучшее качество на FLOP, чем ручное масштабирование одной оси.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как отвечать на такой вопрос">
+<p>Интервьюер проверяет не список моделей, а понимание, <b>какую проблему решала каждая</b>: VGG — глубина через маленькие ядра, Inception — многомасштабность, ResNet — оптимизация глубоких сетей, MobileNet — бюджет вычислений, EfficientNet — как правильно масштабировать. Ответ «ResNet лучше VGG» слабый; сильный ответ формулирует ограничение предыдущей архитектуры и приём, который его снял.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что выбрать сегодня">
+<p>Для продакшена на GPU дефолт — ConvNeXt или ResNet-50 с современным рецептом обучения; для мобильных — MobileNetV3/V4 или EfficientNet-Lite; для больших данных и переноса — ViT/Swin или гибриды. Практический критерий не «FLOPs», а измеренная latency на целевом железе: depthwise-слои дают мало FLOPs, но плохо утилизируют GPU, и MobileNet на сервере часто медленнее ResNet-18 при равном качестве.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-unet-interview">
+  <div class="name" id="cv-unet-interview">
+    Как устроен U-Net и почему skip-connections критичны для сегментации?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>U-Net — энкодер-декодер с симметричными связями. Энкодер последовательно уменьшает разрешение и наращивает число каналов (получая семантику: «что на картинке»), декодер возвращает разрешение обратно (получая локализацию: «где именно»). На каждом уровне карта признаков энкодера <b>конкатенируется</b> с соответствующей картой декодера — это и есть skip-connection.</p>
+<p>Без skip-связей декодер вынужден восстанавливать границы объектов из сильно сжатого представления, и маска получается размытой и смещённой: точная пространственная информация была потеряна при даунсемплинге. Skip-связи возвращают её напрямую из ранних слоёв, где разрешение ещё высокое.</p>
+<p>Именно поэтому U-Net взлетел в медицинской сегментации: он даёт точные границы при небольшом числе размеченных изображений, а полная свёрточность позволяет обучаться на патчах и применяться к снимкам произвольного размера.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Конкатенация против сложения">
+<p>В U-Net skip-связи <b>конкатенируют</b> каналы, а в ResNet — складывают. Разница содержательная: сложение требует одинаковой размерности и смешивает признаки сразу, конкатенация сохраняет оба источника раздельно и оставляет следующему свёрточному слою свободу решить, как их взвесить. Плата — рост числа каналов и памяти, поэтому в лёгких сегментационных сетях (FPN, LinkNet) иногда возвращаются к сложению.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что спрашивают дальше">
+<p>Обычно про лоссы: при сильном дисбалансе «объект/фон» чистая пиксельная кросс-энтропия склоняется к предсказанию фона, поэтому используют Dice loss, Tversky, Focal или комбинацию BCE + Dice. И про апсемплинг: <code>ConvTranspose</code> даёт шахматные артефакты, безопаснее <code>Upsample</code> + <code>Conv3×3</code>.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-vit-interview">
+  <div class="name" id="cv-vit-interview">
+    Как устроен Vision Transformer и когда он лучше CNN?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>ViT режет изображение на непересекающиеся патчи (обычно $16 \times 16$), каждый патч разворачивает в вектор и линейно проецирует в эмбеддинг — это и есть «токены». К ним добавляется обучаемое позиционное кодирование и служебный токен <code>[CLS]</code>, после чего последовательность идёт в обычный трансформерный энкодер. Для входа $224 \times 224$ при патче 16 получается $14 \times 14 = 196$ токенов плюс <code>[CLS]</code>.</p>
+<p>Ключевое отличие от CNN: <b>никакого приора локальности</b>. Self-attention с первого же слоя связывает любые два патча, то есть рецептивное поле глобально уже на слое 1. Платой становится сложность $O(N^2)$ по числу токенов и высокая потребность в данных.</p>
+<p>Практический итог: на ImageNet-1k «с нуля» ViT проигрывает ResNet, но при предобучении на JFT-300M или ImageNet-21k — уверенно выигрывает. Сильные рецепты обучения (DeiT: аугментации + дистилляция) сокращают этот разрыв.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему ViT так зависит от объёма данных">
+<p>CNN приносит с собой два жёстких предположения — признак локален и одинаков в любой точке кадра. Эти предположения почти всегда верны для изображений, и они экономят данные. ViT ничего такого не предполагает и должен вывести локальность из примеров; при 1 млн изображений этого не хватает, при 300 млн — хватает с запасом, и отсутствие лишних ограничений начинает работать в плюс. Промежуточное решение — иерархические гибриды: <b>Swin</b> считает attention внутри окон со сдвигом, возвращая локальность и линейную сложность, а <b>ConvNeXt</b> переносит идеи трансформеров обратно в чистую свёрточную сеть.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про разрешение и позиционные эмбеддинги">
+<p>Позиционные эмбеддинги ViT обучаются под конкретное число патчей. Если на инференсе изменить разрешение входа, число токенов изменится и эмбеддинги перестанут соответствовать — их нужно интерполировать (стандартная процедура при fine-tuning на большем разрешении). Это частая практическая ошибка при переносе ViT на другой размер изображения.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Детекция и сегментация</h3>
+<li class="question" data-md-source="true" data-md-id="cv-one-two-stage-interview">
+  <div class="name" id="cv-one-two-stage-interview">
+    Чем отличаются one-stage и two-stage детекторы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Two-stage</b> (R-CNN → Fast R-CNN → Faster R-CNN): сначала Region Proposal Network предлагает несколько тысяч кандидатных областей, затем вторая голова для каждого кандидата уточняет рамку и классифицирует его. Плюс — высокая точность локализации и естественная работа с дисбалансом (RPN отбирает сбалансированную выборку). Минус — две последовательные стадии, больше latency и сложнее пайплайн.</p>
+<p><b>One-stage</b> (SSD, YOLO, RetinaNet, FCOS): классификация и регрессия рамок делаются в один проход по плотной сетке позиций. Плюс — скорость и простота, один граф вычислений. Исторический минус — крайний дисбаланс: на одном объекте приходится десятки тысяч фоновых позиций, из-за чего классификатор вырождался; это лечит Focal Loss.</p>
+<p>Сегодня разрыв в качестве почти закрылся: современные one-stage детекторы (YOLOv8+, RTMDet, DINO-DETR) конкурентоспособны по mAP при кратно меньшей latency, поэтому в проде по умолчанию берут one-stage, а two-stage оставляют там, где важна максимальная точность рамок или нужны маски экземпляров.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Anchor-free и DETR как третий путь">
+<p>FCOS и CenterNet убирают anchor-боксы: они предсказывают в каждой точке расстояния до сторон рамки или центр объекта плюс размеры. DETR идёт дальше и снимает NMS: фиксированный набор query-векторов сопоставляется с истинными объектами венгерским алгоритмом (bipartite matching), поэтому каждый объект по построению предсказывается один раз. Плата DETR — очень долгая сходимость (500 эпох в оригинале), которую чинят Deformable DETR и DINO.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Как выбирать на практике">
+<p>Вопрос почти всегда сводится к бюджету latency и к тому, насколько мелкие объекты нужно ловить. Реальные критерии: целевая FPS на конкретном железе, минимальный размер объекта в пикселях, допустимая доля пропусков и ложных срабатываний, необходимость масок и трекинга. Ответ «возьму YOLO, потому что он популярный» слабый; сильный — с числами и с планом замера.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-anchors-interview">
+  <div class="name" id="cv-anchors-interview">
+    Что такое anchor boxes и почему от них отказываются?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Anchor boxes — заранее заданные рамки разных масштабов и соотношений сторон, «привязанные» к каждой позиции карты признаков. Сеть предсказывает не абсолютные координаты объекта, а <b>смещения относительно якоря</b>: $t_x = (x - x_a)/w_a$, $t_y = (y - y_a)/h_a$, $t_w = \log(w/w_a)$, $t_h = \log(h/h_a)$. При обучении якорь считается положительным, если его IoU с истинной рамкой выше порога (обычно 0.5–0.7), и отрицательным, если ниже нижнего порога.</p>
+<p>Зачем так: регрессия абсолютных координат из свёрточного признака плохо обусловлена (диапазон значений огромен), а предсказание малой поправки к разумной начальной рамке — простая и устойчивая задача. Плюс якоря разных форм дают сети «специализацию» под вытянутые и квадратные объекты.</p>
+<p>Отказываются от них потому, что якоря — это набор гиперпараметров (масштабы, отношения сторон, пороги IoU, шаг сетки), который приходится подбирать под каждый датасет; они порождают десятки тысяч кандидатов и жёсткий дисбаланс классов; и сопоставление по IoU само по себе неоптимально для мелких объектов.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Чем заменили">
+<p><b>FCOS</b> предсказывает в каждой точке четыре расстояния до сторон рамки и центр-ness — меру того, насколько точка близка к центру объекта; уровни FPN разделяют объекты по масштабу вместо якорей. <b>CenterNet</b> предсказывает тепловую карту центров и размеры. <b>DETR</b> сопоставляет фиксированное число query с объектами венгерским алгоритмом. Все три убирают ручной подбор якорей; современные детекторы вдобавок используют динамическое назначение меток (SimOTA, TAL), где выбор положительных позиций зависит от текущего качества предсказания, а не только от IoU.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практическая ловушка">
+<p>Если вы всё же используете anchor-based детектор на своём домене, дефолтные якоря COCO почти наверняка не подходят: например, в задачах видеонаблюдения объекты вытянуты по вертикали, в аэросъёмке — мелкие и квадратные. Стандартный приём — кластеризовать размеры истинных рамок обучающей выборки (k-means по IoU, как в YOLOv2/v3) и взять центры кластеров как якоря. Пропуск этого шага — типичная причина, почему «модель не видит мелкие объекты».</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-nms-interview">
+  <div class="name" id="cv-nms-interview">
+    Как работает NMS и какие у него проблемы?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Non-Maximum Suppression убирает дублирующие предсказания одного объекта. Алгоритм:</p>
+<ol>
+<li>Отфильтровать боксы с confidence ниже порога.</li>
+<li>Отсортировать оставшиеся по убыванию confidence.</li>
+<li>Взять верхний бокс, добавить в результат.</li>
+<li>Удалить все боксы, у которых IoU с ним выше порога $T_{NMS}$ (обычно 0.5–0.7).</li>
+<li>Повторять, пока список не опустеет.</li>
+</ol>
+<p>Обычно NMS применяется <b>отдельно для каждого класса</b>, иначе перекрывающиеся объекты разных классов (человек на велосипеде) будут подавлять друг друга.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Главные проблемы">
+<p><b>Перекрывающиеся объекты.</b> В плотной сцене (толпа, стадо, полка магазина) два разных объекта имеют высокий взаимный IoU, и NMS удалит верный второй бокс. Лечится Soft-NMS: вместо удаления confidence подавленного бокса умножается на убывающую функцию IoU, и он остаётся кандидатом.</p>
+<p><b>Порог — компромисс.</b> Высокий $T_{NMS}$ оставляет дубликаты, низкий — режет соседние объекты. Единственного правильного значения нет, оно подбирается по домену и метрике.</p>
+<p><b>Confidence не равен качеству рамки.</b> Бокс с максимальной уверенностью классификации не обязательно самый точный геометрически, и NMS оставляет именно его. Отсюда IoU-aware головы, center-ness в FCOS и варианты вроде Weighted Box Fusion, где боксы усредняются, а не выбираются.</p>
+<p><b>Latency.</b> Классический NMS плохо параллелится и на плотных сценах становится заметной частью времени инференса; в проде используют batched-NMS на GPU или ограничивают top-k кандидатов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="DETR и отсутствие NMS">
+<p>DETR-подобные модели не нуждаются в NMS: венгерское сопоставление при обучении делает предсказания взаимно исключающими по построению. Это заметный плюс для деплоя — из пайплайна исчезает недифференцируемый постпроцессинг с гиперпараметром, который приходилось отдельно тюнить и отдельно портировать в ONNX/TensorRT.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-iou-map-interview">
+  <div class="name" id="cv-iou-map-interview">
+    Что такое IoU и как считается mAP@[.5:.95]?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>IoU</b> (Intersection over Union) — мера перекрытия двух рамок:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\text{IoU} = \frac{|A \cap B|}{|A \cup B|} \in [0, 1].\]">\[\text{IoU} = \frac{|A \cap B|}{|A \cup B|} \in [0, 1].\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Она безразмерна и не зависит от абсолютного размера объекта, поэтому годится как единый критерий «попал / не попал» для объектов любого масштаба.</p>
+<p><b>AP</b> для одного класса и одного порога IoU считается так: предсказания сортируются по убыванию confidence; каждое сопоставляется с ещё не занятой истинной рамкой того же класса, если IoU выше порога, — тогда это TP, иначе FP; непокрытые истинные рамки дают FN. По накопленным TP/FP строится кривая precision–recall, её сглаживают (precision заменяется на максимум справа) и интегрируют — это и есть AP, площадь под кривой.</p>
+<p><b>mAP</b> — среднее AP по классам. <b>mAP@[.5:.95]</b> (основная метрика COCO) — среднее ещё и по десяти порогам IoU от 0.50 до 0.95 с шагом 0.05. Такое усреднение штрафует за неточную локализацию: рамка с IoU 0.55 засчитывается только на низких порогах.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему COCO усредняет по порогам">
+<p>При единственном пороге 0.5 (метрика Pascal VOC) детектор, который стабильно даёт грубые, но «попадающие» рамки, выглядит так же хорошо, как детектор с точной геометрией. Усреднение по диапазону порогов делает метрику чувствительной к качеству локализации: чтобы получить высокий mAP@[.5:.95], нужно попадать в объект точно, а не приблизительно. Дополнительно COCO разбивает метрику по размеру объекта — $AP_S$, $AP_M$, $AP_L$, — и именно $AP_S$ обычно вскрывает проблему с мелкими объектами.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что легко перепутать">
+<p>mAP считается <b>после</b> NMS и зависит от его порогов, поэтому «улучшение mAP» иногда оказывается просто удачным подбором постпроцессинга. Второе: порог confidence в mAP не фиксируется — метрика интегрирует по всем порогам, тогда как в проде вы работаете при одном конкретном пороге, и там важны precision/recall при нём, а не площадь под кривой. Третье: реализации AP отличаются (VOC-11-point, VOC-all-point, COCO-101-point), и числа между статьями не всегда сравнимы напрямую.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-segmentation-types-interview">
+  <div class="name" id="cv-segmentation-types-interview">
+    Чем отличаются semantic, instance и panoptic segmentation?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>Semantic segmentation</b> — каждому пикселю присваивается класс. Три человека рядом получают один и тот же класс «человек» и сливаются в одну область: экземпляры не различаются. Метрика — mIoU. Архитектуры: U-Net, DeepLabv3+, SegFormer.</p>
+<p><b>Instance segmentation</b> — маска для каждого отдельного объекта счётного класса. Три человека дают три отдельные маски. Фон и «неисчисляемые» классы (небо, дорога, трава) при этом не размечаются вовсе. Метрика — mask AP. Архитектуры: Mask R-CNN, YOLACT, SOLOv2.</p>
+<p><b>Panoptic segmentation</b> — объединение: каждый пиксель получает и класс, и, если класс счётный, идентификатор экземпляра. Классы делятся на <b>things</b> (счётные: человек, машина) и <b>stuff</b> (неисчисляемые: небо, дорога). Метрика — PQ (Panoptic Quality), произведение качества сегментации (средний IoU по совпавшим сегментам) на качество распознавания (F1 по сегментам).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как выбирать под задачу">
+<p>Вопрос всегда сводится к тому, нужно ли считать объекты. Если задача — «какая доля кадра занята дорогой» или «где на снимке опухоль», хватает semantic. Если нужно «сколько машин на парковке» или «отследить конкретного человека между кадрами» — нужен instance. Panoptic нужен, когда требуется полное непротиворечивое описание сцены без дыр и пересечений — типично для автономного вождения и робототехники.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Универсальные архитектуры">
+<p>Современный тренд — единые модели для всех трёх задач: Mask2Former и OneFormer формулируют сегментацию как предсказание набора масок с классами (mask classification) и обучаются одинаково для semantic, instance и panoptic. Это удобный ответ на follow-up «а можно одной моделью?»: да, и это уже стандарт, а не экзотика.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-roialign-interview">
+  <div class="name" id="cv-roialign-interview">
+    Как устроен Mask R-CNN и чем RoIAlign лучше RoIPool?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Mask R-CNN = Faster R-CNN + третья голова. Общий backbone с FPN даёт многомасштабные признаки, RPN предлагает регионы, затем для каждого региона извлекается фиксированный по размеру фрагмент карты признаков, и на нём работают три головы: классификация, регрессия рамки и небольшая свёрточная сеть, предсказывающая бинарную маску $28 \times 28$ <b>для каждого класса отдельно</b>.</p>
+<p>Ключевая деталь — маска предсказывается независимо от классификации: голова выдаёт по маске на класс, а используется маска того класса, который выбрала классификационная голова. Это разводит две задачи и заметно улучшает качество по сравнению с попыткой предсказать одну маску с мультиклассовым softmax по пикселям.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему RoIPool ломает маски">
+<p>RoIPool дважды округляет координаты: сначала границы региона приводятся к целым ячейкам карты признаков, затем регион делится на бины тоже с округлением. При stride 32 (типичный для последнего уровня backbone) ошибка округления в одну ячейку — это <b>32 пикселя</b> на исходном изображении. Для классификации это неважно, для попиксельной маски — фатально: маска систематически смещена.</p>
+<p><b>RoIAlign</b> убирает оба округления: координаты остаются дробными, а значения в точках выборки внутри каждого бина считаются билинейной интерполяцией по четырём соседним ячейкам. В статье это дало прирост mask AP примерно на 10 пунктов — редкий случай, когда одна деталь реализации меняет метрику так сильно.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что спрашивают дальше">
+<p>Про FPN: зачем нужна пирамида и как выбирается уровень для региона (по размеру рамки, формулой $k = \lfloor k_0 + \log_2(\sqrt{wh}/224) \rfloor$). Про разрешение маски: $28 \times 28$ мало для крупных объектов, поэтому есть PointRend, уточняющий границы адаптивно. И про скорость: Mask R-CNN — two-stage, для реального времени берут YOLACT, SOLOv2 или YOLO-seg.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-focal-loss-interview">
+  <div class="name" id="cv-focal-loss-interview">
+    Как бороться с дисбалансом в детекции и что делает Focal Loss?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>В one-stage детекторе на кадр приходится порядка $10^4$–$10^5$ кандидатных позиций и лишь единицы объектов. Даже если каждый лёгкий фоновый пример даёт крошечный лосс, их сумма подавляет вклад редких положительных примеров, и модель сходится к «везде фон».</p>
+<p><b>Focal Loss</b> переупорядочивает вклад примеров:</p>
+<p><span class="latex-copy-wrap" data-latex="\[FL(p_t) = -\alpha_t (1 - p_t)^\gamma \log(p_t),\]">\[FL(p_t) = -\alpha_t (1 - p_t)^\gamma \log(p_t),\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>где $p_t$ — предсказанная вероятность правильного класса. Множитель $(1 - p_t)^\gamma$ гасит уже уверенно классифицированные примеры: при $\gamma = 2$ и $p_t = 0.9$ вклад падает в 100 раз, при $p_t = 0.6$ — примерно в 6 раз, а при $p_t = 0.1$ почти не меняется. То есть обучение автоматически концентрируется на трудных случаях. Коэффициент $\alpha_t$ дополнительно балансирует классы (в RetinaNet $\alpha = 0.25$, $\gamma = 2$).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Альтернативы, которые стоит назвать">
+<p>До Focal Loss ту же проблему решали <b>hard negative mining</b> (OHEM): брать в лосс не все отрицательные примеры, а top-k самых трудных, либо фиксировать отношение негативов к позитивам 3:1 (SSD). Это работает, но добавляет недифференцируемую эвристику и гиперпараметр. Two-stage детекторы решают проблему структурно: RPN отсеивает подавляющую часть фона, и вторая стадия видит уже почти сбалансированную выборку. Современные детекторы используют динамическое назначение меток (SimOTA, Task-Aligned Assigner), где выбор положительных позиций зависит от качества текущего предсказания.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Focal Loss — не универсальное лекарство">
+<p>На сбалансированных задачах он обычно не помогает и может ухудшить калибровку: модель становится менее уверенной там, где уверенность оправдана. Также он чувствителен к инициализации смещения последнего слоя — в RetinaNet bias инициализируют так, чтобы стартовая вероятность объекта была около 0.01, иначе на первых итерациях лосс от $10^5$ фоновых позиций взрывается. Это любимый уточняющий вопрос.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Обучение и данные</h3>
+<li class="question" data-md-source="true" data-md-id="cv-augmentations-interview">
+  <div class="name" id="cv-augmentations-interview">
+    Какие аугментации выбирать и когда они вредят?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Аугментация — это способ вложить в модель знание об инвариантах задачи: мы говорим ей, какие преобразования изображения <b>не должны</b> менять ответ. Отсюда правило выбора: берём те преобразования, которые реально встречаются в проде и не меняют метку.</p>
+<p>Геометрические: horizontal flip, случайный кроп/resize, поворот, аффинные и перспективные искажения. Фотометрические: изменение яркости, контраста, насыщенности, оттенка, гамма, шум, размытие, JPEG-артефакты. Оклюзии: Cutout/Random Erasing. Смешивание: MixUp, CutMix, Mosaic. Специальные: RandAugment и TrivialAugment — автоматические политики, снимающие ручной подбор.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Когда аугментация ломает задачу">
+<p>Vertical flip и повороты на 90° бессмысленны для уличных сцен (машины не ездят вверх колёсами), но обязательны для спутниковых и микроскопических снимков, где ориентации нет. Horizontal flip недопустим в OCR и распознавании дорожных знаков с текстом — зеркальная буква перестаёт быть той же буквой; в задачах «левая/правая рука», «левое/правое лёгкое» он прямо меняет метку. Изменение оттенка (hue) губительно там, где цвет и есть признак: сортировка фруктов по спелости, медицинское окрашивание, светофоры. Агрессивный кроп может вырезать объект из кадра, оставив положительную метку на изображении без объекта.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как проверять, а не гадать">
+<p>Аугментации — такой же гиперпараметр, как learning rate, и подбираются экспериментом: фиксируем валидацию, включаем набор преобразований, смотрим на метрику. Полезная эвристика: аугментация помогает, если она приближает train-распределение к тому, что реально бывает в проде. Поэтому сначала стоит посмотреть на реальные ошибки — если модель падает на тёмных кадрах, добавляйте вариации яркости, а не «всё подряд из Albumentations». И обязательно визуализируйте батч после аугментаций: половина проблем видна глазами за минуту.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Про test-time augmentation">
+<p>TTA — усреднение предсказаний по нескольким преобразованиям одного изображения (flip, несколько масштабов). Обычно даёт 0.5–2 пункта метрики почти бесплатно по коду, но кратно увеличивает latency, поэтому в онлайн-сервисах применяется редко, а в офлайн-скоринге и на соревнованиях — почти всегда.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-mixup-cutmix-interview">
+  <div class="name" id="cv-mixup-cutmix-interview">
+    Что такое MixUp, CutMix и Mosaic?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p><b>MixUp</b> линейно смешивает два изображения и их метки: $\tilde{x} = \lambda x_i + (1-\lambda) x_j$, $\tilde{y} = \lambda y_i + (1-\lambda) y_j$, где $\lambda \sim \text{Beta}(\alpha, \alpha)$. Модель учится выдавать промежуточные вероятности на промежуточных входах — это сглаживает решающую границу и заметно улучшает калибровку.</p>
+<p><b>CutMix</b> вместо смешивания по прозрачности вырезает прямоугольник из одного изображения и вставляет в другое; метки смешиваются пропорционально площади вставки. В отличие от MixUp, изображение остаётся локально реалистичным, а модель вынуждена использовать несколько частей объекта, а не одну самую заметную деталь.</p>
+<p><b>Mosaic</b> (YOLOv4+) собирает одно тренировочное изображение из четырёх разных со случайными масштабами и смещениями, объединяя и их разметку. Это даёт много объектов и много контекстов в одном батче, сильно улучшает детекцию мелких объектов и снижает потребность в большом batch size.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему смешивание работает">
+<p>Обычная кросс-энтропия с one-hot метками толкает сеть к бесконечно уверенным предсказаниям, что порождает переобучение и плохую калибровку. Смешанные метки — это регуляризация в пространстве меток: сеть штрафуется за уверенность там, где вход действительно неоднозначен. Дополнительно смешивание расширяет обучающее распределение за пределы исходной выборки, обучая модель на «промежуточных» точках между примерами, — это форма vicinal risk minimization.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Практические оговорки">
+<p>MixUp и CutMix обычно требуют более длительного обучения: они добавляют шум, и сходимость замедляется — на коротких расписаниях они могут ухудшить результат. Mosaic в детекции принято <b>выключать за последние 10–15 эпох</b>: он создаёт неестественные стыки и нетипичные масштабы, и финальная дообучка на чистых изображениях выравнивает распределение под инференс. Для сегментации MixUp применяют осторожно: смешанная маска физически не соответствует ни одному объекту.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-transfer-learning-interview">
+  <div class="name" id="cv-transfer-learning-interview">
+    Как делать transfer learning в CV и что размораживать?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Стратегия зависит от двух факторов: сколько у вас данных и насколько ваш домен близок к домену предобучения.</p>
+<ul>
+<li><b>Мало данных, близкий домен</b> — заморозить backbone, обучать только голову (linear probing). Быстро, почти не переобучается.</li>
+<li><b>Много данных, близкий домен</b> — размораживать всё и дообучать с малым learning rate ($10^{-4}$–$10^{-5}$ против $10^{-3}$ при обучении с нуля).</li>
+<li><b>Мало данных, далёкий домен</b> (рентген, спутник, инфракрасное) — размораживать верхние блоки, нижние оставить: ранние слои выучили универсальные границы и текстуры, поздние — специфичную для ImageNet семантику.</li>
+<li><b>Много данных, далёкий домен</b> — предобучение всё равно полезно как инициализация, но обучать можно полностью и дольше.</li>
+</ul>
+<p>Практические приёмы: discriminative learning rates (ниже для ранних слоёв, выше для головы), прогрев (warmup) и постепенная разморозка, а также заморозка BatchNorm-статистик при малом датасете.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему предобучение помогает даже на «непохожих» доменах">
+<p>Первые слои CNN сходятся к детекторам границ, углов и цветовых переходов — эти признаки универсальны для любых естественных изображений, включая медицинские и спутниковые. Экономится не только время: инициализация из предобученных весов задаёт хорошую область в пространстве параметров, из которой оптимизация уходит в лучший минимум, чем из случайной точки. Прирост особенно велик при выборке в тысячи, а не миллионы изображений.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Что ломает fine-tuning">
+<p>Слишком большой learning rate на первых шагах разрушает предобученные веса быстрее, чем голова успевает обучиться (catastrophic forgetting) — отсюда warmup и обучение головы отдельно на первых эпохах. Второе: расхождение препроцессинга — если предобученная модель ждала нормализацию ImageNet и размер 224, а вы подаёте другой, качество падает без явной ошибки. Третье: незамороженный BatchNorm при батче 4 пересчитает running-статистики под шумную выборку и испортит представления.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-self-supervised-interview">
+  <div class="name" id="cv-self-supervised-interview">
+    Что такое self-supervised обучение в CV (SimCLR, DINO, MAE)?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Self-supervised обучение строит обучающий сигнал из самих изображений, без разметки, и делится на два больших семейства.</p>
+<p><b>Контрастное / инвариантностное.</b> SimCLR берёт два случайных аугментированных вида одного изображения и учит модель сближать их эмбеддинги, отталкивая эмбеддинги других изображений (InfoNCE-лосс). MoCo добавляет очередь негативов и momentum-энкодер, чтобы не требовать гигантских батчей. BYOL и DINO обходятся вовсе без негативов: студент предсказывает выход momentum-учителя, а коллапс предотвращается асимметрией архитектуры, centering и sharpening.</p>
+<p><b>Генеративное / masked.</b> MAE маскирует 75 % патчей изображения и учит декодер восстанавливать их пиксели. Аналог BERT для картинок; вычислительно дёшев, потому что энкодер видит только видимые патчи.</p>
+<p>Результат — backbone, который на нескольких процентах разметки достигает качества, близкого к полностью supervised обучению.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему аугментации — сердце контрастного подхода">
+<p>В контрастном обучении вы фактически говорите модели: «эти два вида — один и тот же объект». То есть набор аугментаций <b>задаёт инварианты</b>, которые выучит представление. Если убрать color jitter, модель начнёт решать задачу тривиально — по цветовой гистограмме, и представления окажутся бесполезными. Именно поэтому SimCLR так чувствителен к составу аугментаций: они не «шум для регуляризации», а определение целевой задачи.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Практическая ценность">
+<p>Реальный сценарий: есть миллион неразмеченных снимков с производственной линии и тысяча размеченных. Self-supervised предобучение на всём массиве плюс дообучение головы на тысяче даёт заметно больше, чем ImageNet-инициализация, потому что представления выучены на вашем домене. Второй сценарий — DINOv2 как готовый универсальный feature extractor: его эмбеддинги часто работают «из коробки» для поиска похожих изображений, кластеризации и линейных пробов без всякого дообучения.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-dice-iou-interview">
+  <div class="name" id="cv-dice-iou-interview">
+    Какие метрики у сегментации и как Dice связан с F1?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Основные метрики попиксельной сегментации:</p>
+<p><span class="latex-copy-wrap" data-latex="\[\text{IoU} = \frac{TP}{TP + FP + FN}, \qquad \text{Dice} = \frac{2\,TP}{2\,TP + FP + FN}.\]">\[\text{IoU} = \frac{TP}{TP + FP + FN}, \qquad \text{Dice} = \frac{2\,TP}{2\,TP + FP + FN}.\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Dice — это в точности $F_1$-мера, посчитанная по пикселям: $\text{Dice} = 2PR/(P+R)$. IoU и Dice монотонно связаны: $\text{IoU} = \text{Dice}/(2 - \text{Dice})$, поэтому ранжирование моделей по ним совпадает, но численно IoU всегда строже (Dice 0.8 соответствует IoU $\approx$ 0.67).</p>
+<p><b>mIoU</b> — среднее IoU по классам, стандарт для semantic segmentation. Важно, что усреднение идёт по классам, а не по пикселям: редкий класс, занимающий 0.1 % кадра, вносит такой же вклад, как небо.</p>
+<p>Дополнительно смотрят на <b>pixel accuracy</b> (почти бесполезна при дисбалансе), <b>boundary IoU</b> и <b>Hausdorff distance</b> — когда критична точность границ, например в медицине.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему Dice популярен как лосс, а IoU — как метрика">
+<p>Dice в дифференцируемой (soft) форме даёт устойчивый градиент даже когда предсказание почти пустое, тогда как soft-IoU при малом перекрытии обнуляется быстрее и хуже обучается на старте. Плюс Dice не учитывает истинно отрицательные пиксели, поэтому не вырождается на масках, где объект занимает доли процента кадра, — а обычная кросс-энтропия там сходится к «везде фон». На практике берут комбинацию: <code>BCE + Dice</code>, где кросс-энтропия даёт стабильный попиксельный сигнал, а Dice — прямую оптимизацию перекрытия.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Ловушка усреднения">
+<p>Есть два разных способа посчитать «средний Dice»: усреднить по изображениям или собрать TP/FP/FN по всему датасету и посчитать один раз (микро- против макро-усреднения). Они дают разные числа, и разница огромна, когда на части изображений объекта нет вовсе: там Dice не определён ($0/0$), и решение «считать его нулём, единицей или пропускать» полностью меняет итоговую метрику. Договориться об этом надо до, а не после эксперимента.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Мультимодальность и генерация</h3>
+<li class="question" data-md-source="true" data-md-id="cv-clip-interview">
+  <div class="name" id="cv-clip-interview">
+    Как работает CLIP и что такое zero-shot классификация изображений?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>CLIP обучается на сотнях миллионов пар «изображение — текстовое описание» из интернета. У него два энкодера: визуальный (ViT или ResNet) и текстовый (трансформер). Оба проецируют вход в общее пространство эмбеддингов, где обучение идёт контрастным лоссом: для батча из $N$ пар строится матрица косинусных близостей $N \times N$, и модель учится максимизировать значения на диагонали (правильные пары) и минимизировать вне её. Формально это симметричная кросс-энтропия по строкам и по столбцам с обучаемым температурным параметром.</p>
+<p><b>Zero-shot классификация</b> получается бесплатно: чтобы классифицировать картинку по $K$ классам, достаточно превратить названия классов в фразы («a photo of a {class}»), закодировать их текстовым энкодером и выбрать класс с максимальной косинусной близостью к эмбеддингу изображения. Никакого дообучения и никакой размеченной выборки не нужно — классы задаются текстом на лету.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это меняет постановку задачи">
+<p>Обычный классификатор жёстко привязан к фиксированному списку классов: добавить новый — значит собрать данные и переобучить голову. CLIP превращает список классов в <b>входные данные</b>, а не в часть архитектуры. Отсюда практические сценарии: быстрый прототип классификатора без разметки, поиск изображений по текстовому запросу, автоматическая пред-разметка датасета, фильтрация контента по описанию, а также использование CLIP-эмбеддингов как универсальных признаков для downstream-моделей.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Где CLIP подводит">
+<p>Он плох в счёте («три кошки»), в пространственных отношениях («чашка слева от книги»), в мелких деталях и в специализированных доменах, которых почти не было в вебе (медицинские снимки, дефекты на производстве, спутник). Качество сильно зависит от формулировки промпта — отсюда prompt ensembling по десяткам шаблонов. И CLIP наследует все смещения веб-данных, поэтому применять его к чувствительным решениям без аудита нельзя.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Что спрашивают дальше">
+<p>Как CLIP используется в других системах: как текстовый энкодер условия в Stable Diffusion, как визуальный энкодер в LLaVA и других VLM, как метрика соответствия картинки и текста (CLIPScore). И про SigLIP — вариант с сигмоидным лоссом вместо softmax, который не требует огромных батчей и обычно работает лучше при том же бюджете.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-diffusion-interview">
+  <div class="name" id="cv-diffusion-interview">
+    Как работают диффузионные модели?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Идея в двух процессах. <b>Прямой (forward)</b> — фиксированный и не обучаемый: к изображению за $T$ шагов постепенно добавляется гауссов шум, пока не останется чистый шум. Благодаря свойству нормального распределения можно прыгнуть на любой шаг сразу:</p>
+<p><span class="latex-copy-wrap" data-latex="\[x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1 - \bar{\alpha}_t}\, \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I).\]">\[x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1 - \bar{\alpha}_t}\, \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I).\]<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p><b>Обратный (reverse)</b> — обучаемый: нейросеть (обычно U-Net с attention или DiT) по зашумлённому $x_t$ и номеру шага $t$ предсказывает добавленный шум $\varepsilon$. Лосс — просто MSE между истинным и предсказанным шумом. На генерации мы стартуем из чистого шума и итеративно вычитаем предсказанный шум, шаг за шагом получая изображение.</p>
+<p><b>Latent diffusion</b> (Stable Diffusion) делает то же самое не в пространстве пикселей, а в сжатом латентном пространстве автоэнкодера ($64 \times 64$ вместо $512 \times 512$) — это снижает стоимость на два порядка. Текстовое условие подаётся через cross-attention от энкодера CLIP/T5.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему это устойчивее GAN">
+<p>GAN обучается как минимаксная игра генератора и дискриминатора: равновесие неустойчиво, часты mode collapse и расхождение. Диффузия сводит генерацию к обычной регрессии с MSE — задача выпуклая по выходу сети и обучается стабильно, а разнообразие обеспечивается стохастичностью процесса. Плата — скорость: вместо одного прохода GAN нужно от 20 до 1000 проходов сети. Отсюда ускоряющие сэмплеры (DDIM, DPM-Solver) и дистилляция в малое число шагов (LCM, Turbo-модели), доводящие генерацию до 1–4 шагов.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Classifier-free guidance">
+<p>Стандартный приём управления: модель обучают одновременно с текстовым условием и без него (условие с некоторой вероятностью зануляется), а на генерации экстраполируют $\varepsilon = \varepsilon_{\varnothing} + w(\varepsilon_{c} - \varepsilon_{\varnothing})$. Коэффициент $w$ — тот самый «guidance scale»: чем он выше, тем точнее следование промпту и тем ниже разнообразие и естественность. Это самый частый follow-up после базового вопроса о диффузии.</p>
+
+</div>
+  </div>
+</li>
+        <h3 data-md-source="true">Production</h3>
+<li class="question" data-md-source="true" data-md-id="cv-inference-optimization-interview">
+  <div class="name" id="cv-inference-optimization-interview">
+    Как ускорить инференс CV-модели в проде?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Порядок действий — от дешёвого к дорогому.</p>
+<p><b>Сначала измерить.</b> Профилировать полный путь запроса: декодирование изображения, препроцессинг, копирование на GPU, сам forward, постпроцессинг (NMS), сериализация. Очень часто узкое место — не сеть, а декодирование JPEG на CPU или синхронное копирование.</p>
+<p><b>Системные приёмы без потери качества.</b> Батчинг запросов, <code>torch.no_grad()</code>/<code>inference_mode</code>, half precision (FP16/BF16), CUDA-графы, экспорт в ONNX Runtime или TensorRT, слияние conv+BN, <code>channels_last</code> для свёрток, асинхронный препроцессинг и декодирование на GPU (nvJPEG, DALI).</p>
+<p><b>Приёмы с компромиссом по качеству.</b> Квантизация — post-training INT8 с калибровкой (обычно теряет доли процента) или quantization-aware training, если PTQ проседает. Прунинг — структурный (целые каналы, даёт реальное ускорение) предпочтительнее неструктурного (нули в весах, без специального железа ускорения не даёт). Дистилляция в меньшую архитектуру. Снижение входного разрешения — часто самый недооценённый рычаг: latency растёт квадратично по стороне изображения.</p>
+<p><b>Архитектурная замена.</b> Взять модель, спроектированную под целевое железо (MobileNet/EfficientNet-Lite для мобильных, RTMDet/YOLO-nano для edge), и мерить latency на самом устройстве, а не FLOPs.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему FLOPs — плохой прокси">
+<p>Время инференса определяется не только числом операций, но и обращениями к памяти. Depthwise-свёртки и skip-connections с конкатенацией дают низкую арифметическую интенсивность: GPU простаивает, ожидая память. Поэтому модель с вдвое меньшими FLOPs может оказаться медленнее на конкретном ускорителе. Единственный корректный критерий — измеренная p95-latency на целевом железе при целевом батче.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Про квантизацию">
+<p>INT8 квантизация требует калибровочной выборки, репрезентативной для прода: если калибровать на «чистых» картинках, а в проде идут тёмные и шумные, диапазоны активаций окажутся занижены и качество упадёт. Отдельно проверяйте чувствительные слои — первый и последний обычно оставляют в FP16. И всегда сравнивайте не только среднюю метрику, но и распределение по срезам: квантизация чаще всего бьёт по редким классам и мелким объектам.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-preprocessing-skew-interview">
+  <div class="name" id="cv-preprocessing-skew-interview">
+    Как избежать train/serve skew в препроцессинге изображений?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Training-serving skew в CV — это когда картинка, которую видит модель в проде, отличается от той, на которой она обучалась, при том что код формально «тот же». Типичные источники: разный порядок каналов (BGR из OpenCV против RGB из PIL), разные алгоритмы ресайза (bilinear в PIL против bilinear в OpenCV дают <b>разные</b> пиксели из-за antialias), разные константы нормализации, разное поведение при изменении пропорций (letterbox против растяжения), потеря EXIF-ориентации, разное качество JPEG-декодера, разный цветовой профиль камеры.</p>
+<p>Лечение системное, а не точечное: препроцессинг должен быть <b>одним артефактом</b>, который используется и при обучении, и в проде. Варианты — общая библиотека препроцессинга, вшитый в граф модели препроцессинг (ONNX/TorchScript с ресайзом и нормализацией внутри), или единый образ-контейнер с зафиксированными версиями OpenCV/Pillow.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Как это ловить">
+<p>Хороший приём — «золотой набор»: несколько десятков изображений, для которых сохранены эталонные тензоры после препроцессинга и эталонные предсказания модели. Тест в CI прогоняет продовый путь и сравнивает тензоры с эталоном с малым допуском. Такой тест ловит скрытые расхождения — например, обновление Pillow, изменившее поведение <code>resize</code>, — до того, как они дойдут до пользователей. Дополнительно полезно логировать в проде статистику входного тензора (среднее, дисперсию по каналам) и сравнивать её с обучающей.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Частые конкретные грабли">
+<p><code>cv2.resize</code> по умолчанию не делает антиалиасинг при уменьшении, а <code>PIL.Image.resize</code> с <code>LANCZOS</code> — делает; для сильного даунскейла разница в предсказаниях заметна. <code>cv2.imread</code> игнорирует EXIF-поворот, а <code>PIL</code> его применяет — портретные фото с телефона приходят повёрнутыми. Для детекции важен letterbox с сохранением пропорций: если при обучении был letterbox, а в проде растяжение, рамки поедут. И проверяйте нормализацию: деление на 255 против нормализации ImageNet — это два разных распределения входа.</p>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="cv-drift-monitoring-interview">
+  <div class="name" id="cv-drift-monitoring-interview">
+    Как мониторить CV-модель в проде и ловить дрейф?
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="example" data-title="Ответ">
+<p>Мониторинг строится по слоям, от самых дешёвых сигналов к самым надёжным.</p>
+<p><b>Технический слой.</b> Latency (p50/p95/p99), RPS, доля ошибок, утилизация GPU и памяти, доля запросов с таймаутом. Это ловит инфраструктурные проблемы, а не качество.</p>
+<p><b>Входной слой (data drift).</b> Статистики изображений: средняя яркость и контраст по каналам, доля пересвеченных и тёмных кадров, разрешение и соотношение сторон, размер файла, доля неудачных декодирований. Более чувствительный вариант — эмбеддинги: прогнать вход через backbone (или CLIP), сравнить распределение эмбеддингов с обучающим через MMD, KS по главным компонентам или обучить domain classifier «train против prod» — если он различает домены с AUC заметно выше 0.5, дрейф есть.</p>
+<p><b>Выходной слой (prediction drift).</b> Распределение предсказанных классов, средняя уверенность, доля предсказаний ниже порога, для детекции — среднее число объектов на кадр и распределение их размеров. Резкое изменение любой из этих величин — ранний сигнал.</p>
+<p><b>Качество.</b> Появляется с задержкой: отложенная разметка выборки, сравнение с ручной проверкой, косвенные бизнес-метрики (доля ручных корректировок оператором, доля возвратов на доразметку).</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Почему в CV особенно важен мониторинг входа">
+<p>Метки в CV дороги и приходят поздно или не приходят вовсе, поэтому «просто померить accuracy в проде» обычно нельзя. При этом входное распределение меняется постоянно и по вполне физическим причинам: смена сезона и освещения, новая партия камер с другим цветовым профилем, изменение угла установки, обновление прошивки, новый тип упаковки товара. Такие сдвиги видно во входных статистиках и в эмбеддингах за дни до того, как деградация проявится в бизнес-метриках.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Практический минимум">
+<p>Для каждой продовой модели полезно иметь: (1) фиксированный «золотой» набор изображений, который прогоняется по расписанию и предсказания сравниваются с эталоном — это ловит регрессии от обновления зависимостей; (2) сэмплирование 1–2 % продового трафика в хранилище для будущей доразметки и анализа; (3) алерт на резкое смещение распределения уверенностей; (4) shadow-режим для новой версии модели перед переключением трафика.</p>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <button aria-label="Наверх" id="scrollToTopBtn">
+      <svg
+        fill="none"
+        height="24"
+        stroke="white"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

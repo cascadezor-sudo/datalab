@@ -1,0 +1,536 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Легенда</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body class="interviews">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="page-header-text">
+            <h1 id="title">Легенда (Self-Pitch)</h1>
+            <p class="subtitle">Как структурировать и донести свою ценность ML-инженера</p>
+          </div>
+          <div class="page-header-cta">
+            <a class="page-header-button" href="../../ai/interviews/index.html">К разделу Интервью</a>
+          </div>
+        </div>
+      </header>
+  
+      <!-- Quick checklist -->
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/progress.svg" alt="Готово" />
+            </div>
+            <h2 class="card-title">Быстрый чек-лист легенды</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Чек-лист" data-type="definition">
+              <ul>
+                <li>Длительность питча: 60–90 сек; структура: <b>Интро, 2 кейса, Стек/роль, Цели</b>.</li>
+                <li>Каждый кейс: <b>проблема, действие, стек, метрики, влияние</b>.</li>
+                <li>Говори цифрами: AUC/F1/WER, latency P95, MTTR, $/GPU-hrs, CTR/CR, retention.</li>
+                <li>Адаптируй под вакансию: домен, масштабы, релевантные технологии.</li>
+                <li>Заканчивай "чем я буду полезен вам сейчас".</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid">
+        <!-- Intro -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Интро (кто вы за 2–3 фразы)</h2>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              <!-- definition -->
+              <div class="info-card-auto" data-title="Определение" data-type="definition">
+                Короткое представление: роль, годы опыта, домены, масштаб систем, зона силы (ML/MLE, MLOps, backend).
+              </div>
+            </p>
+            
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Избегай общих фраз: добавляй масштабы (MAU, объём данных, TPS/RPS) и ответственность (owning/leading).
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Структура" />
+            </div>
+            <h2 class="card-title">Пример</h2>
+          </div>
+          <div class="card-content">
+            <div class="info-card-auto" data-title="Пример" data-type="example">
+              ML Engineer с 3–5 годами опыта в финтехе и медиа. Строю end-to-end ML-системы от данных
+              и модели до продакшн API в Kubernetes; работал с нагрузкой 250+ RPS и базой пользователей 50–100K+.
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Projects & Achievements -->
+      <h3>Кейсы и достижения</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Как выбрать и подать кейсы</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Алгоритм" data-type="definition">
+              <ul>
+                <li>Выбери 2–3 проекта: один про <b>ML-качество</b>, один про <b>прод/масштаб</b>, при желании — <b>LLM/RAG</b>.</li>
+                <li>Структура буллета: <b>задача</b>, <b>подход/стек</b>, <b>результат в цифрах</b>, <b>бизнес-эффект</b>.</li>
+                <li>Добавляй контекст ограничений: задержки, бюджет, дата-качество, мульти-язычность.</li>
+              </ul>
+            </div>
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              В легенде не уходи в избыточные детали — оставь "якоря" для последующих вопросов интервьюера.
+            </div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Метрики</h2>
+          </div>
+          <div class="card-content">
+            <!-- explanation -->
+            <div class="info-card-auto" data-title="Ориентиры" data-type="explanation">
+              <ul>
+                <li><b>ML-качество:</b> AUC/F1/Recall@K, WER/CER, BLEU/ROUGE, PSNR/SSIM.</li>
+                <li><b>Инфра/перф:</b> P50/P95 latency, throughput (RPS), uptime/SLO, cost/query, GPU-hours.</li>
+                <li><b>Продукт:</b> CTR/CR, MTTR, CSAT/NPS, LTV, retention.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/architecture.svg" alt="Структура" />
+            </div>
+            <h2 class="card-title">Пример</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Примеры буллетов" data-type="example">
+              <ul>
+                <li>Снизил <b>WER</b> с 12.4% до 5.6% дообучением Whisper на кастомных данных; внедрил асинхронный FastAPI, <b>P95</b> ответа &lt; 900 мс.</li>
+                <li>Реализовал mBART-саммаризацию длинных диалогов; достиг &gt;90% по внутренней метрике согласованности, сократил <b>MTTR</b> саппорта на 15–25%.</li>
+                <li>Построил семантический поиск c <b>CLIP + FAISS</b>; ускорил рабочие процессы монтажа на &gt;30%, снизил стоимость запроса на 18% квантованием.</li>
+                <li>Рекомендательные модели (ALS/TF-IDF/segmentation): рост <b>CTR</b> и повторных заказов, снижение churn; продакшн через AWS + GitHub Actions + Docker.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Tech Stack -->
+      <h3>Стек и глубина экспертизы</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/desktop.svg" alt="Компьютер" />
+            </div>
+            <h2 class="card-title">Технологический профиль</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Структура" data-type="definition">
+              Разделяй на категории: <b>ML/DS</b>, <b>MLOps/Инфра</b>, <b>Backend</b>, <b>LLM/RAG</b>, <b>Cloud</b>. Отмечай "глубоко" vs "использовал".
+            </div>
+            <!-- example -->
+            <div class="info-card-auto" data-title="Примеры" data-type="example">
+              <ul>
+                <li><b>ML/DS:</b> PyTorch, Transformers, scikit-learn, OpenCV, YOLO, spaCy, W&B/MLflow.</li>
+                <li><b>MLOps/Инфра:</b> Docker, Kubernetes (EKS), Kafka, Airflow, Prometheus/Grafana.</li>
+                <li><b>Backend:</b> FastAPI, gRPC, PostgreSQL/ClickHouse, Redis.</li>
+                <li><b>LLM/RAG:</b> FAISS/Chroma, LangChain/LlamaIndex/LangGraph, PEFT (LoRA/QLoRA), квантование/дистилляция.</li>
+                <li><b>ASR/CV:</b> Whisper, CLIP/BLIP2, HDBSCAN, ffmpeg.</li>
+              </ul>
+            </div>
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Для ключевых моделей укажи режим/оптимизации: int8/fp16, ONNX/TensorRT, токен-кэш, батчинг.
+            </div>
+          </div>
+        </div>
+  
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/research.svg" alt="Эксперимент" />
+            </div>
+            <h2 class="card-title">Инженерные практики качества</h2>
+          </div>
+          <div class="card-content">
+            <!-- explanation -->
+            <div class="info-card-auto" data-title="Ориентиры" data-type="explanation">
+              <ul>
+                <li>Unit/Integration/E2E тесты для ML API и фиче-пайплайнов; data contracts.</li>
+                <li>Canary/Shadow, мониторинг дрейфа и деградации качества, алерты.</li>
+                <li>Feature store, reproducibility, CI/CD (GitHub Actions).</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Team & Process -->
+      <h3>Роль и процессы</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/hr.svg" alt="Взаимодействие и ответственность" />
+            </div>
+            <h2 class="card-title">Взаимодействие и ответственность</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Определение" data-type="definition">
+              Обозначь обычную роль (owner/lead/individual contributor), зоны ответственности и взаимодействия: аналитику, DevOps, продакт, мобильные/FE-команды.
+            </div>
+          </div>
+        </div>
+  
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/achievement.png" alt="Достижение" />
+            </div>
+            <h2 class="card-title">Подсвети сильные стороны</h2>
+          </div>
+          <div class="card-content">
+            <!-- explanation -->
+            <div class="info-card-auto" data-title="Подсказка" data-type="explanation">
+              <ul>
+                <li>Вёл end-to-end цикл: сбор данных, модель, прод, мониторинг. Настраивал процессы релизов, code review, инцидент-менеджмент по SLO.</li>
+                <li>Системное мышление, продуктовый фокус, способность упрощать сложное.</li>
+                <li>Навык формулировать бизнес-цели в ML-метрики и обратно.</li>
+                <li>Умение быстро прототипировать и доводить до продакшна.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Closing -->
+      <h3>Финал питча</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/classicml.png" alt="Цель" />
+            </div>
+            <h2 class="card-title">Чем полезен сейчас</h2>
+          </div>
+          <div class="card-content">
+            <!-- explanation -->
+            <div class="info-card-auto" data-title="Шаблон" data-type="explanation">
+              "Сейчас ищу роль MLE/ML Engineer, где можно соединить продакшн ML и масштабируемую
+              архитектуру. Сфокусирован на LLM/RAG и оптимизации инференса под реальные SLO/cost".
+            </div>
+            <div class="info-card-auto" data-title="Замечание" data-type="remark">
+              Подгоняй финал под описание вакансии: домен, стэк, ответственность. 
+              Ответ должен звучать как perfect match.
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">
+              <img src="../../assets/icons/question.svg" alt="Вопрос" />
+            </div>
+            <h2 class="card-title">Банк вопросов и опорные ответы</h2>
+          </div>
+          <div class="card-content">
+            <!-- definition -->
+            <div class="info-card-auto" data-title="Вопросы" data-type="definition">
+              <ul>
+                <li><b>Почему выбрали такую модель?</b> Рассматривали другие? Как сравнивали альтернативы (метрики/затраты)?</li>
+                <li><b>Почему FAISS?</b> Индексы, схема обновления, top-K, косинус</li>
+                <li><b>Как дообучали и ускоряли?</b> PEFT (LoRA/QLoRA), квантование, дистилляция, ONNX/TensorRT, батчинг.</li>
+                <li><b>Как мерили качество?</b> Внутренние метрики, human eval.</li>
+                <li><b>Как устроен прод?</b> FastAPI, async, очереди/Kafka, k8s, мониторинг (Prometheus/Grafana).</li>
+              </ul>
+            </div>
+            <!-- explanation -->
+            <div class="info-card-auto" data-title="Фреймворк ответа" data-type="explanation">
+              Отвечай по схеме: критерии выбора, эксперимент/абляции, результат (метрики/стоимость), риски/компромиссы.
+            </div>
+          </div>
+        </div>
+      </div>
+
+  
+      <!-- Scripts -->
+      <!-- firebase-sdk-auth:start -->
+      
+      
+      <!-- firebase-sdk-auth:end -->
+      <script src="../../authGuard.js"></script>
+  
+      <!-- Scroll to top -->
+      <button aria-label="Наверх" id="scrollToTopBtn" type="button">
+        <svg
+          fill="none"
+          height="24"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <script src="../../assets/js/init-page.js"></script>
+    </main>
+  </body>
+</html>

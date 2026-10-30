@@ -1,0 +1,3209 @@
+@import url("./fonts.css");
+
+/* ===== UNIFIED STYLING SYSTEM - BASED ON CLASSIC ML QUESTIONS ===== */
+
+html.material-access-checking body {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+#material-access-check-overlay {
+  display: none !important;
+}
+
+/*
+ * tokens.css, task-table.css, skeleton.css и comparison-cards.css больше не
+ * подключаются отсюда через @import: браузер узнавал о них только после того,
+ * как скачал и разобрал этот файл, то есть каждая страница платила лишний
+ * round trip перед первой отрисовкой. Теперь они подключены <link>-ами прямо
+ * в разметке, непосредственно ПЕРЕД styles.css.
+ *
+ * Относительный порядок между этими четырьмя файлами и styles.css сохранён.
+ * Но на 41 странице task-table.css или comparison-cards.css был подключён
+ * ещё и повторной ссылкой ПОСЛЕ остальных стилей — эти дубли сняты, и там
+ * правила переехали из «выигрывают почти все совпадения» в «проигрывают
+ * более поздним файлам». Сейчас это ни на что не влияет: пересечений по
+ * селекторам за пределами :root и палитр у них нет. Но если однажды здесь
+ * или в question-presentation.css появится правило на .task-table или
+ * .comparison-card, оно молча выиграет там, где раньше проигрывало бы.
+ *
+ * Из-за этого styles.css больше не самодостаточен: страница, подключившая
+ * только его, останется без единой переменной. Инвариант проверяет
+ * validate-site.js.
+ */
+
+/* ===== BASE STYLES ===== */
+
+/* Reset and Base */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  background:
+    radial-gradient(
+      ellipse 80% 55% at 15% 20%,
+      rgba(37, 99, 235, 0.16) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 45% at 88% 15%,
+      rgba(96, 165, 250, 0.12) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 55% 50% at 70% 85%,
+      color-mix(in srgb, var(--brand-secondary) 11%, transparent) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 65% 40% at 5% 75%,
+      rgba(212, 184, 120, 0.1) 0%,
+      transparent 44%
+    ),
+    var(--bg-color);
+  background-attachment: scroll;
+  color: var(--text-color);
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+}
+
+/* Dark theme: stronger, more saturated circles on deep dark base */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(
+      ellipse 80% 55% at 15% 20%,
+      rgba(59, 130, 246, 0.13) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 45% at 88% 15%,
+      rgba(147, 197, 253, 0.1) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 55% 50% at 70% 80%,
+      color-mix(in srgb, var(--brand-secondary) 8%, transparent) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 65% 40% at 5% 75%,
+      rgba(212, 184, 120, 0.05) 0%,
+      transparent 44%
+    ),
+    #0a0d18;
+  background-attachment: scroll;
+}
+
+html.palette-earth body,
+body.palette-earth {
+  background:
+    radial-gradient(
+      ellipse 78% 52% at 14% 18%,
+      rgba(22, 101, 52, 0.2) 0%,
+      transparent 54%
+    ),
+    radial-gradient(
+      ellipse 56% 42% at 88% 14%,
+      rgba(34, 197, 94, 0.12) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 58% 48% at 72% 82%,
+      rgba(146, 64, 14, 0.15) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 62% 38% at 4% 76%,
+      rgba(120, 53, 15, 0.1) 0%,
+      transparent 44%
+    ),
+    var(--bg-color);
+  background-attachment: scroll;
+}
+
+html[data-theme="dark"].palette-earth body,
+[data-theme="dark"] body.palette-earth {
+  background:
+    radial-gradient(
+      ellipse 78% 52% at 14% 18%,
+      rgba(74, 222, 128, 0.14) 0%,
+      transparent 54%
+    ),
+    radial-gradient(
+      ellipse 56% 42% at 88% 14%,
+      rgba(22, 101, 52, 0.18) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 58% 48% at 72% 82%,
+      rgba(214, 167, 95, 0.12) 0%,
+      transparent 48%
+    ),
+    #0e1512;
+  background-attachment: scroll;
+}
+
+html.palette-sepia body,
+body.palette-sepia {
+  background:
+    radial-gradient(
+      ellipse 72% 48% at 18% 22%,
+      rgba(156, 66, 33, 0.14) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 58% 44% at 85% 18%,
+      rgba(194, 65, 12, 0.1) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 55% 50% at 70% 82%,
+      rgba(92, 61, 46, 0.12) 0%,
+      transparent 46%
+    ),
+    var(--bg-color);
+  background-attachment: scroll;
+}
+
+html[data-theme="dark"].palette-sepia body,
+[data-theme="dark"] body.palette-sepia {
+  background:
+    radial-gradient(
+      ellipse 72% 48% at 18% 22%,
+      rgba(251, 146, 60, 0.1) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 58% 44% at 85% 18%,
+      rgba(124, 45, 18, 0.14) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 55% 50% at 70% 82%,
+      rgba(212, 165, 116, 0.08) 0%,
+      transparent 46%
+    ),
+    #1a1410;
+  background-attachment: scroll;
+}
+
+html.palette-graphite body,
+body.palette-graphite {
+  background:
+    radial-gradient(
+      ellipse 70% 50% at 12% 20%,
+      rgba(71, 85, 105, 0.12) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 55% 42% at 88% 12%,
+      rgba(148, 163, 184, 0.1) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 52% 48% at 75% 85%,
+      rgba(51, 65, 85, 0.08) 0%,
+      transparent 44%
+    ),
+    var(--bg-color);
+  background-attachment: scroll;
+}
+
+html[data-theme="dark"].palette-graphite body,
+[data-theme="dark"] body.palette-graphite {
+  background:
+    radial-gradient(
+      ellipse 70% 50% at 12% 20%,
+      rgba(148, 163, 184, 0.1) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 55% 42% at 88% 12%,
+      rgba(71, 85, 105, 0.16) 0%,
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse 52% 48% at 75% 85%,
+      rgba(30, 41, 59, 0.35) 0%,
+      transparent 44%
+    ),
+    #0f1115;
+  background-attachment: scroll;
+}
+
+/* Зернистая подложка убрана — без крупного noise на материалах и вопросах */
+
+/* ===== TYPOGRAPHY ===== */
+
+/* Headings */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-color);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+  margin: 0 0 var(--space-md) 0;
+  letter-spacing: -0.025em;
+}
+
+h1 {
+  font-size: 36px;
+  font-weight: 600;
+  margin-bottom: var(--space-lg);
+  color: var(--text-color);
+}
+
+h2 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: var(--space-2xl);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: var(--space-sm);
+}
+
+h3 {
+  font-size: 20px;
+  font-weight: 500;
+  margin-top: var(--space-xl);
+  margin-bottom: var(--space-sm);
+  color: var(--text-muted);
+}
+
+h4 {
+  font-size: var(--font-size-xl);
+  margin-top: var(--space-lg);
+  margin-bottom: var(--space-sm);
+}
+
+h5 {
+  font-size: var(--font-size-lg);
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+h6 {
+  font-size: var(--font-size-base);
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+/* Paragraphs */
+p {
+  margin: 0 0 var(--space-md) 0;
+  line-height: var(--line-height-relaxed);
+}
+
+/* Links */
+a {
+  color: var(--link-color);
+  text-decoration: none !important;
+  border-bottom: none !important;
+  transition: all 0.3s ease;
+  position: relative;
+  display: inline-block;
+}
+
+/* Exclude cards from link styles */
+a.card,
+a.visualization-card,
+a.fc-event {
+  position: relative; /* Keep relative for card's own positioning */
+  display: block; /* Override inline-block for cards */
+  border-bottom: inherit !important; /* Preserve card's border */
+}
+
+a:hover {
+  color: var(--link-hover);
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+
+a.card:hover,
+a.visualization-card:hover,
+a.fc-event:hover {
+  color: inherit;
+}
+
+/* Текстовые ссылки (без class): тонкая линия, при наведении заливается цветом.
+   Ссылка с классом — компонент со своим hover, сюда не попадает. :where() держит
+   специфичность голого `a`, поэтому любое правило компонента по-прежнему сильнее. */
+a:where(:not([class])) {
+  display: inline; /* перенос по словам; линия идёт по всем строкам */
+  background-image:
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(
+      color-mix(in srgb, currentColor 30%, transparent),
+      color-mix(in srgb, currentColor 30%, transparent)
+    );
+  background-size:
+    0 1px,
+    100% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition:
+    color 0.2s ease,
+    background-size 0.2s ease;
+}
+
+a:where(:not([class])):hover,
+a:where(:not([class])):focus-visible {
+  background-size:
+    100% 1px,
+    100% 1px;
+}
+
+/* Ссылки без класса внутри компонентов — не текст, линия им не нужна */
+#navbar a,
+.nav-links a,
+.dropdown-content a,
+.links-list a,
+#searchResults li a,
+.boxed a,
+.question .name a,
+.model-grid a {
+  background-image: none;
+}
+
+/* Отдельным правилом: без поддержки :has() браузер отбросил бы весь список выше */
+a:has(> img) {
+  background-image: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a:where(:not([class])) {
+    transition: none;
+  }
+}
+
+a:focus {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Lists */
+ul,
+ol {
+  margin: var(--space-md) 0;
+  padding-left: var(--space-xl);
+}
+
+li {
+  margin: var(--space-sm) 0;
+  line-height: var(--line-height-relaxed);
+}
+
+/* ===== CODE ELEMENTS ===== */
+
+/* Inline code styling */
+code {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", "Monaco", monospace;
+  font-size: 0.9em;
+  color: var(--text-color);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+code:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Код внутри <pre> — не инлайновая пилюля. Правила `code` выше дают фон,
+   рамку, отступы и тень, но внутри блока кода инлайновый <code> разрывается
+   по строкам, и каждая строка получала собственную подложку с тенью, а по
+   наведению ещё и подпрыгивала. Оформление блока — забота самого <pre>.
+
+   Селекторы перечислены так, чтобы перебить и `.block-content code`, и
+   тёмную тему, и `code:hover`: у них специфичность выше голого `pre code`.
+   Раньше это чинили по месту — в квиз-модалке через `all: unset`, на
+   странице фидбеков и в банке вопросов своими сбросами, — и каждый раз
+   забывали про border и box-shadow. */
+pre code,
+pre code:hover,
+.block-content pre code,
+.block:hover .block-content pre code,
+[data-theme="dark"] body pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Dark theme for inline code */
+[data-theme="dark"] body code {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-color);
+}
+
+/* ===== LAYOUT ===== */
+
+/* Main Container */
+.container {
+  max-width: var(--container-max-width);
+  margin: 0 auto;
+  padding: 0 var(--container-padding);
+  margin-top: var(--space-sm);
+}
+
+/* Main Content */
+main {
+  padding: var(--space-xl) 0;
+  margin-top: var(--space-md);
+}
+
+/* ===== NAVIGATION BAR ===== */
+
+/* Main Navigation Bar */
+#navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  background: var(--nav-bg);
+  backdrop-filter: none;
+  border-bottom: 1px solid var(--card-border);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: var(--space-md) var(--space-lg);
+}
+
+/* Navigation Links Container */
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+/* Navigation Links */
+.nav-links a {
+  color: var(--text-color);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  font-size: var(--font-size-sm);
+  background: none;
+  position: relative;
+  display: inline-block;
+}
+
+.nav-links a:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--accent-color);
+}
+
+.nav-links a.active {
+  background: color-mix(in srgb, var(--brand) 15%, transparent);
+  color: var(--accent-main, var(--accent-color));
+  border-radius: 999px;
+  border-bottom-color: transparent;
+}
+
+/* Dark theme navigation links */
+[data-theme="dark"] body .nav-links a {
+  color: var(--text-color);
+  background: none;
+}
+
+[data-theme="dark"] body .nav-links a:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.2),
+    color-mix(in srgb, var(--brand-secondary) 20%, transparent)
+  );
+  color: var(--accent-color);
+}
+
+[data-theme="dark"] body .nav-links a.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+/* Search Container */
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  position: relative;
+  /* margin-left: auto; - убрано, чтобы не конфликтовать с navigation.css */
+}
+
+/* Search Input */
+#searchInput {
+  padding: var(--space-sm) var(--space-md);
+  width: 200px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-color);
+  transition: all 0.2s ease;
+}
+
+#searchInput:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+/* Контур фокуса подавлялся для всех способов фокусировки, включая клавиатуру.
+   :focus-visible перебивает подавление, а мышиный клик рамку по-прежнему
+   не рисует. */
+#searchInput:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Search Close Button */
+.search-close-btn {
+  position: absolute;
+  top: 50%;
+  right: var(--space-sm);
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: var(--font-size-lg);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  z-index: 1002;
+  display: none;
+}
+
+.search-close-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--text-color);
+}
+
+[data-theme="dark"] body .search-close-btn {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] body .search-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-color);
+}
+
+/* Show More Button - Inside Search Results */
+.show-more-container {
+  padding: var(--space-md);
+  text-align: center;
+  border-top: 1px solid var(--card-border);
+  background: var(--card-bg);
+}
+
+.show-more-btn {
+  background: var(--btn-primary);
+  color: white;
+  border: none;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.show-more-btn:hover {
+  background: var(--btn-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Legacy Show More Button - Keeping for compatibility */
+#showMoreBtn {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-sm);
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  z-index: 9999;
+  transition: all 0.2s ease;
+  display: none; /* Hide the old button */
+}
+
+#showMoreBtn:hover {
+  background: var(--btn-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Search Results */
+#searchResults {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 9999;
+  margin-top: var(--space-xs);
+}
+
+#searchResults li {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--card-border);
+  list-style: none;
+}
+
+#searchResults li:last-child {
+  border-bottom: none;
+}
+
+#searchResults li:hover {
+  background: color-mix(in srgb, var(--brand) 5%, transparent);
+}
+
+#searchResults li a {
+  color: var(--text-color);
+  text-decoration: none;
+  font-weight: 500;
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+#searchResults li a:hover {
+  color: var(--accent-color);
+}
+
+#searchResults li p {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+  line-height: var(--line-height-normal);
+}
+
+#searchResults .highlight {
+  background: rgba(255, 193, 7, 0.3);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+#searchResults .fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dark theme for search results */
+[data-theme="dark"] body #searchResults {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] body #searchResults li:hover {
+  background: rgba(129, 176, 255, 0.1);
+}
+
+[data-theme="dark"] body #searchResults .highlight {
+  background: rgba(255, 193, 7, 0.2);
+}
+
+/* ===== BUTTON STYLES MOVED TO info-cards.css ===== */
+
+/* Button styles moved to info-cards.css */
+
+/* Scroll to Top Button Specific Styling */
+#scrollToTopBtn {
+  position: fixed;
+  bottom: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 999;
+  display: none;
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--font-size-base);
+  min-height: 44px;
+}
+
+/* ===== UNIFIED CONTENT SECTION STYLES ===== */
+
+/* Скрываем кнопки для примеров - теперь они всегда видны */
+.example-toggle,
+.question .example-toggle,
+.question .content > .example-toggle {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* All Content Sections - Unified Base Style */
+.definition,
+.remark,
+.example,
+.explanation,
+.exercise,
+.block,
+.callout,
+.callout.tip {
+  margin: var(--space-lg) 0;
+  padding: var(--space-lg) var(--space-xl);
+  border-radius: var(--radius-lg);
+  border-left: 4px solid;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Content Section Hover Effects */
+.definition:hover,
+.remark:hover,
+.example:hover,
+.explanation:hover,
+.exercise:hover,
+.block:hover,
+.callout:hover,
+.callout.tip:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Примеры теперь всегда видны */
+.example {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Примеры всегда видны и в темной теме */
+[data-theme="dark"] body .example {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Specific Section Colors */
+.definition {
+  border-left-color: var(--accent-color);
+  background: var(--section-definition);
+}
+
+.remark {
+  border-left-color: #f093fb;
+  background: var(--section-remark);
+}
+
+.example {
+  border-left-color: #4facfe;
+  background: var(--section-example);
+}
+
+.explanation {
+  border-left-color: #a8edea;
+  background: var(--section-explanation);
+}
+
+.exercise {
+  border-left-color: #ffc107;
+  background: var(--section-exercise);
+}
+
+.block {
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.04)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.block::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.block:hover {
+  transform: translateY(-4px);
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.15),
+    color-mix(in srgb, var(--brand-secondary) 15%, transparent)
+  );
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.block:hover::before {
+  opacity: 1;
+}
+
+.callout,
+.callout.tip {
+  border-left-color: var(--accent-color);
+  background: var(--section-definition);
+}
+
+/* ===== QUESTION CARD ===== */
+/* Один блок на карточку вопроса: раньше их было два (второй молча перебивал
+   первый) плюс отдельные правила на «сложные» вопросы с !important.
+   Иконки — inline SVG через mask, цвет берут из currentColor. */
+
+#questions {
+  margin: var(--space-xl) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question {
+  --q-accent: var(--brand);
+  --q-icon-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  position: relative;
+  margin: 14px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+.question:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.question:has(> .name[data-expanded="true"]) {
+  box-shadow: var(--shadow-md);
+}
+
+.question[data-difficulty="hard"],
+.question:has(> .name.question-hard-title) {
+  --q-accent: var(--warning);
+}
+
+/* Прочитанный вопрос виден и в свёрнутом списке: зелёная кромка слева. */
+.question.question-completed {
+  box-shadow:
+    inset 3px 0 0 var(--success),
+    var(--shadow-xs);
+}
+
+.question.question-completed:hover {
+  box-shadow:
+    inset 3px 0 0 var(--success),
+    var(--shadow-sm);
+}
+
+.question.question-completed:has(> .name[data-expanded="true"]) {
+  box-shadow:
+    inset 3px 0 0 var(--success),
+    var(--shadow-md);
+}
+
+/* ── Шапка ─────────────────────────────────────────────────────────────── */
+.question .name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 15px 20px 15px 16px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.question .name:hover {
+  background: color-mix(in srgb, var(--q-accent) 5%, transparent);
+}
+
+.question .name[data-expanded="true"] {
+  background: color-mix(in srgb, var(--q-accent) 4%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.question .name:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* Шеврон-раскрытие вместо 📚 */
+.question .name::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  opacity: 0.45;
+  -webkit-mask: var(--q-icon-chevron) center / contain no-repeat;
+  mask: var(--q-icon-chevron) center / contain no-repeat;
+  transition:
+    transform 0.2s ease,
+    opacity 0.15s ease;
+}
+
+.question .name:hover::before {
+  opacity: 0.8;
+}
+
+.question .name[data-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.question .name a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.question .name a:hover {
+  color: var(--link-hover);
+}
+
+/* Слово в заголовке бывает ссылкой на ролик: без пометки ученик кликал,
+   чтобы раскрыть вопрос, и неожиданно улетал на YouTube. */
+.question .name a[href*="youtu.be"],
+.question .name a[href*="youtube.com"] {
+  color: var(--brand);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.question .name a[href*="youtu.be"]::after,
+.question .name a[href*="youtube.com"]::after {
+  content: "▶";
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #ff0033;
+  color: #fff;
+  font-size: 0.6em;
+  line-height: 1.6;
+  vertical-align: middle;
+}
+
+.question .name .question-title-link {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+  margin: -4px -8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.question .name .question-title-link:hover,
+.question .name .question-title-link:focus-visible {
+  color: var(--link-hover);
+  background: color-mix(in srgb, var(--link-color, #2563eb) 10%, transparent);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--link-color, #2563eb) 22%, transparent);
+}
+
+.question .name .question-title-link:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+.question .name .question-title-link__indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.question .name .question-title-link__indicator {
+  width: 1.45em;
+  height: 1.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--link-color, #2563eb) 13%, transparent);
+  color: var(--link-color, #2563eb);
+  font-size: 0.78em;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--link-color, #2563eb) 28%, transparent);
+}
+
+/* ── Тело ──────────────────────────────────────────────────────────────── */
+.question .content {
+  padding: 20px 24px 8px;
+  line-height: 1.7;
+}
+
+/* ===== CONTROL BUTTONS ===== */
+
+/* Control Buttons Container */
+.controls {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: nowrap;
+  margin: var(--space-lg) 0;
+  padding: var(--space-lg);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.controls button {
+  margin: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ===== RESPONSIVE DESIGN ===== */
+
+@media (max-width: 768px) {
+  :root {
+    --space-md: 12px;
+    --space-lg: 20px;
+    --space-xl: 28px;
+  }
+
+  .container {
+    padding: 0 var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+
+  h1 {
+    font-size: var(--font-size-3xl);
+  }
+
+  h2 {
+    font-size: var(--font-size-2xl);
+  }
+
+  h3 {
+    font-size: var(--font-size-xl);
+  }
+
+  /* Картинки */
+  img {
+    max-width: 100%;
+    height: auto;
+    margin: 16px auto;
+    display: block;
+  }
+
+  /* Формулы (KaTeX) */
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding: 8px 0;
+  }
+
+  /* Таблицы */
+  .task-table-container {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, var(--card-bg) 30%, rgba(255, 255, 255, 0)),
+      linear-gradient(to left, var(--card-bg) 30%, rgba(255, 255, 255, 0)) 100%
+        0;
+    background-size:
+      40px 100%,
+      40px 100%;
+    background-repeat: no-repeat;
+    background-attachment: local, local;
+  }
+
+  /* Темная тема */
+  [data-theme="dark"] body .task-table-container {
+    background:
+      linear-gradient(to right, var(--card-bg) 30%, rgba(0, 0, 0, 0)),
+      linear-gradient(to left, var(--card-bg) 30%, rgba(0, 0, 0, 0)) 100% 0;
+    background-size:
+      40px 100%,
+      40px 100%;
+    background-repeat: no-repeat;
+    background-attachment: local, local;
+  }
+
+  /* Mobile Navigation Adjustments */
+  #navbar {
+    flex-direction: row;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    flex-wrap: nowrap;
+    align-items: center;
+    min-height: 48px;
+    max-height: 48px;
+  }
+
+  .nav-links {
+    flex-direction: row;
+    gap: var(--space-xs);
+    flex-wrap: nowrap;
+    align-items: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    max-width: calc(100% - 120px);
+  }
+
+  .nav-links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-links a {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Compact dropdown for mobile */
+  .dropdown {
+    position: relative;
+    z-index: 1002;
+  }
+
+  .dropdown-btn {
+    background: color-mix(in srgb, var(--brand) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand) 20%, transparent);
+  }
+
+  .dropdown-content {
+    min-width: 140px;
+    font-size: var(--font-size-sm);
+    z-index: 1002;
+    position: fixed;
+    top: 100%;
+    left: 0;
+    margin-top: -1px;
+    background: var(--nav-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Mobile dropdown fallback - show on touch */
+  .dropdown:active .dropdown-content,
+  .dropdown:focus .dropdown-content {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    display: block;
+  }
+
+  .dropdown-content a {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .nav-search {
+    margin-left: auto;
+    min-width: 100px;
+    max-width: 150px;
+    flex-shrink: 0;
+    flex: 0 0 auto;
+  }
+
+  #searchInput {
+    width: 100%;
+    max-width: 150px;
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  /* Mobile Button Adjustments */
+  button,
+  .btn,
+  .controls button,
+  .proof-controls button,
+  .content-toggle,
+  .example-toggle,
+  .answer-toggle,
+  .derivation-toggle,
+  .idea-toggle,
+  .proof-toggle {
+    padding: var(--space-md) var(--space-lg);
+    font-size: var(--font-size-base);
+    min-height: 44px;
+  }
+
+  /* Mobile Content Section Adjustments */
+  .definition,
+  .remark,
+  .example,
+  .explanation,
+  .exercise,
+  .block,
+  .callout,
+  .callout.tip {
+    padding: var(--space-md) var(--space-lg);
+    margin: var(--space-md) 0;
+  }
+
+  /* Mobile Question Adjustments */
+  .question {
+    margin: var(--space-md) 0;
+  }
+
+  .question .name {
+    padding: var(--space-md) var(--space-lg);
+    font-size: var(--font-size-base);
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .question .content {
+    padding: var(--space-lg);
+  }
+
+  /* Mobile Control Buttons */
+  .controls {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .controls button {
+    width: 100%;
+    margin-bottom: var(--space-sm);
+  }
+}
+
+@media (max-width: 480px) {
+  h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  h2 {
+    font-size: var(--font-size-xl);
+  }
+
+  .container {
+    padding: 0 var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+
+  /* Ultra-compact mobile navigation */
+  #navbar {
+    padding: var(--space-xs) var(--space-sm);
+    gap: var(--space-xs);
+    min-height: 44px;
+    max-height: 44px;
+  }
+
+  .nav-links {
+    gap: var(--space-xs);
+    max-width: calc(100% - 100px);
+  }
+
+  .nav-links a {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-xs);
+    min-width: auto;
+  }
+
+  .nav-search {
+    min-width: 80px;
+    max-width: 120px;
+    flex: 0 0 auto;
+  }
+
+  #searchInput {
+    max-width: 120px;
+    font-size: var(--font-size-xs);
+    padding: var(--space-xs);
+  }
+
+  /* Mobile dropdown positioning */
+  .dropdown {
+    position: relative;
+    z-index: 1002;
+  }
+
+  .dropdown-content {
+    min-width: 120px;
+    font-size: var(--font-size-xs);
+    z-index: 1002;
+    background: var(--nav-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Mobile dropdown fallback - show on touch */
+  .dropdown:active .dropdown-content,
+  .dropdown:focus .dropdown-content {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    display: block;
+  }
+
+  .question .name {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-sm);
+  }
+
+  .question .content {
+    padding: var(--space-md);
+  }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 360px) {
+  #navbar {
+    padding: var(--space-xs);
+    min-height: 40px;
+    max-height: 40px;
+  }
+
+  .nav-links {
+    max-width: calc(100% - 80px);
+  }
+
+  .nav-links a {
+    padding: var(--space-xs);
+    font-size: var(--font-size-xs);
+  }
+
+  .nav-search {
+    min-width: 60px;
+    max-width: 100px;
+    flex: 0 0 auto;
+  }
+
+  #searchInput {
+    max-width: 100px;
+    font-size: var(--font-size-xs);
+    padding: var(--space-xs);
+  }
+
+  /* Extra small mobile dropdown positioning */
+  .dropdown {
+    position: relative;
+    z-index: 1002;
+  }
+
+  .dropdown-content {
+    min-width: 100px;
+    font-size: var(--font-size-xs);
+    z-index: 1002;
+    background: var(--nav-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Mobile dropdown fallback - show on touch */
+  .dropdown:active .dropdown-content,
+  .dropdown:focus .dropdown-content {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    display: block;
+  }
+}
+
+/* Общие стили для всех типов блоков */
+.definition,
+.remark,
+.example,
+.explanation,
+.exercise,
+.callout.tip {
+  padding: 14px 18px;
+  margin: 20px 0;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+/* Современные стили для блоков */
+.block {
+  margin: 32px 0;
+  font-size: 0.95rem;
+}
+
+.block-content {
+  padding: 24px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.block-content p:first-child {
+  margin-top: 0;
+}
+
+.block-content p:last-child {
+  margin-bottom: 0;
+}
+
+.block-content pre {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+
+.block-content code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.9em;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text);
+  transition: all 0.3s ease;
+}
+
+.block:hover .block-content code {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.block-content ul,
+.block-content ol {
+  padding-left: 24px;
+  margin: 16px 0;
+}
+
+.block-content li {
+  margin: 8px 0;
+}
+
+.block-content img {
+  max-width: 100%;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+
+/* Общие стили для заголовков блоков */
+.definition strong,
+.remark strong,
+.example strong,
+.explanation strong,
+.block strong,
+.exercise strong,
+.callout.tip strong {
+  display: block;
+  margin-bottom: 8px;
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* Стили для темной темы заголовков */
+[data-theme="dark"] body .definition strong,
+[data-theme="dark"] body .remark strong,
+[data-theme="dark"] body .example strong,
+[data-theme="dark"] body .explanation strong,
+[data-theme="dark"] body .block strong,
+[data-theme="dark"] body .exercise strong,
+[data-theme="dark"] body .callout.tip strong {
+  background-color: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+/* Unified Content Section Styling - Applied Globally */
+/* All content sections now use the unified styling system defined above */
+
+/* Счетчики для блоков */
+body {
+  counter-reset: block-counter exercise-counter;
+}
+
+.block {
+  position: relative;
+  padding-top: 32px; /* Добавляем отступ для номера */
+}
+
+.block::before {
+  counter-increment: block-counter;
+  content: "Блок " counter(block-counter);
+  position: absolute;
+  top: 16px;
+  left: 24px;
+  font-weight: 600;
+  font-size: 0.9em;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  opacity: 0.8;
+  transition: all 0.3s ease;
+}
+
+.block:hover::before {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+/* Убрали конфликтующий стиль для .exercise::before */
+
+[data-theme="dark"] body .block::before {
+  color: #cfd2d6;
+}
+
+/* Unified Dark Theme - All sections use the same consistent design */
+
+/* Хак для исправления случайной "стрелки" */
+body svg text {
+  display: none;
+}
+
+/* Область для счёта блоков */
+.container {
+  counter-reset: block-counter;
+}
+
+/* Нумерация блоков */
+.block::before {
+  counter-increment: block-counter;
+  content: "Блок " counter(block-counter) ": ";
+  font-weight: bold;
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color);
+}
+
+#toolbar {
+  position: fixed;
+  top: 60px;
+  left: 10px;
+  z-index: 1001;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: flex;
+  gap: 10px;
+}
+
+[data-theme="dark"] body #toolbar {
+  background: rgba(40, 40, 40, 0.9);
+}
+
+.dropdown {
+  position: relative;
+  display: inline-block;
+  z-index: 1001;
+}
+
+.dropdown-btn {
+  cursor: pointer;
+  color: var(--text-color);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.dropdown-btn::after {
+  content: "▼";
+  font-size: 10px;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.dropdown-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--accent-color);
+}
+
+.dropdown-content {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  min-width: 200px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s ease;
+  overflow: visible;
+  padding: 8px 0;
+}
+
+.dropdown:hover .dropdown-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  display: block;
+}
+
+/* Mobile dropdown open state */
+.dropdown.open .dropdown-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  display: block;
+}
+
+/* Mobile dropdown button indicator */
+.dropdown.open .dropdown-btn::after {
+  transform: rotate(180deg);
+}
+
+.dropdown-content a {
+  display: block;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.dropdown-content a:last-child {
+  border-bottom: none;
+}
+
+.dropdown-content a:hover {
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+
+.dropdown-content a:first-child {
+  border-radius: 6px 6px 0 0;
+}
+
+.dropdown-content a:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+/* Стили для таблиц task-table перенесены в отдельный файл assets/css/task-table.css */
+
+/* Левая часть — ссылки */
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* Правая часть — поиск */
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: none;
+  position: relative;
+}
+
+/* Поле ввода поиска */
+#searchInput {
+  padding: 10px;
+  width: 100%;
+  max-width: 200px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-bottom: 0px;
+}
+
+/* Кнопка закрытия поиска */
+.search-close-btn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #666;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  z-index: 1002;
+  display: none;
+}
+
+.search-close-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+[data-theme="dark"] body .search-close-btn {
+  color: #aaa;
+}
+
+[data-theme="dark"] body .search-close-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+#showMoreBtn {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: 10px 20px;
+  font-size: 15px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 9999;
+}
+
+#showMoreBtn:hover {
+  background-color: #45a049;
+}
+
+/* Результаты поиска */
+#searchResults {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 9999;
+  margin-top: 4px;
+  display: none;
+  list-style: none;
+  padding: 0;
+}
+
+#searchResults li {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--card-border);
+  transition: background-color 0.2s;
+}
+
+#searchResults li:last-child {
+  border-bottom: none;
+}
+
+#searchResults li:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+#searchResults li a {
+  display: block;
+  font-weight: 600;
+  color: var(--link-color);
+  margin-bottom: 4px;
+  text-decoration: none;
+}
+
+#searchResults li a:hover {
+  text-decoration: underline;
+}
+
+#searchResults li p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-color);
+  opacity: 0.8;
+  line-height: 1.4;
+}
+
+#searchResults .highlight {
+  background-color: #ffeb3b;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+#searchResults .fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Темная тема для результатов поиска */
+[data-theme="dark"] body #searchResults {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] body #searchResults li:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] body #searchResults .highlight {
+  background-color: #ffc107;
+  color: #000;
+}
+
+/* dropdown */
+
+.dropdown {
+  position: relative;
+}
+
+.dropdown-btn {
+  cursor: pointer;
+  color: var(--text-color);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  display: block;
+  position: relative;
+}
+
+.dropdown-btn::after {
+  content: "▼";
+  margin-left: var(--space-xs);
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+/* Создаем невидимый мост между кнопкой и выпадающим меню */
+.dropdown::before {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 10px;
+  background: transparent;
+  z-index: 1000;
+  display: none;
+}
+
+.dropdown:hover::before {
+  display: block;
+}
+
+.dropdown-btn:hover {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  color: var(--accent-color);
+  border-bottom-color: currentColor;
+}
+
+.dropdown-content {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--nav-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  min-width: 180px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(0);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+  z-index: 1001;
+  padding: 8px 0;
+  margin-top: -1px; /* Убираем промежуток */
+}
+
+.dropdown:hover .dropdown-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  display: block;
+}
+
+/* Mobile dropdown open state */
+.dropdown.open .dropdown-content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  display: block;
+}
+
+/* Mobile dropdown button indicator */
+.dropdown.open .dropdown-btn::after {
+  transform: rotate(180deg);
+}
+
+.dropdown-content a {
+  display: block;
+  padding: 10px 16px;
+  color: var(--link-color);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+}
+
+.dropdown-content a:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Unified Button Styling - Applied Globally */
+/* All buttons now use the unified styling system defined above */
+
+.proof-controls button::before,
+.content-toggle::before,
+.example-toggle::before,
+.answer-toggle::before,
+.derivation-toggle::before,
+.idea-toggle::before,
+.proof-toggle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  transition: left 0.4s;
+}
+
+.proof-controls button:hover::before,
+.content-toggle:hover::before,
+.example-toggle:hover::before,
+.answer-toggle:hover::before,
+.derivation-toggle:hover::before,
+.idea-toggle:hover::before,
+.proof-toggle:hover::before {
+  left: 100%;
+}
+
+/* Unified Button Hover Effects - All buttons use the same consistent design */
+
+/* Unified Button Active Effects - All buttons use the same consistent design */
+
+/* Unified Button Styling - All buttons use the same consistent design */
+
+/* Unified Dark Theme Button Styling - All buttons use the same consistent design */
+
+/* Unified Responsive Button Design - All buttons use the same consistent design */
+
+/* Question highlight animation - only border */
+.question-highlight {
+  animation: questionHighlight 2s ease-in-out;
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+@keyframes questionHighlight {
+  0% {
+    border-color: rgba(34, 197, 94, 0.6);
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.4);
+  }
+  15% {
+    border-color: rgba(34, 197, 94, 0.9);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.6);
+  }
+  30% {
+    border-color: rgba(34, 197, 94, 0.7);
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.5);
+  }
+  100% {
+    border-color: var(--card-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+[data-theme="dark"] body .question-highlight {
+  animation: questionHighlightDark 2s ease-in-out;
+}
+
+@keyframes questionHighlightDark {
+  0% {
+    border-color: rgba(74, 222, 128, 0.7);
+    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.5);
+  }
+  15% {
+    border-color: rgba(74, 222, 128, 1);
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.7);
+  }
+  30% {
+    border-color: rgba(74, 222, 128, 0.8);
+    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.6);
+  }
+  100% {
+    border-color: var(--card-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* Custom bold text with gradient */
+b,
+strong {
+  font-weight: 600;
+  background: var(--text-emphasis-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Fix code inside b/strong - restore normal color */
+b code,
+strong code {
+  -webkit-text-fill-color: var(--text-color) !important;
+  color: var(--text-color) !important;
+  background: var(--card-bg) !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+
+/* Fix KaTeX math formulas inside b/strong - restore normal color */
+b .katex,
+strong .katex,
+b .katex *,
+strong .katex * {
+  -webkit-text-fill-color: var(--text-color) !important;
+  color: var(--text-color) !important;
+  background: transparent !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+
+[data-theme="dark"] body b .katex,
+[data-theme="dark"] body strong .katex,
+[data-theme="dark"] body b .katex *,
+[data-theme="dark"] body strong .katex * {
+  -webkit-text-fill-color: var(--text-color) !important;
+  color: var(--text-color) !important;
+  background: transparent !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+
+/* Fix links inside b/strong - restore link color and style */
+b a,
+strong a {
+  -webkit-text-fill-color: var(--link-color, var(--brand)) !important;
+  color: var(--link-color, var(--brand)) !important;
+  background-color: transparent !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+
+b a:hover,
+strong a:hover {
+  -webkit-text-fill-color: var(--link-hover, var(--brand-hover)) !important;
+  color: var(--link-hover, var(--brand-hover)) !important;
+}
+
+[data-theme="dark"] body b a,
+[data-theme="dark"] body strong a {
+  -webkit-text-fill-color: var(--link-color, var(--brand)) !important;
+  color: var(--link-color, var(--brand)) !important;
+}
+
+[data-theme="dark"] body b a:hover,
+[data-theme="dark"] body strong a:hover {
+  -webkit-text-fill-color: var(
+    --link-hover,
+    var(--primary-2, var(--brand))
+  ) !important;
+  color: var(--link-hover, var(--primary-2, var(--brand))) !important;
+}
+
+[data-theme="dark"] body b,
+[data-theme="dark"] body strong {
+  background: var(--text-emphasis-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+[data-theme="dark"] body b code,
+[data-theme="dark"] body strong code {
+  -webkit-text-fill-color: var(--text-color) !important;
+  color: var(--text-color) !important;
+  background: var(--card-bg) !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+}
+
+/* Enhanced content styling within questions */
+.question .definition,
+.question .remark,
+.question .example,
+.question .explanation {
+  margin: 20px 0;
+  padding: 16px 20px;
+  border-radius: 8px;
+  border-left: 4px solid;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.question .definition {
+  border-left-color: var(--accent-main, var(--brand));
+  background: color-mix(in srgb, var(--brand) 8%, var(--bg-card));
+}
+
+.question .remark {
+  border-left-color: var(--brand-secondary);
+  background: color-mix(in srgb, var(--brand-secondary) 8%, var(--bg-card));
+}
+
+.question .example {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+
+.question .explanation {
+  border-left-color: color-mix(
+    in srgb,
+    var(--brand-secondary) 82%,
+    var(--brand)
+  );
+  background: color-mix(in srgb, var(--brand-secondary) 7%, var(--bg-card));
+}
+
+/* Dark theme for content blocks */
+[data-theme="dark"] body .question .definition,
+[data-theme="dark"] body .question .remark,
+[data-theme="dark"] body .question .example,
+[data-theme="dark"] body .question .explanation {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] body .question .definition {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+[data-theme="dark"] body .question .remark {
+  background: color-mix(in srgb, var(--brand-secondary) 12%, transparent);
+}
+
+[data-theme="dark"] body .question .example {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+[data-theme="dark"] body .question .explanation {
+  background: color-mix(in srgb, var(--brand-secondary) 12%, transparent);
+}
+
+.leetcode-difficulty-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+
+.leetcode-difficulty {
+  --leetcode-difficulty-rgb: 16, 185, 129;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--leetcode-difficulty-rgb), 0.38);
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.72),
+      rgba(var(--leetcode-difficulty-rgb), 0.16)
+    ),
+    rgba(var(--leetcode-difficulty-rgb), 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 8px 18px rgba(var(--leetcode-difficulty-rgb), 0.14);
+  color: rgb(var(--leetcode-difficulty-rgb));
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(12px) saturate(1.25);
+  backdrop-filter: blur(12px) saturate(1.25);
+}
+
+.leetcode-difficulty--easy {
+  --leetcode-difficulty-rgb: 16, 185, 129;
+}
+
+.leetcode-difficulty--medium {
+  --leetcode-difficulty-rgb: 245, 158, 11;
+}
+
+.leetcode-difficulty--hard {
+  --leetcode-difficulty-rgb: 239, 68, 68;
+}
+
+[data-theme="dark"] body .leetcode-difficulty {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.16),
+      rgba(var(--leetcode-difficulty-rgb), 0.22)
+    ),
+    rgba(15, 23, 42, 0.48);
+  border-color: rgba(var(--leetcode-difficulty-rgb), 0.46);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 10px 24px rgba(var(--leetcode-difficulty-rgb), 0.2);
+  color: color-mix(in srgb, rgb(var(--leetcode-difficulty-rgb)) 72%, white);
+}
+
+/* Fix positioning for individual toggle buttons within questions */
+.question .proof-controls,
+.question .content-toggle,
+.question .example-toggle,
+.question .answer-toggle,
+.question .derivation-toggle,
+.question .idea-toggle,
+.question .proof-toggle {
+  margin: 16px 0;
+  display: block;
+  position: relative;
+  left: 0;
+  right: auto;
+}
+
+.question .proof-controls button,
+.question .content-toggle,
+.question .example-toggle,
+.question .answer-toggle,
+.question .derivation-toggle,
+.question .idea-toggle,
+.question .proof-toggle {
+  display: inline-block;
+  margin-right: 8px;
+  margin-bottom: 6px;
+  position: relative;
+  left: 0;
+  right: auto;
+  transform: none;
+}
+
+/* Ensure buttons don't inherit unwanted positioning from question content */
+.question .content > .proof-controls,
+.question .content > .content-toggle,
+.question .content > .example-toggle,
+.question .content > .answer-toggle,
+.question .content > .derivation-toggle,
+.question .content > .idea-toggle,
+.question .content > .proof-toggle {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  position: static;
+}
+
+/* Modern Dropdown/Toggle Style for Individual Buttons */
+.question .proof-controls,
+.question .content-toggle,
+.question .example-toggle,
+.question .answer-toggle,
+.question .derivation-toggle,
+.question .idea-toggle,
+.question .proof-toggle {
+  margin: 16px 0;
+  display: block;
+  position: relative;
+  left: 0;
+  right: auto;
+}
+
+.question .proof-controls button,
+.question .content-toggle,
+.question .example-toggle,
+.question .answer-toggle,
+.question .derivation-toggle,
+.question .idea-toggle,
+.question .proof-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% - 32px);
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: var(--card-bg);
+  color: var(--text-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 8px;
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+/* Add chevron icon */
+.question .proof-controls button::after,
+.question .content-toggle::after,
+.question .example-toggle::after,
+.question .answer-toggle::after,
+.question .derivation-toggle::after,
+.question .idea-toggle::after,
+.question .proof-toggle::after {
+  content: "▼";
+  font-size: 12px;
+  transition: transform 0.3s ease;
+  opacity: 0.7;
+}
+
+/* Rotate chevron when content is hidden (for "Показать" buttons) */
+.question .content-toggle[onclick*="Show"],
+.question .example-toggle[onclick*="Show"],
+.question .answer-toggle[onclick*="Show"],
+.question .derivation-toggle[onclick*="Show"],
+.question .idea-toggle[onclick*="Show"],
+.question .proof-toggle[onclick*="Show"]::after {
+  transform: rotate(-90deg);
+}
+
+/* Hover effects */
+.question .proof-controls button:hover,
+.question .content-toggle:hover,
+.question .example-toggle:hover,
+.question .answer-toggle:hover,
+.question .derivation-toggle:hover,
+.question .idea-toggle:hover,
+.question .proof-toggle:hover {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-color: #cbd5e0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Active state */
+.question .proof-controls button:active,
+.question .content-toggle:active,
+.question .example-toggle:active,
+.question .answer-toggle:active,
+.question .derivation-toggle:active,
+.question .idea-toggle:active,
+.question .proof-toggle:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Different colors for different content types */
+.question .content-toggle,
+.question .answer-toggle {
+  border-left: 4px solid var(--brand);
+}
+
+.question .content-toggle:hover,
+.question .answer-toggle:hover {
+  border-left-color: var(--brand-hover);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 8%, transparent),
+    color-mix(in srgb, var(--brand-secondary) 8%, transparent)
+  );
+}
+
+.question .example-toggle {
+  border-left: 4px solid var(--brand-secondary);
+}
+
+.question .example-toggle:hover {
+  border-left-color: var(--brand-hover);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-secondary) 10%, transparent),
+    color-mix(in srgb, var(--brand) 8%, transparent)
+  );
+}
+
+.question .derivation-toggle,
+.question .proof-toggle {
+  border-left: 4px solid var(--accent);
+}
+
+.question .derivation-toggle:hover,
+.question .proof-toggle:hover {
+  border-left-color: var(--accent-hover);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 9%, transparent),
+    color-mix(in srgb, var(--primary-2) 9%, transparent)
+  );
+}
+
+.question .idea-toggle {
+  border-left: 4px solid var(--primary-2);
+}
+
+.question .idea-toggle:hover {
+  border-left-color: var(--brand);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-2) 9%, transparent),
+    color-mix(in srgb, var(--brand-secondary) 7%, transparent)
+  );
+}
+
+/* Dark theme support */
+[data-theme="dark"] body .question .proof-controls button,
+[data-theme="dark"] body .question .content-toggle,
+[data-theme="dark"] body .question .example-toggle,
+[data-theme="dark"] body .question .answer-toggle,
+[data-theme="dark"] body .question .derivation-toggle,
+[data-theme="dark"] body .question .idea-toggle,
+[data-theme="dark"] body .question .proof-toggle {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] body .question .proof-controls button:hover,
+[data-theme="dark"] body .question .content-toggle:hover,
+[data-theme="dark"] body .question .example-toggle:hover,
+[data-theme="dark"] body .question .answer-toggle:hover,
+[data-theme="dark"] body .question .derivation-toggle:hover,
+[data-theme="dark"] body .question .idea-toggle:hover,
+[data-theme="dark"] body .question .proof-toggle:hover {
+  background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+  border-color: #718096;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Ensure buttons don't inherit unwanted positioning from question content */
+.question .content > .proof-controls,
+.question .content > .content-toggle,
+.question .content > .example-toggle,
+.question .content > .answer-toggle,
+.question .content > .derivation-toggle,
+.question .content > .idea-toggle,
+.question .content > .proof-toggle {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  position: static;
+}
+
+/* ===== UTILITY CLASSES ===== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.mb-0 {
+  margin-bottom: 0;
+}
+.mb-sm {
+  margin-bottom: var(--space-sm);
+}
+.mb-md {
+  margin-bottom: var(--space-md);
+}
+.mb-lg {
+  margin-bottom: var(--space-lg);
+}
+.mb-xl {
+  margin-bottom: var(--space-xl);
+}
+
+.mt-0 {
+  margin-top: 0;
+}
+.mt-sm {
+  margin-top: var(--space-sm);
+}
+.mt-md {
+  margin-top: var(--space-md);
+}
+.mt-lg {
+  margin-top: var(--space-lg);
+}
+.mt-xl {
+  margin-top: var(--space-xl);
+}
+
+/* Boxed elements like LaTeX \boxed - Python Roadmap Style */
+.boxed {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 60%, transparent) 0%,
+    color-mix(in srgb, var(--brand-secondary) 60%, transparent) 100%
+  );
+  background-size: 200% 200%;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  display: inline-block;
+  vertical-align: middle;
+  font-weight: 500;
+  font-size: 0.9em;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--brand) 18%, transparent);
+  border: none;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: none;
+}
+
+.boxed::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.boxed:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 25px color-mix(in srgb, var(--brand) 24%, transparent);
+  background-position: 100% 50%;
+}
+
+.boxed:hover::before {
+  opacity: 1;
+}
+
+.boxed a {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  position: relative;
+  z-index: 2;
+}
+
+.boxed a:hover {
+  color: white;
+  text-decoration: none;
+}
+
+/* Dark theme for boxed elements */
+[data-theme="dark"] body .boxed {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 36%, transparent) 0%,
+    color-mix(in srgb, var(--brand-secondary) 36%, transparent) 100%
+  );
+  background-size: 200% 200%;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+[data-theme="dark"] body .boxed:hover {
+  box-shadow: 0 8px 25px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+/* Gradient animation keyframes */
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Featured Question Cards - Special highlighting style (header only) */
+.question.featured-question .name {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 24%, transparent) 0%,
+    color-mix(in srgb, var(--brand-secondary) 12%, transparent) 100%
+  );
+  border-bottom: 1px solid var(--card-border);
+  position: relative;
+  z-index: 2;
+}
+
+.question.featured-question .name::before {
+  content: "⭐";
+  font-size: 1.2em;
+  opacity: 0.8;
+  margin-right: 8px;
+}
+
+.question.featured-question .name a {
+  background: linear-gradient(135deg, #6a5acd 0%, #ff6f91 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+/* Dark theme for featured questions */
+[data-theme="dark"] body .question.featured-question .name {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 28%, transparent),
+    color-mix(in srgb, var(--brand-secondary) 14%, transparent)
+  );
+  border-bottom-color: var(--card-border);
+}
+
+[data-theme="dark"] body .question.featured-question .name a {
+  background: var(--text-emphasis-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===== COMPARISON CARDS SYSTEM ===== */
+/* Все стили для comparison-card перенесены в assets/css/comparison-cards.css */
+
+/* Все стили для comparison-card перенесены в assets/css/comparison-cards.css */
+
+/* Все стили для comparison-card перенесены в assets/css/comparison-cards.css */
+
+/* Dark theme support for dropdown */
+[data-theme="dark"] body .dropdown-content {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  box-shadow: var(--shadow-xl);
+}
+
+[data-theme="dark"] body .dropdown-content a {
+  color: var(--text-color);
+  border-bottom: 1px solid var(--card-border);
+}
+
+[data-theme="dark"] body .dropdown-content a:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.2),
+    color-mix(in srgb, var(--brand-secondary) 20%, transparent)
+  );
+  color: var(--accent-color);
+}
+
+[data-theme="dark"] body .dropdown-btn {
+  color: var(--text-color);
+  background: none;
+}
+
+[data-theme="dark"] body .dropdown-btn:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.2),
+    color-mix(in srgb, var(--brand-secondary) 20%, transparent)
+  );
+  color: var(--accent-color);
+}
+
+/* Header content layout */
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-md);
+  padding: 0 var(--space-lg);
+}
+
+.header-text {
+  flex: 1;
+}
+
+/* ===== BUTTON STYLES MOVED TO info-cards.css ===== */
+
+/* Индикаторы уведомлений */
+.nav-notification-indicator,
+.header-notification-indicator,
+.avatar-notification-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  background: #ef4444;
+  border: 2px solid var(--card-bg, #ffffff);
+  border-radius: 50%;
+  animation: none;
+  z-index: 10;
+  transition: all 0.3s ease;
+}
+
+/* Стили для типов уведомлений */
+.notification-type.task,
+.notification-type.assignment {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.notification-type.meeting {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.notification-type.mock {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.notification-type.comment {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+}
+
+.nav-notification-indicator.has-notifications,
+.header-notification-indicator.has-notifications,
+.avatar-notification-indicator.has-notifications {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+}
+
+.nav-notification-indicator.no-notifications,
+.header-notification-indicator.no-notifications,
+.avatar-notification-indicator.no-notifications {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+}
+
+.nav-notification-indicator.hidden,
+.header-notification-indicator.hidden,
+.avatar-notification-indicator.hidden {
+  opacity: 0;
+  transform: scale(0);
+}
+
+/* Бейдж в заголовке страницы */
+.title-notification-badge {
+  display: inline-block;
+  margin-left: 8px;
+  animation: none;
+}
+
+/* Анимация пульсации */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* Темная тема для индикаторов */
+[data-theme="dark"] body .nav-notification-indicator,
+[data-theme="dark"] body .header-notification-indicator,
+[data-theme="dark"] body .avatar-notification-indicator {
+  border-color: var(--card-bg, #334155);
+}
+
+[data-theme="dark"] body .nav-notification-indicator.has-notifications,
+[data-theme="dark"] body .header-notification-indicator.has-notifications,
+[data-theme="dark"] body .avatar-notification-indicator.has-notifications {
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+}
+
+[data-theme="dark"] body .nav-notification-indicator.no-notifications,
+[data-theme="dark"] body .header-notification-indicator.no-notifications,
+[data-theme="dark"] body .avatar-notification-indicator.no-notifications {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4);
+}
+
+/* ===== UNIFIED MARKDOWN STYLES ===== */
+
+/* Markdown code styling */
+.markdown-preview code,
+.report-content code,
+.offer-notes code,
+.achievement-description code {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+}
+
+/* Markdown lists styling */
+.markdown-preview ul,
+.report-content ul,
+.offer-notes ul,
+.achievement-description ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.markdown-preview li,
+.report-content li,
+.offer-notes li,
+.achievement-description li {
+  margin: 4px 0;
+}
+
+/* Markdown bold text styling */
+.markdown-preview strong,
+.report-content strong,
+.offer-notes strong,
+.achievement-description strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Markdown paragraphs styling */
+.markdown-preview p,
+.report-content p,
+.offer-notes p,
+.achievement-description p {
+  margin: 8px 0;
+}
+
+.markdown-preview p:first-child,
+.report-content p:first-child,
+.offer-notes p:first-child,
+.achievement-description p:first-child {
+  margin-top: 0;
+}
+
+.markdown-preview p:last-child,
+.report-content p:last-child,
+.offer-notes p:last-child,
+.achievement-description p:last-child {
+  margin-bottom: 0;
+}
+
+/* Auto-resize textarea styling */
+.auto-resize-textarea {
+  resize: none;
+  min-height: 80px;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* Dark theme for markdown code */
+[data-theme="dark"] body .markdown-preview code,
+[data-theme="dark"] body .report-content code,
+[data-theme="dark"] body .offer-notes code,
+[data-theme="dark"] body .achievement-description code {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+/* ===== DISPLAY MATH COPY ===== */
+
+.latex-copy-wrap {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: 1em 0;
+  padding-right: 52px;
+}
+
+.latex-copy-wrap > .katex-display {
+  margin: 0;
+}
+
+.latex-copy-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 44px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--border, var(--border-color, #e5e7eb));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card-bg, #ffffff) 92%, transparent);
+  color: var(--text-secondary, #4b5563);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease;
+}
+
+.latex-copy-wrap:hover .latex-copy-btn,
+.latex-copy-btn:focus-visible,
+.latex-copy-btn.is-copied {
+  opacity: 1;
+}
+
+.latex-copy-btn:hover,
+.latex-copy-btn:focus-visible {
+  border-color: color-mix(
+    in srgb,
+    var(--brand, #2563eb) 42%,
+    var(--border, #e5e7eb)
+  );
+  color: var(--primary-color, var(--brand, #2563eb));
+}
+
+/* Контур фокуса подавлялся для всех способов фокусировки, включая клавиатуру.
+   :focus-visible перебивает подавление, а мышиный клик рамку по-прежнему
+   не рисует. */
+.latex-copy-btn:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+.latex-copy-btn.is-copied {
+  color: #15803d;
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+[data-theme="dark"] body .latex-copy-btn {
+  background: rgba(17, 24, 39, 0.82);
+}
+
+@media (hover: none), (max-width: 768px) {
+  .latex-copy-wrap {
+    padding-right: 0;
+    padding-bottom: 34px;
+  }
+
+  .latex-copy-btn {
+    top: auto;
+    bottom: 0;
+    opacity: 1;
+  }
+}
+
+/* ===== SKIP LINK =====
+   Навигация на странице длинная (меню + каталог), и без этой ссылки
+   клавиатурный пользователь вынужден пройти табом через неё целиком на
+   каждой из 150 страниц. Ссылка скрыта визуально, но остаётся в потоке
+   фокуса и всплывает по :focus — мышью её не видно.
+   Блок намеренно стоит в конце файла: правила фокуса навигации живут выше,
+   так две правки в styles.css не пересекаются. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 10000;
+  padding: 10px 18px;
+  border-radius: 0 0 8px 0;
+  background: var(--brand, #2563eb);
+  color: var(--brand-text, #fff);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 0;
+}
+
+/* Фокус приходит на <main tabindex="-1"> — обводка вокруг всей страницы
+   только мешает, положение прокрутки уже сообщает пользователю, где он. */
+#main-content:focus {
+  outline: none;
+}
+
+/* ===== ХЛЕБНЫЕ КРОШКИ =====
+   Пути на платформе доходят до трёх уровней (/ai/ml/nlp/optimization.html), и
+   человек, попавший на вопрос по прямой ссылке из поиска или из чата, по
+   одной только верхней навигации не понимает, в каком он разделе и куда
+   подниматься. Крошки стоят первым узлом внутри <main>, до заголовка
+   страницы, — то есть сразу после skip-link по порядку чтения и таба.
+   Блок намеренно дописан в конец файла: выше живут правила фокуса навигации
+   и .skip-link, так параллельные правки styles.css не пересекаются. */
+.breadcrumbs {
+  margin-bottom: var(--space-md);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.breadcrumbs__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumbs__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-subtle, #718096);
+}
+
+/* Разделитель рисуем из CSS, а не разметкой: лишний символ внутри текста
+   ссылки скринридер прочитал бы как часть названия раздела. */
+.breadcrumbs__item + .breadcrumbs__item::before {
+  content: "/";
+  color: var(--text-subtle, #718096);
+  opacity: 0.7;
+}
+
+.breadcrumbs__link {
+  color: var(--text-muted, #4a5568);
+  text-decoration: none;
+}
+
+.breadcrumbs__link:hover {
+  color: var(--link-color, #2563eb);
+  text-decoration: underline;
+}
+
+.breadcrumbs__link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Ступень, у каталога которой нет своего index.html: показываем, где мы,
+   но ссылкой не притворяемся — вести такую крошку некуда. */
+.breadcrumbs__step {
+  color: var(--text-subtle, #718096);
+}
+
+/* Текущая страница — не ссылка: щелчок по ней никуда бы не вёл. */
+.breadcrumbs__current {
+  color: var(--text-color, #1a1a1a);
+  font-weight: 600;
+}
+
+/* На 18 из 24 вложенных страниц у <body> стоит data-term-scope, и автообёртка
+   терминов (term-tooltip.js) подчёркивает в крошках «NLP», «Машинное
+   обучение» и т.п. пунктиром. В цепочке это ложь: подчёркнутая текущая
+   страница выглядит кликабельной, а ступень-ссылка — как термин, а не как
+   переход. Гасим оформление и снимаем pointer-events: события уходят
+   родителю, ссылка кликается по-прежнему, а тултип не всплывает.
+   Настоящее место для правки — список AUTO_WRAP_SKIP_CLOSEST в
+   assets/js/components/term-tooltip.js (туда же вписаны #navbar и
+   .section-shell), но он вне этой правки.
+   Селектор длиннее необходимого намеренно: term-tooltip.css подключается
+   после styles.css и красит термин правилом `body.dark .term-tooltip`, так
+   что при равной специфичности выигрывал бы он. */
+nav.breadcrumbs .breadcrumbs__item .term-tooltip {
+  color: inherit;
+  -webkit-text-fill-color: currentcolor;
+  text-decoration: none;
+  cursor: inherit;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .breadcrumbs {
+    font-size: 12px;
+  }
+}

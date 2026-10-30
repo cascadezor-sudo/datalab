@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Classic ML Практика</title>
+    <link href="../../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/styles.css" rel="stylesheet" />
+    <link href="../../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../../assets/css/fonts.css" rel="stylesheet" />
+<link href="../../assets/css/question-progress.css" rel="stylesheet" />
+    <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script defer="" src="../../assets/js/controls.js"></script>
+    <script defer="" src="../../assets/katex/katex.min.js"></script>
+    <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../../assets/js/components/lazy-questions.js"></script>
+    <script src="../../assets/js/init-head.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+    <script src="../../assets/js/components/config-loader.js"></script>
+    <script src="../../assets/js/components/section-hero.js"></script>
+    <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../../assets/js/components/difficulty-rating.js"></script>
+    <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../../assets/js/components/info-cards.js"></script>
+    <script src="../../assets/js/components/quiz.js"></script>
+    <script src="../../assets/js/components/questions-toc.js"></script>
+    <script src="../../assets/js/components/lazy-init.js"></script>
+    <script src="../../assets/js/components/question-presentation.js"></script>
+    <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/term-definitions.js"></script>
+    <script src="../../assets/js/components/term-tooltip.js"></script>
+    <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">ML</span>
+            <span class="pill pill--soft">Classic ML</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Classic ML</h1>
+          <p class="section-shell__desc">Практические задания по классическому машинному обучению.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3 data-md-source="true">Метрики</h3>
+        <!-- md:replace:metrics-clf-bin:start -->
+<li class="question" data-md-source="true" data-md-id="metrics-clf-bin" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="metrics-clf-bin">
+    Метрики бинарной классификации
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать и интерпретировать метрики <b>бинарной классификации</b>. На одном примере покажи, почему Accuracy не всегда отвечает на бизнес-вопрос, а выбор порога меняет баланс между ложными срабатываниями и пропущенными положительными объектами.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Формат результата">
+<p>Достаточно Jupyter-ноутбука или одного Python-модуля с демонстрационным скриптом. Не используй готовые функции метрик из <code>sklearn.metrics</code> при реализации: <code>sklearn</code> разрешён только для сверки результатов.</p>
+
+</div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <a href="../../ai/ml/classic.html#binary_clf_metrics_def" rel="noopener" target="_blank" class="badge badge-link">Accuracy</a>
+                      <a href="../../ai/ml/classic.html#binary_clf_metrics_def" rel="noopener" target="_blank" class="badge badge-link">Precision</a>
+                      <a href="../../ai/ml/classic.html#binary_clf_metrics_def" rel="noopener" target="_blank" class="badge badge-link">Recall</a>
+                      <a href="../../ai/ml/classic.html#binary_clf_metrics_def" rel="noopener" target="_blank" class="badge badge-link">$F_1$-score</a>
+                      <a href="../../ai/ml/classic.html#binary_clf_metrics_def" rel="noopener" target="_blank" class="badge badge-link">Confusion Matrix</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_auc_score.html" rel="noopener" target="_blank" class="badge badge-link">ROC AUC</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.average_precision_score.html" rel="noopener" target="_blank" class="badge badge-link">Average Precision / PR-AUC</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Контракт функций:</b> реализуй функции для confusion matrix (<code>TN</code>, <code>FP</code>, <code>FN</code>, <code>TP</code>), Accuracy, Precision, Recall и $F_1$. Принимай одномерные <code>y_true</code>, <code>y_pred</code> из меток <code>0</code>/<code>1</code>; проверь одинаковую длину массивов и понятным исключением обработай недопустимые метки.</li>
+<li><b>Граничные случаи:</b> явно выбери и задокументируй поведение при нулевом знаменателе, например когда модель не предсказала ни одного положительного объекта. Рекомендуемый вариант — возвращать <code>0.0</code>, как <code>sklearn</code> при <code>zero_division=0</code>, и не допускать деления на ноль.</li>
+<li><b>Ручная проверка:</b> для небольшого заранее заданного примера выпиши матрицу ошибок и вручную проверь все формулы. Добавь не менее трёх сценариев: идеальная модель, модель только с отрицательными предсказаниями и пример с FP и FN.</li>
+<li><b>Сверка:</b> сравни результат каждой своей функции с <code>accuracy_score</code>, <code>precision_score</code>, <code>recall_score</code>, <code>f1_score</code> и <code>confusion_matrix</code> из <code>sklearn.metrics</code>; используй <code>zero_division=0</code> при сверке.</li>
+<li><b>Вероятности и порог:</b> прими массив <code>y_score</code> с вероятностями положительного класса. Для порогов от 0 до 1 построй таблицу <code>threshold</code> $\to$ precision/recall/$F_1$/число положительных предсказаний и выбери порог для одного сценария: медицинский скрининг, антифрод или маркетинговая акция. Объясни цену FP и FN.</li>
+<li><b>Кривые:</b> реализуй построение точек ROC и PR-кривых перебором уникальных порогов; сравни итоговые ROC AUC и Average Precision с <code>sklearn</code>. Достаточно численного расчёта площадей методом трапеций; поясни, почему порядок точек важен.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Для несбалансированных классов обязательно добавь пример, где Accuracy высока, но Recall положительного класса равен нулю.</li>
+<li>ROC AUC измеряет ранжирование вероятностей и не зависит от одного фиксированного порога; Precision и Recall — зависят.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем отличаются Precision и Recall?</b></p>
+<p>Precision показывает долю настоящих положительных среди срабатываний модели, а Recall — долю найденных настоящих положительных среди всех положительных объектов.</p>
+</li>
+<li><p><b>Почему $F_1$ не всегда достаточно для выбора модели?</b></p>
+<p>$F_1$ одинаково взвешивает Precision и Recall, но в конкретной задаче цена FP и FN может быть разной. Тогда порог и метрику выбирают из бизнес-риска.</p>
+</li>
+<li><p><b>Почему ROC AUC нельзя считать по бинарным предсказаниям?</b></p>
+<p>Для ROC-кривой нужны score или вероятности, чтобы менять порог и ранжировать объекты. Один набор бинарных меток даёт лишь одну рабочую точку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:metrics-clf-bin:end -->
+
+        <!-- md:replace:metrics-clf-multi:start -->
+<li class="question" data-md-source="true" data-md-id="metrics-clf-multi" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="metrics-clf-multi">
+    Метрики многоклассовой классификации
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться вручную оценивать <b>многоклассовый классификатор</b>: строить confusion matrix, считать Precision, Recall и $F_1$ для каждого класса, а также понимать разницу между усреднениями macro, micro и weighted.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Формат результата">
+<p>Достаточно Jupyter-ноутбука или одного Python-модуля. Реализуй формулы самостоятельно; <code>sklearn.metrics</code> используй только в ячейке или тесте сверки.</p>
+
+</div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <a href="../../ai/ml/classic.html#multiclass_clf_metrics" rel="noopener" target="_blank" class="badge badge-link">Accuracy</a>
+                      <a href="../../ai/ml/classic.html#multiclass_clf_metrics" rel="noopener" target="_blank" class="badge badge-link">Precision / Recall / $F_1$</a>
+                      <a href="../../ai/ml/classic.html#multiclass_clf_metrics" rel="noopener" target="_blank" class="badge badge-link">Confusion Matrix</a>
+                      <span class="badge">Macro / Micro / Weighted average</span>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.balanced_accuracy_score.html" rel="noopener" target="_blank" class="badge badge-link">Balanced Accuracy</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Контракт:</b> реализуй функцию <code>confusion_matrix(y_true, y_pred, labels)</code>, где <code>labels</code> задаёт порядок классов. Валидация должна проверять одинаковую длину массивов, уникальность <code>labels</code> и отсутствие неизвестных классов.</li>
+<li><b>One-vs-rest:</b> по матрице ошибок для каждого класса посчитай <code>TP</code>, <code>FP</code>, <code>FN</code>, <code>TN</code>, затем Precision, Recall, $F_1$ и support. Оформи результат в таблицу с одной строкой на класс.</li>
+<li><b>Усреднения:</b> вручную реализуй Accuracy, macro-, weighted- и micro-Precision/Recall/$F_1$, а также balanced accuracy. Покажи на данных с несбалансированными классами, почему macro и weighted могут заметно различаться; объясни, что в однолейбловой многоклассовой задаче micro-$F_1$ равен Accuracy.</li>
+<li><b>Сверка:</b> сравни свои результаты с <code>confusion_matrix</code>, <code>classification_report</code>, <code>precision_recall_fscore_support</code>, <code>f1_score</code> и <code>balanced_accuracy_score</code> из <code>sklearn.metrics</code>. При нулевом знаменателе используй договорённость <code>zero_division=0</code> и проверь её отдельным примером.</li>
+<li><b>Интерпретация:</b> выбери прикладной сценарий с тремя и более классами, например <code>Dropout</code> / <code>Enrolled</code> / <code>Graduate</code>. По матрице ошибок объясни, какие путаницы классов наиболее рискованны и почему выбирать модель только по Accuracy нельзя.</li>
+<li><b>Опционально — вероятности:</b> для матрицы <code>y_score</code> формы <code>(n_samples, n_classes)</code> рассчитай и визуализируй one-vs-rest ROC-AUC или Average Precision по каждому классу. Чётко укажи способ усреднения и почему кривые не заменяют метрики при фиксированном решении.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Не считай категориальные ID классов числовой шкалой: классы равноправны, а порядок задаёт только аргумент <code>labels</code>.</li>
+<li>Сохрани один фиксированный набор входных массивов для демонстрации, чтобы результат можно было повторить.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Как получают метрики одного класса в многоклассовой задаче?</b></p>
+<p>Этот класс временно считают положительным, а все остальные — отрицательными; затем вычисляют бинарные TP, FP, FN и TN.</p>
+</li>
+<li><p><b>Когда macro $F_1$ полезнее weighted $F_1$?</b></p>
+<p>Macro $F_1$ одинаково учитывает каждый класс и лучше показывает качество для редких классов. Weighted $F_1$ отражает среднее качество с учётом размера классов.</p>
+</li>
+<li><p><b>Почему confusion matrix важнее одной итоговой метрики?</b></p>
+<p>Она показывает направление ошибок: итоговое число не говорит, какие именно классы модель путает и насколько это критично.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:metrics-clf-multi:end -->
+
+        <!-- md:replace:metrics-regr:start -->
+<li class="question" data-md-source="true" data-md-id="metrics-regr" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="metrics-regr">
+    Метрики регрессии
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Реализовать и осмысленно сравнить метрики регрессии: MAE, MSE, RMSE и $R^2$. На примерах покажи, как выбросы и масштаб целевой переменной влияют на выбор метрики.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Формат результата">
+<p>Достаточно Jupyter-ноутбука или Python-модуля. Реализацию метрик напиши без <code>sklearn.metrics</code>; библиотечные функции используй только для сверки.</p>
+
+</div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <a href="../../ai/ml/classic.html#regression_metrics" rel="noopener" target="_blank" class="badge badge-link">MAE</a>
+                      <a href="../../ai/ml/classic.html#regression_metrics" rel="noopener" target="_blank" class="badge badge-link">MSE</a>
+                      <a href="../../ai/ml/classic.html#regression_metrics" rel="noopener" target="_blank" class="badge badge-link">RMSE</a>
+                      <a href="../../ai/ml/classic.html#regression_metrics" rel="noopener" target="_blank" class="badge badge-link">$R^2$</a>
+                      <a href="../../ai/ml/classic.html#regression_error_percentiles" rel="noopener" target="_blank" class="badge badge-link">Квантили абсолютной ошибки</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Контракт функций:</b> реализуй <code>mae</code>, <code>mse</code>, <code>rmse</code> и <code>r2_score</code> для одномерных числовых <code>y_true</code> и <code>y_pred</code>. Проверь одинаковую длину и непустой вход; не скрывай <code>NaN</code> и <code>inf</code>, а выброси понятную ошибку или явно опиши принятую политику.</li>
+<li><b>Формулы и baseline:</b> для небольшого примера вручную покажи в таблице ошибки, абсолютные ошибки и квадраты ошибок. Для $R^2$ отдельно вычисли среднее <code>y_true</code>, сумму квадратов ошибок модели и константного baseline, который всегда предсказывает среднее train-цели.</li>
+<li><b>Сверка:</b> сравни результаты с <code>mean_absolute_error</code>, <code>mean_squared_error(..., squared=False)</code> или <code>root_mean_squared_error</code> и <code>r2_score</code> из <code>sklearn.metrics</code>. Проверь идеальный прогноз, константный baseline и прогноз хуже baseline, где $R^2 &lt; 0$.</li>
+<li><b>Выбросы:</b> создай два набора предсказаний, отличающихся одной крупной ошибкой. Сравни изменения MAE и RMSE, объясни, почему RMSE сильнее штрафует выбросы и в какой задаче это оправдано.</li>
+<li><b>Бизнес-интерпретация:</b> выбери числовую цель, например цену жилья или время доставки. Переведи MAE и RMSE в понятные единицы цели, покажи 50-й, 90-й и 95-й перцентили абсолютной ошибки и объясни, почему среднего значения может быть мало для обещаний пользователю.</li>
+<li><b>Ограничение $R^2$:</b> покажи, что $R^2$ безразмерен, не измеряет ошибку в единицах цели и может стать отрицательным на test. Не используй его как единственную метрику.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему RMSE и MAE имеют те же единицы, что и цель?</b></p>
+<p>После усреднения квадратов ошибок RMSE извлекает квадратный корень, а MAE вообще не возводит ошибку в квадрат; поэтому обе метрики выражаются в единицах исходной цели.</p>
+</li>
+<li><p><b>Чем MSE отличается от RMSE?</b></p>
+<p>MSE сильнее штрафует большие ошибки, но выражается в квадрате единиц цели. RMSE сохраняет это штрафование и удобнее интерпретируется.</p>
+</li>
+<li><p><b>Что означает отрицательный $R^2$ на test?</b></p>
+<p>Модель ошибается сильнее, чем константный прогноз средним значением целевой переменной из train.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:metrics-regr:end -->
+
+<h3 data-md-source="true">Регрессия</h3>
+        <!-- md:replace:house-prices-part1:start -->
+<li class="question" data-md-source="true" data-md-id="house-prices-part1" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="house-prices-part1">
+    House Prices I
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Построить первую воспроизводимую модель для прогноза цены дома <code>SalePrice</code>: исследовать табличные данные, собрать pipeline без утечки, сравнить линейные модели и решающее дерево, а затем объяснить качество в деньгах.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="House Prices" src="../../images/practise/house.png" width="1536" height="1024" loading="lazy" decoding="async" style="max-width: 550px; width: 100%; height: auto" />
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй <a href="https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques" target="_blank" rel="noopener">House Prices: Advanced Regression Techniques</a>. В частях I–II достаточно одного или нескольких Jupyter-ноутбуков. Для честной внутренней проверки работай с <code>train.csv</code>: <code>test.csv</code> Kaggle не содержит <code>SalePrice</code> и не подходит для локальной оценки. Сырые данные не коммить.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html" rel="noopener" target="_blank" class="badge badge-link">Linear Regression</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html" rel="noopener" target="_blank" class="badge badge-link">Ridge</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Lasso.html" rel="noopener" target="_blank" class="badge badge-link">Lasso</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.ElasticNet.html" rel="noopener" target="_blank" class="badge badge-link">ElasticNet</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PolynomialFeatures.html" rel="noopener" target="_blank" class="badge badge-link">PolynomialFeatures</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeRegressor.html" rel="noopener" target="_blank" class="badge badge-link">DecisionTreeRegressor</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">MAE</span>
+                      <span class="badge">RMSE</span>
+                      <span class="badge">$R^2$</span>
+                      <span class="badge">RMSLE / <code>log1p(SalePrice)</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Постановка:</b> предскажи <code>SalePrice</code> по характеристикам дома. Сохрани <code>Id</code> отдельно и не используй его как признак. Раздели <code>train.csv</code> на train/holdout с фиксированным <code>random_state</code>; holdout не используй при EDA-подборе или настройке гиперпараметров.</li>
+<li><b>EDA:</b> изучи типы столбцов, пропуски, дубликаты и распределение <code>SalePrice</code>. Построй histogram/boxplot, посчитай skewness и kurtosis; проверь ключевые связи с ценой и выбросы. Все решения об удалении строк или преобразованиях обоснуй и применяй одинаково внутри честной схемы эксперимента.</li>
+<li><b>Признаки:</b> раздели числовые и категориальные признаки. В <code>ColumnTransformer</code> выполни imputation, One-Hot Encoding для номинальных категорий и масштабирование числовых признаков для линейных моделей. Никакой <code>fit</code> преобразований на holdout или Kaggle <code>test.csv</code> до финальной оценки.</li>
+<li><b>Feature engineering:</b> добавь минимум две осмысленные гипотезы, например общую площадь, возраст дома на момент продажи, площадь ванных/крыльца или индикаторы наличия подвала/гаража. Сравни baseline и версию с новыми признаками через CV на train.</li>
+<li><b>Модели:</b> построй константный baseline (медиана цены), Linear Regression, минимум две регуляризованные линейные модели и DecisionTreeRegressor. Для полиномиальных признаков ограничь число исходных столбцов и объясни риск взрыва размерности.</li>
+<li><b>Оценка:</b> на train используй <code>KFold</code> с перемешиванием и фиксированным seed. Сведи среднее и разброс CV MAE, RMSE и $R^2$ в таблицу; после выбора модели один раз оцени её на holdout. Дополнительно оцени RMSLE либо объясни, почему используешь <code>log1p(SalePrice)</code>.</li>
+<li><b>Диагностика:</b> нарисуй <code>y_true</code> против <code>y_pred</code>, распределение residuals и график residuals против предсказания. Найди примеры крупных ошибок и объясни, каких характеристик дома или данных модели может не хватать.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему preprocessing должен быть частью pipeline?</b></p>
+<p>Иначе статистики заполнения, кодирование или масштабирование могут увидеть holdout/validation-данные и завысить оценку модели.</p>
+</li>
+<li><p><b>Зачем логарифмировать <code>SalePrice</code> при RMSLE-ориентированной оценке?</b></p>
+<p>Логарифм уменьшает влияние очень дорогих домов и делает относительные ошибки важнее абсолютных; после прогноза значение нужно корректно вернуть в исходный масштаб.</p>
+</li>
+<li><p><b>Почему низкая ошибка на train не доказывает хорошее качество?</b></p>
+<p>Сложная модель может запомнить train. Обобщающую способность проверяют кросс-валидацией и независимым holdout.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:house-prices-part1:end -->
+
+        <!-- md:replace:house-prices-part2:start -->
+<li class="question" data-md-source="true" data-md-id="house-prices-part2" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="house-prices-part2">
+    House Prices II: ансамбли и бустинг
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Продолжить <a href="#house-prices-part1">часть I</a>: применить случайный лес и бустинги к тому же честному pipeline, настроить модели по кросс-валидации и сравнить их с линейными моделями по качеству, скорости и интерпретируемости.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй тот же <a href="https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques" target="_blank" rel="noopener">House Prices</a>, тот же split и feature policy из части I. Достаточно Jupyter-ноутбука; исходные данные и Kaggle credentials не коммить.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestRegressor.html" rel="noopener" target="_blank" class="badge badge-link">RandomForestRegressor</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingRegressor.html" rel="noopener" target="_blank" class="badge badge-link">GradientBoostingRegressor</a>
+                      <a href="https://xgboost.readthedocs.io/en/latest/python/python_api.html#xgboost.XGBRegressor" rel="noopener" target="_blank" class="badge badge-link">XGBRegressor</a>
+                      <a href="https://catboost.ai/en/docs/concepts/python-reference_catboost.CatBoostRegressor" rel="noopener" target="_blank" class="badge badge-link">CatBoostRegressor</a>
+                      <a href="https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMRegressor.html" rel="noopener" target="_blank" class="badge badge-link">LightGBMRegressor</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">MAE</span>
+                      <span class="badge">RMSE</span>
+                      <span class="badge">$R^2$</span>
+                      <span class="badge">RMSLE / <code>log1p(SalePrice)</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Единый эксперимент:</b> воспроизведи из части I preprocessing, engineered features, CV-разбиение и нетронутый holdout. Сравнение моделей должно происходить на идентичных folds; test Kaggle по-прежнему не используй как validation.</li>
+<li><b>Ансамбли:</b> обучи RandomForestRegressor и GradientBoostingRegressor. Выбери как минимум один библиотечный бустинг — XGBoost, CatBoost или LightGBM; если используешь CatBoost, отдельно сравни нативную обработку категорий с one-hot pipeline и объясни выбор.</li>
+<li><b>Подбор параметров:</b> для каждой основной модели определи компактное, обоснованное пространство параметров (например, число/глубина деревьев, <code>min_samples_leaf</code>, learning rate, число итераций и subsampling). Используй <code>RandomizedSearchCV</code>, <code>GridSearchCV</code> или Optuna только на train/CV; укажи метрику оптимизации и фиксируй seed.</li>
+<li><b>Сравнение:</b> сведи baseline и лучшие модели части I–II в таблицу: CV среднее и разброс MAE, RMSE, $R^2$, время обучения и ключевые параметры. После выбора модели вычисли метрики на holdout ровно один раз и объясни, компенсирует ли выигрыш качества усложнение модели.</li>
+<li><b>Интерпретация:</b> построй permutation importance для финальной модели и сравни с feature importance деревьев, если оно доступно. Для категориальных one-hot признаков агрегируй важности по исходному столбцу или явно поясни, почему отдельные dummy-столбцы могут вводить в заблуждение.</li>
+<li><b>Ошибки и Kaggle:</b> проанализируй крупные residuals финальной модели. Опционально после всех локальных решений переобучи финальный pipeline на всём <code>train.csv</code>, сформируй <code>submission.csv</code> для Kaggle и задокументируй публичный score отдельно от локальной holdout-оценки.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему бустинг часто превосходит одно дерево?</b></p>
+<p>Бустинг последовательно добавляет деревья, исправляющие остаточные ошибки предыдущего ансамбля, и может аппроксимировать сложные нелинейные зависимости.</p>
+</li>
+<li><p><b>Почему нельзя выбирать лучшую модель по holdout много раз?</b></p>
+<p>После повторных решений, основанных на holdout, он становится частью подбора и даёт оптимистичную оценку. Для выбора используют CV на train.</p>
+</li>
+<li><p><b>Зачем сравнивать качество с временем и сложностью?</b></p>
+<p>Небольшой выигрыш метрики может не оправдать медленное обучение, тяжёлую эксплуатацию и более слабую объяснимость модели.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:house-prices-part2:end -->
+
+        <h3 data-md-source="true">Кластеризация</h3>
+        <!-- md:replace:clustering-tasks:start -->
+<li class="question" data-md-source="true" data-md-id="clustering-tasks" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="clustering-tasks">
+    Customer Segmentation
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Провести полный unsupervised-анализ клиентских данных: выделить сегменты, сравнить алгоритмы кластеризации и превратить математические кластеры в проверяемые бизнес-гипотезы. Кластер — не готовое решение о клиенте, а отправная точка для дальнейшей проверки.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="Customer Segmentation" src="../../images/practise/segm-clients.jpg" width="1024" height="576" loading="lazy" decoding="async" style="max-width: 550px; width: 100%; height: auto" />
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй <a href="https://www.kaggle.com/datasets/vjchoudhary7/customer-segmentation-tutorial-in-python" target="_blank" rel="noopener">Mall Customers</a> либо другой открытый набор данных о поведении клиентов с явной ссылкой и описанием полей. Достаточно Jupyter-ноутбука; исходные данные не коммить.</p>
+<p>Для основного эксперимента зафиксируй один набор признаков, например возраст, доход и spending score. Если добавляешь другие признаки, объясни, почему они доступны и не являются ID клиента или следствием будущей маркетинговой кампании.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Алгоритмы</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html" rel="noopener" target="_blank" class="badge badge-link">KMeans / KMeans++</a>
+                      <a href="https://scikit-learn-extra.readthedocs.io/en/stable/generated/sklearn_extra.cluster.KMedoids.html" rel="noopener" target="_blank" class="badge badge-link">KMedoids</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html" rel="noopener" target="_blank" class="badge badge-link">DBSCAN</a>
+                      <a href="https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html" rel="noopener" target="_blank" class="badge badge-link">HDBSCAN</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html" rel="noopener" target="_blank" class="badge badge-link">Иерархическая</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralClustering.html" rel="noopener" target="_blank" class="badge badge-link">Спектральная</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.silhouette_score.html" rel="noopener" target="_blank" class="badge badge-link">Silhouette Score</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.calinski_harabasz_score.html" rel="noopener" target="_blank" class="badge badge-link">Calinski–Harabasz</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.davies_bouldin_score.html" rel="noopener" target="_blank" class="badge badge-link">Davies–Bouldin</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Постановка и EDA:</b> сформулируй, какие решения может поддержать сегментация: коммуникация, ассортимент, программа лояльности. Проверь размер данных, пропуски, дубликаты и типы признаков; построй распределения, pairplot и корреляции. Исключи идентификаторы и обоснуй обработку выбросов.</li>
+<li><b>Подготовка:</b> сформируй <code>X</code> только из выбранных числовых признаков. Сравни результат без масштабирования и после <code>StandardScaler</code>; основной эксперимент проводи на масштабированных данных, потому что большинство алгоритмов опирается на расстояния.</li>
+<li><b>KMeans:</b> исследуй несколько значений $k$ (например, 2–8) с фиксированным <code>random_state</code> и несколькими инициализациями. Построй inertia/elbow, Silhouette и таблицу размеров кластеров; выбери $k$, не опираясь только на одну кривую.</li>
+<li><b>Сравнение алгоритмов:</b> на одном и том же <code>X</code> запусти минимум KMeans, один плотностный метод (DBSCAN или HDBSCAN) и иерархическую кластеризацию. KMedoids и Spectral Clustering — расширение. Для DBSCAN/HDBSCAN обоснуй <code>eps</code>/<code>min_samples</code> или <code>min_cluster_size</code>, отдельно посчитай и визуализируй шумовые точки с меткой <code>-1</code>.</li>
+<li><b>Оценка:</b> рассчитай Silhouette, Calinski–Harabasz и Davies–Bouldin только когда есть минимум два непустых не-шумовых кластера; укажи, какие точки исключались из расчёта и почему. Сведи параметры, число кластеров, долю шума, размеры сегментов и метрики в одну таблицу.</li>
+<li><b>Визуализация:</b> спроецируй те же признаки в 2D через PCA и нарисуй результаты всех основных алгоритмов в одинаковой палитре и масштабе осей. Для иерархического метода добавь дендрограмму. Не утверждай, что два далеко расположенных кластера в t-SNE/UMAP обязательно далеки в исходном пространстве.</li>
+<li><b>Профили сегментов:</b> построй таблицу медиан/средних и размера каждого сегмента в исходных единицах. Дай сегментам нейтральные названия, сформулируй для каждого гипотезу и способ офлайн- или A/B-проверки. Не назначай клиенту жёсткую стратегию только по кластеру.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему масштабирование критично для KMeans и DBSCAN?</b></p>
+<p>Эти методы используют расстояния: признак с большим масштабом доминирует над остальными и искусственно задаёт форму кластеров.</p>
+</li>
+<li><p><b>Почему Silhouette нельзя считать абсолютным доказательством хорошей сегментации?</b></p>
+<p>Метрика предпочитает компактные и разделённые сферические группы, но не проверяет бизнес-полезность, устойчивость результата и корректность выбранных признаков.</p>
+</li>
+<li><p><b>Чем плотностные методы отличаются от KMeans?</b></p>
+<p>KMeans заранее требует число кластеров и распределяет все точки, а DBSCAN/HDBSCAN могут находить кластеры сложной формы и помечать редкие точки шумом.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:clustering-tasks:end --> 
+
+        <h3 data-md-source="true">Сокращение размерности</h3>
+        <!-- md:replace:dim-reduction-viz:start -->
+<li class="question" data-md-source="true" data-md-id="dim-reduction-viz" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="dim-reduction-viz">
+    Визуализация данных через PCA, t-SNE, UMAP
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться использовать PCA, t-SNE и UMAP для исследовательской визуализации: отделять надёжные выводы о данных от артефактов проекции и честно сравнивать методы на одном наборе объектов.</p>
+
+</div>
+<figure style="text-align: center">
+  <img alt="PCA, t-SNE, UMAP" src="../../images/ml/classic/pca-tsne-umap.png" width="1080" height="416" loading="lazy" decoding="async" style="max-width: 600px; width: 100%; height: auto" />
+  <figcaption>
+    PCA, t-SNE, UMAP
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй один датасет во всех экспериментах: рекомендуемый вариант — <a href="https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_digits.html" target="_blank" rel="noopener">Digits</a>, потому что 64 признака и известные метки позволяют проверить картинку. Можно взять Iris или данные из задачи классификации/кластеризации, но опиши размерность, смысл признаков и источник.</p>
+<p>Достаточно Jupyter-ноутбука. Метки классов разрешены только для раскраски и оценки визуализации после обучения; не передавай их методам снижения размерности.</p>
+
+</div>
+<div class="badges-block" data-category="methods">
+                  <div class="badges-block-label">Методы</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html" rel="noopener" target="_blank" class="badge badge-link">PCA</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html" rel="noopener" target="_blank" class="badge badge-link">t-SNE</a>
+                      <a href="https://umap-learn.readthedocs.io/en/latest/api.html#umap.UMAP" rel="noopener" target="_blank" class="badge badge-link">UMAP</a>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Подготовка:</b> проведи короткий EDA: размер <code>X</code>, пропуски, диапазоны и распределение классов/кластеров. Объясни, нужны ли <code>StandardScaler</code> и почему для выбранного набора. Сделай preprocessing один раз и используй одинаковый <code>X</code> во всех трёх методах.</li>
+<li><b>PCA:</b> построй 2D-проекцию и scatter plot, раскрасив точки известными метками. Покажи <code>explained_variance_ratio_</code> первых компонент и cumulative explained variance для большего числа компонент. Интерпретируй, сколько информации линейная 2D-проекция сохраняет и чего по ней утверждать нельзя.</li>
+<li><b>t-SNE:</b> фиксируй <code>random_state</code>, выбери разумные <code>init</code> и число итераций. Сравни минимум три значения <code>perplexity</code> (например, 5, 30, 50) при одинаковых данных; выпиши время работы и наблюдения. Учитывай ограничение: <code>perplexity &lt; n_samples</code>.</li>
+<li><b>UMAP:</b> фиксируй <code>random_state</code>, сравни минимум две комбинации <code>n_neighbors</code> и <code>min_dist</code>; отрази изменения локальной плотности и разделимости групп. Укажи версию <code>umap-learn</code>, потому что результат и параметры зависят от реализации.</li>
+<li><b>Сопоставление:</b> расположи PCA, t-SNE и UMAP в одной фигуре с одинаковой палитрой меток и чёткими подписями осей. Сведи в таблицу параметры, время, наблюдаемую локальную/глобальную структуру и ограничения интерпретации.</li>
+<li><b>Проверка устойчивости:</b> повтори t-SNE и UMAP хотя бы с ещё одним seed. Сравни не абсолютные координаты, а соседства и устойчивость крупных групп; объясни, почему поворот, отражение или сдвиг вложения не меняют его смысла.</li>
+<li><b>Связь с моделями:</b> при наличии меток обучи простой классификатор в исходном пространстве и отдельно на 2D PCA. Сравни качество, не обучая финальный классификатор на t-SNE-вложении. Объясни, что красивая визуализация не гарантирует улучшения предсказательной модели.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>PCA — параметрическое линейное преобразование: на новых объектах доступен <code>transform</code>.</li>
+<li>t-SNE в <code>scikit-learn</code> прежде всего предназначен для визуализации обучающей выборки; не используй его как универсальный preprocessing для production-инференса.</li>
+<li>UMAP может преобразовывать новые точки, но это не отменяет проверку качества и временной доступности признаков.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему в t-SNE нельзя интерпретировать расстояния между удалёнными группами как исходные?</b></p>
+<p>t-SNE главным образом сохраняет локальные соседства. Глобальное расположение кластеров и расстояния между ними могут быть артефактом оптимизации.</p>
+</li>
+<li><p><b>Что показывает explained variance ratio в PCA?</b></p>
+<p>Это доля вариации исходных данных, объяснённая каждой главной компонентой; она не равна качеству классификации и не гарантирует разделимость классов.</p>
+</li>
+<li><p><b>Зачем фиксировать seed при сравнении вложений?</b></p>
+<p>t-SNE и UMAP используют случайность. Зафиксированный seed делает конкретный эксперимент воспроизводимым, а проверка нескольких seed показывает его устойчивость.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:dim-reduction-viz:end -->
+
+              <!-- md:inject:start -->
+        <h3 data-md-source="true">Классификация</h3>
+<li class="question" data-md-source="true" data-md-id="online-shoppers-part1" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="online-shoppers-part1">
+    Конверсия в интернет-магазине I
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться решать прикладную задачу <b>бинарной классификации</b> на смешанных табличных данных: по поведению посетителя интернет-магазина предсказать, завершится ли текущая сессия покупкой (<code>Revenue</code>).</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные">
+<p>Используй <a href="https://archive.ics.uci.edu/dataset/468/online%2Bshoppers%2Bpurchasing%2Bintention%2Bdataset" target="_blank" rel="noopener">Online Shoppers Purchasing Intention Dataset от UCI</a>: 12 330 сессий, 17 признаков и бинарная цель <code>Revenue</code>. Покупкой заканчиваются только 1 908 сессий (около 15,5%), поэтому одной Accuracy для выбора модели недостаточно.</p>
+<p>В частях I–II достаточно одного или нескольких Jupyter-ноутбуков (<code>.ipynb</code>). Отдельный проект понадобится только в части III. Все три части можно вести в одном репозитории, сохраняя результат каждой на отдельной ветке: <code>clf/online_shoppers/part_1</code>, <code>clf/online_shoppers/part_2</code>, <code>clf/online_shoppers/part_3</code>. Сырые данные не коммить в репозиторий: скачай их по официальной ссылке или загружай программно.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html" rel="noopener" target="_blank" class="badge badge-link">Logistic Regression</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Decision Tree</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">PR-AUC / Average Precision</span>
+                      <span class="badge">Precision / Recall</span>
+                      <span class="badge">$F_1$-score</span>
+                      <span class="badge">ROC AUC</span>
+                      <span class="badge">Confusion Matrix</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Постановка:</b> зафиксируй момент принятия решения — модель должна оценивать вероятность покупки во время визита, чтобы маркетинг мог показать посетителю дополнительный стимул. Цель — <code>Revenue</code>.</li>
+<li><b>EDA:</b> изучи размеры таблицы, типы и диапазоны признаков, пропуски, дубликаты и распределение классов. Отдельно покажи числовые и категориальные признаки и объясни, почему дисбаланс делает Accuracy недостаточной.</li>
+<li><b>Разделение и подготовка:</b> сделай стратифицированный train/test split с фиксированным <code>random_state</code>. Собери <code>Pipeline</code> / <code>ColumnTransformer</code>: все обучаемые преобразования, включая заполнение пропусков, кодирование категорий и масштабирование для логистической регрессии, настраиваются только на train.</li>
+<li><b>Базовые модели:</b> обучи логистическую регрессию и решающее дерево. Сведи результаты на test в таблицу: PR-AUC, ROC AUC, precision, recall, $F_1$ и confusion matrix.</li>
+<li><b>Выбор:</b> выбери основную метрику PR-AUC и объясни выбор финальной модели не только числом, но и компромиссом между тем, скольких потенциальных покупателей она находит и скольким посетителям будет показана лишняя акция.</li>
+<li><b><code>PageValues</code> и утечка:</b> в финальный real-time набор признаков <code>PageValues</code> <b>не включай</b>. Объясни, что значение формируется из ценности страниц и достижения целевой страницы в сессии, поэтому в момент показа стимула может зависеть от информации, появляющейся позднее, и быть прокси таргета. Можно выполнить отдельное диагностическое сравнение на validation/OOF-предсказаниях с <code>PageValues</code> и без него, но не выбирай по версии с этим признаком финальную модель и не используй её для честной test-оценки.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Построй PR-кривую и ROC-кривую для логистической регрессии и дерева на одном графике.</li>
+<li>Зафиксируй в выводах, какие признаки доступны в момент скоринга, а какие появляются только после дальнейших действий пользователя.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему PR-AUC здесь информативнее Accuracy?</b></p>
+<p>При редком положительном классе модель, всегда предсказывающая отсутствие покупки, получит высокую Accuracy, но не найдёт ни одного покупателя. PR-AUC показывает соотношение precision и recall именно для покупок.</p>
+</li>
+<li><p><b>Зачем нужен стратифицированный split?</b></p>
+<p>Он сохраняет близкую долю покупок в train и test, поэтому оценка модели не искажается случайным перекосом классов.</p>
+</li>
+<li><p><b>Почему <code>PageValues</code> нельзя использовать для real-time предсказания?</b></p>
+<p>Этот признак связан с ценностью страниц и достижением цели внутри сессии. Если на момент скоринга эта информация ещё не сформирована, её использование создаёт временную утечку и завышает offline-метрики.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="online-shoppers-part2" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="online-shoppers-part2">
+    Конверсия в интернет-магазине II: ансамбли
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Продолжить <a href="#online-shoppers-part1">часть I</a>: добавить ансамбли, настроить их без утечки test-данных и сравнить с baseline, логистической регрессией и одиночным деревом.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и формат">
+<p>Используй тот же <a href="https://archive.ics.uci.edu/dataset/468/online%2Bshoppers%2Bpurchasing%2Bintention%2Bdataset" target="_blank" rel="noopener">датасет UCI</a>, ту же business-постановку и тот же временно безопасный набор признаков. <code>PageValues</code> остаётся исключённым из всех финальных pipeline.</p>
+<p>Достаточно Jupyter-ноутбука. Продолжай тот же репозиторий из части I на ветке <code>clf/online_shoppers/part_2</code>; результат части I сохраняй на <code>clf/online_shoppers/part_1</code>, а требования проекта из части III будут добавлены на <code>clf/online_shoppers/part_3</code>. <code>pyproject.toml</code> и тесты пока не требуются.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Random Forest</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Gradient Boosting</a>
+                      <a href="https://xgboost.readthedocs.io/en/stable/python/python_api.html#xgboost.XGBClassifier" rel="noopener" target="_blank" class="badge badge-link">XGBoost</a>
+                      <a href="https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html" rel="noopener" target="_blank" class="badge badge-link">LightGBM</a>
+                      <a href="https://catboost.ai/docs/en/concepts/python-reference_catboostclassifier" rel="noopener" target="_blank" class="badge badge-link">CatBoost</a>
+                      <span class="badge">Logistic Regression</span>
+                      <span class="badge">Decision Tree</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">PR-AUC / Average Precision</span>
+                      <span class="badge">Precision / Recall</span>
+                      <span class="badge">$F_1$-score</span>
+                      <span class="badge">ROC AUC</span>
+                      <span class="badge">Confusion Matrix</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Единый эксперимент:</b> воспроизведи безопасную подготовку данных из части I. Оставь test нетронутым до финальной оценки; все преобразования и подбор параметров должны жить внутри pipeline, который обучается только на train.</li>
+<li><b>Ансамбли и бустинги:</b> обучи <code>RandomForestClassifier</code>, градиентный бустинг и минимум один библиотечный бустинг: XGBoost, LightGBM или CatBoost. Для CatBoost отдельно объясни, используешь ли нативную обработку категориальных признаков или общий one-hot pipeline. Подбери значимые гиперпараметры через <code>StratifiedKFold</code> и <code>GridSearchCV</code> либо <code>RandomizedSearchCV</code>; обоснуй поисковое пространство и не подбирай параметры по test.</li>
+<li><b>Сравнение:</b> добавь результаты моделей из части I и новых ансамблей в одну таблицу. Для каждой модели покажи среднюю CV-оценку на train и единственную итоговую оценку на test по PR-AUC, ROC AUC, precision, recall и $F_1$.</li>
+<li><b>Визуализация и интерпретация:</b> нарисуй ROC- и PR-кривые на общих графиках, а также важность признаков для ансамблей. Если для сравнения важности используешь разные модели, поясни различие между встроенной и permutation importance.</li>
+<li><b>Бизнес-решение:</b> выбери финальную модель по PR-AUC и объясни, чем она лучше для поиска посетителей, которым стоит предложить скидку или иной стимул. Отдельно опиши, почему версия с <code>PageValues</code>, даже при более высокой offline-оценке, не является допустимой моделью для real-time сценария.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужна кросс-валидация, если уже есть test?</b></p>
+<p>Кросс-валидация на train помогает сравнить настройки и модели устойчивее, а test остаётся независимой однократной проверкой выбранного решения.</p>
+</li>
+<li><p><b>В чём разница между случайным лесом и градиентным бустингом?</b></p>
+<p>Случайный лес обучает много независимых деревьев и усредняет их, снижая дисперсию. Бустинг последовательно исправляет ошибки предыдущих деревьев и обычно сильнее зависит от настройки.</p>
+</li>
+<li><p><b>Почему важность признака не доказывает причинную связь?</b></p>
+<p>Важность показывает вклад в предсказания на имеющихся данных; она может отражать корреляции, прокси-признаки и особенности сбора данных, а не причинное влияние.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="online-shoppers-part3" data-difficulty="hard">
+  <div class="name question-difficulty-hard question-hard-title" id="online-shoppers-part3">
+    Конверсия в интернет-магазине III: воспроизводимый проект
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Оформить решение из первых двух частей как самостоятельный ML-проект, добавить SVM и Naive Bayes и доказать, что эксперимент воспроизводим и не использует признаки с временной утечкой.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Входные артефакты">
+<p>Оформи решение в репозитории <code>online-shoppers-classification/</code> с <code>src/</code>, <code>notebooks/</code>, <code>tests/</code>, <code>README.md</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>. Можно вести все части в этом одном репозитории: результаты I–III должны быть доступны соответственно на ветках <code>clf/online_shoppers/part_1</code>, <code>clf/online_shoppers/part_2</code>, <code>clf/online_shoppers/part_3</code>. Исходные данные не коммить: код должен либо скачивать их по <a href="https://archive.ics.uci.edu/dataset/468/online%2Bshoppers%2Bpurchasing%2Bintention%2Bdataset" target="_blank" rel="noopener">официальной ссылке UCI</a>, либо принимать путь к скачанному файлу.</p>
+<p>Зафиксируй в коде feature policy: для real-time сценария <code>PageValues</code> исключается до обучения и инференса.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html" rel="noopener" target="_blank" class="badge badge-link">SVC</a>
+                      <a href="https://scikit-learn.org/stable/modules/naive_bayes.html" rel="noopener" target="_blank" class="badge badge-link">Naive Bayes</a>
+                      <span class="badge">Logistic Regression</span>
+                      <span class="badge">Decision Tree</span>
+                      <span class="badge">Random Forest</span>
+                      <span class="badge">Gradient Boosting</span>
+                      <a href="https://xgboost.readthedocs.io/en/stable/python/python_api.html#xgboost.XGBClassifier" rel="noopener" target="_blank" class="badge badge-link">XGBoost</a>
+                      <a href="https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html" rel="noopener" target="_blank" class="badge badge-link">LightGBM</a>
+                      <a href="https://catboost.ai/docs/en/concepts/python-reference_catboostclassifier" rel="noopener" target="_blank" class="badge badge-link">CatBoost</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <span class="badge"><code>uv</code></span>
+                      <span class="badge"><code>ruff</code></span>
+                      <span class="badge"><code>pytest</code></span>
+                      <span class="badge"><code>scikit-learn</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Структура и запуск:</b> вынеси загрузку данных, подготовку признаков, обучение, оценку и построение графиков из ноутбука в переиспользуемые модули <code>src/</code>. Добавь CLI или скрипт обучения с фиксированным seed и сохраняй таблицу результатов/графики в игнорируемую папку артефактов.</li>
+<li><b>Новые модели:</b> добавь SVM минимум с линейным и RBF-ядром; другие ядра (<code>poly</code>, <code>sigmoid</code>) можно включить в сравнение. Добавь подходящий вариант Naive Bayes и обоснуй, как его предположения соотносятся с числовыми и one-hot-кодированными признаками.</li>
+<li><b>Честное сравнение:</b> сравни SVM и Naive Bayes с логистической регрессией, деревом, случайным лесом, градиентным бустингом, XGBoost, LightGBM и CatBoost из частей I–II на одной фиксированной схеме split/CV и одних метриках. Финальную модель выбирай по PR-AUC на безопасном наборе признаков; test используй только после выбора.</li>
+<li><b>Тесты:</b> unit-тестами проверь загрузку/валидацию схемы, исключение <code>PageValues</code>, отсутствие target в списке признаков и возможность обучить pipeline на небольшом фиктивном наборе данных. Тесты не должны требовать сети или скачивания датасета.</li>
+<li><b>Документация:</b> в <code>README.md</code> опиши источник и лицензию данных, установку через <code>uv</code>, команды запуска, структуру проекта, метрики и результаты. Явно зафиксируй ограничение: <code>PageValues</code> нельзя применять для real-time предсказания из-за доступности признака во времени и риска target leakage.</li>
+<li><b>Качество кода:</b> на чистой машине должны проходить <code>uv sync</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему SVM необходимо масштабирование признаков?</b></p>
+<p>Расстояния и скалярные произведения в SVM чувствительны к масштабу: признаки с большими числовыми значениями иначе будут непропорционально влиять на границу решения.</p>
+</li>
+<li><p><b>Какой риск несёт Naive Bayes на этих данных?</b></p>
+<p>Наивный байесовский классификатор предполагает условную независимость признаков при известном классе. Поведение пользователя и признаки страниц коррелируют, поэтому предположение может нарушаться, хотя модель остаётся полезной как быстрая вероятностная baseline-модель.</p>
+</li>
+<li><p><b>Что делает эксперимент воспроизводимым?</b></p>
+<p>Зафиксированные зависимости, seed, версия и источник данных, код pipeline, команды запуска и автоматические тесты позволяют другому человеку повторить обучение и проверку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="students-dropout-part1" data-difficulty="easy">
+  <div class="name question-difficulty-easy" id="students-dropout-part1">
+    Раннее выявление риска отчисления I
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Решить задачу <b>многоклассовой классификации</b>: по информации о студенте, известной при поступлении, предсказать один из исходов обучения — <code>Dropout</code>, <code>Enrolled</code> или <code>Graduate</code> — и понять, кому стоит предложить раннюю поддержку.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные">
+<p>Используй <a href="https://archive.ics.uci.edu/dataset/697/predict%20students%20dropout%20and%20academic%20success" target="_blank" rel="noopener">Predict Students&#39; Dropout and Academic Success от UCI</a>: 4 424 записи, 36 признаков смешанного типа и три несбалансированных класса цели <code>Target</code>.</p>
+<p>В частях I–II достаточно Jupyter-ноутбука. Все три части можно вести в одном репозитории, сохраняя результат каждой на отдельной ветке: <code>clf/students_dropout/part_1</code>, <code>clf/students_dropout/part_2</code>, <code>clf/students_dropout/part_3</code>. Для этой задачи точка предсказания — <b>момент поступления</b>: в модель можно включать только признаки, которые уже известны тогда. Сырые данные не коммить в репозиторий.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html" rel="noopener" target="_blank" class="badge badge-link">Logistic Regression</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Decision Tree</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">Macro $F_1$-score</span>
+                      <span class="badge">Weighted $F_1$-score</span>
+                      <span class="badge">Precision / Recall / $F_1$ по классам</span>
+                      <span class="badge">Balanced Accuracy</span>
+                      <span class="badge">Confusion Matrix</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Временная граница:</b> составь allowlist признаков по документации UCI. Все показатели <code>Curricular units 1st sem ...</code> и <code>Curricular units 2nd sem ...</code> исключи: они появляются после поступления и для раннего прогноза являются будущей информацией. Зафиксируй этот список и его обоснование в ноутбуке.</li>
+<li><b>EDA:</b> изучи размеры и типы данных, распределение классов <code>Dropout</code> / <code>Enrolled</code> / <code>Graduate</code>, пропуски, дубликаты и возможные категориальные коды, записанные числами. Объясни, почему надо смотреть на качество по каждому классу, а не только на Accuracy.</li>
+<li><b>Подготовка:</b> сделай стратифицированный train/test split с фиксированным <code>random_state</code>. Построй pipeline, в котором кодирование категориальных признаков, масштабирование числовых и другие обучаемые преобразования fitятся только на train.</li>
+<li><b>Модели:</b> обучи многоклассовую логистическую регрессию и решающее дерево. Для каждой модели выведи classification report, balanced accuracy и confusion matrix.</li>
+<li><b>Сравнение:</b> сведи результаты в таблицу и выбери модель главным образом по macro $F_1$. Объясни, что значит ошибка <code>Dropout</code> $\leftrightarrow$ <code>Graduate</code> и как результаты могут использоваться для приглашения студента на консультацию, а не для автоматического наказания или отказа.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Другое">
+<ul>
+<li>Не превращай коды категорий в непрерывные величины без проверки их смысла в документации датасета.</li>
+<li>Можно дополнительно показать многоклассовый ROC-AUC в схеме one-vs-rest, но он не заменяет метрики по каждому классу.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему macro $F_1$ выбирают основной метрикой при дисбалансе?</b></p>
+<p>Macro $F_1$ одинаково учитывает каждый класс, поэтому доминирующий класс не скрывает низкое качество для <code>Dropout</code> или <code>Enrolled</code>.</p>
+</li>
+<li><p><b>Почему семестровые оценки здесь являются утечкой?</b></p>
+<p>На момент поступления результатов первого и второго семестров ещё нет. Использование таких столбцов даёт модели будущую информацию и не позволяет воспроизвести результат при реальном раннем скоринге.</p>
+</li>
+<li><p><b>Чем balanced accuracy отличается от обычной Accuracy?</b></p>
+<p>Balanced accuracy усредняет recall по классам и не позволяет частому классу непропорционально увеличить итоговую оценку.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="students-dropout-part2" data-difficulty="medium">
+  <div class="name question-difficulty-medium" id="students-dropout-part2">
+    Раннее выявление риска отчисления II: ансамбли
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Продолжить <a href="#students-dropout-part1">часть I</a>: добавить ансамбли, настроить их по стратифицированной кросс-валидации и сравнить с базовыми моделями в сценарии раннего выявления риска.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Данные и ограничение">
+<p>Используй тот же <a href="https://archive.ics.uci.edu/dataset/697/predict%20students%20dropout%20and%20academic%20success" target="_blank" rel="noopener">датасет UCI</a> и allowlist признаков на момент поступления из части I. Семестровые результаты запрещены и в этой части.</p>
+<p>Достаточно Jupyter-ноутбука. Продолжай тот же репозиторий из части I на ветке <code>clf/students_dropout/part_2</code>; результат части I сохраняй на <code>clf/students_dropout/part_1</code>, а требования проекта из части III будут добавлены на <code>clf/students_dropout/part_3</code>.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Random Forest</a>
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html" rel="noopener" target="_blank" class="badge badge-link">Gradient Boosting</a>
+                      <a href="https://xgboost.readthedocs.io/en/stable/python/python_api.html#xgboost.XGBClassifier" rel="noopener" target="_blank" class="badge badge-link">XGBoost</a>
+                      <a href="https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html" rel="noopener" target="_blank" class="badge badge-link">LightGBM</a>
+                      <a href="https://catboost.ai/docs/en/concepts/python-reference_catboostclassifier" rel="noopener" target="_blank" class="badge badge-link">CatBoost</a>
+                      <span class="badge">Logistic Regression</span>
+                      <span class="badge">Decision Tree</span>
+                  </div>
+                </div>
+<div class="badges-block" data-category="metrics">
+                  <div class="badges-block-label">Метрики</div>
+                  <div class="badges-container">
+                      <span class="badge">Macro $F_1$-score</span>
+                      <span class="badge">Weighted $F_1$-score</span>
+                      <span class="badge">Precision / Recall / $F_1$ по классам</span>
+                      <span class="badge">Balanced Accuracy</span>
+                      <span class="badge">Confusion Matrix</span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Единая схема эксперимента:</b> оставь test-набор для финальной проверки. На train проведи <code>StratifiedKFold</code>; подготовка признаков должна быть частью pipeline, чтобы преобразования не видели validation-fold.</li>
+<li><b>Ансамбли и бустинги:</b> обучи случайный лес, градиентный бустинг и минимум один библиотечный бустинг: XGBoost, LightGBM или CatBoost. Для CatBoost отдельно объясни, используешь ли нативную работу с категориальными признаками или общий one-hot pipeline. Подбери ключевые гиперпараметры через <code>GridSearchCV</code> или <code>RandomizedSearchCV</code>, обоснуй диапазоны поиска и укажи, по какой метрике происходит refit.</li>
+<li><b>Сравнение:</b> для baseline, логистической регрессии, дерева и ансамблей покажи среднее и разброс CV macro $F_1$, затем одну финальную test-оценку. Добавь classification report, weighted $F_1$, balanced accuracy и confusion matrix лучшей модели.</li>
+<li><b>Анализ ошибок:</b> разберись, какие классы чаще путаются и какие признаки наиболее важны для ансамблей. Не интерпретируй важность как причинность и не делай выводов о человеке по одной модели.</li>
+<li><b>Решение:</b> выбери модель для предложения ранней поддержки. Объясни, почему для этой цели риск пропустить будущий <code>Dropout</code> и риск ошибочно отнести студента к группе риска требуют анализа precision и recall именно этого класса.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему при подборе параметров нужен <code>StratifiedKFold</code>?</b></p>
+<p>Каждый fold сохраняет доли классов, поэтому macro $F_1$ для редких классов оценивается стабильнее.</p>
+</li>
+<li><p><b>Зачем показывать и macro, и weighted $F_1$?</b></p>
+<p>Macro $F_1$ одинаково взвешивает классы, а weighted $F_1$ учитывает их размер. Их расхождение показывает, не улучшилось ли качество только за счёт частого класса.</p>
+</li>
+<li><p><b>Почему нельзя подбирать гиперпараметры по test-набору?</b></p>
+<p>Тогда test становится частью процесса выбора и перестаёт быть независимой оценкой ожидаемого качества на новых студентах.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="students-dropout-part3" data-difficulty="hard">
+  <div class="name question-difficulty-hard question-hard-title" id="students-dropout-part3">
+    Раннее выявление риска отчисления III: воспроизводимый проект
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Превратить исследование из первых двух частей в самостоятельный ML-проект, добавить SVM и Naive Bayes и документально зафиксировать временные и этические ограничения модели ранней поддержки.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Входные артефакты">
+<p>Оформи решение в репозитории <code>student-outcome-classification/</code> с <code>src/</code>, <code>notebooks/</code>, <code>tests/</code>, <code>README.md</code>, <code>pyproject.toml</code>, <code>uv.lock</code> и <code>.gitignore</code>. Можно вести все части в этом одном репозитории: результаты I–III должны быть доступны соответственно на ветках <code>clf/students_dropout/part_1</code>, <code>clf/students_dropout/part_2</code>, <code>clf/students_dropout/part_3</code>. Данные загружай по <a href="https://archive.ics.uci.edu/dataset/697/predict%20students%20dropout%20and%20academic%20success" target="_blank" rel="noopener">официальной ссылке UCI</a> или принимай путь к локальному файлу; не коммить исходную таблицу.</p>
+<p>В коде зафиксируй allowlist признаков на момент поступления и запрет всех показателей первого и второго семестров.</p>
+
+</div>
+<div class="badges-block" data-category="models">
+                  <div class="badges-block-label">Модели</div>
+                  <div class="badges-container">
+                      <a href="https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html" rel="noopener" target="_blank" class="badge badge-link">SVC</a>
+                      <a href="https://scikit-learn.org/stable/modules/naive_bayes.html" rel="noopener" target="_blank" class="badge badge-link">Naive Bayes</a>
+                      <span class="badge">Logistic Regression</span>
+                      <span class="badge">Decision Tree</span>
+                      <span class="badge">Random Forest</span>
+                      <span class="badge">Gradient Boosting</span>
+                      <a href="https://xgboost.readthedocs.io/en/stable/python/python_api.html#xgboost.XGBClassifier" rel="noopener" target="_blank" class="badge badge-link">XGBoost</a>
+                      <a href="https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html" rel="noopener" target="_blank" class="badge badge-link">LightGBM</a>
+                      <a href="https://catboost.ai/docs/en/concepts/python-reference_catboostclassifier" rel="noopener" target="_blank" class="badge badge-link">CatBoost</a>
+                  </div>
+                </div>
+<div class="badges-block" data-category="tools">
+                  <div class="badges-block-label">Инструменты</div>
+                  <div class="badges-container">
+                      <span class="badge"><code>uv</code></span>
+                      <span class="badge"><code>ruff</code></span>
+                      <span class="badge"><code>pytest</code></span>
+                      <span class="badge"><code>scikit-learn</code></span>
+                  </div>
+                </div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<ul>
+<li><b>Архитектура:</b> вынеси загрузку и проверку схемы, формирование allowlist, preprocessing, обучение, оценку и сохранение результатов в отдельные модули <code>src/</code>. Добавь CLI или скрипт обучения с фиксированным seed и конфигурацией путей.</li>
+<li><b>SVM и Naive Bayes:</b> сравни минимум линейное и RBF-ядра SVM, предварительно масштабировав нужные признаки. Выбери и обоснуй вариант Naive Bayes: например, <code>GaussianNB</code> для непрерывных признаков или <code>CategoricalNB</code> после корректного категориального кодирования. Не рассматривай числовые коды категорий как непрерывную шкалу без обоснования.</li>
+<li><b>Сравнение:</b> оцени SVM, Naive Bayes, логистическую регрессию, дерево, случайный лес, градиентный бустинг, XGBoost, LightGBM и CatBoost по одной схеме split/CV. Выбирай итоговую модель по macro $F_1$, обязательно показывая метрики каждого класса, weighted $F_1$, balanced accuracy и матрицу ошибок.</li>
+<li><b>Тесты:</b> покрой unit-тестами проверку схемы, формирование allowlist, исключение семестровых признаков и цели, а также обучение pipeline на небольшом фиктивном наборе. Тесты не должны зависеть от сети или скачивания датасета.</li>
+<li><b>README:</b> опиши источник и лицензию данных, установку через <code>uv</code>, команды обучения и тестов, структуру проекта, таблицу результатов и temporal feature policy. Отдельно опиши ограничения: чувствительные демографические признаки могут усиливать несправедливость; модель нужна для предложения добровольной поддержки и не должна автоматически определять санкции, доступ к образованию или индивидуальную судьбу студента.</li>
+<li><b>Качество кода:</b> на чистой машине должны проходить <code>uv sync</code>, <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code> и <code>uv run pytest</code>.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему для SVM важны кодирование и масштабирование?</b></p>
+<p>SVM строит границу по расстояниям и скалярным произведениям. Некорректно заданные категории и разные масштабы числовых признаков искажают вклад признаков.</p>
+</li>
+<li><p><b>Почему выбор варианта Naive Bayes зависит от представления признаков?</b></p>
+<p>GaussianNB предполагает непрерывные признаки с нормальным распределением внутри класса, а CategoricalNB работает с дискретными категориями. Выбор должен соответствовать смыслу и преобразованию столбцов.</p>
+</li>
+<li><p><b>Как temporal feature policy защищает от утечки?</b></p>
+<p>Она формально ограничивает модель данными, доступными на момент поступления. Поэтому обучение, тестирование и будущий инференс используют одинаковую информацию.</p>
+</li>
+<li><p><b>Почему высокая метрика не разрешает автоматически принимать решения о студенте?</b></p>
+<p>Модель может ошибаться и отражать исторические смещения данных. Её прогноз допустим как повод предложить человеку поддержку, но не как единственное основание для решения, затрагивающего его права.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+        <!-- md:inject:end -->
+      </ol>
+    </main>
+    <script src="../../authGuard.js"></script>
+    <script src="../../assets/js/init-page.js"></script>
+  </body>
+</html>

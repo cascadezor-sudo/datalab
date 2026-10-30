@@ -1,0 +1,303 @@
+/* ===== TASK TABLE STYLES - MODERN DESIGN SYSTEM ===== */
+
+/* CSS Custom Properties for Task Tables */
+:root {
+  /* Table Colors */
+  --table-bg: #ffffff;
+  --table-border: #e5e7eb;
+  --table-header-bg: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  --table-header-text: #1e293b;
+  --table-row-bg: #ffffff;
+  --table-row-hover: #f8fafc;
+  --table-row-alt: #f6f7f8; /* more contrast */
+  --table-text: #374151;
+  --table-text-muted: #6b7280;
+  /* Table link colors: use semantic tokens only — do NOT redefine --brand here:
+     tokens.css sets --primary-color: var(--brand); shadowing --brand with
+     var(--primary-color, …) creates a cycle and breaks --link-color in light mode,
+     which makes links inside <b><a>…</a></b> invisible (gradient text on b/strong). */
+
+  /* Table Shadows */
+  --table-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --table-shadow-hover:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+
+  /* Table Transitions */
+  --table-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Table Spacing */
+  --table-border-radius: 12px;
+  --table-padding: 16px;
+  --table-cell-padding: 16px 20px;
+  --table-header-padding: 20px;
+}
+
+/* Dark Theme Colors */
+[data-theme="dark"] body {
+  --table-bg: #111827;
+  --table-border: #334155;
+  --table-header-bg: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+  --table-header-text: #f9fafb;
+  --table-row-bg: #111827;
+  --table-row-hover: #243145; /* slightly lighter for better contrast */
+  --table-row-alt: #1a2433; /* lighter than bg for zebra effect */
+  --table-text: #f3f4f6;
+  --table-text-muted: #9ca3af;
+}
+
+/* Палитры earth, sepia, graphite — шапка и строки через семантические brand */
+html.palette-earth,
+body.palette-earth,
+html.palette-sepia,
+body.palette-sepia,
+html.palette-graphite,
+body.palette-graphite {
+  --table-header-bg: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 10%, var(--bg-card)) 0%,
+    color-mix(in srgb, var(--brand-secondary) 12%, var(--bg-secondary)) 100%
+  );
+  --table-row-hover: color-mix(in srgb, var(--brand) 7%, var(--table-bg));
+  --table-row-alt: color-mix(
+    in srgb,
+    var(--brand-secondary) 6%,
+    var(--table-bg)
+  );
+  --table-border: color-mix(in srgb, var(--brand) 14%, var(--border));
+}
+
+[data-theme="dark"] body.palette-earth,
+html[data-theme="dark"].palette-earth,
+[data-theme="dark"] body.palette-sepia,
+html[data-theme="dark"].palette-sepia,
+[data-theme="dark"] body.palette-graphite,
+html[data-theme="dark"].palette-graphite {
+  --table-header-bg: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 22%, #111827) 0%,
+    color-mix(in srgb, var(--brand-secondary) 16%, #1a2433) 100%
+  );
+  --table-row-hover: color-mix(in srgb, var(--brand) 12%, var(--table-bg));
+  --table-row-alt: color-mix(
+    in srgb,
+    var(--brand-secondary) 10%,
+    var(--table-bg)
+  );
+  --table-border: color-mix(in srgb, var(--brand) 20%, #334155);
+}
+
+/* ===== TASK TABLE BASE STYLES ===== */
+
+.task-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 24px 0;
+  background: var(--table-bg);
+  border-radius: var(--table-border-radius);
+  overflow: hidden;
+  box-shadow: var(--table-shadow);
+  border: 1px solid var(--table-border);
+  transition: var(--table-transition);
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.task-table:hover {
+  box-shadow: var(--table-shadow-hover);
+  transform: translateY(-1px);
+}
+
+/* Table Header */
+.task-table thead {
+  background: var(--table-header-bg);
+}
+
+.task-table th {
+  padding: var(--table-header-padding);
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--table-header-text);
+  border-bottom: 2px solid var(--table-border);
+  position: relative;
+  letter-spacing: 0.025em;
+}
+
+.task-table th:first-child {
+  border-top-left-radius: var(--table-border-radius);
+}
+
+.task-table th:last-child {
+  border-top-right-radius: var(--table-border-radius);
+}
+
+/* Table Body */
+.task-table tbody tr {
+  background: var(--table-row-bg);
+  transition: var(--table-transition);
+  border-bottom: 1px solid var(--table-border);
+}
+
+.task-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.task-table tbody tr:hover {
+  background: var(--table-row-hover);
+  transform: scale(1.005);
+}
+
+.task-table tbody tr:nth-child(even) {
+  background: var(--table-row-alt);
+}
+
+.task-table tbody tr:nth-child(even):hover {
+  background: var(--table-row-hover);
+}
+
+/* Table Cells */
+.task-table td {
+  padding: var(--table-cell-padding);
+  color: var(--table-text);
+  line-height: 1.6;
+  vertical-align: top;
+  border-right: 1px solid var(--table-border);
+}
+
+.task-table td:last-child {
+  border-right: none;
+}
+
+/* Special styling for italic text in cells */
+.task-table td i {
+  color: var(--table-text-muted);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* Links in table cells */
+.task-table td a {
+  color: var(--link-color, var(--brand));
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: var(--table-transition);
+  font-weight: 500;
+}
+
+.task-table td a:hover {
+  color: var(--link-hover, var(--brand-hover));
+  border-bottom-color: currentColor;
+}
+
+/* Dark theme link tuning */
+[data-theme="dark"] body .task-table td a {
+  color: var(--primary-2);
+}
+
+[data-theme="dark"] body .task-table td a:hover {
+  color: var(--primary-2);
+}
+
+/* ===== RESPONSIVE DESIGN ===== */
+
+@media (max-width: 768px) {
+  .task-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 16px -16px;
+    width: calc(100% + 32px);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .task-table th,
+  .task-table td {
+    padding: 12px 16px;
+    font-size: 0.875rem;
+    min-width: 140px;
+    white-space: nowrap;
+  }
+
+  .task-table th {
+    padding: 16px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .task-table th,
+  .task-table td {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    min-width: 120px;
+  }
+
+  .task-table th {
+    padding: 14px 12px;
+    font-size: 0.85rem;
+  }
+}
+
+/* ===== ANIMATIONS ===== */
+
+@keyframes tableFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.task-table {
+  animation: tableFadeIn 0.3s ease-out;
+}
+
+/* ===== ACCESSIBILITY ===== */
+
+.task-table th:focus,
+.task-table td:focus {
+  outline: 2px solid var(--link-color, var(--brand));
+  outline-offset: -2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .task-table {
+    border-width: 2px;
+  }
+
+  .task-table th,
+  .task-table td {
+    border-width: 1px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .task-table,
+  .task-table tbody tr,
+  .task-table td a {
+    transition: none;
+    animation: none;
+  }
+
+  .task-table:hover {
+    transform: none;
+  }
+
+  .task-table tbody tr:hover {
+    transform: none;
+  }
+}

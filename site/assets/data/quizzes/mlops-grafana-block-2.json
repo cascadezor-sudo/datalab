@@ -1,0 +1,88 @@
+{
+  "id": "mlops:grafana:block-2",
+  "title": "Grafana · Блок 2: PromQL-панели и переменные",
+  "description": "Проверка перед блоком 3: запросы панелей, встроенные переменные интервала и диапазона, legend format, перцентили на одной панели, единицы измерения, template variables и multi-value переменные.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b2_rate_interval",
+      "type": "single",
+      "q": "Почему в `rate()` внутри Grafana лучше писать `$__rate_interval`, а не фиксированный `[5m]`?",
+      "options": [
+        "Фиксированный интервал запрещён в Grafana",
+        "`$__rate_interval` превращает Counter в Gauge",
+        "Он автоматически подстраивается под zoom дашборда, а фиксированный `[5m]` может давать неверный результат на часах и днях",
+        "Так запрос выполняется в Grafana, а не в Prometheus"
+      ],
+      "answer": [2],
+      "explain": "Grafana сама выбирает корректное окно для `rate()` под текущий масштаб."
+    },
+    {
+      "id": "b2_percentiles",
+      "type": "single",
+      "q": "Как показать p50, p95 и p99 latency на одной панели?",
+      "options": [
+        "Три запроса A/B/C с `histogram_quantile(0.50/0.95/0.99, ...)` и своим Legend format у каждого",
+        "Один запрос `avg()` и три порога на шкале",
+        "Три отдельных дашборда с переменной",
+        "Gauge-панель с тремя стрелками"
+      ],
+      "answer": [0],
+      "explain": "Каждый перцентиль — отдельный запрос к Histogram, легенда подписывает линии."
+    },
+    {
+      "id": "b2_heatmap",
+      "type": "single",
+      "q": "Какая визуализация по материалу позволяет заметить сдвиг распределения предсказаний во времени?",
+      "options": [
+        "Stat",
+        "Gauge",
+        "Bar chart",
+        "Heatmap: по Y — бакеты Histogram, цвет — плотность"
+      ],
+      "answer": [3],
+      "explain": "Heatmap показывает распределение по времени, поэтому сдвиг score виден визуально."
+    },
+    {
+      "id": "b2_variables",
+      "type": "single",
+      "q": "Зачем нужны template variables?",
+      "options": [
+        "Чтобы хранить секреты data source",
+        "Чтобы один дашборд работал для любой комбинации окружения, модели и региона через dropdown",
+        "Чтобы Grafana сама создавала новые метрики",
+        "Чтобы отключать алерты на время деплоя"
+      ],
+      "answer": [1],
+      "explain": "Без переменных пришлось бы дублировать дашборд под каждую модель или окружение."
+    },
+    {
+      "id": "b2_multi_value",
+      "type": "single",
+      "q": "Как правильно использовать multi-value переменную `model_name` в PromQL?",
+      "options": [
+        "`{model_name=\"$model_name\"}`",
+        "`{model_name!=\"$model_name\"}`",
+        "`{model_name=~\"$model_name\"}`",
+        "`{$model_name}`"
+      ],
+      "answer": [2],
+      "explain": "Оператор regex match `=~`: при выборе нескольких значений Grafana подставит `v1|v2|v3`."
+    },
+    {
+      "id": "b2_var_types",
+      "type": "multi",
+      "q": "Какие утверждения о переменных и панелях верны? (несколько ответов)",
+      "options": [
+        "Переменная типа Query берёт значения из Prometheus (label values)",
+        "Переменная Constant позволяет выбирать значение из dropdown",
+        "Unit `percent (0-100)` подходит для RPS",
+        "`Refresh: On dashboard load` сразу добавляет в dropdown только что задеплоенную модель"
+      ],
+      "answer": [0, 3],
+      "explain": "Constant — одно фиксированное значение; для RPS — `short` или `reqps`, а `percent` — для utilization и error rate."
+    }
+  ]
+}

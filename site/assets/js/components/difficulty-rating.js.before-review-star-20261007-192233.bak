@@ -1,0 +1,996 @@
+// Inline difficulty skeleton — works immediately, no external dependency
+function _showDifficultySkeletons() {
+  const html = `
+    <div class="question-difficulty-container--skeleton">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="sk" style="height:11px;width:64px"></div>
+        <div style="display:flex;gap:6px">
+          <div class="sk" style="width:22px;height:22px;border-radius:4px"></div>
+          <div class="sk" style="width:22px;height:22px;border-radius:4px"></div>
+          <div class="sk" style="width:22px;height:22px;border-radius:4px"></div>
+          <div class="sk" style="width:22px;height:22px;border-radius:4px"></div>
+          <div class="sk" style="width:22px;height:22px;border-radius:4px"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="sk sk-pill" style="width:100px;height:30px"></div>
+        <div class="sk" style="width:44px;height:14px"></div>
+      </div>
+    </div>`;
+  document.querySelectorAll("#questions > li.question").forEach((q) => {
+    if (
+      q.querySelector(
+        ".question-difficulty-container,.question-difficulty-container--skeleton",
+      )
+    )
+      return;
+    q.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+// Столько же вопросов за раз принимает getQuestionDifficulty на сервере.
+// Страниц длиннее сейчас нет, но список вопросов растёт, а ручка отрежет
+// лишнее молча — режем здесь, чтобы у части вопросов не пропали звёзды.
+const DIFFICULTY_BATCH_SIZE = 200;
+
+function chunked(items, size) {
+  const batches = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+}
+
+// Difficulty Rating Component for Questions
+class DifficultyRating {
+  constructor() {
+    this.currentUser = null;
+    this.userRole = null;
+    this.userRoleLoaded = false;
+    this.userRolePromise = null;
+    this.db = null;
+    this.isInitialized = false;
+    this.pageQuestions = [];
+    this.difficultyData = {};
+    this.reviewLater = {};
+    this.pendingReviewLater = new Set();
+  }
+
+  /**
+   * Initialize the difficulty rating component
+   * @param {Object} firebaseConfig - Firebase configuration
+   */
+  async initialize(firebaseConfig) {
+    try {
+      // Initialize Firebase if not already done
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+
+      // Initialize Realtime Database
+      this.db = firebase.database();
+
+      // Listen for auth state changes
+      firebase.auth().onAuthStateChanged((user) => {
+        this.currentUser = user;
+        this.userRole = null;
+        this.userRoleLoaded = false;
+        this.userRolePromise = null;
+        // Оценки теперь накапливаются между вызовами loadDifficultyData, а они
+        // принадлежат конкретному человеку: без сброса следующий вошедший
+        // увидел бы на звёздах чужие оценки и повторно их бы не запросил.
+        this.difficultyData = {};
+        this.reviewLater = {};
+        if (user && this.pageQuestions.length > 0) {
+          this.loadDifficultyData();
+        }
+      });
+
+      this.isInitialized = true;
+
+      // Update buttons after a delay to ensure progress tracker is loaded
+      setTimeout(() => {
+        this.updateAllProgressButtons();
+      }, 1000);
+
+      // Listen for lazy questions ready event
+      document.addEventListener("lazyQuestionsReady", () => {
+        console.log("Difficulty rating: Received lazyQuestionsReady event");
+        setTimeout(() => {
+          // Re-process all questions to catch any that were loaded dynamically
+          this.addDifficultyRatingToQuestions();
+          // Also update progress buttons to ensure they're in sync
+          this.updateAllProgressButtons();
+          // Verify all buttons are present
+          this.verifyAllQuestionsHaveButtons();
+        }, 300);
+
+        // Additional verification with longer delay for lazy-loaded content
+        setTimeout(() => {
+          this.verifyAllQuestionsHaveButtons();
+        }, 1000);
+      });
+    } catch (error) {
+      console.error("Failed to initialize difficulty rating component:", error);
+    }
+  }
+
+  /**
+   * Load difficulty data for all questions on the page
+   *
+   * Вызовы выстроены в очередь, а не идут параллельно. За одно открытие
+   * страницы загрузка запускается трижды — из onAuthStateChanged, через 200 мс
+   * после разбора вопросов и после ленивой догрузки, — и без очереди второй
+   * вызов успевал стартовать до того, как первый запишет ответ: он видел
+   * пустой difficultyData и слал ровно тот же запрос ещё раз. Раньше это
+   * стоило лишних чтений базы, теперь — второго вызова из часового лимита.
+   */
+  loadDifficultyData() {
+    this.difficultyQueue = Promise.resolve(this.difficultyQueue)
+      .catch(() => {})
+      .then(() => this.fetchMissingDifficultyData());
+    return this.difficultyQueue;
+  }
+
+  async fetchMissingDifficultyData() {
+    try {
+      if (this.pageQuestions.length === 0 || !this.currentUser) {
+        return;
+      }
+
+      const userRole = await this.loadUserRole();
+      if (window.achievementApi?.getQuestionReviewLater) {
+        try {
+          this.reviewLater = await window.achievementApi.getQuestionReviewLater() || {};
+        } catch (reviewError) {
+          console.error("Failed to load review-later topics:", reviewError);
+        }
+      }
+      if (!this.canUseDifficultyRatings(userRole)) {
+        this.difficultyData = {};
+        this.updateDifficultyUI();
+        return;
+      }
+
+      // Спрашиваем только то, чего ещё не знаем: к третьему вызову за открытие
+      // страницы спрашивать обычно уже нечего.
+      const missing = this.pageQuestions.filter(
+        (questionId) => !(questionId in this.difficultyData),
+      );
+      if (missing.length === 0) {
+        this.updateDifficultyUI();
+        return;
+      }
+
+      if (!window.achievementApi) {
+        console.error("Achievement API is not loaded");
+        return;
+      }
+
+      // Одна ручка вместо запроса на каждый вопрос: на самой длинной странице
+      // (bank/nlp.html, 145 вопросов) это было 145 обращений к базе, и каждое
+      // приносило карту оценок всех учеников целиком ради единственного своего
+      // значения.
+      //
+      // allSettled, а не all: при нескольких пачках отказ одной не должен
+      // выбрасывать уже полученные остальные.
+      const batches = chunked(missing, DIFFICULTY_BATCH_SIZE);
+      const loaded = await Promise.allSettled(
+        batches.map((batch) =>
+          window.achievementApi.getQuestionDifficulty(
+            batch.map((questionId) => this.getStorageQuestionId(questionId)),
+          ),
+        ),
+      );
+
+      // Ручка не возвращает записи для вопросов без единой оценки — для них
+      // ответ и значение по умолчанию совпадают. Поэтому «пришёл ли ответ»
+      // определяем по пачке, а не по наличию ключа: иначе неоценённый вопрос
+      // был бы неотличим от вопроса, чья пачка не доехала.
+      const answered = new Set();
+      let items = {};
+      loaded.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error("Failed to load difficulty data:", result.reason);
+          return;
+        }
+        batches[index].forEach((questionId) => answered.add(questionId));
+        items = { ...items, ...(result.value?.items || {}) };
+      });
+
+      missing.forEach((questionId) => {
+        // Вопросы из непришедшей пачки оставляем неизвестными: записать им нули
+        // значило бы показать «оценок нет» вместо того, чтобы переспросить.
+        if (!answered.has(questionId)) return;
+
+        const data = items[this.getStorageQuestionId(questionId)];
+        // Оценку могли поставить, пока шёл запрос: ответ о ней ещё не знает, и
+        // безусловная запись стёрла бы только что нажатую звезду. Попасть в
+        // difficultyData между сбором missing и ответом можно лишь так —
+        // параллельных загрузок нет, они выстроены в очередь.
+        const own = this.difficultyData[questionId];
+        this.difficultyData[questionId] = {
+          userRating: own
+            ? (own.userRating ?? null)
+            : (data?.userRating ?? null),
+          averageRating: data?.averageRating || 0,
+          totalRatings: data?.totalRatings || 0,
+        };
+      });
+
+      this.updateDifficultyUI();
+
+      // Wait a bit for progress tracker to load its data, then update UI again
+      setTimeout(() => {
+        this.updateDifficultyUI();
+        this.updateAllProgressButtons();
+      }, 500);
+    } catch (error) {
+      // Накопленное не стираем: часть страницы уже показывает настоящие
+      // оценки, и обнулять их из-за отказа одного запроса незачем. Пропущенные
+      // вопросы просто остаются неизвестными и будут запрошены снова.
+      console.error("Failed to load difficulty data:", error);
+      this.updateDifficultyUI();
+    }
+  }
+
+  /**
+   * Rate a question's difficulty
+   * @param {string} questionId - The question ID
+   * @param {number} rating - Rating from 1 to 5
+   */
+  async rateQuestionDifficulty(questionId, rating) {
+    if (!this.currentUser) {
+      console.warn("User must be authenticated to rate difficulty");
+      return;
+    }
+
+    const userRole = await this.loadUserRole();
+    if (!this.canUseDifficultyRatings(userRole)) return;
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      console.error("Rating must be an integer between 1 and 5");
+      return;
+    }
+
+    if (!window.achievementApi) {
+      console.error("Achievement API is not loaded");
+      this.showRatingError(questionId);
+      return;
+    }
+
+    // Раньше запись шла прямо в базу и занимала миллисекунды, теперь это вызов
+    // функции, а холодный старт Cloud Run доходит до 18 секунд
+    // (см. комментарий в achievement-api.js). Без этой защёлки ученик успевал
+    // нажать ту же звезду второй раз, а второе нажатие читает уже обновлённое
+    // состояние и трактуется как «снять оценку» — то есть молча стирало то,
+    // что человек только что поставил.
+    this.pendingRatings ||= new Set();
+    if (this.pendingRatings.has(questionId)) return;
+    this.pendingRatings.add(questionId);
+
+    // Повторное нажатие на ту же звезду снимает оценку. Решение принимаем
+    // здесь, потому что своя оценка уже загружена, а серверу отправляем
+    // готовое значение: он не угадывает намерение, а просто ставит или снимает.
+    const before = this.difficultyData[questionId];
+    const previous = before?.userRating ?? null;
+    const next = previous === rating ? null : rating;
+
+    // Оптимистично перерисовываем сразу: среднее уточнит ответ сервера, но
+    // своя звезда обязана откликаться на клик мгновенно.
+    this.difficultyData[questionId] = { ...before, userRating: next };
+    this.updateQuestionDifficultyDisplay(questionId);
+
+    try {
+      // Считает и записывает сервер: карта ratings общая для всех учеников,
+      // и пересчёт среднего в браузере означал бы запись в чужие оценки.
+      const result = await window.achievementApi.setQuestionDifficulty(
+        this.getStorageQuestionId(questionId),
+        next,
+      );
+
+      this.difficultyData[questionId] = {
+        userRating: result?.userRating ?? null,
+        averageRating: result?.averageRating || 0,
+        totalRatings: result?.totalRatings || 0,
+        lastUpdated: result?.lastUpdated || 0,
+      };
+    } catch (error) {
+      console.error("Failed to rate question difficulty:", error);
+      this.difficultyData[questionId] = before;
+      this.showRatingError(questionId);
+    } finally {
+      this.pendingRatings.delete(questionId);
+      this.updateQuestionDifficultyDisplay(questionId);
+    }
+  }
+
+  getStorageQuestionId(questionId) {
+    return String(questionId || "unknown").replace(/[.#$[\]/]/g, "_");
+  }
+
+  async loadUserRole() {
+    if (!this.currentUser || !this.db) return null;
+    if (this.userRoleLoaded) return this.userRole;
+    if (this.userRolePromise) return this.userRolePromise;
+
+    const userId = this.currentUser.uid;
+    const rolePromise = this.db
+      .ref(`users/${userId}/role`)
+      .once("value")
+      .then((snapshot) => {
+        if (this.currentUser?.uid !== userId) return undefined;
+
+        // Several legacy learner accounts predate the role field. The database
+        // rules deliberately treat a missing role as a student as well.
+        this.userRole = snapshot.val() || null;
+        this.userRoleLoaded = true;
+        return this.userRole;
+      })
+      .finally(() => {
+        if (this.userRolePromise === rolePromise) {
+          this.userRolePromise = null;
+        }
+      });
+
+    this.userRolePromise = rolePromise;
+    return rolePromise;
+  }
+
+  async toggleReviewLater(questionId) {
+    if (!this.currentUser || !window.achievementApi?.setQuestionReviewLater) return;
+    this.pendingReviewLater ||= new Set();
+    if (this.pendingReviewLater.has(questionId)) return;
+    this.pendingReviewLater.add(questionId);
+    const key = this.getStorageQuestionId(questionId);
+    const next = this.reviewLater[key] !== true;
+    const previous = this.reviewLater[key];
+    if (next) this.reviewLater[key] = true; else delete this.reviewLater[key];
+    this.updateQuestionDifficultyDisplay(questionId);
+    try {
+      await window.achievementApi.setQuestionReviewLater(key, next);
+    } catch (error) {
+      console.error("Failed to save review-later mark:", error);
+      if (previous) this.reviewLater[key] = previous; else delete this.reviewLater[key];
+      const btn = document.querySelector(`[data-question-id="${questionId}"].difficulty-review-later-btn`);
+      if (btn) { btn.textContent = t("Не удалось сохранить отметку"); btn.title = String(error.message || error); }
+    } finally {
+      this.pendingReviewLater.delete(questionId);
+      this.updateQuestionDifficultyDisplay(questionId);
+    }
+  }
+
+  canUseDifficultyRatings(role = this.userRole) {
+    return role === "student" || role === null;
+  }
+
+  showRatingError(questionId) {
+    const container = document.querySelector(
+      `[data-question-id="${questionId}"].question-difficulty-container`,
+    );
+    const display = container?.querySelector(".difficulty-user-rating");
+    if (!display) return;
+    display.textContent = t(
+      "Не удалось сохранить сложность. Обнови страницу и проверь, что ты вошёл в аккаунт.",
+    );
+    display.style.display = "block";
+  }
+
+  /**
+   * Get user's rating for a question
+   * @param {string} questionId - The question ID
+   * @returns {number|null} - User's rating or null if not rated
+   */
+  getUserRating(questionId) {
+    if (!this.currentUser || !this.difficultyData[questionId]) {
+      return null;
+    }
+
+    return this.difficultyData[questionId].userRating ?? null;
+  }
+
+  /**
+   * Get average rating for a question
+   * @param {string} questionId - The question ID
+   * @returns {number|null} - Average rating or null if no ratings
+   */
+  getAverageRating(questionId) {
+    const data = this.difficultyData[questionId];
+    return data && data.totalRatings > 0 && data.averageRating
+      ? data.averageRating
+      : null;
+  }
+
+  /**
+   * Get total number of ratings for a question
+   * @param {string} questionId - The question ID
+   * @returns {number} - Total number of ratings
+   */
+  getTotalRatings(questionId) {
+    const data = this.difficultyData[questionId];
+    return data && data.totalRatings ? data.totalRatings : 0;
+  }
+
+  /**
+   * Add difficulty rating UI to questions
+   */
+  addDifficultyRatingToQuestions() {
+    // Show skeleton placeholders immediately while data loads
+    _showDifficultySkeletons();
+
+    // Find all question elements - support both regular questions and ML practice cards
+    const questionElements = document.querySelectorAll("li.question");
+
+    if (questionElements.length === 0) {
+      console.warn(
+        'No question elements found! Check if questions have class="question"',
+      );
+      return;
+    }
+
+    const processQuestion = (questionElement, index) => {
+      // Get the question ID from the inner div - support both regular and ML practice cards
+      let nameDiv = questionElement.querySelector(".name");
+
+      // If no .name div found, try to find it inside ml-practice-card
+      if (!nameDiv) {
+        const mlCard = questionElement.querySelector(".ml-practice-card");
+        if (mlCard) {
+          nameDiv = mlCard.querySelector(".name");
+        }
+      }
+
+      if (!nameDiv || !nameDiv.id) {
+        return;
+      }
+
+      const questionId = nameDiv.id;
+
+      // Only add if not already added
+      if (!this.pageQuestions.includes(questionId)) {
+        this.pageQuestions.push(questionId);
+      }
+
+      // Add difficulty rating UI
+      this.addDifficultyRatingUI(questionElement, questionId);
+    };
+
+    // Use lazy initialization for large pages
+    if (window.lazyInit && questionElements.length > 30) {
+      window.lazyInit.processWithPriority("li.question", processQuestion);
+
+      // Load difficulty data after initial batch
+      setTimeout(() => {
+        if (this.currentUser && this.pageQuestions.length > 0) {
+          this.loadDifficultyData();
+        }
+        // Verify all questions have buttons
+        this.verifyAllQuestionsHaveButtons();
+      }, 300);
+    } else {
+      // For smaller pages, process immediately
+      questionElements.forEach(processQuestion);
+
+      // Load difficulty data after adding UI if user is authenticated
+      if (this.currentUser && this.pageQuestions.length > 0) {
+        this.loadDifficultyData();
+      }
+
+      // Verify all questions have buttons after a short delay
+      setTimeout(() => {
+        this.verifyAllQuestionsHaveButtons();
+      }, 500);
+
+      // Additional verification for lazy-loaded questions
+      setTimeout(() => {
+        this.verifyAllQuestionsHaveButtons();
+      }, 1500);
+    }
+
+    // Listen for progress tracker updates
+    if (
+      window.questionProgressTracker &&
+      typeof window.questionProgressTracker.updateUI === "function"
+    ) {
+      // Update UI when progress tracker updates
+      const originalUpdateUI = window.questionProgressTracker.updateUI;
+      window.questionProgressTracker.updateUI = () => {
+        try {
+          originalUpdateUI.call(window.questionProgressTracker);
+          this.updateDifficultyUI();
+        } catch (error) {
+          console.error("Error in progress tracker updateUI:", error);
+        }
+      };
+    }
+  }
+
+  /**
+   * Add difficulty rating UI to a question element
+   * @param {HTMLElement} questionElement - The question li element
+   * @param {string} questionId - The question ID
+   */
+  // --- создаём двухслойные звёзды ---
+  addDifficultyRatingUI(questionElement, questionId) {
+    if (!questionElement || !questionId) {
+      console.warn(
+        "Invalid question element or ID:",
+        questionElement,
+        questionId,
+      );
+      return;
+    }
+    if (this.currentUser && this.userRole === "curator") return;
+
+    // Check if difficulty UI already exists for this question
+    const existingContainer = questionElement.querySelector(
+      ".question-difficulty-container",
+    );
+    if (existingContainer) {
+      // Container exists, but make sure it has the progress button
+      const existingBtn = existingContainer.querySelector(
+        ".difficulty-progress-btn",
+      );
+      if (existingBtn) {
+        // Everything is fine, just update the button state
+        const isCompleted =
+          window.questionProgressTracker &&
+          window.questionProgressTracker.isQuestionCompleted(questionId);
+        this.updateProgressButtonState(existingBtn, isCompleted);
+        return;
+      } else {
+        // Container exists but no button - this is a problem, remove and recreate
+        console.warn(
+          "Difficulty container exists but no progress button found, recreating for:",
+          questionId,
+        );
+        existingContainer.remove();
+      }
+    }
+
+    // Add question number to the title
+    const nameDiv = questionElement.querySelector(".name");
+    if (nameDiv && !nameDiv.dataset.numbered) {
+      const allQuestions = Array.from(
+        document.querySelectorAll("#questions > li.question"),
+      );
+      const questionIndex = allQuestions.indexOf(questionElement);
+      if (questionIndex >= 0) {
+        const questionNumber = questionIndex + 1;
+        const originalText = nameDiv.textContent.trim();
+        // Only add number if it doesn't already start with a number
+        if (!/^\d+\./.test(originalText)) {
+          // Save badge before modifying content
+          const existingBadge = nameDiv.querySelector(".question-badge");
+          const badgeClone = existingBadge
+            ? existingBadge.cloneNode(true)
+            : null;
+
+          // Update text content with number
+          if (nameDiv.querySelector("a")) {
+            // If there's a link, prepend number without removing nested indicators.
+            const link = nameDiv.querySelector("a");
+            link.insertBefore(
+              document.createTextNode(`${questionNumber}. `),
+              link.firstChild,
+            );
+            // Badge should still be there if it was after the link
+            // But restore it just in case
+            if (badgeClone && !nameDiv.querySelector(".question-badge")) {
+              nameDiv.appendChild(badgeClone);
+            }
+          } else {
+            // No link: always prepend number as the very first child so it appears before <code> or any other content
+            const numberText = document.createTextNode(`${questionNumber}. `);
+            const firstChild = nameDiv.firstChild;
+            if (firstChild) {
+              nameDiv.insertBefore(numberText, firstChild);
+            } else {
+              nameDiv.appendChild(numberText);
+            }
+            // Restore badge if it was removed
+            if (badgeClone && !nameDiv.querySelector(".question-badge")) {
+              nameDiv.appendChild(badgeClone);
+            }
+          }
+
+          nameDiv.dataset.numbered = "true";
+        }
+      }
+    }
+
+    // Заглушку «оценок нет» в difficultyData не кладём: ключ там означает «ответ
+    // сервера уже есть», и с заглушкой загрузка считала вопрос известным и не
+    // запрашивала его — после обновления страницы своя оценка пропадала.
+    // Геттеры и так рисуют пустые звёзды для вопроса без записи.
+
+    const difficultyContainer = document.createElement("div");
+    difficultyContainer.className = "question-difficulty-container";
+    difficultyContainer.dataset.questionId = questionId;
+
+    const leftSection = document.createElement("div");
+    leftSection.className = "difficulty-left-section";
+
+    const titleElement = document.createElement("div");
+    titleElement.className = "difficulty-title";
+    titleElement.textContent = t("Сложность");
+
+    // Контейнер звёзд
+    const starsContainer = document.createElement("div");
+    starsContainer.className = "difficulty-stars";
+
+    // Внутренняя дорожка БЕЗ паддингов/бордеров — только сами звёзды
+    const track = document.createElement("div");
+    track.className = "stars-track";
+
+    // Низ (серые кликабельные звезды)
+    const starsBase = document.createElement("div");
+    starsBase.className = "stars-base";
+
+    // Верх (золотые звезды), ширину будем обрезать
+    const starsFill = document.createElement("div");
+    starsFill.className = "stars-fill";
+    starsFill.style.width = "0%";
+    starsFill.setAttribute("aria-hidden", "true");
+
+    for (let i = 1; i <= 5; i++) {
+      const baseStar = document.createElement("span");
+      baseStar.className = "difficulty-star";
+      baseStar.dataset.rating = i;
+      baseStar.innerHTML = "★";
+      baseStar.title = `${i} - ${this.getDifficultyText(i)}`;
+      baseStar.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await this.rateQuestionDifficulty(questionId, i);
+      });
+      starsBase.appendChild(baseStar);
+
+      const fillStar = document.createElement("span");
+      fillStar.className = "difficulty-star";
+      fillStar.innerHTML = "★";
+      starsFill.appendChild(fillStar);
+    }
+
+    track.appendChild(starsBase);
+    track.appendChild(starsFill);
+    starsContainer.appendChild(track);
+    leftSection.appendChild(titleElement);
+    leftSection.appendChild(starsContainer);
+
+    const rightSection = document.createElement("div");
+    rightSection.className = "difficulty-progress-section";
+
+    const progressBtn = document.createElement("div");
+    progressBtn.className = "difficulty-progress-btn";
+
+    const isManualDelivery = this.isManualDeliveryQuestion(questionElement);
+    const isAutoChecked = !!questionElement.dataset.tests && !isManualDelivery;
+    if (isManualDelivery) {
+      progressBtn.dataset.deliveryManual = "true";
+    }
+    const isCompleted =
+      window.questionProgressTracker &&
+      window.questionProgressTracker.isQuestionCompleted(questionId);
+
+    if (isAutoChecked) {
+      // Exercise-checker questions: mark-done only via passing tests, not by clicking
+      progressBtn.classList.add("difficulty-progress-btn--auto");
+      if (isCompleted) {
+        progressBtn.classList.add("completed");
+        progressBtn.innerHTML =
+          '<span class="progress-icon">✓</span>' + t("Решено");
+      } else {
+        progressBtn.innerHTML =
+          '<span class="progress-icon">⚙</span>' +
+          t("Проверяется автоматически");
+      }
+    } else {
+      if (isCompleted) {
+        progressBtn.classList.add("completed");
+        progressBtn.innerHTML =
+          '<span class="progress-icon">✓</span>' +
+          (isManualDelivery ? t("Решено") : t("Прочитано"));
+      } else {
+        progressBtn.innerHTML =
+          '<span class="progress-icon">✓</span>' +
+          (isManualDelivery ? t("Пометить решенной") : t("Прочитано"));
+      }
+      progressBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (window.questionProgressTracker) {
+          const newState =
+            !window.questionProgressTracker.isQuestionCompleted(questionId);
+          await window.questionProgressTracker.markQuestionCompleted(
+            questionId,
+            newState,
+          );
+          window.questionProgressTracker.updateQuestionVisualState(
+            questionElement,
+            newState,
+          );
+          this.updateProgressButtonState(progressBtn, newState);
+          window.questionProgressTracker.updateUI();
+        }
+      });
+    }
+
+    const reviewLaterBtn = document.createElement("button");
+    reviewLaterBtn.type = "button";
+    reviewLaterBtn.className = "difficulty-review-later-btn";
+    reviewLaterBtn.dataset.questionId = questionId;
+    reviewLaterBtn.setAttribute("aria-pressed", "false");
+    reviewLaterBtn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await this.toggleReviewLater(questionId);
+    });
+    rightSection.appendChild(reviewLaterBtn);
+
+    const averageDisplay = document.createElement("div");
+    averageDisplay.className = "difficulty-average";
+    averageDisplay.textContent = "";
+
+    const userRatingDisplay = document.createElement("div");
+    userRatingDisplay.className = "difficulty-user-rating";
+    userRatingDisplay.textContent = "";
+
+    rightSection.appendChild(progressBtn);
+    rightSection.appendChild(averageDisplay);
+    rightSection.appendChild(userRatingDisplay);
+
+    difficultyContainer.appendChild(leftSection);
+    difficultyContainer.appendChild(rightSection);
+
+    // Remove skeleton placeholder before inserting real UI
+    if (window.SkeletonLoader) {
+      window.SkeletonLoader.hideDifficulty(questionElement);
+    } else {
+      const sk = questionElement.querySelector(
+        ".question-difficulty-container--skeleton",
+      );
+      if (sk) sk.remove();
+    }
+
+    const progressBar = questionElement.querySelector(
+      ".question-progress-bar-bottom",
+    );
+    if (progressBar) {
+      questionElement.insertBefore(
+        difficultyContainer,
+        progressBar.nextSibling,
+      );
+    } else {
+      questionElement.appendChild(difficultyContainer);
+    }
+  }
+  /**
+   * Update difficulty display for a specific question
+   * @param {string} questionId - The question ID
+   */
+  // --- обновляем заливку и подписи ---
+  updateQuestionDifficultyDisplay(questionId) {
+    // Update all containers with this questionId (including modal ones)
+    const containers = document.querySelectorAll(
+      `[data-question-id="${questionId}"].question-difficulty-container`,
+    );
+    if (containers.length === 0) return;
+
+    // Update each container
+    containers.forEach((container) => {
+      this.updateSingleContainer(container, questionId);
+    });
+  }
+
+  /**
+   * Update a single difficulty container
+   */
+  updateSingleContainer(container, questionId) {
+    if (!container) return;
+
+    const starsFill = container.querySelector(".stars-track .stars-fill");
+    const averageDisplay = container.querySelector(".difficulty-average");
+    const userRatingDisplay = container.querySelector(
+      ".difficulty-user-rating",
+    );
+    const progressBtn = container.querySelector(".difficulty-progress-btn");
+    const reviewLaterBtn = container.querySelector(".difficulty-review-later-btn");
+
+    // Оценивают только ученики: персоналу звёзды не показываем, иначе клик
+    // по ним молча ничего не делает (rateQuestionDifficulty его отбрасывает).
+    const leftSection = container.querySelector(".difficulty-left-section");
+    if (leftSection) leftSection.hidden = !this.canUseDifficultyRatings();
+
+    const reviewKey = this.getStorageQuestionId(questionId);
+    const isReviewLater = this.reviewLater[reviewKey] === true;
+    if (reviewLaterBtn) {
+      reviewLaterBtn.classList.toggle("is-marked", isReviewLater);
+      reviewLaterBtn.setAttribute("aria-pressed", String(isReviewLater));
+      reviewLaterBtn.textContent = isReviewLater ? t("↻ Перечитать позже · отмечено") : t("↻ Перечитать позже");
+      reviewLaterBtn.title = isReviewLater ? t("Убрать отметку «перечитать позже»") : t("Добавить в список тем для повторения");
+    }
+
+    const userRating = this.getUserRating(questionId);
+    // Show only the current student's own rating. Aggregate stats are still
+    // loaded and saved, but are not exposed in the student UI.
+    const safeUserRating = Math.max(0, Math.min(5, Number(userRating) || 0));
+    const percent = (safeUserRating / 5) * 100;
+    if (starsFill) starsFill.style.width = `${percent}%`;
+
+    // Hide aggregate stats from students.
+    if (averageDisplay) {
+      averageDisplay.textContent = "";
+      averageDisplay.style.display = "none";
+    }
+
+    // Текст «Ваша оценка ...»
+    if (userRatingDisplay) {
+      if (userRating) {
+        userRatingDisplay.textContent = t(
+          "Ваша оценка: {rating} (нажми еще раз для отмены)",
+          { rating: userRating },
+        );
+        userRatingDisplay.style.display = "block";
+      } else {
+        userRatingDisplay.style.display = "none";
+      }
+    }
+
+    // Update active star state
+    const starsBase = container.querySelector(".stars-base");
+    if (starsBase) {
+      const baseStars = starsBase.querySelectorAll(
+        ".difficulty-star[data-rating]",
+      );
+      baseStars.forEach((star) => {
+        const starRating = parseInt(star.dataset.rating);
+        if (userRating && starRating <= userRating) {
+          star.classList.add("active");
+        } else {
+          star.classList.remove("active");
+        }
+      });
+    }
+
+    if (progressBtn && window.questionProgressTracker) {
+      const isCompleted =
+        window.questionProgressTracker.isQuestionCompleted(questionId);
+      this.updateProgressButtonState(progressBtn, isCompleted);
+    }
+  }
+
+  /**
+   * Update difficulty display (alias for updateQuestionDifficultyDisplay for compatibility)
+   */
+  updateDifficultyDisplay(questionId) {
+    this.updateQuestionDifficultyDisplay(questionId);
+  }
+
+  /**
+   * Update all difficulty displays
+   */
+  updateDifficultyUI() {
+    this.pageQuestions.forEach((questionId) => {
+      this.updateQuestionDifficultyDisplay(questionId);
+    });
+  }
+
+  /**
+   * Force update all progress buttons state
+   */
+  updateAllProgressButtons() {
+    this.pageQuestions.forEach((questionId) => {
+      const container = document.querySelector(
+        `[data-question-id="${questionId}"].question-difficulty-container`,
+      );
+      if (container) {
+        const progressBtn = container.querySelector(".difficulty-progress-btn");
+        if (progressBtn && window.questionProgressTracker) {
+          const isCompleted =
+            window.questionProgressTracker.isQuestionCompleted(questionId);
+          this.updateProgressButtonState(progressBtn, isCompleted);
+        }
+      }
+    });
+  }
+
+  /**
+   * Verify that all questions have progress buttons
+   */
+  verifyAllQuestionsHaveButtons() {
+    const questionElements = document.querySelectorAll("li.question");
+    let missingCount = 0;
+
+    questionElements.forEach((questionElement, index) => {
+      const nameDiv = questionElement.querySelector(".name");
+      if (!nameDiv || !nameDiv.id) return;
+
+      const questionId = nameDiv.id;
+      const container = questionElement.querySelector(
+        ".question-difficulty-container",
+      );
+
+      if (!container) {
+        console.warn(
+          `Question #${index + 1} (${questionId}) is missing difficulty container`,
+        );
+        missingCount++;
+        // Try to add it now
+        this.addDifficultyRatingUI(questionElement, questionId);
+      } else {
+        const progressBtn = container.querySelector(".difficulty-progress-btn");
+        if (!progressBtn) {
+          console.warn(
+            `Question #${index + 1} (${questionId}) container exists but missing progress button`,
+          );
+          missingCount++;
+          // Recreate the container
+          container.remove();
+          this.addDifficultyRatingUI(questionElement, questionId);
+        }
+      }
+    });
+
+    if (missingCount > 0) {
+      console.log(`Fixed ${missingCount} questions with missing UI components`);
+    }
+  }
+
+  /**
+   * Update progress button state
+   * @param {HTMLElement} progressBtn - The progress button element
+   * @param {boolean} isCompleted - Whether the question is completed
+   */
+  updateProgressButtonState(progressBtn, isCompleted) {
+    const isAuto = progressBtn.classList.contains(
+      "difficulty-progress-btn--auto",
+    );
+    const isManualDelivery = progressBtn.dataset.deliveryManual === "true";
+    if (isCompleted) {
+      progressBtn.classList.add("completed");
+      progressBtn.innerHTML =
+        '<span class="progress-icon">✓</span>' +
+        (isAuto || isManualDelivery ? t("Решено") : t("Прочитано"));
+    } else {
+      progressBtn.classList.remove("completed");
+      progressBtn.innerHTML =
+        '<span class="progress-icon">' +
+        (isAuto ? "⚙" : "✓") +
+        "</span>" +
+        (isAuto
+          ? t("Проверяется автоматически")
+          : isManualDelivery
+            ? t("Пометить решенной")
+            : t("Прочитано"));
+    }
+  }
+
+  isManualDeliveryQuestion(questionElement) {
+    const delivery = String(questionElement?.dataset?.delivery || "")
+      .trim()
+      .toLowerCase();
+    return ["ide", "local", "offline", "external"].includes(delivery);
+  }
+
+  /**
+   * Get difficulty text for rating
+   * @param {number} rating - Rating from 1 to 5
+   * @returns {string} - Difficulty description
+   */
+  getDifficultyText(rating) {
+    const difficulties = {
+      1: t("Очень легко"),
+      2: t("Легко"),
+      3: t("Средне"),
+      4: t("Сложно"),
+      5: t("Очень сложно"),
+    };
+    return difficulties[rating] || t("Неизвестно");
+  }
+}
+
+// Global difficulty rating instance
+window.difficultyRating = new DifficultyRating();
+
+// Export for use in modules
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = DifficultyRating;
+}

@@ -1,0 +1,1579 @@
+<!doctype html>
+
+<html lang="ru">
+    <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Linux Basics</title>
+
+    <link href="../assets/css/tokens.css" rel="stylesheet" />
+    <link href="../assets/css/task-table.css" rel="stylesheet" />
+    <link href="../assets/css/skeleton.css" rel="stylesheet" />
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="../assets/css/styles.css" rel="stylesheet" />
+    <link href="../assets/css/navigation.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css" />
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+    <link href="../assets/css/info-cards.css" rel="stylesheet" />
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/quiz.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/quiz.js"></script>
+    <script src="../assets/js/components/block-tests.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Foundation</span>
+            <span class="pill pill--soft">Linux</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Linux Basics</h1>
+          <p class="section-shell__desc">
+            Основы командной строки, файловая система, права доступа и типичные задачи для ML и DevOps: навигация, поиск, процессы и окружение.
+          </p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3 data-md-source="true">Блок 1</h3>
+
+
+
+
+<!-- md:inject:section:Блок 1:start -->
+<li class="question" data-md-source="true" data-md-id="linux-intro" data-interview="2">
+  <div class="name" id="linux-intro">
+    Linux для MLщика
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Linux — это семейство операционных систем с открытым исходным кодом, часто используемых в серверных средах и при разработке ML-проектов. Некоторые из популярных дистрибутивов — Ubuntu, Debian, Arch Linux. Обычно на серваках стоит Ubuntu.</p>
+<figure style="text-align: center">
+  <img alt="Linux" src="../images/linux/linux.png" width="320" height="320" loading="lazy" decoding="async" style="max-width: 150px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Большинство серверов и облачных платформ (AWS, Azure, Google Cloud) работают под Linux. Здесь вы будете обучать модели, хранить данные и запускать эксперименты.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Linux — стандарт в ML и DevOps, так как он бесплатный, гибкий, стабилен, и большинство библиотек и драйверов (например, NVIDIA CUDA) поддерживаются в первую очередь под него.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Почему Linux важен для ML?</b></p>
+<p>Большинство серверов, облачных платформ, CUDA-драйверов и production-инструментов работают в Linux-среде.</p>
+</li>
+<li><p><b>Где MLщик чаще всего встречает Linux?</b></p>
+<p>На удаленных серверах, в облаке, Docker-контейнерах и production-инфраструктуре.</p>
+</li>
+<li><p><b>Почему Linux удобен для серверной работы?</b></p>
+<p>Он стабилен, гибок, хорошо автоматизируется через CLI и поддерживает основные ML-инструменты.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-help" data-interview="1">
+  <div class="name" id="linux-help">
+    Справка и поиск команд
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В Linux есть встроенные средства получения справки по командам: <code>man</code> и <code>--help</code>.</p>
+
+</div>
+<div class="code-block" data-lang="bash">man ls          # открыть руководство по ls
+ls --help       # краткая справка по команде ls</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен <code>man</code>?</b></p>
+<p>Чтобы открыть подробное руководство по команде.</p>
+</li>
+<li><p><b>Зачем нужен флаг <code>--help</code>?</b></p>
+<p>Чтобы быстро посмотреть краткую справку по синтаксису команды.</p>
+</li>
+<li><p><b>Почему умение читать help важно на сервере?</b></p>
+<p>На сервере не всегда удобно искать документацию в браузере, а команды часто имеют много флагов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="warp" data-badge-type="additional" data-interview="1">
+  <div class="name" id="warp">
+    Warp
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Warp — это командная строка со встроенным копайлотом (LLMкой), которая существенно упрощает работу в терминале.</p>
+<figure style="text-align: center">
+  <img alt="Warp" src="../images/linux/warp.png" width="768" height="532" loading="lazy" decoding="async" style="max-width: 500px; width: 100%; height: auto" />
+</figure>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое Warp?</b></p>
+<p>Терминал с удобным интерфейсом и встроенными AI-возможностями для работы с командной строкой.</p>
+</li>
+<li><p><b>Зачем он может быть полезен новичку?</b></p>
+<p>Он помогает формулировать команды, читать вывод и быстрее разбираться с CLI-задачами.</p>
+</li>
+<li><p><b>Заменяет ли Warp понимание Linux-команд?</b></p>
+<p>Нет. Он помогает работать быстрее, но базовые команды и принципы Linux все равно нужно понимать.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-terminal" data-interview="2">
+  <div class="name" id="linux-terminal">
+    Командная строка Linux
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Терминал (CLI) — это текстовый интерфейс для взаимодействия с системой: запуска команд, работы с файлами и мониторинга ресурсов.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Большинство задач на сервере выполняется именно через CLI, а не через окна и кнопки.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое CLI?</b></p>
+<p>Текстовый интерфейс, в котором пользователь вводит команды для управления системой.</p>
+</li>
+<li><p><b>Почему MLщику нужен терминал?</b></p>
+<p>Через него запускают обучение, смотрят логи, управляют файлами, подключаются к серверам и проверяют ресурсы.</p>
+</li>
+<li><p><b>Чем терминал отличается от графического интерфейса?</b></p>
+<p>Терминал удобнее для удаленной работы, автоматизации и повторяемых команд.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 1:end -->
+        <h3 data-md-source="true">Блок 2</h3>
+
+
+
+
+
+
+<!-- md:inject:section:Блок 2:start -->
+<li class="question" data-md-source="true" data-md-id="linux-files" data-interview="2">
+  <div class="name" id="linux-files">
+    Работа с файлами и папками
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В Linux для управления файлами и директориями используются команды <code>ls</code>, <code>cd</code>, <code>cp</code>, <code>mv</code>, <code>rm</code>, <code>mkdir</code>.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Перемещение по папкам
+cd /path/to/dir      # перейти в папку
+cd ..                # на уровень выше
+
+# Просмотр содержимого
+ls                   # список файлов
+ls -la               # подробный список, включая скрытые
+
+# Копирование и перемещение
+cp data/file.txt ./         # копировать файл в текущую папку
+mv oldname.txt newname.txt  # переименовать в newname.txt
+mv data/file.txt ./         # переместить в текущую папку
+
+# Удаление
+rm file.txt
+rm -r folder         # удалить папку рекурсивно
+
+# Создание
+mkdir new_folder</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Какая команда показывает содержимое директории?</b></p>
+<p><code>ls</code>, а подробный список со скрытыми файлами — <code>ls -la</code>.</p>
+</li>
+<li><p><b>Как создать директорию?</b></p>
+<p>Командой <code>mkdir dirname</code>.</p>
+</li>
+<li><p><b>Чем <code>cp</code> отличается от <code>mv</code>?</b></p>
+<p><code>cp</code> копирует файл или директорию, а <code>mv</code> перемещает или переименовывает.</p>
+</li>
+<li><p><b>Почему с <code>rm -r</code> нужно быть осторожным?</b></p>
+<p>Он рекурсивно удаляет директорию и ее содержимое без корзины.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-paths" data-interview="1">
+  <div class="name" id="linux-paths">
+    Пути в Linux
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Путь</b> — это адрес файла или директории в файловой системе Linux. Путь бывает абсолютным, например <code>/home/ivan/project/data</code>, и относительным, например <code>./data</code> или <code>../models</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ML-скрипты часто получают пути к данным, чекпоинтам, конфигам и логам через аргументы командной строки. Ошибка в пути приводит к <code>FileNotFoundError</code>, чтению не того датасета или записи артефактов в неожиданную директорию.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Полезные команды для ориентации в директориях:</p>
+
+</div>
+<div class="code-block" data-lang="bash">pwd                 # показать текущую директорию
+cd /home/user/proj  # перейти по абсолютному пути
+cd ./data           # перейти в data внутри текущей директории
+cd ..               # подняться на уровень выше
+realpath data/train # показать абсолютный путь</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В bash <code>.</code> означает текущую директорию, <code>..</code> — родительскую директорию, <code>~</code> — домашнюю директорию пользователя.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем абсолютный путь отличается от относительного?</b></p>
+<p>Абсолютный путь начинается от корня <code>/</code>, а относительный считается от текущей директории.</p>
+</li>
+<li><p><b>Что показывает <code>pwd</code>?</b></p>
+<p>Текущую рабочую директорию shell-сессии.</p>
+</li>
+<li><p><b>Что означает <code>~</code> в Linux-пути?</b></p>
+<p>Домашнюю директорию текущего пользователя.</p>
+</li>
+<li><p><b>Почему пути важны для ML-экспериментов?</b></p>
+<p>Через них скрипты находят данные, модели, конфиги, логи и директории для сохранения чекпоинтов.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-view-files" data-interview="1">
+  <div class="name" id="linux-view-files">
+    Просмотр файлов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>В Linux файлы можно быстро просматривать из терминала с помощью <code>cat</code>, <code>less</code>, <code>head</code>, <code>tail</code> и <code>wc</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для MLщика это базовый навык: посмотреть первые строки CSV, проверить конфиг, открыть лог обучения, оценить размер текстового датасета или быстро понять формат файла на сервере без скачивания на локальную машину.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Частые команды для просмотра файлов:</p>
+
+</div>
+<div class="code-block" data-lang="bash">cat config.yaml            # вывести файл целиком
+less train.log             # открыть файл постранично
+head -n 5 data.csv         # первые 5 строк
+tail -n 50 train.log       # последние 50 строк
+tail -f train.log          # следить за логом в реальном времени
+wc -l data/train.txt       # посчитать строки</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не открывайте большой файл через <code>cat</code>: терминал может зависнуть или начать долго печатать гигабайты текста. Для больших логов и датасетов используйте <code>less</code>, <code>head</code>, <code>tail</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда использовать <code>head</code>?</b></p>
+<p>Когда нужно быстро посмотреть начало файла, например первые строки CSV.</p>
+</li>
+<li><p><b>Когда использовать <code>tail -f</code>?</b></p>
+<p>Когда нужно следить за новым выводом в лог-файле во время обучения.</p>
+</li>
+<li><p><b>Почему <code>less</code> безопаснее <code>cat</code> для больших файлов?</b></p>
+<p><code>less</code> открывает файл постранично и не печатает весь файл в терминал сразу.</p>
+</li>
+<li><p><b>Зачем MLщику <code>wc -l</code>?</b></p>
+<p>Чтобы быстро оценить число строк в текстовом датасете, списке путей или лог-файле.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-search" data-interview="2">
+  <div class="name" id="linux-search">
+    Поиск файлов и текста
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Для поиска файлов используют <code>find</code>, а для поиска текста внутри файлов — <code>grep</code> или <code>rg</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>На ML-сервере часто нужно найти чекпоинт, лог с ошибкой, конфиг запуска, строку с <code>learning_rate</code> или все места в проекте, где используется конкретная переменная.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Поиск файлов:</p>
+
+</div>
+<div class="code-block" data-lang="bash">find . -name "*.pt"                 # найти PyTorch-чекпоинты
+find /data -type f -name "*.csv"    # найти CSV-файлы в /data
+find . -type f -size +1G            # найти файлы больше 1GB</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Поиск текста:</p>
+
+</div>
+<div class="code-block" data-lang="bash">grep -R "CUDA out of memory" logs/
+grep -R "learning_rate" configs/
+rg "batch_size|learning_rate"</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><code>rg</code> (<code>ripgrep</code>) обычно быстрее и удобнее <code>grep -R</code>, но может быть не установлен на сервере. Если <code>rg</code> нет, используйте <code>grep</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Чем <code>find</code> отличается от <code>grep</code>?</b></p>
+<p><code>find</code> ищет файлы по имени, типу и размеру, а <code>grep</code> ищет текст внутри файлов.</p>
+</li>
+<li><p><b>Как найти большие файлы в текущей директории?</b></p>
+<p>Например: <code>find . -type f -size +1G</code>.</p>
+</li>
+<li><p><b>Зачем искать текст в логах?</b></p>
+<p>Чтобы быстро найти ошибки, предупреждения, метрики и параметры эксперимента.</p>
+</li>
+<li><p><b>Почему <code>rg</code> удобен в проектах с кодом?</b></p>
+<p>Он быстро ищет по дереву файлов и обычно игнорирует мусор вроде <code>.git</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-disk-usage" data-interview="1">
+  <div class="name" id="linux-disk-usage">
+    Диск: df и du
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>df</code> показывает свободное место на файловых системах, а <code>du</code> показывает, сколько места занимают файлы и директории.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ML-эксперименты быстро заполняют диск: датасеты, кэши, логи, чекпоинты, артефакты W&amp;B/MLflow. Перед запуском обучения полезно проверить, хватит ли места для новых файлов.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Команды для диагностики диска:</p>
+
+</div>
+<div class="code-block" data-lang="bash">df -h                 # свободное место на дисках
+du -sh .              # размер текущей директории
+du -h --max-depth=1   # размеры папок на один уровень ниже
+du -sh ~/.cache/*     # размеры кэшей в домашней директории</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Если диск заполнен, обучение может упасть при сохранении чекпоинта, логгер может перестать писать логи, а другие пользователи сервера тоже пострадают.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что показывает <code>df -h</code>?</b></p>
+<p>Свободное и занятое место на файловых системах в удобном для чтения формате.</p>
+</li>
+<li><p><b>Что показывает <code>du -sh folder</code>?</b></p>
+<p>Суммарный размер директории <code>folder</code>.</p>
+</li>
+<li><p><b>Почему диск важен для ML-эксперимента?</b></p>
+<p>Модели, датасеты, кэши и чекпоинты могут занимать десятки или сотни гигабайт.</p>
+</li>
+<li><p><b>Что проверить, если обучение падает при сохранении чекпоинта?</b></p>
+<p>Свободное место на диске через <code>df -h</code> и размер директории с артефактами через <code>du</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-archives" data-interview="1">
+  <div class="name" id="linux-archives">
+    Архивы и сжатие
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Архивы объединяют много файлов в один файл, а сжатие уменьшает размер данных. В Linux часто встречаются <code>.tar</code>, <code>.tar.gz</code>, <code>.zip</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Датасеты, модели и результаты экспериментов часто передают архивами. Нужно уметь распаковать датасет на сервере, упаковать артефакты эксперимента и не потерять структуру папок.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Распаковка архивов:</p>
+
+</div>
+<div class="code-block" data-lang="bash">tar -xf dataset.tar
+tar -xzf dataset.tar.gz
+unzip dataset.zip</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Создание архива:</p>
+
+</div>
+<div class="code-block" data-lang="bash">tar -czf checkpoints.tar.gz checkpoints/
+zip -r logs.zip logs/</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Для очень больших датасетов распаковка может занять много времени и места. Перед распаковкой проверьте свободный диск через <code>df -h</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое <code>.tar.gz</code>?</b></p>
+<p>Архив <code>.tar</code>, дополнительно сжатый gzip.</p>
+</li>
+<li><p><b>Как распаковать <code>.tar.gz</code>?</b></p>
+<p>Командой <code>tar -xzf file.tar.gz</code>.</p>
+</li>
+<li><p><b>Как упаковать директорию в <code>.tar.gz</code>?</b></p>
+<p>Командой <code>tar -czf archive.tar.gz folder/</code>.</p>
+</li>
+<li><p><b>Почему перед распаковкой датасета нужно проверить диск?</b></p>
+<p>После распаковки данные могут занять намного больше места, чем сам архив.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 2:end -->
+        <h3 data-md-source="true">Блок 3</h3>
+
+
+
+
+
+
+<!-- md:inject:section:Блок 3:start -->
+<li class="question" data-md-source="true" data-md-id="linux-system-monitor" data-interview="2">
+  <div class="name" id="linux-system-monitor">
+    Мониторинг ресурсов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Одни из самых важных команд для MLщика при пользовании общих вычислительных мощностей. На серваке ресурсы (CPU, RAM, GPU) часто делятся между коллегами, поэтому важно следить за их использованием.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Внимание">
+<p>Если запустить обучение и предварительно не проверить количество доступных ресурсов, то можно уронить эксперимент коллеги, заставив его словить Out-of-Memory (OOM).</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Память (оперативная)
+free -h
+
+# Процессы и загрузка CPU
+htop             # мониторинг процессов в реальном времени
+
+# Занятость GPU
+watch nvidia-smi # мониторинг GPU в реальном времени</div><figure style="text-align: center">
+  <img alt="htop" src="../images/linux/htop.gif" width="1304" height="620" loading="lazy" decoding="async" style="max-width: 500px; width: 100%; height: auto" />
+  <figcaption>
+    <code>htop</code>
+  </figcaption>
+</figure>
+<figure style="text-align: center">
+  <img alt="watch nvidia-smi" src="../images/linux/smi.gif" width="627" height="487" loading="lazy" decoding="async" style="max-width: 500px; width: 100%; height: auto" />
+  <figcaption>
+    <code>watch nvidia-smi</code>
+  </figcaption>
+</figure>
+
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p>Перед запуском обучения — чтобы убедиться, что есть свободная память и GPU.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Если <code>nvidia-smi</code> показывает 90% занятой GPU, возможно, кто-то уже обучает модель на этой видеокарте. Можно посмотреть, какие именно процессы запущены на сервере и какие ресурсы они используют.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем проверять ресурсы перед обучением?</b></p>
+<p>Чтобы не запустить эксперимент на занятой GPU или при нехватке памяти.</p>
+</li>
+<li><p><b>Что показывает <code>free -h</code>?</b></p>
+<p>Использование оперативной памяти в удобном формате.</p>
+</li>
+<li><p><b>Что показывает <code>htop</code>?</b></p>
+<p>Процессы, CPU, RAM и другую информацию о нагрузке системы.</p>
+</li>
+<li><p><b>Зачем нужен <code>watch nvidia-smi</code>?</b></p>
+<p>Чтобы наблюдать использование GPU в реальном времени.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-processes" data-interview="2">
+  <div class="name" id="linux-processes">
+    Процессы: ps, htop, kill
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Процесс</b> — это запущенная программа в Linux. У каждого процесса есть PID, пользователь, состояние и потребляемые ресурсы.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ML-задачи могут зависнуть, занять всю память или продолжить работать после закрытия терминала. Нужно уметь найти свой процесс, понять, сколько ресурсов он использует, и корректно остановить его.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Команды для работы с процессами:</p>
+
+</div>
+<div class="code-block" data-lang="bash">ps aux | grep train.py   # найти процесс обучения
+htop                     # интерактивный список процессов
+kill 12345               # попросить процесс завершиться
+kill -9 12345            # принудительно завершить процесс
+pkill -f train.py        # завершить процессы по шаблону команды</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не убивайте чужие процессы без согласования. На общем ML-сервере PID может принадлежать эксперименту коллеги.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое PID?</b></p>
+<p>Числовой идентификатор процесса в Linux.</p>
+</li>
+<li><p><b>Как найти процесс обучения по имени скрипта?</b></p>
+<p>Например: <code>ps aux | grep train.py</code>.</p>
+</li>
+<li><p><b>Чем <code>kill</code> отличается от <code>kill -9</code>?</b></p>
+<p><code>kill</code> просит процесс завершиться, а <code>kill -9</code> принудительно убивает его.</p>
+</li>
+<li><p><b>Почему нельзя бездумно запускать <code>pkill</code>?</b></p>
+<p>Можно случайно завершить чужие процессы или несколько своих экспериментов сразу.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-background-jobs" data-interview="2">
+  <div class="name" id="linux-background-jobs">
+    Фоновые процессы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Фоновый процесс — это команда, которая продолжает выполняться, пока терминал свободен для новых команд.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В shell команду можно отправить в фон через <code>&amp;</code>, посмотреть фоновые задачи через <code>jobs</code>, вернуть задачу на передний план через <code>fg</code>. Это полезно для коротких задач, но для долгого обучения надежнее использовать <code>tmux</code> или <code>nohup</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Базовые команды job control:</p>
+
+</div>
+<div class="code-block" data-lang="bash">python preprocess.py &amp;
+jobs
+fg %1
+Ctrl+Z
+bg</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Фоновая задача может завершиться при закрытии SSH-сессии, если она привязана к терминалу. Для долгих ML-экспериментов используйте <code>tmux</code> или <code>nohup</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>&amp;</code> в конце команды?</b></p>
+<p>Запускает команду в фоне.</p>
+</li>
+<li><p><b>Что показывает <code>jobs</code>?</b></p>
+<p>Список фоновых и остановленных задач текущей shell-сессии.</p>
+</li>
+<li><p><b>Что делает <code>fg</code>?</b></p>
+<p>Возвращает фоновую задачу на передний план.</p>
+</li>
+<li><p><b>Почему <code>&amp;</code> недостаточно для долгого обучения по SSH?</b></p>
+<p>Процесс может завершиться при обрыве терминальной сессии.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-nohup" data-interview="2">
+  <div class="name" id="linux-nohup">
+    nohup и перенаправление вывода
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>nohup</code> запускает команду так, чтобы она не завершилась при закрытии терминала, а перенаправление вывода сохраняет stdout и stderr в файл.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если обучение длится часы, нужно сохранить логи и защититься от обрыва SSH. Типовой запуск: отправить процесс в фон, записать логи в файл и потом смотреть их через <code>tail -f</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Запуск обучения с логами:</p>
+
+</div>
+<div class="code-block" data-lang="bash">nohup python train.py --config configs/base.yaml &gt; train.log 2&gt;&amp;1 &amp;
+tail -f train.log</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p><code>&gt;</code> перенаправляет stdout в файл, <code>2&gt;&amp;1</code> добавляет туда stderr, <code>&amp;</code> отправляет процесс в фон.</p>
+
+</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p><code>nohup</code> не заменяет нормальное управление экспериментами. Для интерактивной работы на сервере чаще удобнее <code>tmux</code>, а для production-задач — scheduler или orchestrator.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен <code>nohup</code>?</b></p>
+<p>Чтобы процесс не завершился при закрытии терминала.</p>
+</li>
+<li><p><b>Что означает <code>&gt; train.log 2&gt;&amp;1</code>?</b></p>
+<p>Записать stdout и stderr в файл <code>train.log</code>.</p>
+</li>
+<li><p><b>Что делает <code>tail -f train.log</code>?</b></p>
+<p>Показывает новые строки лога в реальном времени.</p>
+</li>
+<li><p><b>Когда лучше использовать <code>tmux</code> вместо <code>nohup</code>?</b></p>
+<p>Когда нужна интерактивная сессия, в которую можно вернуться после отключения SSH.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-tmux" data-interview="2">
+  <div class="name" id="linux-tmux">
+    tmux
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>tmux</code> — терминальный мультиплексор: он создает сессии, которые продолжают жить на сервере после отключения SSH.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Для ML-сервера <code>tmux</code> — один из самых важных инструментов. Можно запустить обучение внутри сессии, отключиться от сервера, вернуться позже и увидеть тот же терминал с логами и процессом.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Базовый workflow:</p>
+
+</div>
+<div class="code-block" data-lang="bash">tmux new -s train
+python train.py
+
+# detach: Ctrl+B, затем D
+
+tmux ls
+tmux attach -t train</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Внутри <code>tmux</code> можно держать несколько окон: обучение, <code>watch nvidia-smi</code>, просмотр логов, shell для команд.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем MLщику <code>tmux</code>?</b></p>
+<p>Чтобы долгие эксперименты не зависели от стабильности SSH-соединения.</p>
+</li>
+<li><p><b>Как создать tmux-сессию с именем <code>train</code>?</b></p>
+<p>Командой <code>tmux new -s train</code>.</p>
+</li>
+<li><p><b>Как отключиться от tmux-сессии, не останавливая процессы?</b></p>
+<p>Нажать <code>Ctrl+B</code>, затем <code>D</code>.</p>
+</li>
+<li><p><b>Как вернуться в tmux-сессию?</b></p>
+<p>Командой <code>tmux attach -t train</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-log-files" data-interview="2">
+  <div class="name" id="linux-log-files">
+    Работа с логами
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Логи</b> — текстовые записи о ходе работы программы: параметры запуска, метрики, предупреждения, ошибки и traceback.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>При обучении модели лог — главный способ понять, что происходит: растет ли loss, сколько занимает эпоха, где упал dataloader, была ли ошибка CUDA OOM.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Полезные команды:</p>
+
+</div>
+<div class="code-block" data-lang="bash">tail -f train.log
+grep -n "ERROR" train.log
+grep -n "loss" train.log | tail
+less train.log</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Логи могут быстро стать большими. Если эксперимент пишет слишком подробный output, стоит уменьшить verbosity или настроить логгер.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем сохранять логи обучения?</b></p>
+<p>Чтобы анализировать метрики, ошибки, параметры запуска и поведение эксперимента после завершения.</p>
+</li>
+<li><p><b>Как следить за логом в реальном времени?</b></p>
+<p>Командой <code>tail -f train.log</code>.</p>
+</li>
+<li><p><b>Как найти ошибки в логе?</b></p>
+<p>Например: <code>grep -n &quot;ERROR&quot; train.log</code>.</p>
+</li>
+<li><p><b>Почему слишком подробные логи опасны?</b></p>
+<p>Они могут быстро занять много места на диске и усложнить поиск важных событий.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 3:end -->
+        <h3 data-md-source="true">Блок 4</h3>
+
+
+
+
+
+
+<!-- md:inject:section:Блок 4:start -->
+<li class="question" data-md-source="true" data-md-id="linux-ssh" data-interview="2">
+  <div class="name" id="linux-ssh">
+    Подключение к удалённому серверу (SSH)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>SSH (Secure Shell) — безопасный способ подключения к удалённому Linux-серверу. Обычно админ сервака добавляет сгенерированный ключ в <code>.ssh/authorized_keys</code> и тем самым даёт возможность подключаться к серверу.</p>
+
+</div>
+<div class="code-block" data-lang="bash"># Подключение
+ssh user@server</div>
+<div class="info-card-auto" data-type="remark" data-title="Когда использовать">
+<p><a href="https://selectel.ru/blog/tutorials/how-to-generate-ssh/" target="_blank" rel="noopener">Сгенерировать ssh-ключ</a> можно командой <code>ssh-keygen</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Находясь на одном сервере, можно пингануть другой с IP и скопировать с него файлы. Например, хотим перекинуть папку <code>/ssd/n.ivanoff/data/train/crops</code> с сервера с IP 172.20.23.167 на сервер 172.20.23.168 (на котором мы сейчас находимся):</p>
+
+</div>
+<div class="code-block" data-lang="bash"># -r - рекурсивно, все файлы из папки
+scp -r n.ivanoff@172.20.23.167:/ssd/n.ivanoff/data/train/crops /ssd/n.ivanoff/data</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое SSH?</b></p>
+<p>Безопасный способ подключиться к удаленному Linux-серверу через терминал.</p>
+</li>
+<li><p><b>Как подключиться к серверу по SSH?</b></p>
+<p>Командой <code>ssh user@server</code>.</p>
+</li>
+<li><p><b>Зачем нужны SSH-ключи?</b></p>
+<p>Они позволяют подключаться безопаснее и удобнее, чем вводить пароль каждый раз.</p>
+</li>
+<li><p><b>Что делает <code>scp -r</code>?</b></p>
+<p>Рекурсивно копирует директорию по SSH.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-copy-data" data-interview="2">
+  <div class="name" id="linux-copy-data">
+    Копирование данных: scp и rsync
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>scp</code> и <code>rsync</code> копируют файлы между локальной машиной и сервером или между серверами по SSH.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ML-работа почти всегда связана с переносом данных: скачать результаты эксперимента, отправить конфиг, перенести датасет, забрать чекпоинт. Для маленьких файлов достаточно <code>scp</code>, для больших директорий удобнее <code>rsync</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Копирование через <code>scp</code>:</p>
+
+</div>
+<div class="code-block" data-lang="bash">scp train.py user@server:/home/user/project/
+scp user@server:/home/user/project/train.log .
+scp -r user@server:/data/experiment ./experiment</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Копирование через <code>rsync</code> с прогрессом:</p>
+
+</div>
+<div class="code-block" data-lang="bash">rsync -avP data/ user@server:/data/project/
+rsync -avP user@server:/runs/exp1/ ./exp1/</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p><code>rsync</code> умеет докачивать и копировать только изменившиеся файлы, поэтому он лучше подходит для больших директорий и нестабильного соединения.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Когда достаточно <code>scp</code>?</b></p>
+<p>Для простого копирования небольшого файла или директории.</p>
+</li>
+<li><p><b>Когда лучше использовать <code>rsync</code>?</b></p>
+<p>Для больших директорий, докачки и повторной синхронизации изменившихся файлов.</p>
+</li>
+<li><p><b>Что означает <code>-r</code> в <code>scp -r</code>?</b></p>
+<p>Рекурсивное копирование директории.</p>
+</li>
+<li><p><b>Что означает <code>-P</code> в <code>rsync -avP</code>?</b></p>
+<p>Показывать прогресс и сохранять частично переданные файлы для докачки.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-permissions" data-interview="2">
+  <div class="name" id="linux-permissions">
+    Права доступа
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Права доступа в Linux определяют, кто может читать, изменять и запускать файл: владелец, группа и остальные пользователи.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Ошибка <code>Permission denied</code> часто возникает на ML-сервере: скрипт нельзя запустить, директория с данными недоступна, лог нельзя записать, файл принадлежит другому пользователю.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Базовые команды:</p>
+
+</div>
+<div class="code-block" data-lang="bash">ls -l script.sh
+chmod +x script.sh
+chmod -R u+rw data/
+chown user:group file.txt</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не используйте <code>chmod -R 777</code> как универсальное решение. Это открывает доступ всем пользователям и может создать проблемы безопасности на общем сервере.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что означает <code>Permission denied</code>?</b></p>
+<p>У текущего пользователя нет нужных прав на чтение, запись или выполнение.</p>
+</li>
+<li><p><b>Что делает <code>chmod +x script.sh</code>?</b></p>
+<p>Добавляет право выполнения для файла <code>script.sh</code>.</p>
+</li>
+<li><p><b>Что показывает <code>ls -l</code>?</b></p>
+<p>Права, владельца, группу, размер и дату изменения файла.</p>
+</li>
+<li><p><b>Почему <code>chmod 777</code> опасен?</b></p>
+<p>Он разрешает всем пользователям читать, писать и выполнять файл или директорию.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-symlinks" data-interview="1">
+  <div class="name" id="linux-symlinks">
+    Символические ссылки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Символическая ссылка</b> (<code>symlink</code>) — это файл-ссылка, который указывает на другой файл или директорию.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>В ML symlink полезен, когда датасет лежит в общем месте, а проект ожидает путь <code>./data</code>. Вместо копирования сотен гигабайт можно создать ссылку.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Создание ссылки на датасет:</p>
+
+</div>
+<div class="code-block" data-lang="bash">ln -s /datasets/imagenet ./data
+ls -l data</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Если удалить symlink через <code>rm data</code>, удалится только ссылка. Но если перейти внутрь директории по ссылке и удалять файлы там, можно удалить реальные данные.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>ln -s source link</code>?</b></p>
+<p>Создает символическую ссылку <code>link</code>, указывающую на <code>source</code>.</p>
+</li>
+<li><p><b>Зачем symlink полезен для датасетов?</b></p>
+<p>Можно подключить данные к проекту без копирования больших файлов.</p>
+</li>
+<li><p><b>Что покажет <code>ls -l</code> для symlink?</b></p>
+<p>Путь, на который указывает ссылка.</p>
+</li>
+<li><p><b>Что произойдет при <code>rm symlink</code>?</b></p>
+<p>Обычно удалится сама ссылка, а не целевой файл или директория.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-env-vars" data-interview="3">
+  <div class="name" id="linux-env-vars">
+    Переменные окружения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>Переменные окружения</b> — это именованные значения, которые shell передает запущенным программам.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>ML-инструменты часто читают настройки из environment: выбор GPU, пути к кэшам, ключи W&amp;B, токены Hugging Face, режим логирования, адрес MLflow.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Базовые команды:</p>
+
+</div>
+<div class="code-block" data-lang="bash">echo $HOME
+export EXP_NAME=baseline
+export CUDA_VISIBLE_DEVICES=0
+python train.py</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Одноразовая переменная только для одной команды:</p>
+
+</div>
+<div class="code-block" data-lang="bash">CUDA_VISIBLE_DEVICES=1 python train.py --batch-size 16</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не печатайте и не коммитьте секреты вроде <code>WANDB_API_KEY</code>, <code>HF_TOKEN</code>, cloud credentials. Для секретов лучше использовать <code>.env</code>, secret manager или настройки платформы запуска.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что делает <code>export NAME=value</code>?</b></p>
+<p>Создает переменную окружения, доступную дочерним процессам shell.</p>
+</li>
+<li><p><b>Как посмотреть значение переменной <code>HOME</code>?</b></p>
+<p>Командой <code>echo $HOME</code>.</p>
+</li>
+<li><p><b>Что делает <code>CUDA_VISIBLE_DEVICES=1 python train.py</code>?</b></p>
+<p>Запускает команду так, что процесс видит только выбранную GPU.</p>
+</li>
+<li><p><b>Почему секреты нельзя хранить в открытом виде в командах и Git?</b></p>
+<p>Они могут попасть в историю shell, логи, репозиторий или чужой доступ.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-python-envs" data-interview="3">
+  <div class="name" id="linux-python-envs">
+    Python-окружения на сервере
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Python-окружение — изолированный набор Python-пакетов и версии интерпретатора для конкретного проекта.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>На ML-сервере несколько проектов могут требовать разные версии <code>torch</code>, <code>transformers</code>, <code>numpy</code>, CUDA-зависимостей. Если ставить все в системный Python, окружения быстро конфликтуют.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Виртуальное окружение через <code>venv</code>:</p>
+
+</div>
+<div class="code-block" data-lang="bash">python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python train.py
+deactivate</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Conda-окружение:</p>
+
+</div>
+<div class="code-block" data-lang="bash">conda create -n exp python=3.11
+conda activate exp
+pip install -r requirements.txt</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Обычно окружение создают внутри проекта (<code>.venv</code>) или в менеджере окружений (<code>conda</code>, <code>uv</code>). Не стоит устанавливать зависимости проекта через <code>sudo pip install</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужны Python-окружения?</b></p>
+<p>Чтобы зависимости разных проектов не конфликтовали друг с другом.</p>
+</li>
+<li><p><b>Как активировать <code>venv</code>?</b></p>
+<p>Командой <code>source .venv/bin/activate</code>.</p>
+</li>
+<li><p><b>Почему плохо использовать системный Python для ML-проекта?</b></p>
+<p>Можно сломать зависимости других проектов или системных инструментов.</p>
+</li>
+<li><p><b>Почему <code>sudo pip install</code> обычно плохая идея?</b></p>
+<p>Он меняет системное окружение и может нарушить работу Python-пакетов на сервере.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 4:end -->
+        <h3 data-md-source="true">Блок 5</h3>
+
+
+
+
+
+<!-- md:inject:section:Блок 5:start -->
+<li class="question" data-md-source="true" data-md-id="linux-gpu-monitor" data-interview="3">
+  <div class="name" id="linux-gpu-monitor">
+    GPU: nvidia-smi
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>nvidia-smi</code> — утилита NVIDIA для просмотра состояния GPU: памяти, загрузки, температуры, драйвера и процессов.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Перед запуском обучения нужно проверить, свободна ли GPU, сколько памяти занято и какие процессы уже работают. На общем сервере это снижает риск случайно занять карту, на которой уже идет эксперимент.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Полезные команды:</p>
+
+</div>
+<div class="code-block" data-lang="bash">nvidia-smi
+watch -n 1 nvidia-smi
+nvidia-smi pmon -c 1</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>В таблице <code>nvidia-smi</code> важны <code>GPU-Util</code>, <code>Memory-Usage</code>, PID процесса и имя команды. Высокая занятая память не всегда означает высокую текущую загрузку GPU.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что показывает <code>nvidia-smi</code>?</b></p>
+<p>Состояние NVIDIA GPU, память, загрузку, процессы, драйвер и CUDA-версию.</p>
+</li>
+<li><p><b>Зачем использовать <code>watch nvidia-smi</code>?</b></p>
+<p>Чтобы наблюдать изменение GPU-ресурсов в реальном времени.</p>
+</li>
+<li><p><b>Почему занятая GPU-память важна перед запуском обучения?</b></p>
+<p>Если памяти мало, новый эксперимент может упасть с CUDA OOM.</p>
+</li>
+<li><p><b>Что такое PID в выводе <code>nvidia-smi</code>?</b></p>
+<p>Идентификатор процесса, который использует GPU.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-cuda-visible-devices" data-interview="3">
+  <div class="name" id="linux-cuda-visible-devices">
+    Выбор GPU
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><code>CUDA_VISIBLE_DEVICES</code> — переменная окружения, которая ограничивает, какие GPU видит процесс.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Если на сервере несколько GPU, важно запускать эксперимент на свободной карте. <code>CUDA_VISIBLE_DEVICES</code> позволяет выбрать одну или несколько карт без изменения кода обучения.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Запуск на одной GPU:</p>
+
+</div>
+<div class="code-block" data-lang="bash">CUDA_VISIBLE_DEVICES=1 python train.py</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Запуск на двух GPU:</p>
+
+</div>
+<div class="code-block" data-lang="bash">CUDA_VISIBLE_DEVICES=0,2 python train.py</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>После установки <code>CUDA_VISIBLE_DEVICES=1</code> внутри процесса эта GPU часто видна как <code>cuda:0</code>, потому что CUDA перенумеровывает доступные устройства.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Зачем нужен <code>CUDA_VISIBLE_DEVICES</code>?</b></p>
+<p>Чтобы ограничить список GPU, доступных конкретному процессу.</p>
+</li>
+<li><p><b>Как запустить обучение только на GPU 1?</b></p>
+<p>Командой <code>CUDA_VISIBLE_DEVICES=1 python train.py</code>.</p>
+</li>
+<li><p><b>Почему внутри кода выбранная GPU может называться <code>cuda:0</code>?</b></p>
+<p>CUDA перенумеровывает только видимые процессу устройства.</p>
+</li>
+<li><p><b>Что нужно сделать перед выбором GPU?</b></p>
+<p>Проверить занятость карт через <code>nvidia-smi</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-oom" data-interview="3">
+  <div class="name" id="linux-oom">
+    OOM: нехватка памяти
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p><b>OOM</b> (Out Of Memory) — ошибка нехватки памяти. В ML чаще встречаются CUDA OOM на GPU и RAM OOM в оперативной памяти.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>CUDA OOM обычно возникает, когда модель, batch, активации и optimizer state не помещаются в GPU-память. RAM OOM может возникнуть при загрузке датасета целиком, большом <code>num_workers</code>, утечке памяти или тяжелой предобработке.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Что проверить при OOM:</p>
+
+</div>
+<div class="code-block" data-lang="bash">nvidia-smi
+free -h
+htop
+dmesg | tail</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Типичные действия при CUDA OOM: уменьшить batch size, sequence length, разрешение изображений, включить gradient accumulation, mixed precision, gradient checkpointing или выбрать GPU с большей памятью.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что такое OOM?</b></p>
+<p>Ошибка нехватки памяти для процесса.</p>
+</li>
+<li><p><b>Чем CUDA OOM отличается от RAM OOM?</b></p>
+<p>CUDA OOM связан с памятью GPU, RAM OOM — с оперативной памятью хоста.</p>
+</li>
+<li><p><b>Что обычно уменьшает CUDA OOM?</b></p>
+<p>Уменьшение batch size, sequence length, размера модели или использование mixed precision.</p>
+</li>
+<li><p><b>Какие команды помогают диагностировать память?</b></p>
+<p><code>nvidia-smi</code>, <code>free -h</code>, <code>htop</code>, иногда <code>dmesg</code>.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-ml-caches" data-interview="1">
+  <div class="name" id="linux-ml-caches">
+    Кэши ML-библиотек
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Кэш ML-библиотеки — локальная директория, куда библиотека сохраняет скачанные модели, датасеты, wheel-файлы и промежуточные артефакты.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Hugging Face, PyTorch, pip, datasets и другие инструменты могут незаметно занять много места в <code>~/.cache</code>. На общем сервере это частая причина переполненного домашнего раздела.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Проверка кэшей:</p>
+
+</div>
+<div class="code-block" data-lang="bash">du -sh ~/.cache/*
+du -sh ~/.cache/huggingface
+du -sh ~/.cache/pip</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Перенос Hugging Face cache на большой диск:</p>
+
+</div>
+<div class="code-block" data-lang="bash">export HF_HOME=/data/$USER/huggingface
+export HF_DATASETS_CACHE=/data/$USER/huggingface/datasets</div>
+<div class="info-card-auto" data-type="warning" data-title="Важно">
+<p>Не удаляйте общие кэши или директории других пользователей. Сначала проверьте путь, владельца и договоренности на сервере.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Где часто лежат пользовательские кэши?</b></p>
+<p>В директории <code>~/.cache</code>.</p>
+</li>
+<li><p><b>Почему кэши важны для ML?</b></p>
+<p>Скачанные модели и датасеты могут занимать десятки гигабайт.</p>
+</li>
+<li><p><b>Как посмотреть размер кэша Hugging Face?</b></p>
+<p>Командой <code>du -sh ~/.cache/huggingface</code>.</p>
+</li>
+<li><p><b>Зачем задавать <code>HF_HOME</code>?</b></p>
+<p>Чтобы перенести кэш Hugging Face в нужную директорию, например на большой диск.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="linux-training-checklist" data-interview="1">
+  <div class="name" id="linux-training-checklist">
+    Чеклист перед запуском обучения
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+<p>Чеклист перед запуском обучения — короткая проверка сервера, окружения, ресурсов и логирования перед долгим ML-экспериментом.</p>
+
+</div>
+<div class="info-card-auto" data-type="explanation" data-title="Объяснение">
+<p>Большинство неприятных падений можно поймать заранее: не та GPU, нет места на диске, не активировано окружение, неправильный путь к данным, запуск вне <code>tmux</code>, лог никуда не пишется.</p>
+
+</div>
+<div class="info-card-auto" data-type="example" data-title="Пример">
+<p>Минимальный порядок действий:</p>
+
+</div>
+<div class="code-block" data-lang="bash">ssh user@server
+tmux new -s exp
+cd ~/project
+git pull
+source .venv/bin/activate
+df -h
+free -h
+nvidia-smi
+CUDA_VISIBLE_DEVICES=0 python train.py &gt; train.log 2&gt;&amp;1</div>
+<div class="info-card-auto" data-type="remark" data-title="Замечание">
+<p>Перед запуском полезно явно сохранить конфиг, seed, версию кода, путь к данным, имя эксперимента и директорию для чекпоинтов.</p>
+
+</div>
+<div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+<ol>
+<li><p><b>Что проверить перед запуском обучения?</b></p>
+<p>GPU, RAM, диск, окружение, код, путь к данным, логирование и директорию для чекпоинтов.</p>
+</li>
+<li><p><b>Зачем запускать обучение внутри <code>tmux</code>?</b></p>
+<p>Чтобы эксперимент не зависел от SSH-соединения.</p>
+</li>
+<li><p><b>Зачем проверять <code>df -h</code> перед обучением?</b></p>
+<p>Чтобы убедиться, что хватит места для логов, кэшей и чекпоинтов.</p>
+</li>
+<li><p><b>Почему важно сохранять лог запуска?</b></p>
+<p>Без лога сложно восстановить причину падения и параметры эксперимента.</p>
+</li>
+</ol>
+
+</div>
+  </div>
+</li>
+<!-- md:inject:section:Блок 5:end -->
+              <!-- Карточка входа в тест -->
+        <div class="quiz-entry"
+             data-quiz-id="linux:basics"
+             data-unlock="all-questions">
+          <!-- Система тестов автоматически отрендерит карточку -->
+        </div>
+</ol>
+    </main>
+
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1826 @@
+<!doctype html>
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Главная</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link href="assets/css/tokens.css" rel="stylesheet" />
+    <link href="assets/css/task-table.css" rel="stylesheet" />
+    <link href="assets/css/skeleton.css" rel="stylesheet" />
+    <link href="assets/css/comparison-cards.css" rel="stylesheet" />
+    <link href="assets/css/styles.css" rel="stylesheet" />
+    <link href="assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="assets/css/navigation.css" rel="stylesheet" />
+    <link href="assets/css/daily-fact.css" rel="stylesheet" />
+    <!-- Мини-окно новостей на главной отключено
+    <link href="assets/css/news-panel.css" rel="stylesheet" /> -->
+    <link href="assets/css/daily-reports.css" rel="stylesheet" />
+    <link href="assets/css/rag-chat.css" rel="stylesheet" />
+    <link href="assets/css/intro-tour.css" rel="stylesheet" />
+    <link href="assets/katex/katex.min.css" rel="stylesheet" />
+    <link href="assets/css/fonts.css" rel="stylesheet" />
+<style>
+      /* Скрываем дашборд ментора по умолчанию, чтобы не было мигания */
+      .card.mentor-only {
+        display: none !important;
+      }
+      .card.curator-only {
+        display: none !important;
+      }
+      /* Показываем только после подтверждения staff-роли */
+      .card.mentor-only.show-for-mentor {
+        display: block !important;
+      }
+      .card.curator-only.show-for-curator {
+        display: block !important;
+      }
+      .main-duplicate-entry {
+        display: none !important;
+      }
+
+      /* Avatar in the page header */
+      .main-header-avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--brand) 14%, transparent);
+        border: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--brand);
+        flex-shrink: 0;
+        overflow: hidden;
+        transition: transform 0.2s ease;
+      }
+
+      .main-header-avatar:hover {
+        transform: scale(1.05);
+      }
+
+      .main-header-avatar.avatar-has-photo {
+        font-size: 0;
+        background: transparent;
+      }
+
+      .main-header-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 50%;
+      }
+
+      @media (max-width: 600px) {
+        .main-header-avatar {
+          width: 44px;
+          height: 44px;
+          font-size: 16px;
+        }
+      }
+
+      .main-today {
+        margin: 22px 0 0;
+      }
+
+      .main-today[hidden] {
+        display: none;
+      }
+
+      .main-today-title {
+        margin: 0 0 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      /* Верхний ряд «Сегодня»: вопрос дня слева, серия и кольцо цели справа;
+         на узком экране половины сами переносятся друг под друга. */
+      .main-today-top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      /* Нет ни вопроса дня, ни полосы (раздел закрыт, данные не прочитались) —
+         пустой ряд не должен оставлять отступ. */
+      .main-today-top:not(:has(> :not([hidden]))) {
+        display: none;
+      }
+
+      .main-today-pulse {
+        flex: 1 1 320px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px 24px;
+        padding: 16px 20px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+        box-shadow: var(--shadow);
+      }
+
+      .main-today-pulse[hidden],
+      .main-today-streak-pending[hidden] {
+        display: none;
+      }
+
+      .main-today-streak {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 10px;
+        min-width: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      /* Не strong: глобальный градиент для strong перекрашивает эмодзи. */
+      .main-today-streak-value {
+        color: var(--text);
+        font-size: 1.25rem;
+        font-weight: 700;
+      }
+
+      .main-today-streak-value:empty {
+        display: none;
+      }
+
+      .main-today-streak-pending {
+        padding: 2px 10px;
+        border-radius: 999px;
+        background: var(--warning-light);
+        color: var(--warning);
+        font-weight: 600;
+        font-size: 0.82rem;
+      }
+
+      /* Заморозка в запасе: пропуск серию не рвёт — без тревожного цвета. */
+      .main-today-streak-pending.is-soft {
+        background: color-mix(in srgb, var(--text) 7%, transparent);
+        color: var(--muted);
+      }
+
+      .main-today-goal {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .main-today-ring {
+        position: relative;
+        width: 56px;
+        height: 56px;
+        flex-shrink: 0;
+      }
+
+      .main-today-ring svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+      }
+
+      .main-today-ring circle {
+        fill: none;
+        stroke: color-mix(in srgb, var(--text) 10%, transparent);
+        stroke-width: 4;
+      }
+
+      .main-today-ring #todayGoalArc {
+        stroke: var(--brand);
+        stroke-linecap: round;
+        transition: stroke-dasharray 0.3s ease;
+      }
+
+      /* Круглый торец рисует точку даже у нулевого штриха — пустое кольцо
+         должно быть пустым. */
+      .main-today-ring #todayGoalArc[stroke-dasharray^="0 "] {
+        display: none;
+      }
+
+      /* Цифра — обычный HTML поверх: styles.css прячет любой svg text. И не
+         strong: глобальный градиент для strong перебивает color. */
+      .main-today-ring span {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .main-today-goal-text {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .main-today-goal-title {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .main-today-goal-hint {
+        font-size: 0.8rem;
+      }
+
+      .main-today-goal-options {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .main-today-goal-options button {
+        min-width: 36px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+
+      .main-today-goal-options button[aria-pressed="true"] {
+        border-color: var(--brand);
+        background: var(--brand-light);
+        color: var(--brand);
+        font-weight: 600;
+      }
+
+      .main-today-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .main-today-card {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+          "icon name"
+          "metric metric"
+          "cta cta";
+        align-items: center;
+        gap: 6px 12px;
+        padding: 18px 20px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+        color: var(--text);
+        text-decoration: none;
+        box-shadow: var(--shadow);
+        transition:
+          transform 0.16s ease,
+          border-color 0.16s ease,
+          box-shadow 0.16s ease;
+      }
+
+      .main-today-card:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+      }
+
+      .main-today-icon {
+        grid-area: icon;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: var(--brand-light);
+        flex-shrink: 0;
+      }
+
+      .main-today-icon img {
+        width: 22px;
+        height: 22px;
+        object-fit: contain;
+        display: block;
+      }
+
+      /* Та же приглушка цветных иконок в тёмной теме, что и у .card-icon img. */
+      [data-theme="dark"] body .main-today-icon img {
+        filter: saturate(0.78) brightness(1.06);
+      }
+
+      .main-today-name {
+        grid-area: name;
+        font-weight: 600;
+        font-size: 1rem;
+      }
+
+      .main-today-metric {
+        grid-area: metric;
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 8px;
+        min-height: 34px;
+        margin-top: 6px;
+      }
+
+      .main-today-metric strong {
+        font-size: 1.7rem;
+        line-height: 1;
+        font-weight: 700;
+        color: var(--brand);
+      }
+
+      .main-today-metric span {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .main-today-cta {
+        grid-area: cta;
+        margin-top: 8px;
+        color: var(--brand);
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+
+      .main-today-cta::after {
+        content: " \2192";
+      }
+
+      .main-today-card.is-active {
+        border-color: color-mix(in srgb, var(--brand) 34%, var(--border));
+        background: color-mix(in srgb, var(--brand) 7%, var(--card));
+      }
+
+      .main-today-card.is-empty .main-today-metric span,
+      .main-today-card.is-empty .main-today-name {
+        color: var(--muted);
+      }
+
+      .main-today-card.is-empty .main-today-cta {
+        color: var(--muted);
+      }
+
+      /* До прихода данных метрика — нейтральная плашка, чтобы плитки не прыгали. */
+      .main-today-card.is-loading .main-today-metric span {
+        color: transparent;
+        background: color-mix(in srgb, var(--text) 8%, transparent);
+        border-radius: 6px;
+      }
+
+      /* «Вопрос дня» — полоса под плитками «Сегодня» (question-of-day.js). */
+      .main-qod {
+        flex: 1.35 1 380px;
+        display: flex;
+        align-items: center;
+        gap: 12px 20px;
+        padding: 16px 20px;
+        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--border));
+        background: color-mix(in srgb, var(--brand) 7%, var(--card));
+        box-shadow: var(--shadow);
+      }
+
+      .main-qod[hidden],
+      .main-qod-button[hidden] {
+        display: none;
+      }
+
+      .main-qod-body {
+        display: grid;
+        gap: 4px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .main-qod-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--brand);
+      }
+
+      .main-qod-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 10px;
+      }
+
+      .main-qod-topic {
+        padding: 2px 10px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
+        background: var(--card);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+
+      .main-qod-topic:empty {
+        display: none;
+      }
+
+      .main-qod-link {
+        color: var(--text);
+        font-weight: 600;
+        font-size: 1.05rem;
+        text-decoration: none;
+        overflow-wrap: anywhere;
+      }
+
+      .main-qod-link:hover {
+        color: var(--brand);
+      }
+
+      .main-qod-meta {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .main-qod-meta:empty {
+        display: none;
+      }
+
+      .main-qod-button {
+        flex-shrink: 0;
+        min-height: 44px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 14px;
+        background: var(--brand);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .qod-dialog {
+        width: min(640px, calc(100vw - 32px));
+        max-height: calc(100vh - 48px);
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--bg-elevated);
+        color: var(--text);
+        box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+      }
+
+      .qod-dialog::backdrop {
+        background: rgb(0 0 0 / 55%);
+      }
+
+      .qod-dialog-head {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 20px 24px 0;
+      }
+
+      .qod-dialog-title {
+        margin: 4px 0 0;
+        padding: 0;
+        border: 0;
+        font-size: 1.15rem;
+        line-height: 1.35;
+      }
+
+      .qod-dialog-close {
+        flex: none;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .qod-dialog-body {
+        display: grid;
+        gap: 14px;
+        padding: 16px 24px 24px;
+      }
+
+      .qod-dialog-progress,
+      .qod-dialog-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      .qod-card-side {
+        padding: 16px 18px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        font-size: 1rem;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+      }
+
+      .qod-card-side[hidden],
+      .qod-grades[hidden] {
+        display: none;
+      }
+
+      .qod-card-side > :first-child {
+        margin-top: 0;
+      }
+
+      .qod-card-side > :last-child {
+        margin-bottom: 0;
+      }
+
+      .qod-card-answer {
+        border-color: var(--brand);
+        background: color-mix(in srgb, var(--brand) 6%, transparent);
+      }
+
+      .qod-grades {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .qod-grade {
+        display: grid;
+        gap: 2px;
+        padding: 10px 6px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      /* Глобальные strong и b красят текст градиентом — на кнопке он нечитаем. */
+      .qod-grade b {
+        background: none;
+        -webkit-text-fill-color: currentColor;
+        color: inherit;
+        font-weight: 600;
+      }
+
+      .qod-grade small {
+        color: var(--muted);
+        font-size: 0.75rem;
+      }
+
+      .qod-grade:hover,
+      .qod-grade:focus-visible {
+        border-color: var(--brand);
+      }
+
+      .qod-dialog-material {
+        width: fit-content;
+        color: var(--brand);
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      @media (max-width: 520px) {
+        .qod-grades {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      .main-qod.is-done {
+        border-color: var(--border);
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+      }
+
+      .main-priority-grid {
+        --main-catalog-surface:
+          radial-gradient(
+            circle at top left,
+            color-mix(in srgb, var(--brand) 10%, rgba(255, 255, 255, 0.08)),
+            transparent 42%
+          ),
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--brand) 30%, var(--card) 70%),
+            color-mix(
+              in srgb,
+              var(--brand-secondary, var(--brand)) 22%,
+              var(--card) 78%
+            )
+          );
+        --main-catalog-border: color-mix(
+          in srgb,
+          var(--brand) 18%,
+          var(--border)
+        );
+        --main-catalog-shadow: 0 14px 32px
+          color-mix(in srgb, var(--brand) 10%, transparent);
+        --main-catalog-text: #fff;
+        --main-catalog-muted: rgba(255, 255, 255, 0.72);
+        --main-catalog-button-bg: rgba(255, 255, 255, 0.08);
+        --main-catalog-button-border: rgba(255, 255, 255, 0.16);
+        --main-catalog-button-hover-bg: rgba(255, 255, 255, 0.12);
+        --main-catalog-button-hover-border: rgba(255, 255, 255, 0.24);
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr);
+        gap: 20px;
+        margin: 22px 0 32px;
+        align-items: stretch;
+      }
+
+      .main-catalog-card {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 28px;
+        border-radius: 20px;
+        border: 1px solid var(--main-catalog-border);
+        background: var(--main-catalog-surface);
+        color: var(--main-catalog-text);
+        box-shadow: var(--main-catalog-shadow);
+      }
+
+      .main-catalog-card h2 {
+        margin: 0 0 10px;
+        font-size: clamp(1.8rem, 2.4vw, 2.35rem);
+        line-height: 1.05;
+        color: inherit;
+      }
+
+      .main-catalog-card p {
+        margin: 0;
+        max-width: 58ch;
+        color: var(--main-catalog-muted);
+      }
+
+      .main-catalog-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .main-catalog-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 0 16px;
+        border: 1px solid var(--main-catalog-button-border);
+        border-radius: 14px;
+        background: var(--main-catalog-button-bg);
+        color: var(--main-catalog-text);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          transform 0.18s ease,
+          background 0.18s ease,
+          border-color 0.18s ease;
+      }
+
+      .main-catalog-button:hover {
+        transform: translateY(-1px);
+        background: var(--main-catalog-button-hover-bg);
+        border-color: var(--main-catalog-button-hover-border);
+      }
+
+      .main-focus-card {
+        padding: 24px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+        box-shadow: var(--shadow);
+      }
+
+      .main-focus-card h3 {
+        margin: 0 0 8px;
+        font-size: 1.15rem;
+      }
+
+      .main-focus-card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .main-focus-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .main-focus-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        color: var(--text);
+        text-decoration: none;
+        background: var(--card);
+        transition:
+          transform 0.16s ease,
+          border-color 0.16s ease,
+          box-shadow 0.16s ease;
+      }
+
+      .main-focus-item:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+      }
+
+      .main-focus-item strong {
+        display: block;
+        font-size: 0.98rem;
+      }
+
+      .main-focus-item span {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .main-focus-arrow {
+        color: var(--brand);
+        font-size: 1.1rem;
+        flex-shrink: 0;
+      }
+
+      .main-role-panel {
+        display: none;
+        margin: 0 0 28px;
+      }
+
+      /* У ментора плашек две (свой кабинет и кабинет куратора) — встают рядом. */
+      .main-role-panel.is-visible {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+      }
+
+      .main-role-link[hidden] {
+        display: none;
+      }
+
+      .main-role-link {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 18px 20px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--card) 96%, transparent);
+        color: var(--text);
+        text-decoration: none;
+        box-shadow: var(--shadow);
+      }
+
+      .main-role-link strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 1rem;
+      }
+
+      .main-role-link span {
+        color: var(--muted);
+      }
+
+      .main-role-link em {
+        font-style: normal;
+        color: var(--brand);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      html[data-theme="light"] .main-priority-grid,
+      [data-theme="light"] body .main-priority-grid {
+        --main-catalog-surface:
+          radial-gradient(
+            circle at top left,
+            color-mix(in srgb, #fff 72%, var(--brand) 28%),
+            transparent 46%
+          ),
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--brand) 18%, #fff),
+            color-mix(
+              in srgb,
+              var(--brand-secondary, var(--brand)) 14%,
+              #f8f3ed
+            )
+          );
+        --main-catalog-border: color-mix(
+          in srgb,
+          var(--brand) 20%,
+          var(--border)
+        );
+        --main-catalog-shadow: 0 18px 38px
+          color-mix(in srgb, var(--brand) 10%, transparent);
+        --main-catalog-text: color-mix(in srgb, var(--text) 94%, #000);
+        --main-catalog-muted: color-mix(in srgb, var(--text) 72%, transparent);
+        --main-catalog-button-bg: rgba(255, 255, 255, 0.62);
+        --main-catalog-button-border: color-mix(
+          in srgb,
+          var(--brand) 16%,
+          rgba(255, 255, 255, 0.4)
+        );
+        --main-catalog-button-hover-bg: rgba(255, 255, 255, 0.82);
+        --main-catalog-button-hover-border: color-mix(
+          in srgb,
+          var(--brand) 26%,
+          rgba(255, 255, 255, 0.6)
+        );
+      }
+
+      @media (max-width: 960px) {
+        .main-priority-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .main-today-grid {
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+      }
+
+      @media (max-width: 600px) {
+        .main-catalog-card,
+        .main-focus-card {
+          padding: 20px;
+          border-radius: 18px;
+        }
+
+        .main-today-grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .main-today-card {
+          padding: 16px 18px;
+          border-radius: 16px;
+        }
+
+        .main-qod {
+          flex-direction: column;
+          align-items: stretch;
+          padding: 16px 18px;
+          border-radius: 16px;
+        }
+
+        .main-role-link {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+    <script>
+      async function ensureCommandPaletteReady() {
+        if (typeof window.openCommandPalette === "function") return;
+        await new Promise((resolve, reject) => {
+          const existing = document.querySelector(
+            'script[data-command-palette-script="true"]',
+          );
+          if (existing) {
+            existing.addEventListener("load", resolve, { once: true });
+            existing.addEventListener(
+              "error",
+              () => reject(new Error("Command palette load failed")),
+              { once: true },
+            );
+            return;
+          }
+          const script = document.createElement("script");
+          script.src = "/assets/js/components/command-palette.js";
+          script.async = true;
+          script.dataset.commandPaletteScript = "true";
+          script.onload = resolve;
+          script.onerror = () =>
+            reject(new Error("Command palette load failed"));
+          document.head.appendChild(script);
+        });
+      }
+
+      async function openMainCatalog() {
+        try {
+          await ensureCommandPaletteReady();
+          if (typeof window.openCommandPalette === "function") {
+            window.openCommandPalette();
+          }
+        } catch (error) {
+          console.warn("Command palette is unavailable:", error);
+        }
+      }
+    </script>
+
+    <!-- Firebase SDK -->
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+
+    <script src="assets/js/components/config-loader.js"></script>
+    <script src="assets/js/avatar-upload.js"></script>
+    <script src="assets/js/components/daily-reports.js"></script>
+    <script src="assets/js/components/gamification.js"></script>
+    <link rel="stylesheet" href="assets/css/achievement-notifications.css" />
+    <script src="assets/js/components/achievement-catalog.js"></script>
+    <script src="assets/js/components/achievement-api.js"></script>
+    <script src="assets/js/components/achievement-notifications.js"></script>
+    <script src="assets/js/notifications.js"></script>
+    <script src="assets/js/components/rag-chat.js"></script>
+    <script src="assets/js/components/intro-tour.js"></script>
+    <script src="assets/js/components/main-today.js"></script>
+    <script src="assets/js/components/question-of-day.js"></script>
+
+    <script>
+      // Initialize Firebase with config from JSON
+      async function initializeFirebase() {
+        try {
+          const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+
+          // Инициализация
+          if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+          }
+
+          // Авторизация
+          firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+              let userRole = null;
+              try {
+                const roleSnap = await firebase
+                  .database()
+                  .ref(`users/${user.uid}/role`)
+                  .once("value");
+                userRole = roleSnap.val() || null;
+              } catch (e) {}
+
+              const isAdminHelper = userRole === "curator";
+              const isStaff = userRole === "mentor";
+              try {
+                if (userRole) {
+                  localStorage.setItem(
+                    "schmidtml_nav_role_cache_v1",
+                    JSON.stringify({
+                      uid: user.uid,
+                      role: userRole,
+                      updatedAt: Date.now(),
+                    }),
+                  );
+                }
+              } catch (e) {}
+              document.querySelectorAll(".mentor-only").forEach((card) => {
+                card.classList.toggle("show-for-mentor", isStaff);
+              });
+              document.querySelectorAll(".curator-only").forEach((card) => {
+                card.classList.toggle("show-for-curator", isAdminHelper);
+              });
+
+              const rolePanel = document.getElementById("mainRolePanel");
+              const rolePanelLink =
+                document.getElementById("mainRolePanelLink");
+              const rolePanelTitle =
+                document.getElementById("mainRolePanelTitle");
+              const rolePanelDescription = document.getElementById(
+                "mainRolePanelDescription",
+              );
+              if (
+                rolePanel &&
+                rolePanelLink &&
+                rolePanelTitle &&
+                rolePanelDescription
+              ) {
+                // Ментору нужен и кабинет куратора; куратору хватает своего —
+                // его ссылка остаётся единственной плашкой, как и раньше.
+                const curatorLink = document.getElementById(
+                  "mainRoleCuratorLink",
+                );
+                if (curatorLink) curatorLink.hidden = !isStaff;
+                if (isStaff) {
+                  rolePanel.classList.add("is-visible");
+                  rolePanelLink.href = "/mentor-stats/index.html";
+                  rolePanelTitle.textContent = t("Рабочее место ментора");
+                  rolePanelDescription.textContent = t(
+                    "Студенты, активность, офферы, сложность вопросов и быстрые действия.",
+                  );
+                } else if (isAdminHelper) {
+                  rolePanel.classList.add("is-visible");
+                  rolePanelLink.href = "/curator/student.html";
+                  rolePanelTitle.textContent = t("Рабочее место куратора");
+                  rolePanelDescription.textContent = t(
+                    "Ученики, дедлайны, учебный план и кураторские сценарии в одном месте.",
+                  );
+                } else {
+                  rolePanel.classList.remove("is-visible");
+                }
+              }
+
+              const titleEl = document.getElementById("title");
+              const subtitleEl = document.getElementById("mainSubtitle");
+              const avatarEl = document.getElementById("mainHeaderAvatar");
+              // Узел users/<uid> читается здесь целиком, поэтому секция «Сегодня»
+              // берёт progress/spaced_repetition/feedbacks отсюда, без второго запроса.
+              let mainUserData = null;
+              if (titleEl) {
+                try {
+                  const userRef = firebase.database().ref(`users/${user.uid}`);
+                  const snapshot = await userRef.once("value");
+                  const userData = snapshot.val() || {};
+                  mainUserData = userData;
+                  const displayName = userData.displayName || user.email;
+                  const selectedAchievement = userData.selectedAchievement;
+                  const selectedAchievementId = userData.selectedAchievementId;
+
+                  // Short first name only (before space or @)
+                  const firstName =
+                    displayName
+                      .split(/[\s(@]/)[0]
+                      .replace(/[^A-Za-zА-Яа-яЁё-]/g, "") || displayName;
+
+                  let titleText = t("Привет, {name}!", { name: firstName });
+                  if (selectedAchievement && !selectedAchievementId) {
+                    titleText += ` ${selectedAchievement.icon}`;
+                  }
+                  titleEl.textContent = titleText;
+                  if (selectedAchievementId && window.achievementCatalog) {
+                    const catalog = await window.achievementCatalog.load();
+                    const achievement = catalog.byId.get(selectedAchievementId);
+                    if (achievement) {
+                      titleEl.append(
+                        " ",
+                        window.achievementCatalog.icon(
+                          achievement,
+                          "achievement-status-icon",
+                          achievement.title,
+                        ),
+                      );
+                    }
+                  }
+
+                  // Dynamic subtitle: greeting by time of day
+                  if (subtitleEl) {
+                    const h = new Date().getHours();
+                    const timeGreeting =
+                      h < 6
+                        ? t("Ночная сессия 🌙")
+                        : h < 12
+                          ? t("Доброе утро ☀️")
+                          : h < 17
+                            ? t("Продуктивного дня 💪")
+                            : h < 22
+                              ? t("Добрый вечер 🌆")
+                              : t("Ночная сессия 🌙");
+                    subtitleEl.textContent = timeGreeting;
+                  }
+
+                  // Avatar
+                  if (avatarEl && typeof window.avatarUpload !== "undefined") {
+                    const initials = (firstName + "??")
+                      .substring(0, 2)
+                      .toUpperCase();
+                    avatarEl.textContent = initials;
+                    let avatarUrl = userData.avatarUrl || null;
+                    if (avatarUrl && avatarUrl.indexOf("?t=") === -1) {
+                      avatarUrl += "?t=" + Date.now();
+                    }
+                    window.avatarUpload.applyToElement(
+                      avatarEl,
+                      avatarUrl,
+                      initials,
+                    );
+                  } else if (avatarEl) {
+                    const initials = (firstName + "??")
+                      .substring(0, 2)
+                      .toUpperCase();
+                    avatarEl.textContent = initials;
+                  }
+                } catch (error) {
+                  titleEl.textContent = t("Привет, {name}!", {
+                    name: user.email,
+                  });
+                }
+              }
+
+              if (!isStaff && !isAdminHelper && window.mainToday) {
+                try {
+                  window.mainToday.render({
+                    uid: user.uid,
+                    userData: mainUserData,
+                    db: firebase.database(),
+                  });
+                  // Сам ловит свои ошибки: виджет необязательный и падает тихо.
+                  window.questionOfDay?.render({
+                    uid: user.uid,
+                    userData: mainUserData,
+                    db: firebase.database(),
+                  });
+                } catch (error) {
+                  console.error("Failed to render today section:", error);
+                }
+              }
+
+              if (isAdminHelper) {
+                document.getElementById("daily-fact-container") &&
+                  (document.getElementById(
+                    "daily-fact-container",
+                  ).style.display = "none");
+              } else {
+                if (window.notificationSystem) {
+                  try {
+                    await window.notificationSystem.initialize(firebaseConfig);
+                  } catch (error) {}
+                }
+                if (window.dailyReportsSystem) {
+                  try {
+                    await window.dailyReportsSystem.initialize(firebaseConfig);
+                  } catch (error) {}
+                }
+                if (window.gamificationSystem) {
+                  try {
+                    await window.gamificationSystem.initialize(firebaseConfig);
+                  } catch (error) {}
+                }
+                if (window.globalAchievementNotifications) {
+                  try {
+                    await window.globalAchievementNotifications.initialize(
+                      firebaseConfig,
+                    );
+                  } catch (error) {}
+                }
+              }
+
+              if (window.introTour) {
+                try {
+                  // Always initialize intro flow.
+                  // It decides internally whether to show intro or required name modal.
+                  await window.introTour.initialize(firebaseConfig);
+                } catch (error) {
+                  console.error("Failed to initialize intro tour:", error);
+                }
+              }
+            }
+          });
+        } catch (error) {
+          console.error("Failed to initialize Firebase:", error);
+        }
+      }
+
+      // Initialize when DOM is loaded
+      document.addEventListener("DOMContentLoaded", initializeFirebase);
+    </script>
+    <script src="assets/js/components/anchor-scroll.js"></script>
+    <!-- Мини-окно новостей на главной отключено
+    <script src="assets/js/components/news-panel.js"></script> -->
+    <script src="assets/js/firebase-mock.js"></script>
+</head>
+  <body class="main" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <header class="page-header">
+        <div class="page-header-content">
+          <div class="main-header-avatar" id="mainHeaderAvatar">?</div>
+          <div class="page-header-text">
+            <h1 id="title">Привет!</h1>
+            <p class="subtitle" id="mainSubtitle">
+              Добро пожаловать на платформу
+            </p>
+          </div>
+          <div class="page-header-cta">
+            <a
+              href="wallet.html"
+              class="page-header-button main-wallet-link"
+              title="Кошелёк: грады за учёбу"
+            >
+              <svg
+                viewBox="0 0 64 64"
+                aria-hidden="true"
+                focusable="false"
+                class="coin-icon"
+              >
+                <use href="#grad-coin"></use>
+              </svg>
+              <span data-wallet-balance>—</span>
+              <span data-wallet-unit>градов</span>
+            </a>
+          </div>
+        </div>
+      </header>
+
+      <section class="main-today" id="mainToday" aria-label="Сегодня" hidden>
+        <h2 class="main-today-title">Сегодня</h2>
+        <!-- Верхний ряд блока «Сегодня»: вопрос дня слева, серия и дневная
+             цель справа. Каждая половина может быть скрыта (раздел вопроса
+             закрыт, данные не прочитались) — оставшаяся занимает всю ширину. -->
+        <div class="main-today-top">
+          <div class="main-qod" id="questionOfDay" hidden>
+            <div class="main-qod-body">
+              <span class="main-qod-head">
+                <span class="main-qod-label">Вопрос дня</span>
+                <span class="main-qod-topic" id="questionOfDayTopic"></span>
+              </span>
+              <a class="main-qod-link" id="questionOfDayLink" href="#"></a>
+              <span class="main-qod-meta" id="questionOfDayMeta"></span>
+            </div>
+            <button
+              class="main-qod-button"
+              id="questionOfDayButton"
+              type="button"
+            >
+              Проверить себя
+            </button>
+          </div>
+          <div class="main-today-pulse" id="todayPulse" hidden>
+            <div class="main-today-streak">
+              <span
+                class="main-today-streak-value"
+                id="todayStreakValue"
+              ></span>
+              <span id="todayStreakHint"></span>
+              <span
+                class="main-today-streak-pending"
+                id="todayStreakPending"
+                hidden
+              ></span>
+            </div>
+            <div class="main-today-goal">
+              <div class="main-today-ring">
+                <svg viewBox="0 0 36 36" aria-hidden="true">
+                  <circle cx="18" cy="18" r="15" pathLength="100" />
+                  <circle
+                    id="todayGoalArc"
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    pathLength="100"
+                    stroke-dasharray="0 100"
+                  />
+                </svg>
+                <span id="todayGoalCount"></span>
+              </div>
+              <div class="main-today-goal-text">
+                <span class="main-today-goal-title">Цель на день</span>
+                <span id="todayGoalLabel"></span>
+                <span class="main-today-goal-hint">
+                  Считаются решённые вопросы и повторённые карточки
+                </span>
+                <div
+                  class="main-today-goal-options"
+                  id="todayGoalOptions"
+                  role="group"
+                  aria-label="Дневная цель: сколько вопросов и карточек в день"
+                >
+                  <span class="main-today-goal-hint">Цель:</span>
+                  <button type="button" data-goal="5" title="Цель — 5 в день">
+                    5
+                  </button>
+                  <button type="button" data-goal="10" title="Цель — 10 в день">
+                    10
+                  </button>
+                  <button type="button" data-goal="20" title="Цель — 20 в день">
+                    20
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="main-today-grid">
+          <a
+            href="spaced-repetition.html"
+            class="main-today-card is-loading"
+            id="todayReview"
+          >
+            <span class="main-today-icon">
+              <img
+                src="assets/icons/topics-progress.svg"
+                alt=""
+                aria-hidden="true"
+              />
+            </span>
+            <span class="main-today-name">Повторение</span>
+            <span class="main-today-metric">
+              <strong id="todayReviewCount"></strong>
+              <span id="todayReviewLabel">карточки из теорминимума</span>
+            </span>
+            <span class="main-today-cta">Повторить</span>
+          </a>
+
+          <a
+            href="calender/index.html"
+            class="main-today-card is-loading"
+            id="todayTasks"
+          >
+            <span class="main-today-icon">
+              <img src="assets/icons/calendar.svg" alt="" aria-hidden="true" />
+            </span>
+            <span class="main-today-name">Доска задач</span>
+            <span class="main-today-metric">
+              <strong id="todayTasksCount"></strong>
+              <span id="todayTasksLabel">задачи, дедлайны и статусы</span>
+            </span>
+            <span class="main-today-cta">Открыть</span>
+          </a>
+
+          <a
+            href="profile/feedbacks.html"
+            class="main-today-card is-loading"
+            id="todayFeedback"
+          >
+            <span class="main-today-icon">
+              <img src="assets/icons/chat.svg" alt="" aria-hidden="true" />
+            </span>
+            <span class="main-today-name">Фидбек</span>
+            <span class="main-today-metric">
+              <strong id="todayFeedbackCount"></strong>
+              <span id="todayFeedbackLabel">разборы собесов от ментора</span>
+            </span>
+            <span class="main-today-cta">Читать</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="main-priority-grid" aria-label="Быстрый старт">
+        <div class="main-catalog-card">
+          <div>
+            <h2>Единый каталог</h2>
+            <p>Ищи по разделам, материалам, вопросам одной строкой.</p>
+          </div>
+          <div class="main-catalog-actions">
+            <button class="main-catalog-button" onclick="openMainCatalog()">
+              Открыть каталог
+            </button>
+          </div>
+        </div>
+
+        <aside class="main-focus-card">
+          <h3>Обучение</h3>
+          <div class="main-focus-list">
+            <a href="roadmap/index.html" class="main-focus-item">
+              <div>
+                <strong>Роадмап</strong>
+                <span>Карта разделов и прогресс по темам</span>
+              </div>
+              <span class="main-focus-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="calender/roadmap.html" class="main-focus-item">
+              <div>
+                <strong>Учебный план</strong>
+                <span>Недельная траектория и дедлайны</span>
+              </div>
+              <span class="main-focus-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="analytics/index.html" class="main-focus-item">
+              <div>
+                <strong>Аналитика данных</strong>
+                <span>A/B тесты, метрики, BI, SQL и собеседования</span>
+              </div>
+              <span class="main-focus-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="profile.html" class="main-focus-item">
+              <div>
+                <strong>Профиль</strong>
+                <span>Достижения, отчёты, тесты, офферы</span>
+              </div>
+              <span class="main-focus-arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+        </aside>
+      </section>
+
+      <section
+        class="main-role-panel"
+        id="mainRolePanel"
+        aria-label="Рабочее место команды"
+      >
+        <a
+          href="mentor-stats/index.html"
+          class="main-role-link"
+          id="mainRolePanelLink"
+        >
+          <div>
+            <strong id="mainRolePanelTitle">Рабочее место</strong>
+            <span id="mainRolePanelDescription">
+              Роль-зависимый кабинет с быстрым доступом к рабочим сценариям.
+            </span>
+          </div>
+          <em>Открыть</em>
+        </a>
+        <a
+          href="curator/student.html"
+          class="main-role-link"
+          id="mainRoleCuratorLink"
+          hidden
+        >
+          <div>
+            <strong>Кабинет куратора</strong>
+            <span>
+              Ученики, дедлайны, учебный план и кураторские сценарии в одном
+              месте.
+            </span>
+          </div>
+          <em>Открыть</em>
+        </a>
+      </section>
+      <!-- 
+      <h2>Основные разделы</h2>
+      <div class="cards-grid">
+        <a href="roadmap/index.html" class="card">
+          <div class="card-header">
+            <div class="card-icon theory">
+              <img src="assets/icons/roadmap.svg" alt="RoadMap" />
+            </div>
+            <h3 class="card-title">RoadMap</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Путь к становлению ML-разработчиком: от математики и Git до LLM и
+              MLOps
+            </p>
+            <span class="card-link">Открыть RoadMap</span>
+          </div>
+        </a>
+
+        <a href="ai/interviews/index.html" class="card">
+          <div class="card-header">
+            <div class="card-icon theory">
+              <img src="assets/icons/interviews.svg" alt="Собеседования" />
+            </div>
+            <h3 class="card-title">Собеседования</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Всё про собеседования: стратегии, банк вопросов, резюме, легенда и
+              LinkedIn
+            </p>
+            <span class="card-link">Открыть собеседования</span>
+          </div>
+        </a>
+
+        <a href="profile.html" class="card">
+          <div class="card-header">
+            <div class="card-icon profile">
+              <img src="assets/icons/profile.png" alt="Profile" />
+            </div>
+            <h3 class="card-title">Профиль</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Настройки, фидбек, прогресс, достижения, отчеты, тесты и офферы
+            </p>
+            <span class="card-link">Открыть профиль ученика</span>
+          </div>
+        </a>
+        <a href="calender/index.html" class="card main-duplicate-entry">
+          <div class="card-header">
+            <div class="card-icon competition">
+              <img src="assets/icons/calendar.svg" alt="Доска задач" />
+            </div>
+            <h3 class="card-title">Доска задач</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Задачи, дедлайны и статусы всегда под рукой
+            </p>
+            <span class="card-link">Открыть доску</span>
+          </div>
+        </a>
+
+        <a href="leaderboard.html" class="card main-duplicate-entry">
+          <div class="card-header">
+            <div class="card-icon competition">
+              <img src="assets/icons/leaderboard.svg" alt="Лидерборд" />
+            </div>
+            <h3 class="card-title">Лидерборд</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Отслеживай прогресс изучения материала
+            </p>
+            <span class="card-link">Открыть лидерборд</span>
+          </div>
+        </a>
+
+        <a
+          href="mentor-stats/index.html"
+          class="card mentor-only main-duplicate-entry"
+        >
+          <div class="card-header">
+            <div class="card-icon profile">
+              <img src="assets/icons/mentor-stats.svg" alt="ЛК Ментора" />
+            </div>
+            <h3 class="card-title">ЛК Ментора</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Мониторинг активности учеников, офферов, доступа к материалам и
+              сложности вопросов
+            </p>
+            <span class="card-link">Открыть статистику</span>
+          </div>
+        </a>
+
+        <a
+          href="curator/student.html"
+          class="card curator-only main-duplicate-entry"
+        >
+          <div class="card-header">
+            <div class="card-icon profile">
+              <img
+                src="assets/icons/mentor-stats.svg"
+                alt="Кабинет куратора"
+              />
+            </div>
+            <h3 class="card-title">Кабинет куратора</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Ученики, дедлайны, учебный план и быстрые действия без лишних
+              разделов
+            </p>
+            <span class="card-link">Открыть кабинет</span>
+          </div>
+        </a>
+      </div> -->
+
+      <h2>Работа с платформой</h2>
+      <div class="cards-grid">
+        <a href="guide/index.html" class="card visualization-card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/guide.svg" alt="Гайд" />
+            </div>
+            <h3 class="card-title">Видео-гайд</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Две минуты о том, как устроена платформа и с чего начать
+            </p>
+            <span class="card-link">Смотреть гайд</span>
+          </div>
+        </a>
+        <a href="start.html" class="card visualization-card">
+          <div class="card-header">
+            <div class="card-icon start">
+              <img src="assets/icons/start.svg" alt="Первые шаги" />
+            </div>
+            <h3 class="card-title">Первые шаги</h3>
+          </div>
+          <div class="card-content">
+            <p class="card-description">
+              Если ты в начале пути, начни с первых шагов
+            </p>
+            <span class="card-link">Начать обучение</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Daily Fact Container -->
+      <div id="daily-fact-container"></div>
+
+      <!-- Мини-окно новостей на главной отключено
+      <div id="news-panel-container"></div> -->
+    </main>
+
+    <script defer src="assets/katex/katex.min.js"></script>
+    <script defer src="assets/katex/auto-render.min.js"></script>
+    <script src="assets/js/components/navigation.js"></script>
+    <script src="assets/js/components/daily-fact.js"></script>
+    <script src="authGuard.js"></script>
+  </body>
+</html>

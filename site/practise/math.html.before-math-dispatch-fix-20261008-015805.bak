@@ -1,0 +1,848 @@
+<!DOCTYPE html><html lang="ru"><head>
+    <meta charset="utf-8">
+    <!-- theme-boot:start -->
+    <script>
+      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+         белого экрана при каждом открытии.
+
+         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+         запрос на критическом пути, а именно его тут быть и не должно.
+
+         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+         для кода, который его читает (подписи переключателя оформления).
+
+         Менять тему руками умеет только модалка оформления в navigation.js —
+         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+         больше нет: её 65 копий не вызывались ни из одного места. */
+      (function themeBoot() {
+        var root = document.documentElement;
+        var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null; /* приватный режим — просто нет сохранённого выбора */
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        function normalizePalette(raw) {
+          if (!raw || raw === "classic") return "vibecode";
+          return raw;
+        }
+
+        function applyPaletteClasses(raw) {
+          var palette = normalizePalette(raw);
+          if (read("palette") === "classic") write("palette", "vibecode");
+          var targets = document.body ? [root, document.body] : [root];
+          for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+            var name = OPTIONAL_PALETTES[i];
+            for (var j = 0; j < targets.length; j++) {
+              targets[j].classList.toggle("palette-" + name, palette === name);
+            }
+          }
+          root.dataset.palette = palette;
+          return palette;
+        }
+
+        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+           ровно так же, как это делали прежние копии инициализации темы. */
+        function resolveTheme(stored) {
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark") return "dark";
+          if (stored === "light") return "light";
+          return prefersDark ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          var next = theme === "dark" ? "dark" : "light";
+          root.dataset.theme = next;
+          if (document.body)
+            document.body.classList.toggle("dark", next === "dark");
+          return next;
+        }
+
+        var palette = applyPaletteClasses(read("palette"));
+        applyTheme(resolveTheme(read("theme")));
+
+        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+           колбэк — микрозадача, то есть класс окажется на body раньше, чем
+           браузер соберётся рисовать. */
+        function syncBody() {
+          if (!document.body) return false;
+          applyTheme(root.dataset.theme);
+          applyPaletteClasses(root.dataset.palette);
+          return true;
+        }
+
+        if (!syncBody()) {
+          var pending = new MutationObserver(function () {
+            if (syncBody()) pending.disconnect();
+          });
+          pending.observe(root, { childList: true });
+        }
+
+        window.__normalizePalette = normalizePalette;
+        window.__applyPaletteClasses = applyPaletteClasses;
+        window.__resolveTheme = resolveTheme;
+        window.__applyTheme = applyTheme;
+
+        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+           и словарь должны быть готовы до первого скрипта, который рисует текст.
+           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+           «Каталог», поэтому страницы переводятся по одной, а не все разом.
+           Страницы /en/… (английские материалы) английские всегда. Словарь
+           грузится только для английского: русскому интерфейсу он не нужен. */
+        var lang = /^\/en(\/|$)/.test(location.pathname)
+          ? "en"
+          : read("lang") === "en"
+            ? "en"
+            : "ru";
+        root.lang = lang;
+        /* Английский выбран, а открыта русская страница материала — уходим в её
+           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+        var MATERIAL =
+          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+        if (lang === "en" && MATERIAL.test(location.pathname)) {
+          var tail = location.search + location.hash;
+          location.replace("/en" + location.pathname + tail);
+        }
+        var dict = {};
+        var i18n = {
+          lang: lang,
+          locale: lang === "en" ? "en-US" : "ru-RU",
+          add: function (entries) {
+            for (var key in entries) dict[key] = entries[key];
+          },
+          t: function (ru, params) {
+            var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+            if (!params) return text;
+            return text.replace(/\{(\w+)\}/g, function (match, name) {
+              return params[name] != null ? params[name] : match;
+            });
+          },
+          /* forms: { ru: [один, два, пять], en: [one, many] } */
+          plural: function (count, forms) {
+            var list = forms[lang] || forms.ru;
+            var n = Math.abs(Number(count) || 0);
+            var rule;
+            try {
+              rule = new Intl.PluralRules(i18n.locale).select(n);
+            } catch (e) {
+              /* Safari < 13: PluralRules нет — считаем по-старому */
+              var mod10 = n % 10;
+              var mod100 = n % 100;
+              rule =
+                lang !== "ru"
+                  ? n === 1
+                    ? "one"
+                    : "other"
+                  : mod10 === 1 && mod100 !== 11
+                    ? "one"
+                    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                      ? "few"
+                      : "many";
+            }
+            if (lang === "ru")
+              return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+            return list[rule === "one" ? 0 : 1];
+          },
+          remember: function (next) {
+            write("lang", next === "en" ? "en" : "ru");
+          },
+        };
+        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+           совпадающий с ключом словаря, переводится по месту. Страница включает
+           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+           непереведённая страница вышла бы наполовину английской. Вопросы, код
+           и формулы не трогаем — это материал, а не интерфейс. */
+        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+        function translateTree(node) {
+          if (lang === "ru" || !node) return;
+          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+          var filter = {
+            acceptNode: function (el) {
+              var skip = el.matches && el.matches(SKIP);
+              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            },
+          };
+          var show = NodeFilter.SHOW_ELEMENT;
+          var walker = document.createTreeWalker(node, show, filter);
+          for (var el = walker.currentNode; el; el = walker.nextNode()) {
+            for (var i = 0; i < ATTRS.length; i++) {
+              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+              if (value && dict[value.trim()] != null)
+                el.setAttribute(ATTRS[i], dict[value.trim()]);
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType !== 3) continue;
+              /* В разметке текст бывает перенесён строкой — сравниваем по
+                 схлопнутым пробелам, края узла сохраняем. */
+              var key = c.nodeValue.replace(/\s+/g, " ").trim();
+              if (key && dict[key] != null) {
+                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+                c.nodeValue = edges[1] + dict[key] + edges[2];
+              }
+            }
+          }
+        }
+        i18n.translate = translateTree;
+
+        window.i18n = i18n;
+        window.t = i18n.t;
+        if (lang === "en") {
+          document.write('<script src="../assets/js/i18n/en.js"><\/script>');
+          document.addEventListener("DOMContentLoaded", function () {
+            if (!document.body.hasAttribute("data-i18n")) return;
+            var title = document.title.trim();
+            if (dict[title] != null) document.title = dict[title];
+            translateTree(document.body);
+          });
+        }
+      })();
+    </script>
+    <!-- theme-boot:end -->
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Math Практика</title>
+    <link href="../assets/css/tokens.css" rel="stylesheet">
+    <link href="../assets/css/task-table.css" rel="stylesheet">
+    <link href="../assets/css/skeleton.css" rel="stylesheet">
+    <link href="../assets/css/comparison-cards.css" rel="stylesheet">
+    <link href="../assets/css/styles.css" rel="stylesheet">
+    <link href="../assets/css/navigation.css" rel="stylesheet">
+    <link href="../assets/katex/katex.min.css" rel="stylesheet">
+    <link href="../assets/css/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="../assets/css/question-progress.css">
+    <link rel="stylesheet" href="../assets/css/difficulty-rating.css">
+    <link rel="stylesheet" href="../assets/code-styles.css">
+    <link href="../assets/css/scroll-to-top.css" rel="stylesheet">
+    <link href="../assets/css/info-cards.css" rel="stylesheet">
+    <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+    <link href="../assets/css/question-badges.css" rel="stylesheet" />
+    <link href="../assets/css/section-hero.css" rel="stylesheet" />
+    <link href="../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../assets/css/math-answer.css" rel="stylesheet" />
+    <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+    <script src="../assets/js/components/questions-toc.js"></script>
+    <script src="../assets/js/components/lazy-init.js"></script>
+    <script defer="" src="../assets/js/core.js"></script>
+    <script defer="" src="../assets/js/questions.js"></script>
+    <script defer="" src="../assets/js/controls.js"></script>
+    <script defer="" src="../assets/katex/katex.min.js"></script>
+    <script defer="" src="../assets/katex/auto-render.min.js"></script>
+    <!-- firebase-sdk-full:start -->
+    
+    
+    
+    <!-- firebase-sdk-full:end -->
+    <script src="../assets/js/components/lazy-questions.js"></script>
+    <script src="../assets/js/init-head.js"></script>
+    <script src="../assets/js/components/navigation.js"></script>
+    <script src="../assets/js/components/anchor-scroll.js"></script>
+    <script src="../assets/js/components/config-loader.js"></script>
+    <script src="../assets/js/components/section-hero.js"></script>
+    <script src="../assets/js/components/progress-tracker-questions.js"></script>
+    <script src="../assets/js/components/difficulty-rating.js"></script>
+    <script src="../assets/js/components/inline-code-highlighter.js"></script>
+    <script src="../assets/js/components/info-cards.js"></script>
+    <script src="../assets/js/components/question-presentation.js"></script>
+    <script src="../assets/js/components/question-badges.js"></script>
+    <script src="../assets/js/components/math-answer.js"></script>
+    <script src="../assets/js/components/term-definitions.js"></script>
+    <script src="../assets/js/components/term-tooltip.js"></script>
+    <script src="../assets/js/firebase-mock.js"></script>
+</head>
+  <body data-term-scope="all">
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+    <main id="main-content" tabindex="-1" class="container">
+      <section class="section-shell">
+        <header class="section-shell__hero">
+          <div class="hero-topline">
+            <span class="pill">Практика</span>
+            <span class="pill pill--soft">Math</span>
+            <span class="hero-dot">·</span>
+            <span class="hero-count" data-section-hero="question-count">0 вопросов</span>
+          </div>
+          <h1 id="title" class="section-shell__title">Math Практика</h1>
+          <p class="section-shell__desc">Практические задачи и упражнения по математике: алгебра, мат. анализ, вероятность.</p>
+        </header>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__actions">
+          <div class="controls">
+            <button onclick="HideQuestions()">Скрыть вопросы</button>
+            <button onclick="ShowQuestions()">Показать вопросы</button>
+            <button onclick="HideAnswers()">Скрыть ответы</button>
+            <button onclick="ShowAnswers()">Показать ответы</button>
+            <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+          </div>
+        </div>
+        <div class="section-shell__divider"></div>
+        <div class="section-shell__filters"></div>
+      </section>
+      <div style="display: none">
+        $\global\def\at#1#2{\left. #1 \right\rvert_{#2}}$ $\global\def\abs#1{\left\lvert #1
+        \right\rvert}$ $\global\def\norm#1{\left\lVert #1 \right\rVert}$ $\global\def\dp#1#2{\,#1
+        \cdot #2\,}$ $\global\def\vp#1#2{#1 \times #2\,}$ $\global\def\dv#1#2{\frac{d #1}{d #2}}$
+        $\global\def\pd#1#2{\frac{\partial #1}{\partial #2}}$ $\global\def\pdv2#1#2{\frac{\partial^2
+        #1}{\partial #2^2}}$ $\global\def\ppdv#1#2#3{\frac{\partial^2 #1}{\partial #2 \partial #3}}$
+        $\global\def\floor#1{\left\lfloor #1 \right\rfloor}$ $\global\def\paren#1{\left( #1
+        \right)}$ $\global\def\angset#1{\left\lang #1 \right\rang}$ $\global\def\mbox#1{\text{#1}}$
+        $\global\def\div{\text{div}\,}$ $\global\def\dsum{\displaystyle\sum\,}$
+        $\global\def\grad{\text{grad}\,}$ $\global\def\rot{\text{rot}\,}$
+        $\global\def\bydef#1{\overset{\mathrm{def}}{#1}}$ $\global\def\vb#1{\textbf{#1}}$
+        $\global\def\rddots{\cdot^{\displaystyle \cdot^{\displaystyle \cdot}}}$
+        $\global\def\op#1{\mathrm{#1}\,}$ $\global\def\diag{\mathrm{diag}\,}$
+        $\global\def\rank{\mathrm{rank}\,}$ $\global\def\Sh{\,\mathrm{Sh}}$
+        $\global\def\Sp{\,\mathrm{Sp}\,}$ $\global\def\proj{\mathrm{proj}}$
+        $\global\def\grad{\,\mathrm{grad}\,}$ $\global\def\const{\text{const}\,}$
+        $\global\def\res{\text{res}\,}$ $\global\def\Res{\text{Res}\,}$
+        $\global\def\Lin{\,\text{Lin}\,}$ $\global\def\Re{\text{Re}\,}$
+        $\global\def\Im{\text{Im}\,}$ $\global\def\ch{\text{ch}\,}$ $\global\def\sh{\text{sh}\,}$
+        $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
+      </div>
+      <ol id="questions">
+        <h3 data-md-source="true">Алгебра</h3>
+        <!-- md:replace:algebra-vectors:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-vectors" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;sum&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;$x + y$&quot;,&quot;size&quot;:3},{&quot;id&quot;:&quot;combo&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;$2x - 3y$&quot;,&quot;size&quot;:3}]}">
+  <div class="name" id="algebra-vectors">
+    Векторы: сложение и умножение на скаляр
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить операции над векторами: сложение и умножение на скаляр.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть $x = \begin{bmatrix} 1 \\ 2 \\ 3 \end{bmatrix}$, $y = \begin{bmatrix} 4 \\ 0 \\ -1 \end{bmatrix}$. Вычисли:</p>
+<ul>
+<li>$x + y$</li>
+<li>$2x - 3y$</li>
+</ul>
+<p>Ответ вводи по компонентам — сверху вниз.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#vectors" target="_blank" rel="noopener">Векторы</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-vectors:end -->
+        <!-- md:replace:algebra-scalar-product:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-scalar-product" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;dot&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\vec{x} \\cdot \\vec{y}$&quot;},{&quot;id&quot;:&quot;angle&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Угол между векторами&quot;,&quot;options&quot;:[&quot;Острый&quot;,&quot;Прямой&quot;,&quot;Тупой&quot;]}]}">
+  <div class="name" id="algebra-scalar-product">
+    Скалярное произведение
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться вычислять скалярное произведение векторов.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть $\vec{x} = \begin{bmatrix} 5 \\ -1 \\ 3 \end{bmatrix}$, $\vec{y} = \begin{bmatrix} 2 \\ 7 \\ -4 \end{bmatrix}$. Вычисли $\vec{x} \cdot \vec{y}$ и по знаку результата определи, острый угол между векторами или тупой.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#scalar-product" target="_blank" rel="noopener">Скалярное произведение</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-scalar-product:end -->
+        <!-- md:replace:algebra-matrix-mult:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-matrix-mult" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;ab&quot;,&quot;type&quot;:&quot;matrix&quot;,&quot;label&quot;:&quot;$C = AB$&quot;,&quot;rows&quot;:2,&quot;cols&quot;:2},{&quot;id&quot;:&quot;ba&quot;,&quot;type&quot;:&quot;matrix&quot;,&quot;label&quot;:&quot;$BA$&quot;,&quot;rows&quot;:2,&quot;cols&quot;:2},{&quot;id&quot;:&quot;commutative&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Коммутативно ли умножение матриц?&quot;,&quot;options&quot;:[&quot;Да, всегда $AB = BA$&quot;,&quot;Нет, в общем случае $AB \\ne BA$&quot;]},{&quot;id&quot;:&quot;shape&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Размерность $C$&quot;,&quot;options&quot;:[&quot;$1 \\times 2$&quot;,&quot;$2 \\times 1$&quot;,&quot;$2 \\times 2$&quot;,&quot;$4 \\times 4$&quot;]},{&quot;id&quot;:&quot;symmetric&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Коммутативно ли умножение симметричных матриц?&quot;,&quot;options&quot;:[&quot;Да, всегда&quot;,&quot;Нет, не всегда&quot;]},{&quot;id&quot;:&quot;complexity&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Сложность умножения по определению&quot;,&quot;options&quot;:[&quot;$O(n)$&quot;,&quot;$O(n^2)$&quot;,&quot;$O(n^3)$&quot;,&quot;$O(2^n)$&quot;]}]}">
+  <div class="name" id="algebra-matrix-mult">
+    Умножение матриц
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Закрепить умножение матриц и свойства (коммутативность, размерность).</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть даны матрицы:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ A = \begin{bmatrix} 1 &amp; 2 \\ 3 &amp; 4 \\ \end{bmatrix}, \quad B = \begin{bmatrix} 5 &amp; 6 \\ 7 &amp; 8 \\ \end{bmatrix} $$">$$ A = \begin{bmatrix} 1 &amp; 2 \\ 3 &amp; 4 \\ \end{bmatrix}, \quad B = \begin{bmatrix} 5 &amp; 6 \\ 7 &amp; 8 \\ \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Вычисли произведение $C = AB$.</li>
+<li>Вычисли $BA$ и сравни с $AB$: является ли умножение коммутативным?</li>
+<li>Какова размерность матрицы $C$?</li>
+<li>Будет ли умножение <b>симметричных матриц</b> коммутативным?</li>
+<li>Какова алгоритмическая сложность умножения двух матриц $n \times n$ по определению?</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#matrix" target="_blank" rel="noopener">Матрицы</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-matrix-mult:end -->
+        <!-- md:replace:algebra-matrix-rank:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-matrix-rank" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;rank&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\operatorname{rank} A$&quot;},{&quot;id&quot;:&quot;dependent&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Строки $A$ линейно зависимы?&quot;,&quot;options&quot;:[&quot;Да&quot;,&quot;Нет&quot;]}]}">
+  <div class="name" id="algebra-matrix-rank">
+    Ранг матрицы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти ранг матрицы с помощью элементарных преобразований.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Найди ранг матрицы:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ A = \begin{bmatrix} 1 &amp; 2 &amp; 3 \\ 2 &amp; 4 &amp; 6 \\ 0 &amp; 1 &amp; 1 \end{bmatrix} $$">$$ A = \begin{bmatrix} 1 &amp; 2 &amp; 3 \\ 2 &amp; 4 &amp; 6 \\ 0 &amp; 1 &amp; 1 \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Приведи матрицу к ступенчатому виду с помощью <b>элементарных преобразований</b>.</li>
+<li>Сколько ненулевых строк получилось — таков и ранг.</li>
+<li>Линейно зависимы ли строки матрицы $A$?</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#rank_of_matrix" target="_blank" rel="noopener">Ранг матрицы</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-matrix-rank:end -->
+        <!-- md:replace:algebra-determinant:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-determinant" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;det&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\det A$&quot;}]}">
+  <div class="name" id="algebra-determinant">
+    Определитель матрицы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Вычислить определитель матрицы $2\times 2$.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Вычисли определитель матрицы:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ A = \begin{bmatrix} 2 &amp; -1 \\ 4 &amp; 3 \\ \end{bmatrix} $$">$$ A = \begin{bmatrix} 2 &amp; -1 \\ 4 &amp; 3 \\ \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#determinant_of_matrix" target="_blank" rel="noopener">Определитель</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-determinant:end -->
+        <!-- md:replace:algebra-eigen:start -->
+<li class="question" data-md-source="true" data-md-id="algebra-eigen" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;p&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Коэффициент $p$&quot;},{&quot;id&quot;:&quot;q&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Коэффициент $q$&quot;},{&quot;id&quot;:&quot;eigenvalues&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;Собственные значения $\\lambda_1, \\lambda_2$&quot;,&quot;size&quot;:2,&quot;unordered&quot;:true},{&quot;id&quot;:&quot;action&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Что матрица $B$ делает с векторами?&quot;,&quot;options&quot;:[&quot;Растягивает вдоль оси $x$ в 5 раз, вдоль оси $y$ — в 2 раза&quot;,&quot;Поворачивает на 90°&quot;,&quot;Сжимает все векторы в 7 раз&quot;,&quot;Отражает относительно оси $x$&quot;]}]}">
+  <div class="name" id="algebra-eigen">
+    Собственные числа и векторы
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти характеристический многочлен, собственные значения и интерпретировать действие матрицы на векторы.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть дана матрица:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ B = \begin{bmatrix} 5 &amp; 0 \\ 0 &amp; 2 \end{bmatrix} $$">$$ B = \begin{bmatrix} 5 &amp; 0 \\ 0 &amp; 2 \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Найди характеристический многочлен $\det(B - \lambda I)$ и запиши его в виде $\lambda^2 + p\lambda + q$.</li>
+<li>Определи собственные значения (спектр) матрицы $B$.</li>
+<li>Как эта матрица изменит вид векторов после применения к ним?</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/algebra.html#eigenvalues_and_eigenvectors" target="_blank" rel="noopener">Собственные числа и векторы</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:algebra-eigen:end -->
+
+        <h3 data-md-source="true">Математический анализ</h3>
+        <!-- md:replace:calc-graph-func:start -->
+<li class="question" data-md-source="true" data-md-id="calc-graph-func" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;f0&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$f(0)$&quot;},{&quot;id&quot;:&quot;fpi2&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$f\\left(\\frac{\\pi}{2}\\right)$&quot;},{&quot;id&quot;:&quot;period&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Период $f$&quot;,&quot;options&quot;:[&quot;$\\frac{\\pi}{2}$&quot;,&quot;$\\frac{2\\pi}{3}$&quot;,&quot;$2\\pi$&quot;,&quot;Функция не периодична&quot;]}]}">
+  <div class="name" id="calc-graph-func">
+    График функции одной переменной
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться вычислять значения функции и находить её период — это то, что определяет вид графика.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Дана функция</p>
+<p><span class="latex-copy-wrap" data-latex="$$ f(x)=\frac{1}{2}\cos(4x) - e^{\cos(4x)} \sin(3x). $$">$$ f(x)=\frac{1}{2}\cos(4x) - e^{\cos(4x)} \sin(3x). $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Вычисли $f(0)$.</li>
+<li>Вычисли $f\left(\frac{\pi}{2}\right)$.</li>
+<li>Найди период функции: наименьшее общее кратное периодов $\cos(4x)$ и $\sin(3x)$.</li>
+<li>По желанию построй график на промежутке $[-5, 5]$ и убедись, что он повторяется с найденным периодом.</li>
+</ul>
+<p>Построить график можно без программирования — в <a href="https://www.desmos.com/calculator?lang=ru" target="_blank" rel="noopener">Desmos</a>: просто впиши формулу.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#functions_of_one_variable" target="_blank" rel="noopener">Функции одной переменной</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-graph-func:end -->
+        <!-- md:replace:calc-graph-2d:start -->
+<li class="question" data-md-source="true" data-md-id="calc-graph-2d" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;f00&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$f(0, 0)$&quot;},{&quot;id&quot;:&quot;f11&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$f(1, 1)$&quot;},{&quot;id&quot;:&quot;max&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\max f$&quot;},{&quot;id&quot;:&quot;levels&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Линии уровня&quot;,&quot;options&quot;:[&quot;Прямые&quot;,&quot;Окружности с центром в начале координат&quot;,&quot;Параболы&quot;]}]}">
+  <div class="name" id="calc-graph-2d">
+    График функции двух переменных
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Понять, как устроена функция двух переменных: значения в точках и линии уровня.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Дана функция $f(x, y) = \sin(x^2 + y^2)$ на квадрате $x, y \in [-5, 5]$.</p>
+<ul>
+<li>Вычисли $f(0, 0)$ и $f(1, 1)$.</li>
+<li>Какое наибольшее значение принимает функция?</li>
+<li>Какую форму имеют линии уровня $f(x, y) = c$?</li>
+<li>По желанию построй поверхность — в <a href="https://www.desmos.com/3d?lang=ru" target="_blank" rel="noopener">Desmos 3D</a> достаточно ввести формулу.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#functions_of_several_variables" target="_blank" rel="noopener">Функции нескольких переменных</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-graph-2d:end -->
+        <!-- md:replace:calc-composition:start -->
+<li class="question" data-md-source="true" data-md-id="calc-composition" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;formula&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;$(g \\circ f)(x) =$&quot;,&quot;options&quot;:[&quot;$\\sin(x^2)$&quot;,&quot;$\\sin^2 x$&quot;,&quot;$x^2 \\sin x$&quot;]},{&quot;id&quot;:&quot;gf&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$(g \\circ f)\\left(\\sqrt{\\pi / 2}\\right)$&quot;},{&quot;id&quot;:&quot;fg&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$(f \\circ g)\\left(\\frac{\\pi}{6}\\right)$&quot;},{&quot;id&quot;:&quot;parity&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Функция $g \\circ f$&quot;,&quot;options&quot;:[&quot;Чётная&quot;,&quot;Нечётная&quot;,&quot;Ни чётная, ни нечётная&quot;]}]}">
+  <div class="name" id="calc-composition">
+    Композиция функций
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Понять композицию функций и почему порядок в ней важен.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Есть 2 функции:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ f(x) = x^2, \quad g(x) = \sin(x) $$">$$ f(x) = x^2, \quad g(x) = \sin(x) $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Композиция — это применение функций по очереди: $(g \circ f)(x) = g(f(x))$, сначала $f$, потом $g$.</p>
+<ul>
+<li>Запиши формулу $(g \circ f)(x)$.</li>
+<li>Вычисли $(g \circ f)\left(\sqrt{\pi / 2}\right)$.</li>
+<li>Вычисли $(f \circ g)\left(\frac{\pi}{6}\right)$ — здесь порядок обратный.</li>
+<li>Чётная ли функция $g \circ f$?</li>
+<li>По желанию построй график $(g \circ f)(x)$ на $[-5, 5]$.</li>
+</ul>
+<p>Построить график можно без программирования — в <a href="https://www.desmos.com/calculator?lang=ru" target="_blank" rel="noopener">Desmos</a>: просто впиши формулу.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#composition" target="_blank" rel="noopener">Композиция</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-composition:end -->
+        <!-- md:replace:calc-derivative:start -->
+<li class="question" data-md-source="true" data-md-id="calc-derivative" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;a&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Коэффициент $a$&quot;},{&quot;id&quot;:&quot;b&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Коэффициент $b$&quot;},{&quot;id&quot;:&quot;c&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Коэффициент $c$&quot;},{&quot;id&quot;:&quot;at2&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$f'(2)$&quot;}]}">
+  <div class="name" id="calc-derivative">
+    Производная и график
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти производную и вычислить её значение в точке.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть $f(x) = x^3 - 3x^2 + 2x$.</p>
+<ul>
+<li>Найди $f'(x)$ и запиши её в виде $ax^2 + bx + c$.</li>
+<li>Вычисли значение производной при $x = 2$.</li>
+<li>По желанию построй графики $f(x)$ и $f'(x)$ и посмотри: где $f'(x) = 0$, у $f$ вершина.</li>
+</ul>
+<p>Построить график можно без программирования — в <a href="https://www.desmos.com/calculator?lang=ru" target="_blank" rel="noopener">Desmos</a>: просто впиши формулу.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#derivatives_of_functions_of_one_variable" target="_blank" rel="noopener">Производные функций одной переменной</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-derivative:end -->
+        <!-- md:replace:calc-partial:start -->
+<li class="question" data-md-source="true" data-md-id="calc-partial" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;dx&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;$\\dfrac{\\partial f}{\\partial x} =$&quot;,&quot;options&quot;:[&quot;$2xy + e^x$&quot;,&quot;$x^2 + e^x$&quot;,&quot;$2xy$&quot;,&quot;$2x + e^x + 3y^2$&quot;]},{&quot;id&quot;:&quot;dx12&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\dfrac{\\partial f}{\\partial x}(1, 2)$&quot;},{&quot;id&quot;:&quot;dy12&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\dfrac{\\partial f}{\\partial y}(1, 2)$&quot;}]}">
+  <div class="name" id="calc-partial">
+    Частные производные
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти частные производные функции двух переменных.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть $f(x, y) = x^2 y + e^{x} + y^3$.</p>
+<ul>
+<li>Найди $\dfrac{\partial f}{\partial x}$.</li>
+<li>Найди $\dfrac{\partial f}{\partial y}$.</li>
+<li>Вычисли обе производные в точке $(1, 2)$.</li>
+</ul>
+<p>Подсказка: $(e^{cx})'=ce^{cx}$, где $c$ — константа. Ответ с $e$ можно вводить как есть, например <code>2 + e</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#derivatives_of_functions_of_several_variables" target="_blank" rel="noopener">Частные производные</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-partial:end -->
+        <!-- md:replace:calc-extrema:start -->
+<li class="question" data-md-source="true" data-md-id="calc-extrema" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;points&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;Точки экстремума $x_1, x_2$&quot;,&quot;size&quot;:2,&quot;unordered&quot;:true},{&quot;id&quot;:&quot;xmax&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Точка максимума $x_{\\max}$&quot;},{&quot;id&quot;:&quot;fmin&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Значение в точке минимума $f(x_{\\min})$&quot;}]}">
+  <div class="name" id="calc-extrema">
+    Экстремумы функции
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти производную, точки экстремума и их тип.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Рассмотрим функцию $f(x) = x^3 - 6x^2 + 9x + 1$.</p>
+<ul>
+<li>Найди первую производную $f'(x)$.</li>
+<li>Найди точки экстремума, приравняв первую производную к нулю: $f'(x) = 0$.</li>
+<li>Определи, какая из точек — максимум, а какая — минимум, и найди значение функции в точке минимума.</li>
+<li>По желанию построй график и отметь найденные точки.</li>
+</ul>
+<p>Построить график можно без программирования — в <a href="https://www.desmos.com/calculator?lang=ru" target="_blank" rel="noopener">Desmos</a>: просто впиши формулу.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#extremum_of_function" target="_blank" rel="noopener">Экстремумы</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-extrema:end -->
+        <!-- md:replace:calc-gradient:start -->
+<li class="question" data-md-source="true" data-md-id="calc-gradient" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;formula&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;$\\nabla f(x, y, z) =$&quot;,&quot;options&quot;:[&quot;$(2x, 2y, 2z)$&quot;,&quot;$(x^2, y^2, z^2)$&quot;,&quot;$2x + 2y + 2z$&quot;,&quot;$(x, y, z)$&quot;]},{&quot;id&quot;:&quot;at&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;$\\nabla f(0, 1, 2)$&quot;,&quot;size&quot;:3}]}">
+  <div class="name" id="calc-gradient">
+    Градиент
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти градиент функции и вычислить его в точке.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Рассмотрим функцию $f(x,y,z) = x^2 + y^2 + z^2$.</p>
+<ul>
+<li>Найди градиент $\nabla f(x,y,z)$.</li>
+<li>Посчитай значение градиента в точке $(0, 1, 2)$.</li>
+</ul>
+<p>Подсказка: $(x^n)'=nx^{n-1}$.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#gradient" target="_blank" rel="noopener">Градиент</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-gradient:end -->
+        <!-- md:replace:calc-metric:start -->
+<li class="question" data-md-source="true" data-md-id="calc-metric" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;euclid&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\rho_2(x, y)$&quot;},{&quot;id&quot;:&quot;manhattan&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\rho_1(x, y)$&quot;}]}">
+  <div class="name" id="calc-metric">
+    Метрики: Евклидово и Манхэттенское расстояние
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Вычислить евклидово и манхэттенское расстояние между векторами.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть даны два вектора:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ x = \begin{bmatrix} 1 \\ 2 \\ 3 \\ \end{bmatrix}, \quad y = \begin{bmatrix} 4 \\ 0 \\ -1 \end{bmatrix} $$">$$ x = \begin{bmatrix} 1 \\ 2 \\ 3 \\ \end{bmatrix}, \quad y = \begin{bmatrix} 4 \\ 0 \\ -1 \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Вычисли <b>Евклидово</b> расстояние между $x$ и $y$.</li>
+<li>Вычисли <b>Манхэттенское</b> расстояние между $x$ и $y$.</li>
+</ul>
+<p>Корень можно не извлекать: ответ вида <code>√2</code> тоже принимается.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#metric" target="_blank" rel="noopener">Метрика (расстояние)</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-metric:end -->
+        <!-- md:replace:calc-norm:start -->
+<li class="question" data-md-source="true" data-md-id="calc-norm" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;l1&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\|v\\|_1$&quot;},{&quot;id&quot;:&quot;l2&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\|v\\|_2$&quot;},{&quot;id&quot;:&quot;linf&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\|v\\|_\\infty$&quot;}]}">
+  <div class="name" id="calc-norm">
+    Норма вектора
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Вычислить $L_1$-, $L_2$- и $L_\infty$-нормы вектора.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть</p>
+<p><span class="latex-copy-wrap" data-latex="$$ v = \begin{bmatrix} -3 \\ 4 \\ 1 \end{bmatrix} $$">$$ v = \begin{bmatrix} -3 \\ 4 \\ 1 \end{bmatrix} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Найди $L_1$-норму: $\|v\|_1$.</li>
+<li>Найди $L_2$-норму: $\|v\|_2$.</li>
+<li>Найди $L_\infty$-норму: $\|v\|_\infty = \max_i |v_i|$ — предел $L_p$-нормы при $p \to \infty$.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/calculus.html#norm" target="_blank" rel="noopener">Норма</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:calc-norm:end -->
+
+        <h3 data-md-source="true">Вероятность</h3>
+        <!-- md:replace:prob-expectation-variance:start -->
+<li class="question" data-md-source="true" data-md-id="prob-expectation-variance" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;mean&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\mathbb{E}\\xi$&quot;},{&quot;id&quot;:&quot;var&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\mathbb{D}\\xi$&quot;}]}">
+  <div class="name" id="prob-expectation-variance">
+    Математическое ожидание и дисперсия
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти математическое ожидание и дисперсию дискретной случайной величины.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Пусть случайная величина $\xi$ принимает значения $0$, $1$, $2$ с вероятностями $P(\xi=0)=0.2$, $P(\xi=1)=0.5$, $P(\xi=2)=0.3$, то есть</p>
+<p><span class="latex-copy-wrap" data-latex="$$ \begin{array}{c|c} \text{Значение } \xi &amp; \text{Вероятность } P_i\\ \hline 0 &amp; 0.2 \\ 1 &amp; 0.5 \\ 2 &amp; 0.3 \\ \end{array} $$">$$ \begin{array}{c|c} \text{Значение } \xi &amp; \text{Вероятность } P_i\\ \hline 0 &amp; 0.2 \\ 1 &amp; 0.5 \\ 2 &amp; 0.3 \\ \end{array} $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Найди математическое ожидание $\mathbb{E}\xi$.</li>
+<li>Найди дисперсию $\mathbb{D}\xi$.</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/probability.html#mathematical_expectation" target="_blank" rel="noopener">Математическое ожидание</a>, <a href="../math/probability.html#variance" target="_blank" rel="noopener">Дисперсия</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:prob-expectation-variance:end -->
+        <!-- md:replace:prob-sample-stats:start -->
+<li class="question" data-md-source="true" data-md-id="prob-sample-stats" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;mean&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\bar{x}$&quot;},{&quot;id&quot;:&quot;var&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$s^2$&quot;},{&quot;id&quot;:&quot;var_corrected&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$s_{\\text{испр}}^2$&quot;},{&quot;id&quot;:&quot;std&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$s$&quot;}]}">
+  <div class="name" id="prob-sample-stats">
+    Выборочное среднее, дисперсия и СКО
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Научиться считать выборочное среднее $\bar{x}$, выборочную дисперсию $s^2$ (обычную и исправленную) и среднеквадратическое отклонение по выборке.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Дана выборка из 8 наблюдений:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ 2,\ 4,\ 4,\ 4,\ 5,\ 5,\ 7,\ 9 $$">$$ 2,\ 4,\ 4,\ 4,\ 5,\ 5,\ 7,\ 9 $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Вычисли выборочное среднее $\bar{x}$.</li>
+<li>Вычисли выборочную дисперсию $s^2 = \frac{1}{n}\sum (x_i - \bar{x})^2$.</li>
+<li>Вычисли исправленную дисперсию $s_{\text{испр}}^2 = \frac{1}{n - 1}\sum (x_i - \bar{x})^2$.</li>
+<li>Вычисли СКО $s = \sqrt{s^2}$.</li>
+</ul>
+<p>Исправленную дисперсию можно ввести дробью, например <code>32/7</code>.</p>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/probability.html#mean" target="_blank" rel="noopener">Выборочное среднее</a>, <a href="../math/probability.html#sample_variance" target="_blank" rel="noopener">Выборочная дисперсия</a>, <a href="../math/probability.html#standard_deviation" target="_blank" rel="noopener">СКО</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:prob-sample-stats:end -->
+        <!-- md:replace:prob-mode-median:start -->
+<li class="question" data-md-source="true" data-md-id="prob-mode-median" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;mode&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Мода&quot;},{&quot;id&quot;:&quot;median&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Медиана&quot;},{&quot;id&quot;:&quot;median_outlier&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;Медиана после добавления $100$&quot;},{&quot;id&quot;:&quot;robust&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Сильнее сдвинется&quot;,&quot;options&quot;:[&quot;Среднее&quot;,&quot;Медиана&quot;]}]}">
+  <div class="name" id="prob-mode-median">
+    Мода и медиана
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Найти моду (наиболее частое значение) и медиану (середина упорядоченной выборки) по данным и увидеть, как они реагируют на выброс.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Дана выборка из 10 наблюдений:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ 3,\ 7,\ 7,\ 2,\ 9,\ 7,\ 3,\ 5,\ 3,\ 7 $$">$$ 3,\ 7,\ 7,\ 2,\ 9,\ 7,\ 3,\ 5,\ 3,\ 7 $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<ul>
+<li>Найди моду.</li>
+<li>Найди медиану: упорядочь выборку; при чётном числе наблюдений медиана — среднее двух центральных.</li>
+<li>К выборке добавили выброс $100$. Найди новую медиану.</li>
+<li>Что сильнее сдвинется от выброса — среднее или медиана?</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/probability.html#mode" target="_blank" rel="noopener">Мода</a>, <a href="../math/probability.html#median" target="_blank" rel="noopener">Медиана</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:prob-mode-median:end -->
+        <!-- md:replace:prob-quantiles:start -->
+<li class="question" data-md-source="true" data-md-id="prob-quantiles" data-answers="{&quot;page&quot;:&quot;practise/math.html&quot;,&quot;fields&quot;:[{&quot;id&quot;:&quot;quartiles&quot;,&quot;type&quot;:&quot;vector&quot;,&quot;label&quot;:&quot;$Q_1, Q_2, Q_3$&quot;,&quot;size&quot;:3},{&quot;id&quot;:&quot;p90&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;90-й перцентиль&quot;},{&quot;id&quot;:&quot;iqr&quot;,&quot;type&quot;:&quot;number&quot;,&quot;label&quot;:&quot;$\\operatorname{IQR}$&quot;},{&quot;id&quot;:&quot;outliers&quot;,&quot;type&quot;:&quot;choice&quot;,&quot;label&quot;:&quot;Выбросы по правилу $1.5\\,\\operatorname{IQR}$&quot;,&quot;options&quot;:[&quot;Есть: $20$&quot;,&quot;Есть: $1$&quot;,&quot;Нет&quot;]}]}">
+  <div class="name" id="prob-quantiles">
+    Квантили, квартили, перцентили
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+<p>Понять квантили, квартили ($Q_1, Q_2, Q_3$) и перцентили; вычислить их по выборке и найти выбросы по правилу box-plot.</p>
+
+</div>
+<div class="info-card-auto" data-type="exercise" data-title="Задание">
+<p>Дана выборка из 11 наблюдений:</p>
+<p><span class="latex-copy-wrap" data-latex="$$ 12,\ 3,\ 20,\ 7,\ 1,\ 15,\ 8,\ 4,\ 13,\ 6,\ 10 $$">$$ 12,\ 3,\ 20,\ 7,\ 1,\ 15,\ 8,\ 4,\ 13,\ 6,\ 10 $$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
+<p>Способов считать квантиль несколько, здесь используем тот, что в <code>numpy</code> по умолчанию: упорядочь выборку, квантиль уровня $q$ стоит на позиции $1 + (n - 1)q$. Если позиция дробная, возьми значение между соседями пропорционально дробной части: позиция $3.5$ — ровно посередине между 3-м и 4-м элементами.</p>
+<ul>
+<li>Найди квартили $Q_1$, $Q_2$, $Q_3$ (уровни $0.25$, $0.5$, $0.75$).</li>
+<li>Найди 90-й перцентиль.</li>
+<li>Посчитай межквартильный размах $\operatorname{IQR} = Q_3 - Q_1$.</li>
+<li>Есть ли в выборке выбросы по правилу box-plot: значения за пределами $[Q_1 - 1.5\,\operatorname{IQR},\ Q_3 + 1.5\,\operatorname{IQR}]$?</li>
+</ul>
+
+</div>
+<div class="info-card-auto" data-type="remark" data-title="Совет">
+<p>Теория: <a href="../math/probability.html#quantiles" target="_blank" rel="noopener">Квантили</a>, <a href="../math/probability.html#quartiles" target="_blank" rel="noopener">Квартили</a>, <a href="../math/probability.html#percentiles" target="_blank" rel="noopener">Перцентили</a></p>
+
+</div>
+  </div>
+</li>
+<!-- md:replace:prob-quantiles:end -->
+      </ol>
+    </main>
+
+    <script src="../authGuard.js"></script>
+    <button id="scrollToTopBtn" aria-label="Наверх">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    </button>
+    <script src="../assets/js/init-page.js"></script>
+  
+
+</body></html>

@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Продуктовые исследования и Causal Inference</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Продуктовые исследования</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Product Research</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">7 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Продуктовые исследования и Causal Inference</h1>
+        <p class="section-shell__desc">Методология продуктовых исследований: приоритизация гипотез (RICE/ICE), разбор падения метрик, сегментация и оценка каузального эффекта без A/B тестирования.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="research_framing" data-interview="4">
+  <div class="name" id="research_framing">
+    Фрейминг и дизайн исследований
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Фрейминг продуктового исследования (Problem Framing & Research Design)</b> — это методологический процесс формулирования исследовательской проблемы, постановки бизнес-целей, декомпозиции гипотез и выбора оптимального аналитического инструментария (количественного или качественного), исключающий поиск решений несуществующих проблем.</p>
+<p>Если совсем простыми словами: <b>это умение правильно поставить диагноз до того, как выписывать лекарства</b>. Если стейкхолдер приходит с запросом «Сделайте отчет по оттоку», аналитик выясняет, какое конкретно управленческое решение будет принято на основе этих цифр, а не бросается выгружать терабайты логов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Фреймворк постановки исследовательской задачи (Discovery Framework):</p>
+<ol>
+<li><b>Бизнес-контекст и дилемма (Business Problem):</b> Какое решение стоит перед бизнесом? (Например: раскатывать ли новый тариф, увольнять ли неэффективных курьеров, закрывать ли направление?).</li>
+<li><b>Исследовательский вопрос (Core Research Question):</b> Четкий фальсифицируемый вопрос (по Попперу): <i>«Является ли увеличение стоимости доставки главным фактором падения повторных заказов в регионах?»</i></li>
+<li><b>Пространство гипотез:</b> Формулирование взаимоисключающих проверяемых утверждений.</li>
+<li><b>Ограничения и источники данных:</b> Доступность исторических логов, репрезентативность выборки, бюджет и сроки.</li>
+<li><b>Критерии успеха исследования (Success Criteria):</b> Заранее зафиксированные пороги уверенности, при которых гипотеза считается подтвержденной или отвергнутой.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-экосистемы:</b>
+Продакт пришел к аналитику с запросом: <i>«Посчитай средний возраст людей, которые не пользуются разделом «Инвестиции»</i>.
+Аналитик провел фрейминг проблемы: оказалось, продакт считал, что инвестиции непопулярны у молодежи, и хотел заказывать дорогой молодежный маркетинг.
+Аналитик переформулировал исследование: исследовал не демографию, а барьеры первого входа через когортный анализ и опрос.
+Выяснилось: молодежь охотно кликает на раздел, но 85% отваливаются на шаге <i>«Пополните счет на сумму от 10 000 рублей»</i> из-за отсутствия свободных денег.
+Решение: снизили минимальный порог первой сделки до 100 рублей. Число новых инвесторов выросло в 6 раз без трат на молодежную рекламу.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Фреймворк спецификации продуктового исследования (Research Brief Template)
+research_spec = {
+    "project_name": "Investigation of Checkout Drop in Mobile App v14.2",
+    "business_decision": "Откатывать ли новый одностраничный чекаут или дорабатывать валидацию полей",
+    "primary_question": "Вызвано ли падение конверсии на 1.5% техническими ошибками ввода или изменением доверия?",
+    "hypotheses": [
+        {"id": "H1", "statement": "Пользователи сталкиваются с багом автозаполнения адреса на Android", "method": "Product Logging / Error Logs"},
+        {"id": "H2", "statement": "Удаление бейджа «Безопасная оплата» снизило доверие новых клиентов", "method": "CustDev / Micro-surveys"}
+    ],
+    "deliverables": "SQL-скрипт с воронкой ошибок, сегментный срез по версиям ОС, список рекомендаций для бэклога",
+    "deadline_days": 3
+}
+print(f"Исследовательский бриф утвержден: {research_spec['project_name']}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Начало анализа без формулирования бизнес-решения.</b> Создание десятков дашбордов, которые в итоге пылятся в архиве, потому что никто не знает, что с ними делать.</li>
+        <li><b>Подтверждающее смещение (Confirmation Bias).</b> Поиск в данных только тех цифр, которые подтверждают любимую гипотезу руководства.</li>
+        <li><b>Подмена каузальности корреляцией.</b> Вывод о том, что функционал успешен, только потому, что платящие пользователи кликают на него чаще.</li>
+        <li><b>Игнорирование ограничений данных.</b> Попытка анализировать поведение новых пользователей по логам, в которых не настроена склейка профилей.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«К вам приходит директор с вопросом: «Почему у нас упали продажи?» С чего вы начнете?»</i> Ответ: <i>«С фрейминга проблемы и локализации: 1) Уточню масштаб, географию, период и источники данных; 2) Разложу продажи по дереву метрик: трафик $\times$ конверсия $\times$ чек; 3) Проверю внешние факторы (сезонность, праздники, конкуренты) и технические факторы (ошибки оплат, сбои релизов); 4) Сформулирую гипотезы по веткам дерева метрик и проверю их методом исключения».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое фрейминг исследования?</b></p><p>Процесс четкой структуризации бизнес-проблемы в проверяемые гипотезы с фиксацией принимаемых решений.</p></li>
+        <li><p><b>Почему любой исследовательский бриф должен начинаться с вопроса об управленческом решении?</b></p><p>Чтобы исключить бесполезный сбор данных ради процесса («data for data's sake»).</p></li>
+        <li><p><b>Что такое фальсифицируемость гипотезы по Попперу?</b></p><p>Возможность опровергнуть гипотезу конкретным наблюдаемым экспериментальным фактом.</p></li>
+        <li><p><b>В чем опасность Confirmation Bias для аналитика?</b></p><p>Стремление бессознательно подбирать метрики под заранее желаемый ответ стейкхолдера.</p></li>
+        <li><p><b>Как формулируется критерий успешности исследования (Success Criteria)?</b></p><p>Через конкретные количественные или качественные пороги доказанности гипотезы.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="hypothesis_prioritization" data-interview="5">
+  <div class="name" id="hypothesis_prioritization">
+    Приоритизация продуктовых гипотез (RICE, ICE)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Фреймворки приоритизации гипотез (RICE, ICE)</b> — это формализованные математические скоринговые модели ранжирования продуктовых гипотез и фичей в бэклоге по соотношению ожидаемой бизнес-отдачи к необходимым затратам ресурсов команды разработки.</p>
+<p>Если совсем простыми словами: <b>это фильтр, который спасает команду от распыления на ерунду</b>. В бэклоге всегда 100 идей, а ресурсов хватает на 5. Фреймворк RICE математически вычисляет, какие 5 фичей принесут максимум денег на каждый потраченный день программиста.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика и параметры скоринга RICE (Intercom framework):</p>
+<p>Формула RICE-скора:</p>
+<p>$$\mathrm{RICE\ Score} = \frac{\mathrm{Reach} \times \mathrm{Impact} \times \mathrm{Confidence}}{\mathrm{Effort}}$$</p>
+<ol>
+<li><b>Reach (Охват):</b> Количество пользователей или событий, на которые повлияет изменение за период (например, месяц). Измеряется в абсолютных числах (100 000 пользователей).</li>
+<li><b>Impact (Влияние):</b> Сила воздействия на целевую метрику у охваченного пользователя. Шкала: $3$ (массивное), $2$ (высокое), $1$ (среднее), $0.5$ (низкое), $0.25$ (минимальное).</li>
+<li><b>Confidence (Уверенность в оценке):</b> Степень доказанности гипотезы до разработки:
+    <ul>
+    <li><i>$100\%$ ($1.0$):</i> Есть количественные данные из прошлых тестов или точные исследования.</li>
+    <li><i>$80\%$ ($0.8$):</i> Есть качественные данные CustDev и косвенная аналитика.</li>
+    <li><i>$50\%$ ($0.5$):</i> Только интуиция продакт-менеджера. Любая идея без данных штрафуется вдвое!</li>
+    </ul>
+</li>
+<li><b>Effort (Трудозатраты):</b> Человеко-месяцы или спринты всей команды (дизайн + фронтенд + бэкенд + QA).</li>
+</ol>
+<p><b>Упрощенный скоринг ICE:</b> $\mathrm{ICE} = \mathrm{Impact} \times \mathrm{Confidence} \times \mathrm{Ease}$ (по 10-балльной шкале).</p>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс приоритизации бэклога e-commerce:</b>
+Команда выбирает между двумя фичами:
+<i>Фича 1 («Чат-бот на главной»):</i> Reach = 500k, Impact = 1 (средний), Confidence = 50% (нет данных), Effort = 4 месяца.
+$\mathrm{RICE}_1 = \frac{500\,000 \times 1 \times 0.5}{4} = 62\,500$.
+<i>Фича 2 («Оплата через СБП в чекауте»):</i> Reach = 150k, Impact = 2 (высокий), Confidence = 100% (успешный бенчмарк рынка), Effort = 1 месяц.
+$\mathrm{RICE}_2 = \frac{150\,000 \times 2 \times 1.0}{1} = 300\,000$.
+Скор второй фичи в 4.8 раза выше! Команда берет СБП и окупает спринт за первую неделю.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+
+# Скоринг бэклога продуктовых гипотез по фреймворку RICE
+backlog = [
+    {"name": "Быстрая оплата СБП", "reach": 150000, "impact": 2.0, "confidence": 1.0, "effort": 1.0},
+    {"name": "Чат-бот с LLM",      "reach": 500000, "impact": 1.0, "confidence": 0.5, "effort": 4.0},
+    {"name": "Попап со скидкой",    "reach": 80000,  "impact": 0.5, "confidence": 0.8, "effort": 0.5},
+    {"name": "Редизайн корзины",    "reach": 250000, "impact": 3.0, "confidence": 0.8, "effort": 3.0}
+]
+
+df = pd.DataFrame(backlog)
+df["rice_score"] = (df["reach"] * df["impact"] * df["confidence"]) / df["effort"]
+df = df.sort_values(by="rice_score", ascending=False).reset_index(drop=True)
+
+print("ИТОГОВЫЙ РАНЖИРОВАННЫЙ БЭКЛОГ (RICE):")
+print(df[["name", "reach", "impact", "confidence", "effort", "rice_score"]])</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Манипуляция параметром Confidence.</b> Продакты склонны ставить Confidence = 100% своим любимым идеям без каких-либо реальных данных.</li>
+        <li><b>Сравнение несравнимых Effort.</b> Оценка трудозатрат только по фронтенду, забывая про нагрузочное тестирование и бэкенд.</li>
+        <li><b>Игнорирование стратегических зависимостей.</b> Фича с меньшим RICE может быть обязательным инфраструктурным фундаментом для других задач.</li>
+        <li><b>Забывание про каннибализацию.</b> Высокий охват не гарантирует чистый прирост, если фича перетягивает трафик из других разделов.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем главная сила параметра Confidence в формуле RICE?»</i> Ответ: <i>«Параметр Confidence математически наказывает гипотезы, основанные на голословных фантазиях («галлюцинациях продакта»). Если у вас нет данных, Confidence = 50%, что срезает итоговый скор вдвое. Это стимулирует команды проводить дешевые предварительные исследования (CustDev, анализ логов, смоук-тесты) перед тем, как тратить дорогие месяцы разработки».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что означает каждая буква в аббревиатуре RICE?</b></p><p>Reach (Охват), Impact (Влияние), Confidence (Уверенность), Effort (Трудозатраты).</p></li>
+        <li><p><b>Как измеряется параметр Reach в RICE?</b></p><p>Количеством уникальных пользователей или событий за фиксированный временной период (обычно месяц или квартал).</p></li>
+        <li><p><b>Какая шкала значений используется для параметра Impact?</b></p><p>3 (массивное), 2 (высокое), 1 (среднее), 0.5 (низкое), 0.25 (минимальное).</p></li>
+        <li><p><b>Почему гипотеза с огромным охватом может проиграть в RICE?</b></p><p>Из-за высокого Effort (сложности разработки) и низкой доказанности (Confidence).</p></li>
+        <li><p><b>В чем отличие фреймворка ICE от RICE?</b></p><p>ICE опускает объективный расчет Reach и оценивает идеи субъективнее по 10-балльной шкале (Impact, Confidence, Ease).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="user_segmentation_clustering" data-interview="5">
+  <div class="name" id="user_segmentation_clustering">
+    Сегментация пользователей и кластеризация
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Сегментация пользователей</b> — это аналитический процесс разделения неоднородной пользовательской базы на стабильные внутренне однородные группы (сегменты) по поведенческим, демографическим, транзакционным или ценностным характеристикам для персонализации продукта, таргетированного маркетинга и оценки LTV.</p>
+<p>Если совсем простыми словами: <b>«среднего пользователя» не существует</b>. Если у вас 50% студентов и 50% миллионеров, средний чек в 50 000 рублей не описывает никого. Сегментация позволяет увидеть реальные группы и дать каждой то, что нужно именно ей.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Методологии сегментации в продуктовой аналитике:</p>
+<ol>
+<li><b>Транзакционная RFM-сегментация (Recency, Frequency, Monetary):</b>
+    <ul>
+    <li><i>Recency ($R$):</i> Свежесть последней покупки (дни назад).</li>
+    <li><i>Frequency ($F$):</i> Частота покупок за период.</li>
+    <li><i>Monetary ($M$):</i> Совокупная сумма трат.</li>
+    <li>Клиенты разбиваются на квантили (1-5), формируя сегменты: Champions, Loyal, At Risk, Lost, New.</li>
+    </ul>
+</li>
+<li><b>Поведенческая кластеризация без учителя (Unsupervised ML):</b>
+    <ul>
+    <li><i>K-Means / MiniBatchKMeans:</i> Быстрая кластеризация по вектору фичей активности (число сессий, глубина просмотра, любимые категории). Оптимальное число кластеров выбирается по методу локтя (Elbow Method) и силуэту (Silhouette Score).</li>
+    <li><i>DBSCAN / HDBSCAN:</i> Плотная кластеризация для поиска атипичных пользователей и фрода.</li>
+    </ul>
+</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс финтех-банка (Tinkoff Black):</b>
+RFM-анализ транзакционной активности выявил скрытый сегмент <i>«Спящие состоятельные клиенты» (High M, Low R)</i>: клиенты держали миллионные остатки на вкладах, но перестали пользоваться дебетовой картой для ежедневных покупок.
+Аналитики разработали таргетированную механику: персональный повышенный кэшбэк 7% на супермаркеты на 2 месяца.
+42% сегмента вернулись к активному использованию карты, обеспечив банку дополнительный транзакционный оборот в 1.8 млрд рублей.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+# Пример поведенческой кластеризации пользователей
+np.random.seed(42)
+n_users = 1000
+
+features = pd.DataFrame({
+    "sessions_per_month": np.random.poisson(lam=12, size=n_users),
+    "avg_order_rub": np.random.exponential(scale=2500, size=n_users),
+    "support_tickets": np.random.poisson(lam=0.5, size=n_users)
+})
+
+# Масштабирование признаков (критично для K-Means!)
+scaler = StandardScaler()
+scaled_features = scaler.fit_transform(features)
+
+kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(scaled_features)
+features["cluster"] = kmeans.labels_
+
+print("Профиль кластеров (средние значения признаков):")
+print(features.groupby("cluster").mean().round(1))</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Кластеризация K-Means без масштабирования данных.</b> Если один признак измеряется в рублях (10 000), а другой в сессиях (5), евклидово расстояние будет определяться исключительно рублевым признаком.</li>
+        <li><b>Построение сегментов, которые невозможно активировать в продукте.</b> Выделение сегмента, под который маркетинг или продукт не могут создать отдельную механику, бессмысленно.</li>
+        <li><b>Слишком дробная сегментация (50 микро-групп).</b> Приводит к операционному параличу поддержки и падению статистической мощности тестов.</li>
+        <li><b>Статичность сегментов.</b> Пользователь динамически перемещается между сегментами (из «Новичка» в «Чемпиона», затем в «Отток»). Сегменты должны пересчитываться автоматически в DWH.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как определить оптимальное число кластеров в K-Means для продуктовой сегментации?»</i> Ответ: <i>«Математически — по метрике Silhouette Score и методу локтя (Inertia Elbow method). Но в продуктовой аналитике решающим фактором является бизнес-интерпретируемость: число кластеров должно соответствовать количеству реальных сценариев персонализации, которые команда маркетинга и продукта способна обслуживать (обычно от 3 до 5 устойчивых сегментов)».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое сегментация пользователей?</b></p><p>Разделение аудитории на однородные группы по схожести поведения, потребностей или монетизационных характеристик.</p></li>
+        <li><p><b>Что означают буквы R, F, M в анализе клиентов?</b></p><p>Recency (давность последней покупки), Frequency (частота покупок), Monetary (совокупная сумма трат).</p></li>
+        <li><p><b>Почему масштабирование признаков (StandardScaler) обязательно перед K-Means?</b></p><p>Потому что алгоритм опирается на евклидовы расстояния, и признаки с большим масштабом подавят остальные.</p></li>
+        <li><p><b>Как метод силуэта (Silhouette Score) помогает оценить качество кластеризации?</b></p><p>Он измеряет, насколько объект близок к своему кластеру по сравнению с соседними кластерами (от -1 до +1).</p></li>
+        <li><p><b>В чем отличие поведенческой сегментации от демографической?</b></p><p>Поведенческая базируется на фактических действиях пользователей в продукте, что в разы точнее предсказывает конверсию, чем возраст или пол.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="qual_vs_quant" data-interview="4">
+  <div class="name" id="qual_vs_quant">
+    Качественные vs Количественные исследования
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Количественные исследования (Quantitative / Quant)</b> отвечают на вопросы <i>«ЧТО? ГДЕ? СКОЛЬКО?»</i> с опорой на математическую статистику и большие массивы данных. <b>Качественные исследования (Qualitative / Qual)</b> отвечают на вопросы <i>«ПОЧЕМУ? КАК?»</i> с опорой на психологию, глубинную мотивацию и ментальные модели пользователей.</p>
+<p>Если совсем простыми словами: <b>количественные данные показывают, что в ванной течет вода, а качественные исследования показывают, где именно прорвало трубу</b>. Одно без другого делает продуктовое развитие слепым.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Сравнительный анализ и синергия методов:</p>
+<table class="task-table">
+<thead><tr><th>Параметр</th><th>Количественные (Quant)</th><th>Качественные (Qual)</th></tr></thead>
+<tbody>
+<tr><td><b>Ключевой вопрос</b></td><td>Что произошло? Какой размер эффекта?</td><td>Почему это произошло? В чем барьер?</td></tr>
+<tr><td><b>Инструменты</b></td><td>SQL, A/B тесты, логи, дашборды, воронки</td><td>Глубинные интервью (CustDev), юзабилити-тесты, дневниковые исследования</td></tr>
+<tr><td><b>Размер выборки</b></td><td>Тысячи и миллионы пользователей ($N > 10\,000$)</td><td>Отдельные пользователи ($N = 8 - 15$)</td></tr>
+<tr><td><b>Статзначимость</b></td><td>Высокая (p-value, доверительные интервалы)</td><td>Отсутствует (глубокие инсайты и гипотезы)</td></tr>
+<tr><td><b>Риск ошибки</b></td><td>Корреляция без понимания причины</td><td>Обобщение частного мнения одного говорливого респондента</td></tr>
+</tbody>
+</table>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс редизайна корзины:</b>
+<i>Quant:</i> Аналитик видит по воронке, что $35\%$ пользователей заходят в корзину и моментально уходят без попытки нажать «Оформить». Логи не объясняют причину.
+<i>Qual:</i> Исследователь проводит 10 юзабилити-тестов с записью экрана и голоса.
+Инсайт: пользователи используют корзину не для покупки, а как «список желаемого (Wishlist)», чтобы отслеживать падение цен. При этом они боятся нажимать кнопку, думая, что деньги спишутся моментально.
+Решение: добавили отдельную кнопку «В избранное» и прозрачный текст «Оплата на следующем шаге». Конверсия выросла на $+12\%$.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Матрица комбинирования Qual и Quant исследований в продуктовом цикле
+research_workflow = [
+    {"stage": "1. Discovery (Поиск проблемы)",    "primary_method": "Quant (Анализ логов и воронок)", "output": "Обнаружена точка аномального оттока"},
+    {"stage": "2. Empathy (Понимание причин)",    "primary_method": "Qual (CustDev интервью)",        "output": "Сформулирована ментальная модель и барьер"},
+    {"stage": "3. Ideation (Разработка фичи)",    "primary_method": "Qual (Юзабилити-тесты прототипа)","output": "Устранены эргономические дефекты UI"},
+    {"stage": "4. Validation (Проверка эффекта)", "primary_method": "Quant (A/B тестирование)",      "output": "Доказан статзначимый рост метрик"}
+]
+
+print("НЕПРЕРЫВНЫЙ ЦИКЛ QUAL + QUANT:")
+for step in research_workflow:
+    print(f"{step['stage']:35s} | {step['primary_method']:32s} -> {step['output']}")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Принятие решений о масштабировании на основе 3 интервью.</b> Качественные исследования не дают статистической валидности. Мнение 5 человек — это гипотеза, а не доказательство.</li>
+        <li><b>Попытка узнать «почему» исключительно через SQL-логи.</b> Логи фиксируют только действия, но не мысли и контекст человека.</li>
+        <li><b>Опрос с закрытыми наводящими вопросами («Вам же нравится наш сервис?»).</b> Формирует иллюзию одобрения из-за вежливости респондентов.</li>
+        <li><b>Проведение A/B тестов вслепую без качественной проработки.</b> Стрельба из пушки по воробьям: 90% тестов окажутся нейтральными.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как связаны между собой CustDev и A/B тестирование?»</i> Ответ: <i>«CustDev (Qual) генерирует качественные гипотезы и объясняет мотивацию пользователей. A/B тест (Quant) берет эту гипотезу и строго проверяет ее на репрезентативной выборке. Начинать с A/B теста без понимания проблемы — дорого и неэффективно; внедрять фичу после пары интервью без A/B теста — огромный риск для выручки».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>На какие вопросы отвечают качественные исследования?</b></p><p>На вопросы «Почему?» и «Как именно?», раскрывая мотивацию, барьеры и контекст пользователя.</p></li>
+        <li><p><b>На какие вопросы отвечают количественные исследования?</b></p><p>На вопросы «Что происходит?», «Где?» и «Каков масштаб явления в цифрах?».</p></li>
+        <li><p><b>Сколько глубинных интервью обычно достаточно для выявления 80% типовых юзабилити-проблем?</b></p><p>8–12 респондентов однородного сегмента (правило Нильсена).</p></li>
+        <li><p><b>Почему качественные исследования не могут служить доказательством статистической значимости?</b></p><p>Из-за малого нерепрезентативного размера выборки и подверженности субъективным смещениям исследователя.</p></li>
+        <li><p><b>Как выглядит идеальный синергетический цикл продуктовых исследований?</b></p><p>Quant (поиск проблемы в логах) -> Qual (понимание причин в интервью) -> Qual (тест прототипа) -> Quant (A/B тест на проде).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="metric_drop_investigation" data-interview="5">
+  <div class="name" id="metric_drop_investigation">
+    Расследование падения метрик (Metric Drop)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Расследование инцидентов деградации метрик (Metric Drop Root Cause Analysis, RCA)</b> — это систематический протокол диагностического поиска первопричины резкого или постепенного падения ключевого продуктового показателя с помощью декомпозиции, когортного анализа и проверки инфраструктурных слоев.</p>
+<p>Если совсем простыми словами: <b>это работа продуктового детектива во время пожара</b>. В понедельник утром конверсия упала на 20%. Аналитик по строгому чек-листу за 30 минут выясняет, сломался ли платежный шлюз, заблокирован ли сайт провайдером или маркетинг сменил рекламные креативы.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Пошаговый протокол расследования падения (Troubleshooting Algorithm):</p>
+<ol>
+<li><b>Шаг 1: Проверка целостности данных (Sanity Check):</b>
+    <ul><li>Не сломался ли пайплайн сбора логов? Нет ли лага Kafka? Доехали ли данные?</li></ul>
+</li>
+<li><b>Шаг 2: Временная и географическая локализация:</b>
+    <ul><li>Падение произошло одномоментно (step change — признак релиза/аварии) или плавно накапливалось (trend change — сезонность, конкуренты)?</li></ul>
+</li>
+<li><b>Шаг 3: Декомпозиция по разрезам (Slicing & Dicing):</b>
+    <ul>
+    <li>По платформам (iOS, Android, Web).</li>
+    <li>По версиям приложения (новая версия v15.1 vs старая v15.0).</li>
+    <li>По источникам трафика (органика vs платные каналы).</li>
+    <li>По географии и платежным провайдерам.</li>
+    </ul>
+</li>
+<li><b>Шаг 4: Анализ воронки:</b> На каком конкретно шаге возник обрыв.</li>
+<li><b>Шаг 5: Проверка релизов и фиче-флагов:</b> Какие изменения выкатывались за последние 24 часа.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс внезапного обвала выручки на 18%:</b>
+Во вторник в 11:00 общая выручка интернет-магазина упала на $18\%$.
+Аналитик выполнил декомпозицию:
+1. Проверка источников: органика стабильна, реклама стабильна.
+2. Проверка платформ: Web и Android — без изменений. <b>На iOS конверсия упала на $65\%$!</b>
+3. Срез по версиям: на iOS 17.5 всё в порядке, падение строго на <b>iOS 18.0</b>.
+4. Анализ шага воронки: шаг ввода карты $\to$ экран подтверждения 3D-Secure.
+Первопричина: в новой iOS 18 обновился WebKit, заблокировавший устаревший протокол перенаправления банка-эквайера. Инцидент локализован за 20 минут, бэкенд переключен на резервный шлюз.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Автоматизированный алгоритм факторной декомпозиции падения метрики
+def investigate_drop(baseline_dict, current_dict):
+    print("=== ДИАГНОСТИКА ОТКЛОНЕНИЙ ПО СЕГМЕНТАМ ===")
+    for segment, base_val in baseline_dict.items():
+        curr_val = current_dict.get(segment, 0)
+        rel_change = (curr_val - base_val) / base_val
+        status = "ALERT (DROP > 15%)" if rel_change < -0.15 else "OK"
+        print(f"Сегмент: {segment:15s} | База: {base_val:6d} -> Факт: {curr_val:6d} ({rel_change:+6.1%}) | {status}")
+
+baseline_orders = {"iOS": 5000, "Android": 6000, "Web": 4000}
+current_orders  = {"iOS": 2100, "Android": 5950, "Web": 3980} # Явный обвал iOS!
+
+investigate_drop(baseline_orders, current_orders)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Паника и хаотичные изменения интерфейса без локализации причины.</b> Попытка судорожно переделывать кнопки на сайте, когда проблема лежит в сбое платежного шлюза.</li>
+        <li><b>Игнорирование фактора сезонности.</b> Объявление пожара 1 января из-за падения B2B-трафика по сравнению с рабочим вторником декабря.</li>
+        <li><b>Анализ агрегатов без сегментации.</b> Агрегированная метрика скрывает тот факт, что одна платформа упала на 100%, а другая выросла.</li>
+        <li><b>Забывание про кэш и задержки репликации DWH.</b> Изучение «падения» данных за вчера, когда ночной ETL-пайплайн еще не завершился.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Опишите ваш четкий алгоритм действий, если вам в 10:00 утра пишут: «Конверсия упала на 20%!»</i> Ответ: <i>«1) Проверяю целостность и свежесть логов (не сломался ли сбор данных); 2) Проверяю форму графика: резкий обрыв в конкретную минуту (релиз/инцидент) или плавный тренд; 3) Нарезаю данные по срезам: платформы, версии приложения, города, источники трафика, способы оплаты; 4) Локализую шаг воронки; 5) Сопоставляю время инцидента с логами деплоев и инцидентами внешних провайдеров».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>С чего всегда начинается расследование любого падения метрики?</b></p><p>С проверки качества и полноты данных: не сломался ли пайплайн сбора и доставки логов.</p></li>
+        <li><p><b>О чем свидетельствует резкий ступенеобразный обвал метрики в конкретный час?</b></p><p>О техническом инциденте, сбое стороннего сервиса (эквайринг, SMS) или неудачном релизе кода.</p></li>
+        <li><p><b>О чем свидетельствует плавное монотонное падение метрики в течение недель?</b></p><p>О фундаментальных рыночных сдвигах, активности конкурентов, выгорании маркетинговых каналов или естественной сезонности.</p></li>
+        <li><p><b>Какие 4 основных среза данных (разреза) анализируются в первую очередь?</b></p><p>Платформа (OS/Device), версия приложения, источник трафика (Channel), платежный метод / география.</p></li>
+        <li><p><b>Что такое факторный анализ отклонений в дереве метрик?</b></p><p>Математическое определение вклада каждого отдельного фактора нижнего уровня в общее падение глобальной метрики.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="causal_without_ab" data-interview="5">
+  <div class="name" id="causal_without_ab">
+    Каузальный анализ без A/B тестов (Causal Inference)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Каузальный анализ на квазиэкспериментальных данных (Observational Causal Inference)</b> — это семейство эконометрических и статистических методов оценки причинно-следственного эффекта воздействия в условиях, когда проведение классического рандомизированного A/B-теста невозможно по этическим, бизнес- или техническим причинам.</p>
+<p>Если совсем простыми словами: <b>это математическая магия, позволяющая измерить эффект фичи, даже если вы не запускали сплит-тест</b>. Мы используем сложные методы сопоставления «двойников» или сравнения регионов, чтобы устранить фактор случайности и получить чистый эффект.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Ключевые квазиэкспериментальные методы (Angrist & Pischke framework):</p>
+<ol>
+<li><b>Difference-in-Differences (Diff-in-Diff / DiD):</b> Метод разности разностей. Сравнивает изменение целевой метрики до и после воздействия в тестовой группе с изменением в контрольной группе.
+<p>$$\hat{\delta}_{\text{DiD}} = (\bar{Y}_{\text{treat, post}} - \bar{Y}_{\text{treat, pre}}) - (\bar{Y}_{\text{ctrl, post}} - \bar{Y}_{\text{ctrl, pre}})$$</p>
+<i>Главная предпосылка:</i> <b>Параллельные тренды (Parallel Trends Assumption)</b> — до воздействия обе группы должны были двигаться по одинаковой траектории во времени.</li>
+<li><b>Синтетический контроль (Synthetic Control Method):</b> Построение виртуального контрольного объекта из взвешенной линейной комбинации не затронутых регионов/городов.</li>
+<li><b>Propensity Score Matching (PSM):</b> Подбор для каждого пользователя из тритмента идеального «цифрового близнеца» из контроля с аналогичной вероятностью получения тритмента на основе логистической регрессии.</li>
+<li><b>Разрывной дизайн регрессии (Regression Discontinuity Design, RDD):</b> Оценка эффекта вокруг жесткого порогового правила (например, скидка дается строго тем, у кого баланс $\ge 10\,000$ руб. — сравниваются клиенты с балансом $9\,999$ и $10\,001$).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс федеральной ТВ-рекламы:</b>
+Финтех запустил рекламу нового накопительного счета по центральному ТВ.
+A/B тест невозможен (нельзя запретить жителям выключать телевизор).
+Аналитик применил <b>Synthetic Control</b>: отобрал 15 изолированных городов, где ТВ-вещание было отключено по техническим причинам, и сконструировал синтетический двойник Москвы и Санкт-Петербурга.
+Оценка показала истинный инкрементальный прирост открытий вкладов на $+14.2\%$ над фоном рынка, точно рассчитав окупаемость многомиллионной рекламной кампании.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import pandas as pd
+import statsmodels.formula.api as smf
+
+# Реализация метода Difference-in-Differences (DiD) через регрессию OLS
+# Формула: Y = b0 + b1*Treatment + b2*Post + b3*(Treatment * Post) + e
+# Коэффициент b3 является искомой оценкой DiD!
+np.random.seed(42)
+n = 10000
+
+is_treatment = np.random.choice([0, 1], size=n)
+is_post = np.random.choice([0, 1], size=n)
+
+# Базовый уровень, тренд времени (+15) и истинный каузальный эффект (+25)
+base = 100
+time_trend = 15 * is_post
+group_bias = 10 * is_treatment
+true_causal_effect = 25 * (is_treatment * is_post)
+noise = np.random.normal(0, 5, size=n)
+
+y = base + time_trend + group_bias + true_causal_effect + noise
+df = pd.DataFrame({"y": y, "treatment": is_treatment, "post": is_post})
+
+model = smf.ols("y ~ treatment * post", data=df).fit()
+print(f"Истинный эффект воздействия: +25.0")
+print(f"Оценка DiD (interaction term): {model.params['treatment:post']:+.2f} (p={model.pvalues['treatment:post']:.4e})")</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Нарушение предпосылки параллельных трендов в DiD.</b> Если контрольная и тестовая группы до эксперимента двигались по разным траекториям, оценка DiD полностью смещена.</li>
+        <li><b>Скрытые ненаблюдаемые конфаундеры при PSM (Omitted Variable Bias).</b> PSM балансирует только те признаки, которые мы измерили. Если у клиентов различается скрытая мотивация, сопоставление близнецов даст ложный вывод.</li>
+        <li><b>Интерполяция вместо RDD.</b> Применение разрывного дизайна далеко от порогового значения отсечения.</li>
+        <li><b>Сравнение пользователей, которые «сами выбрали пользоваться фичей» с остальными.</b> Классический Selection Bias: активные пользователи пользуются фичей чаще не из-за фичи, а потому что они изначально лояльнее.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Мы запустили программу лояльности на всех клиентов. Те, кто подключил программу, тратят в 2 раза больше тех, кто не подключил. Доказывает ли это эффективность программы?»</i> Ответ: <i>«Категорически нет! Это классическое смещение отбора (Selection Bias). Самые лояльные клиенты первыми подключают любые бонусы. Без рандомизации для оценки эффекта необходимо использовать квазиэкспериментальные методы: Difference-in-Differences, сопоставление Propensity Score Matching или Instrumental Variables».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Когда возникает необходимость в Causal Inference без A/B тестирования?</b></p><p>Когда контролируемый эксперимент невозможен по этическим соображениям, техническим ограничениям или бизнес-рискам (ТВ-реклама, изменение законов).</p></li>
+        <li><p><b>В чем суть метода Difference-in-Differences (DiD)?</b></p><p>В сравнении изменений метрики до и после воздействия между тестовой и контрольной группами.</p></li>
+        <li><p><b>Какова главная предпосылка валидности метода DiD?</b></p><p>Предпосылка параллельных трендов (Parallel Trends Assumption) в пре-периоде.</p></li>
+        <li><p><b>Как работает метод Propensity Score Matching (PSM)?</b></p><p>Подбирает для каждого пользователя из группы воздействия контрольного пользователя с максимально близкой вероятностью попадания в воздействие.</p></li>
+        <li><p><b>Что такое Selection Bias (смещение отбора)?</b></p><p>Систематическая ошибка, возникающая, когда пользователи самостоятельно выбирают участие в программе на основе личной мотивации.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="correlation_vs_causation_product" data-interview="5">
+  <div class="name" id="correlation_vs_causation_product">
+    Корреляция vs Причинность в продукте
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Проблема «Корреляция не означает причинность» (Correlation does not imply Causation)</b> — фундаментальная аналитическая ловушка, при которой наличие статистической взаимосвязи между использованием функции продукта и бизнес-метрикой ошибочно принимается за доказательство того, что именно эта функция вызвала рост метрики.</p>
+<p>Если совсем простыми словами: <b>люди, которые носят дорогие часы, чаще летают бизнес-классом. Но покупка часов не сделает вас богачом</b>. Точно так же пользователи, которые заходят в раздел «Настройки», имеют более высокий Retention не из-за настроек, а потому что они просто более вовлечены в продукт.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Анатомия ложных каузальных связей (Causal DAGs):</p>
+<ol>
+<li><b>Конфаундер (Confounder / Common Cause):</b> Третья скрытая переменная $Z$, влияющая одновременно и на использование фичи $X$, и на целевую метрику $Y$:
+<p>$$X \leftarrow Z \rightarrow Y$$</p>
+Например: $Z$ = Общая лояльность клиента. Лояльный клиент чаще пользуется поиском ($X$) и чаще совершает покупки ($Y$). Поиск не вызывает покупки напрямую!</li>
+<li><b>Обратная причинность (Reverse Causality):</b> Не $X$ вызывает $Y$, а наоборот, $Y$ вызывает $X$. (Например: клиенты пишут отзывы ($X$) потому что уже совершили много покупок ($Y$)).</li>
+<li><b>Смещение отбора (Selection Bias):</b> Анализ только выживших пользователей или тех, кто добровольно прошел онбординг.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс фичи «Темная тема» (Dark Mode):</b>
+Аналитик обнаружил потрясающую корреляцию: <i>«Пользователи, включившие темную тему, имеют LTV на 85% выше, чем те, кто на светлой теме!»</i>
+Продакт предложил: <i>«Давайте принудительно включим всем темную тему по умолчанию!»</i>
+A/B тест с принудительным включением темной темы показал нулевой эффект ($p = 0.88$).
+Объяснение: темную тему в настройках включают только гики и продвинутые пользователи (Power Users), которые и так проводят в приложении всё свободное время. Включение темы не превращает обычного пользователя в активного.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import numpy as np
+import scipy.stats as stats
+
+# Симуляция конфаундинга: Скрытая вовлеченность Z управляет и фичей X, и покупками Y
+np.random.seed(42)
+n_users = 10000
+
+# Ненаблюдаемая вовлеченность (Confounder)
+user_engagement = np.random.normal(loc=0, scale=1, size=n_users)
+
+# Вероятность включить фичу зависит от вовлеченности
+prob_feature = 1 / (1 + np.exp(-(0.5 + 1.8 * user_engagement)))
+used_feature = np.random.binomial(1, prob_feature)
+
+# Выручка зависит от вовлеченности, но НЕ зависит от фичи (истинный эффект фичи = 0!)
+revenue = 500 + 300 * user_engagement + 0.0 * used_feature + np.random.normal(0, 50, size=n_users)
+
+# Наивный анализ фиксирует гигантскую ложную разницу!
+rev_users = revenue[used_feature == 1].mean()
+rev_non_users = revenue[used_feature == 0].mean()
+
+print(f"Выручка тех, кто юзал фичу:    {rev_users:.1f} руб.")
+print(f"Выручка тех, кто НЕ юзал фичу: {rev_non_users:.1f} руб.")
+print(f"Кажущийся аплифт (ЛОЖНЫЙ):      {rev_users - rev_non_users:+.1f} руб. (p < 10^-50)")
+# Вывод: классическая иллюзия корреляции!</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Рекомендация фичей на основе корреляций без A/B тестирования.</b> Принудительное навязывание пользователям функций, скоррелированных с успехом, раздражает людей и не растит бизнес.</li>
+        <li><b>Игнорирование скрытых характеристик пользователей.</b> Сравнение групп без учета их исторического стажа и активности в продукте.</li>
+        <li><b>Забывание про парадокс Берксона (Berkson's Fallacy).</b> Возникновение ложной отрицательной корреляции при обусловливании по общему исходу.</li>
+        <li><b>Вера в то, что увеличение объема данных превращает корреляцию в каузальность.</b> Миллиард наблюдений не устраняет смещение конфаундера, а лишь делает ложный вывод бесконечно статистически значимым.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Мы выяснили, что пользователи, добавившие 7 друзей в первую неделю, остаются с нами навсегда (Aha-момент Facebook/Slack). Значит ли это, что если мы сами насильно добавим им 7 друзей ботов, они останутся?»</i> Ответ: <i>«Конечно нет! 7 друзей — это корреляционный маркер естественной социализации человека, а не механическая причина. Добавление ботов разрушит ценность продукта. Истинная задача — убрать барьеры, чтобы пользователь сам захотел найти 7 реальных близких людей».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>В чем различие между корреляцией и причинно-следственной связью?</b></p><p>Корреляция фиксирует совместное изменение величин; причинность доказывает, что изменение одной величины является непосредственной причиной изменения другой.</p></li>
+        <li><p><b>Что такое конфаундер (Confounder) в причинно-следственном анализе?</b></p><p>Третья скрытая переменная, оказывающая одновременное влияние как на причину, так и на следствие, создавая иллюзию связи.</p></li>
+        <li><p><b>Что такое обратная причинность (Reverse Causality)?</b></p><p>Ситуация, когда предполагаемое следствие на самом деле является причиной исследуемого фактора.</p></li>
+        <li><p><b>Почему рандомизированный A/B эксперимент устраняет проблему конфаундеров?</b></p><p>Потому что случайное разбиение гарантирует независимость тритмента от любых скрытых характеристик пользователей.</p></li>
+        <li><p><b>Помогает ли увеличение объема выборки устранить смещение конфаундера?</b></p><p>Нет, большой объем данных лишь сделает ошибочную оценку более точной (высокая точность при нулевой правильности).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

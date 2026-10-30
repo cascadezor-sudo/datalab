@@ -1,0 +1,75 @@
+{
+  "id": "mlops:prometheus:block-3",
+  "title": "Prometheus · Блок 3: экспортёры",
+  "description": "Итоговая проверка по Prometheus: зачем нужны экспортёры, node_exporter, nvidia_gpu_exporter, kafka_exporter, blackbox_exporter и мониторинг GPU при обучении.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b3_exporter",
+      "type": "single",
+      "q": "Что такое exporter в Prometheus?",
+      "options": [
+        "Модуль Grafana для экспорта дашбордов в JSON",
+        "Утилита для выгрузки TSDB в CSV",
+        "Отдельный процесс, который читает метрики системы без нативной поддержки Prometheus и отдаёт их в Prometheus-формате",
+        "Компонент, отправляющий алерты в Slack"
+      ],
+      "answer": [2],
+      "explain": "Prometheus scrape-ит exporter как обычный сервис, не зная об исходном протоколе системы."
+    },
+    {
+      "id": "b3_gpu",
+      "type": "single",
+      "q": "Какой экспортёр покажет, что GPU при обучении простаивает из-за узкого места в data loading?",
+      "options": [
+        "`nvidia_gpu_exporter`",
+        "`blackbox_exporter`",
+        "`kube-state-metrics`",
+        "`redis_exporter`"
+      ],
+      "answer": [0],
+      "explain": "Он даёт utilization, память и температуру GPU; при обучении хочется загрузку 80–100%."
+    },
+    {
+      "id": "b3_blackbox",
+      "type": "single",
+      "q": "Зачем нужен `blackbox_exporter`?",
+      "options": [
+        "Он собирает метрики CPU и RAM Linux-узла",
+        "Он шифрует трафик между Prometheus и сервисами",
+        "Он хранит метрики удалённых кластеров",
+        "Он делает HTTP/TCP probe эндпоинта снаружи и меряет доступность и latency — «взгляд пользователя»"
+      ],
+      "answer": [3],
+      "explain": "Так недоступность inference-сервиса видна раньше, чем пожалуются пользователи."
+    },
+    {
+      "id": "b3_match",
+      "type": "single",
+      "q": "Какой экспортёр даст consumer lag и under-replicated partitions для feature pipeline?",
+      "options": [
+        "`node_exporter`",
+        "`kafka_exporter`",
+        "`postgres_exporter`",
+        "`nvidia_gpu_exporter`"
+      ],
+      "answer": [1],
+      "explain": "`kafka_exporter` отдаёт метрики Kafka: lag групп, сообщения в секунду, under-replicated partitions."
+    },
+    {
+      "id": "b3_exporters_multi",
+      "type": "multi",
+      "q": "Какие пары «экспортёр — что мониторит» верны? (несколько ответов)",
+      "options": [
+        "`node_exporter` — CPU, RAM, диск и сеть Linux-узла",
+        "`redis_exporter` — температура GPU",
+        "`kube-state-metrics` — рестарты подов и статус deployment",
+        "`postgres_exporter` — consumer lag Kafka"
+      ],
+      "answer": [0, 2],
+      "explain": "`redis_exporter` даёт память, hit rate и latency Redis, `postgres_exporter` — соединения, latency запросов и replication lag."
+    }
+  ]
+}

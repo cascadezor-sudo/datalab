@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Инструменты экспериментов (GrowthBook, Вариокуб, Флаги)</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../analytics/index.html">Аналитика</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Инструменты экспериментов</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Аналитика данных</span>
+          <span class="pill pill--soft">Experimentation Platforms</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">6 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Инструменты экспериментов (GrowthBook, Вариокуб, Флаги)</h1>
+        <p class="section-shell__desc">Инфраструктура сплит-тестирования: архитектура сплитовалки, деление трафика (хеширование), платформы GrowthBook и Вариокуб, Feature Flags и canary rollouts.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+    <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="split_systems_how" data-interview="5">
+  <div class="name" id="split_systems_how">
+    Архитектура сплит-систем и хэширование
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Архитектура сплит-систем (Experimentation Platforms & Traffic Splitting)</b> — это отказоустойчивый высокопроизводительный инфраструктурный комплекс, обеспечивающий детерминированное, быстрое (Latency $< 2$ мс), равномерное и независимое распределение пользователей по вариантам экспериментов с помощью криптографических и некриптографических хэш-функций с добавлением соли (Salt).</p>
+<p>Если совсем простыми словами: <b>это математическая рулетка, которая крутится одинаково на миллионах серверов</b>. Если пользователь зашел в приложение в Москве, а через секунду обновил страницу в самолете, сплит-система без походов в базу данных гарантирует, что он останется в той же самой группе эксперимента.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Математика хэш-сплитования (MurmurHash3 + Salt):</p>
+<ol>
+<li><b>Детерминированность без сохранения состояния (Stateless Routing):</b>
+Для распределения пользователя не требуется хранить базу состояний всех клиентов (stateful storage). Вариант вычисляется функционально на лету:
+<p>$$\text{Bucket} = \mathrm{Hash}(\text{user\_id} + \text{salt}) \pmod{100}$$</p>
+</li>
+<li><b>Выбор хэш-функции:</b>
+    <ul>
+    <li><i>MurmurHash3 / CityHash / xxHash:</i> Стандарт индустрии. Обеспечивают экстремальную скорость (миллиарды операций в секунду), идеальную лавинность (Avalanche Effect) и строго равномерное распределение остатков по бакетам.</li>
+    <li><i>MD5 / SHA-256:</i> Избыточны по вычислениям (криптографическая стойкость для сплитования не требуется).</li>
+    </ul>
+</li>
+<li><b>Роль соли (Salt / Experiment Key):</b> Добавление уникального ключа эксперимента (<code>exp_checkout_v2</code>) гарантирует <b>ортогональность (независимость) параллельных тестов</b>. Пользователи, попавшие в группу А в первом тесте, во втором тесте перемешиваются абсолютно случайно, исключая взаимное смещение.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс распределения бакетов (100 бакетов):</b>
+Платформа делит весь трафик на 100 бакетов ($0..99$).
+Эксперимент 1 (Поиск): берет бакеты с $0$ по $19$ ($20\%$ трафика): $0-9$ — контроль, $10-19$ — тритмент.
+Эксперимент 2 (Корзина): независимый ортогональный сплит со своей солью — использует все 100 бакетов. Хэш-функция с солью гарантирует, что участники теста поиска распределятся в тесте корзины строго 50/50, не искажая статистику друг друга.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code>import mmh3 # MurmurHash3
+
+def get_experiment_variant(user_id, experiment_key, split_ratio=0.5):
+    # 1. Склеиваем идентификатор с солью эксперимента
+    combined_key = f"{user_id}_{experiment_key}"
+    
+    # 2. Вычисляем 32-битный беззнаковый хэш MurmurHash3
+    hash_value = mmh3.hash(combined_key, signed=False)
+    
+    # 3. Нормализуем в диапазон [0, 9999] для точности до сотых долей процента
+    bucket = hash_value % 10000
+    threshold = int(split_ratio * 10000)
+    
+    return "treatment" if bucket < threshold else "control"
+
+# Демонстрация стабильности и независимости
+uid = "user_981421"
+print("Тест 1 (Checkout):", get_experiment_variant(uid, "exp_checkout_redesign"))
+print("Тест 1 (Повтор):  ", get_experiment_variant(uid, "exp_checkout_redesign")) # строго тот же результат!
+print("Тест 2 (Pricing): ", get_experiment_variant(uid, "exp_subscription_pricing")) # независимое распределение</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Использование одной и той же соли для разных экспериментов.</b> Приводит к полной корреляции участников: одни и те же пользователи всегда будут попадать в тест во всех экспериментах компании.</li>
+        <li><b>Использование плохо распределенных хэш-функций (например, crc32 или простого modulo от user_id).</b> Если user_id генерируются автоинкрементом базы, простой остаток от деления приведет к критическому SRM.</li>
+        <li><b>Сетевые задержки при синхронных сетевых запросах в сплит-сервер.</b> Сплит-логика должна выполняться локально на клиенте или API-шлюзе (Evaluation on the Edge) за микросекунды.</li>
+        <li><b>Смена ID пользователя во время сессии.</b> Переключение с <code>device_id</code> на <code>user_id</code> без стабильного маппинга перебрасывает пользователя между вариантами.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Как гарантировать, что два параллельных A/B теста в приложении не повлияют на результаты друг друга?»</i> Ответ: <i>«С помощью ортогонального хэш-сплитования с добавлением уникальной соли эксперимента: $\mathrm{Bucket} = \mathrm{MurmurHash3}(\text{user\_id} + \text{exp\_id}) \pmod{100}$. Благодаря идеальному лавинному эффекту хэш-функции пользователи тестовой группы первого эксперимента распределятся между группами второго эксперимента строго случайно и равномерно 50/50, взаимно нейтрализуя систематическое влияние».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое stateless-сплитование в экспериментальных платформах?</b></p><p>Алгоритм вычисления варианта теста на лету через хэш-функцию от ID пользователя и соли без обращения к центральной базе данных.</p></li>
+        <li><p><b>Какая хэш-функция считается отраслевым стандартом для A/B тестирования?</b></p><p>MurmurHash3 (или xxHash) благодаря высокой производительности и отличной равномерности распределения.</p></li>
+        <li><p><b>Зачем к ID пользователя при хэшировании подмешивается «соль» (Salt / Experiment Key)?</b></p><p>Чтобы обеспечить независимость (ортогональность) разбиения пользователей между различными параллельными тестами.</p></li>
+        <li><p><b>Что такое лавинный эффект (Avalanche Effect) хэш-функции?</b></p><p>Свойство, при котором изменение даже одного бита на входе приводит к изменению более 50% бит на выходе хэша.</p></li>
+        <li><p><b>Каково допустимое время выполнения сплит-функции в мобильном приложении?</b></p><p>Менее 1–2 миллисекунд во избежание деградации скорости отклика интерфейса.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="growthbook" data-interview="4">
+  <div class="name" id="growthbook">
+    GrowthBook: Open-source платформа A/B
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>GrowthBook</b> — это ведущая современная платформа экспериментов и управления фиче-флагами с открытым исходным кодом (Open-Source), построенная по модульной архитектуре <b>Warehouse-Native</b>: платформа не хранит пользовательские события в стороннем облаке, а выполняет статистический анализ напрямую в вашем корпоративном хранилище данных (ClickHouse, Snowflake, BigQuery, PostgreSQL).</p>
+<p>Если совсем простыми словами: <b>это инструмент уровня A/B платформы Booking.com или Uber, который можно бесплатно развернуть у себя</b>. Вы управляете фиче-флагами через красивый UI, а все расчеты статистической мощности и CUPED происходят внутри вашей собственной базы данных.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Архитектурные компоненты GrowthBook:</p>
+<ol>
+<li><b>Feature Flagging SDK:</b> Легковесные клиентские и серверные библиотеки (JavaScript/TypeScript, Python, iOS, Android, Go), вычисляющие фиче-флаги локально в памяти устройства за доли миллисекунды.</li>
+<li><b>Tracking Callback:</b> Механизм автоматической отправки событий экспозиции (Exposure Events) в ваш существующий аналитический пайплайн (Segment, RudderStack, Snowplow, Kafka).</li>
+<li><b>SQL Query Engine:</b> Автоматический генератор оптимизированных SQL-запросов под диалект вашего DWH, рассчитывающий доверительные интервалы, SRM-тесты, множественные поправки и CUPED.</li>
+<li><b>Байесовский и Фреквентистский движки:</b> Поддержка классических t-тестов/Z-тестов, а также Байесовского вывода с расчетом вероятности победы (Chance to Beat Control) и ожидаемых потерь (Risk/Expected Loss).</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс импортозамещения зарубежной платформы:</b>
+Компания использовала платную зарубежную платформу Optimizely, платя по $80\,000$ в год. При ужесточении законов о хранении данных возникли риски утечки ПДн за рубеж.
+Инженеры развернули GrowthBook в собственном Kubernetes-кластере с подключением к существующему хранилищу ClickHouse.
+Затраты на лицензии снизились до нуля, аналитика осталась внутри защищенного периметра компании, а скорость расчета когортных тестов выросла в 4 раза благодаря колоночной мощи ClickHouse.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Пример использования Python SDK GrowthBook с фиче-флагом и A/B экспериментом
+from growthbook import GrowthBook, Experiment
+
+# 1. Инициализация контекста пользователя
+gb = GrowthBook(
+    user={"id": "usr_781249", "country": "RU", "app_version": "14.2.0"},
+    tracking_callback=lambda exp, res: print(f"[TRACK EXPOSURE]: Test={exp.key}, Variant={res.key}")
+)
+
+# 2. Определение эксперимента
+experiment = Experiment(
+    key="new_checkout_flow",
+    variations=["control", "one_click_checkout"],
+    weights=[0.5, 0.5]
+)
+
+# 3. Вычисление варианта на лету
+result = gb.run(experiment)
+print(f"Пользователю назначен вариант: {result.value}")
+if result.in_experiment:
+    # Отрисовка экспериментального UI
+    pass</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Забывание о настройке Tracking Callback.</b> Если SDK не отправляет лог о том, что пользователь физически увидел эксперимент, в хранилище не попадут события экспозиции, и тест невозможно будет посчитать.</li>
+        <li><b>Запуск тяжелых аналитических запросов GrowthBook на боевой реплике.</b> Расчет метрик по 50 млн пользователей должен производиться на аналитическом DWH, а не на транзакционной базе.</li>
+        <li><b>Смешивание Байесовского и Фреквентистского подходов в отчетах.</b> Интерпретация Байесовского «Chance to Win» как классического $1 - p$-value ведет к ложным выводам команды.</li>
+        <li><b>Отсутствие контроля версий фиче-флагов.</b> Удаление флага в интерфейсе без удаления его проверок в кодовой базе оставляет мертвый код (Dead Code).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем фундаментальное отличие архитектуры Warehouse-Native платформ (GrowthBook) от традиционных SaaS-решений (Optimizely, VWO)?»</i> Ответ: <i>«Традиционные платформы требуют отправки всех сырых событий в их стороннее облако, что дорого, создает риски безопасности (GDPR/152-ФЗ) и ограничивает анализ их стандартными алгоритмами. Warehouse-Native платформы подключаются напрямую к корпоративному DWH компании: сырые данные не покидают периметр, а расчеты выполняются мощностями хранилища с использованием любых кастомных метрик компании».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Warehouse-Native архитектура платформы экспериментов?</b></p><p>Подход, при котором аналитические расчеты выполняются непосредственно внутри корпоративного хранилища данных заказчика без дублирования сырых событий во внешнее облако.</p></li>
+        <li><p><b>Какие статистические парадигмы поддерживает GrowthBook?</b></p><p>Фреквентистскую (классические p-value, t-тесты, CUPED) и Байесовскую (вероятность превосходства, ожидаемые потери).</p></li>
+        <li><p><b>Какую функцию выполняет Tracking Callback в SDK GrowthBook?</b></p><p>Передает факт попадания пользователя в эксперимент в аналитическую систему сбора логов.</p></li>
+        <li><p><b>Поддерживает ли GrowthBook прямое подключение к ClickHouse?</b></p><p>Да, имеет оптимизированный коннектор с автоматической генерацией специфичного SQL-диалекта ClickHouse.</p></li>
+        <li><p><b>Каковы преимущества Open-Source платформы перед проприетарными решениями?</b></p><p>Полный контроль над кодом, отсутствие лицензионных платежей за трафик и соблюдение локального законодательства о защите данных.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="firebase_ab_testing" data-interview="4">
+  <div class="name" id="firebase_ab_testing">
+    Firebase Remote Config & A/B Testing
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Firebase Remote Config & A/B Testing (Google)</b> — это интегрированный облачный сервис для мобильных платформ (iOS, Android, Flutter, Unity), позволяющий динамически изменять поведение и внешний вид приложения без выпуска новой сборки в App Store и Google Play, а также проводить контролируемые эксперименты на базе машинного обучения и инфраструктуры Google Analytics.</p>
+<p>Если совсем простыми словами: <b>это пульт дистанционного управления вашим мобильным приложением</b>. Вы можете поменять текст кнопки, цену тарифа или логику онбординга прямо из браузера за одну секунду, протестировать это на 10% аудитории и автоматически раскатать победный вариант.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Механика и ограничения Firebase A/B Testing:</p>
+<ol>
+<li><b>Remote Config Client Architecture:</b>
+    <ul>
+    <li><i>Fetch & Activate:</i> Приложение скачивает актуальные параметры с серверов Google в фоновом режиме (по умолчанию кэшируется на 12 часов, в режиме разработки — 0).</li>
+    <li><i>Локальные дефолты (In-app defaults):</i> Если нет сети, приложение мгновенно стартует на зашитых в бандл дефолтных значениях, предотвращая задержку холодного старта.</li>
+    </ul>
+</li>
+<li><b>Байесовский статистический движок Google:</b>
+Firebase использует Байесовский анализ для оценки вероятности того, что вариант станет лучшим среди всех (Probability to Beat Baseline / Chance to be Best). При достижении 95% уверенности система рекомендует раскатку.</li>
+<li><b>Таргетинг аудитории:</b> Возможность направлять тест по версии ОС, языку, стране, аудиториям Google Analytics или кастомным User Properties.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс оптимизации игрового туториала:</b>
+Разработчики мобильной игры тестировали три варианта сложности стартового уровня: A (легкий), B (средний), C (динамический).
+Через Firebase Remote Config выставили распределение по 33% для новых установок.
+Целевая метрика Google Analytics — Retention 7-го дня.
+Через 10 дней байесовский движок Firebase зафиксировал: Вариант C побеждает с вероятностью $98.4\%$, увеличивая удержание недели на $+4.5\%$.
+Прямо в консоли Firebase нажали кнопку «Rollout Variant C to 100%» — все новые игроки мгновенно получили лучший вариант без апдейта в магазинах приложений.</p>
+    </div>
+    <div class="code-block" data-lang="kotlin">
+      <pre><code>// Пример интеграции Firebase Remote Config в Android (Kotlin)
+val remoteConfig = Firebase.remoteConfig
+val configSettings = remoteConfigSettings {
+    minimumFetchIntervalInSeconds = 3600 // кэш 1 час
+}
+remoteConfig.setConfigSettingsAsync(configSettings)
+remoteConfig.setDefaultsAsync(R.xml.remote_config_defaults)
+
+// Получение и активация экспериментальных параметров
+remoteConfig.fetchAndActivate()
+    .addOnCompleteListener { task ->
+        if (task.isSuccessful) {
+            val welcomeText = remoteConfig.getString("welcome_banner_text")
+            val isNewCheckoutEnabled = remoteConfig.getBoolean("is_new_checkout_enabled")
+            // Применение параметров в UI
+        }
+    }</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Блокировка UI в ожидании ответа Remote Config (Network Blocking).</b> Категорически запрещено блокировать запуск приложения сетевым запросом к Firebase. Нужно использовать ранее закэшированные значения (Fetch on background, Activate on next start).</li>
+        <li><b>Слишком большой интервал кэширования в продакшене.</b> Дефолтный 12-часовой кэш означает, что пользователь увидит новый вариант теста только через полдня после включения.</li>
+        <li><b>Задержка появления данных в Google Analytics.</b> События из Firebase Analytics доезжают в дашборды с задержкой до 24-48 часов, что исключает оперативный поминутный мониторинг.</li>
+        <li><b>Ограничение на число одновременных тестов.</b> В бесплатном Firebase есть лимит на количество активных экспериментов (до 300 параметров Remote Config).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем главный недостаток Firebase A/B Testing для крупных высоконагруженных продуктов?»</i> Ответ: <i>«1) Задержка доставки аналитики в BigQuery до 24 часов (нельзя быстро обнаружить факапы); 2) «Черный ящик» байесовской статистики Google без возможности настроить CUPED или кастомные ratio-метрики; 3) Зависимость от зарубежной инфраструктуры и сложности с соблюдением 152-ФЗ. Для крупных компаний Firebase годится как Remote Config, но аналитику считают в собственном DWH».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Какую роль выполняет Remote Config в мобильных приложениях?</b></p><p>Динамическое управление параметрами и конфигурацией приложения без необходимости пересборки и релиза в App Store / Google Play.</p></li>
+        <li><p><b>Какой статистический подход использует Firebase A/B Testing?</b></p><p>Байесовскую модель вывода с расчетом вероятности превосходства над контролем.</p></li>
+        <li><p><b>Почему паттерн «Fetch and Activate on next start» безопаснее мгновенного применения параметров?</b></p><p>Потому что смена интерфейса «на лету» прямо на глазах у пользователя во время текущей сессии разрушает пользовательский опыт.</p></li>
+        <li><p><b>Какая задержка (Latency) считается типичной для аналитики Firebase?</b></p><p>От нескольких часов до суток до полной агрегации в консоли.</p></li>
+        <li><p><b>Можно ли выгружать сырые события Firebase в собственное хранилище?</b></p><p>Да, через нативный стриминговый экспорт в Google BigQuery.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="varioqube" data-interview="4">
+  <div class="name" id="varioqube">
+    Яндекс Вариокуб для экспериментов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Яндекс Вариокуб (Yandex Varioqube)</b> — это российская платформа визуального и мобильного A/B-тестирования в экосистеме Яндекс Метрики и AppMetrica, предоставляющая zero-code визуальный редактор для веб-сайтов и легковесный SDK для мобильных приложений с интеграцией в локальный стек данных.</p>
+<p>Если совсем простыми словами: <b>это официальная замена Google Optimize от Яндекса</b>. Маркетолог или аналитик может прямо в браузере кликнуть мышкой на сайт, поменять заголовок, переставить кнопки и запустить сплит-тест без привлечения программистов.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Функциональные возможности и механика Вариокуба:</p>
+<ol>
+<li><b>Визуальный редактор (Visual No-Code Editor):</b> Позволяет изменять DOM-дерево сайта, стили CSS, тексты и изображения через веб-интерфейс с авто-генерацией JavaScript-мутаций.</li>
+<li><b>Интеграция с целями Яндекс Метрики:</b> Эксперименты автоматически привязываются к существующим целям Метрики (достижение URL, клики по кнопкам, глубина просмотра, JavaScript-события).</li>
+<li><b>Мобильное тестирование (In-app Experiments):</b> SDK для iOS и Android для управления фиче-флагами и тестирования логики мобильных приложений с привязкой к когортам AppMetrica.</li>
+<li><b>Статистический аппарат:</b> Расчет доверительных интервалов, оценка статистической значимости и проверка сплитования на базе технологий Яндекса.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс оптимизации интернет-аптеки:</b>
+Маркетингу требовалось срочно протестировать новый баннер бесплатной доставки к выходным, но очередь задач на фронтенд-разработку была забита на 2 месяца вперед.
+Аналитик открыл Яндекс Вариокуб, через визуальный редактор за 20 минут создал тестовый вариант страницы с новым баннером и запустил сплит 50/50.
+Через 7 дней в отчете Вариокуба зафиксировали статзначимый рост оформления заказов на $+8.2\%$ ($p < 0.01$). Фичу передали разработчикам на постоянное внедрение уже с доказанной бизнес-окупаемостью.</p>
+    </div>
+    <div class="code-block" data-lang="javascript">
+      <pre><code>// Пример интеграции Яндекс Вариокуб SDK на клиенте (JavaScript)
+ym(XXXXXX, 'init', {
+    clickmap: true,
+    trackLinks: true,
+    accurateTrackBounce: true,
+    webvisor: true
+});
+
+// Инициализация экспериментов Вариокуба
+window.yandexExperiments = window.yandexExperiments || [];
+window.yandexExperiments.push({
+    experimentId: "exp_promo_header",
+    callback: function(variant) {
+        if (variant === "variant_1") {
+            // Применение кастомной логики для тритмента
+            document.querySelector('.header-promo').classList.add('highlight-red');
+        }
+    }
+});</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Эффект мерцания страницы (Flicker / FOOC — Flash of Original Content).</b> Если скрипт визуального редактора грузится асинхронно, пользователь на долю секунды видит старый интерфейс, который затем резко перемигивает на новый. Требуется внедрение антифликер-сниппета в `<head>`.</li>
+        <li><b>Поломка сложных Single Page Applications (React/Vue/Angular).</b> Визуальные мутации через DOM-манипуляции могут конфликтовать с Virtual DOM современного фронтенда.</li>
+        <li><b>Отсутствие контроля над сложной бизнес-логикой.</b> Вариокуб идеален для верстки, текста и стилей, но не подходит для тестов бэкенд-алгоритмов ранжирования.</li>
+        <li><b>Замедление скорости загрузки сайта тяжелыми скриптами редактора.</b> Избыток одновременно запущенных визуальных экспериментов утяжеляет фронтенд.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Когда стоит использовать Яндекс Вариокуб, а когда писать собственную платформу на фиче-флагах?»</i> Ответ: <i>«Вариокуб идеален для быстрого продуктового и маркетингового тестирования гипотез на фронтенде (лендинги, промо-блоки, баннеры, тексты) без отвлечения разработчиков. Для критической бизнес-логики (алгоритмы скоринга, динамическое ценообразование, архитектура чекаута) используются серверные фиче-флаги с расчетом в DWH».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Для каких задач предназначен сервис Яндекс Вариокуб?</b></p><p>Для проведения визуальных веб-экспериментов и тестирования мобильных фичей с интеграцией в Яндекс Метрику и AppMetrica.</p></li>
+        <li><p><b>Что такое эффект мерцания (Flicker Effect) в визуальных A/B тестах и как с ним борются?</b></p><p>Кратковременный показ оригинальной версии до загрузки экспериментального скрипта; устраняется синхронным антифликер-кодом в `<head>`.</p></li>
+        <li><p><b>С какими системами аналитики нативно интегрирован Вариокуб?</b></p><p>С Яндекс Метрикой (веб) и AppMetrica (мобильные приложения).</p></li>
+        <li><p><b>Подходит ли визуальный редактор для SPA-приложений на React?</b></p><p>С ограничениями: прямые мутации DOM могут затираться повторными рендерами Virtual DOM.</p></li>
+        <li><p><b>В чем ключевое преимущество Вариокуба для бизнеса?</b></p><p>Возможность тестировать гипотезы силами маркетинга и аналитики с нулевыми затратами времени разработчиков.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="feature_flags_rollout" data-interview="5">
+  <div class="name" id="feature_flags_rollout">
+    Feature Flags и канареечные релизы (Canary Rollouts)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Управление фиче-флагами (Feature Flagging / Feature Toggles)</b> — это архитектурный паттерн разработки программного обеспечения, разделяющий развертывание кода (Deployment) и включение функционала для пользователей (Release), позволяющий динамически конфигурировать систему в рантайме, безопасно проводить A/B-тесты и осуществлять <b>канареечные релизы (Canary Rollouts)</b>.</p>
+<p>Если совсем простыми словами: <b>это выключатель света в вашем коде</b>. Если новый бэкенд упал под нагрузкой в 2 часа ночи, дежурный инженер не откатывает весь релиз и не будит программистов, а нажимает одну кнопку и мгновенно выключает сбойную функцию за 1 секунду.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Жизненный цикл и паттерны канареечной раскатки (Canary Stages):</p>
+<ol>
+<li><b>Internal Dogfooding (Сотрудники компании):</b> Фича доступна только команде разработки и внутренним тестировщикам (проверка на живом проде).</li>
+<li><b>Canary Phase 1 ($1-2\%$ трафика):</b> Выявление критических крашей, утечек памяти, падения баз данных и несовместимости с редкими версиями ОС.</li>
+<li><b>A/B Testing Phase ($50/50$ на $20-100\%$ аудитории):</b> Сбор статистической выборки, подтверждение роста продуктовых метрик и отсутствия деградации Guardrails.</li>
+<li><b>Gradual Rollout (Поэтапная раскатка):</b> $10\% \to 25\% \to 50\% \to 100\%$ с мониторингом стабильности бэкенда под возрастающей нагрузкой.</li>
+<li><b>Kill Switch (Аварийный рубильник):</b> Автоматический откат на $0\%$ при превышении порога серверных ошибок HTTP 5xx $> 1\%$.</li>
+<li><b>Cleanup (Удаление флага):</b> Удаление <code>if/else</code> веток из кодовой базы после успешного релиза для борьбы с техническим долгом.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс спасения платежного шлюза:</b>
+Банк внедрял новый микросервис быстрых платежей.
+Вместо включения на 100% применили канареечный релиз: включили на $1\%$ пользователей.
+Через 4 минуты под нагрузкой пул соединений к базе данных переполнился, и сервис начал отвечать ошибками 504 Gateway Timeout.
+Благодаря Feature Flag система мониторинга автоматически сработала как Kill Switch и выключила фичу обратно в ноль. Инцидент затронул менее 50 человек и был устранен без публичного скандала и простоя сервиса.</p>
+    </div>
+    <div class="code-block" data-lang="python">
+      <pre><code># Паттерн безопасного использования Feature Flag в Python сервисе
+class PaymentService:
+    def __init__(self, flag_client):
+        self.flag_client = flag_client
+
+    def process_payment(self, user, order):
+        # Проверка фиче-флага с передачей контекста
+        is_instant_pay_enabled = self.flag_client.is_enabled(
+            flag_key="enable_instant_tpay_v2",
+            user_context={"user_id": user.id, "tier": user.tier, "app_version": user.app_version},
+            default=False # Fail-safe default!
+        )
+
+        if is_instant_pay_enabled:
+            try:
+                return self._process_instant_tpay(user, order)
+            except Exception as e:
+                # Автоматический фолбэк на проверенный старый шлюз при сбое!
+                log_error(f"Fallback to legacy pay due to: {e}")
+                return self._process_legacy_card_payment(user, order)
+        else:
+            return self._process_legacy_card_payment(user, order)</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Отсутствие безопасного дефолта (Fail-safe default).</b> Если сервер фиче-флагов недоступен, флаг должен возвращать безопасное стабильное состояние <code>False</code> (старый проверенный код).</li>
+        <li><b>Накопление устаревших флагов (Toggle Debt).</b> Если не удалять флаги из кода после раскатки, кодовая база превращается в лабиринт из сотен забытых условий <code>if/else</code>, которые невозможно тестировать.</li>
+        <li><b>Использование фиче-флагов для управления бизнес-логикой навсегда.</b> Фиче-флаг — это временный инструмент релиза, а не постоянная таблица настроек конфигурации.</li>
+        <li><b>Отсутствие мониторинга технических метрик по веткам флага.</b> Если не логировать <code>flag_status</code> в ошибки бэкенда, локализовать причину сбоя канарейки крайне сложно.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«В чем разница между Feature Flag и A/B тестированием?»</i> Ответ: <i>«Feature Flag — это инженерный инструмент управления доставкой кода (включить/выключить фичу в рантайме, сделать безопасный канареечный rollout, сработать как Kill Switch). A/B тестирование — это статистическая методология оценки бизнес-эффекта. A/B тест использует фиче-флаги как транспортный механизм, разделяя пользователей по веткам флага и замеряя метрики».</i></p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Что такое Feature Flag (Feature Toggle)?</b></p><p>Архитектурный механизм, позволяющий динамически изменять поведение программы во время выполнения без повторного развертывания кода.</p></li>
+        <li><p><b>Что такое канареечный релиз (Canary Rollout)?</b></p><p>Поэтапное включение новой версии функционала на малую долю пользователей (1–5%) для ранней проверки стабильности под нагрузкой.</p></li>
+        <li><p><b>Что такое Kill Switch в системе управления релизами?</b></p><p>Аварийный механизм мгновенного дистанционного отключения сбойного функционала при обнаружении критических ошибок.</p></li>
+        <li><p><b>Почему накопление старых фиче-флагов опасно для стабильности системы?</b></p><p>Оно порождает комбинаторный взрыв состояний кода (Toggle Debt), усложняет тестирование и приводит к неожиданным багам.</p></li>
+        <li><p><b>Как Feature Flags помогают разделить понятия Deployment и Release?</b></p><p>Deployment — физическая доставка бинарного файла на сервер; Release — момент активации функционала для конечных клиентов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="experiment_setup_checklist" data-interview="5">
+  <div class="name" id="experiment_setup_checklist">
+    Чек-лист настройки экспериментов
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Чек-лист запуска эксперимента (Pre-Flight Experimentation Checklist)</b> — это обязательный регламентный протокол валидации всех параметров дизайна, аналитической разметки, стабильности инфраструктуры и статистических критериев, выполняемый аналитиком и продакт-менеджером <b>ДО переключения трафика в боевой режим</b>.</p>
+<p>Если совсем простыми словами: <b>это предполетный чек-лист пилота самолета</b>. Ошибка в расчете выборки, забытый лог или опечатка в хэше перед запуском теста стоимостью в десятки миллионов рублей приведут к аварии, которую невозможно будет исправить задним числом.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Под капотом и математика">
+      <p>Индустриальный чек-лист готовности к эксперименту (10 обязательных пунктов):</p>
+<ol>
+<li><b>Продуктовая и статистическая гипотезы:</b> Четко сформулированы $H_0$ и $H_1$, обоснован ожидаемый механизм влияния.</li>
+<li><b>Система метрик:</b> Зафиксирована ровно 1 Primary метрика, декомпозированы Secondary, утверждены пороги Guardrails.</li>
+<li><b>Power Analysis & MDE:</b> Рассчитан необходимый размер выборки на группу, зафиксированы $\alpha = 0.05$ и Power $= 80\%$. Статистический MDE $\le$ бизнес-порога окупаемости.</li>
+<li><b>Длительность:</b> Зафиксирован срок, кратный 7 дням (минимум 14 дней) с учетом окна созревания заказов.</li>
+<li><b>Единица рандомизации:</b> Проверено соответствие единицы сплита ($user\_id$) и единицы анализа.</li>
+<li><b>QA разметки и логирования:</b> События протестированы в stage-окружении, schema validation пройдена, трекинг попадания в тест (Exposure) работает.</li>
+<li><b>Ортогональность хэширования:</b> Задана уникальная соль (Salt), исключающая корреляцию с параллельными тестами.</li>
+<li><b>Dogfooding / Smoke-test:</b> Внутренние сотрудники проверили отображение обоих вариантов на реальных устройствах.</li>
+<li><b>Автоматический мониторинг SRM:</b> Настроен регулярный расчет $\chi^2$ на соответствие пропорций с алертами при $p < 0.001$.</li>
+<li><b>Критерии раскатки (Ship Criteria):</b> Правила принятия решений согласованы со всеми стейкхолдерами ДО старта.</li>
+</ol>
+    </div>
+    <div class="info-card-auto" data-type="example" data-title="Практический пример и бизнес-контекст">
+      <p><b>Кейс предотвращения катастрофы благодаря чек-листу:</b>
+Перед запуском редизайна корзины аналитик пошел по чек-листу:
+Пункт 6 (QA разметки): при проверке событий экспозиции выяснилось, что на старых смартфонах iPhone событие <code>exp_cart_exposure</code> отсылалось до фактического открытия экрана. Если бы тест запустили, возник бы фантомный трафик неактивных пользователей.
+Пункт 8 (Dogfooding): обнаружили, что в тестовом варианте не нажимается кнопка Apple Pay.
+Чек-лист спас команду от провального теста и сохранил 14 дней рабочего времени.</p>
+    </div>
+    <div class="code-block" data-lang="yaml">
+      <pre><code># Пример цифрового чек-листа в Feature Management Platform
+pre_flight_checklist:
+  experiment_id: "EXP-2026-CHECKOUT-V3"
+  status: "READY_TO_LAUNCH"
+  verifications:
+    - check: "Primary Metric Defined"
+      verified: true
+      value: "conversion_to_order_7d"
+    - check: "Sample Size Calculated"
+      verified: true
+      value: "48,500 users per variant"
+    - check: "Minimum Duration Set"
+      verified: true
+      value: "14 full days (2 complete weeks)"
+    - check: "Event Tracking QA Passed"
+      verified: true
+      tester: "qa-lead@company.ru"
+    - check: "SRM Monitor Active"
+      verified: true
+      threshold_p_value: 0.001
+    - check: "Rollout Criteria Signed"
+      verified: true
+      approver: "cpo@company.ru"</code></pre>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Главные подводные камни и ошибки">
+      <ul>
+        <li><b>Запуск теста без фиксации длительности и MDE («покрутим и посмотрим»).</b> Гарантирует подглядывание (Peeking), потерю мощности и недостоверные результаты.</li>
+        <li><b>Пропуск этапа QA событий логирования.</b> Обнаружение того, что целевое событие не логировалось, в конце двухнедельного теста — классический кошмар аналитика.</li>
+        <li><b>Изменение условий теста на лету.</b> Смена пропорций сплита (с 10/90 на 50/50) прямо во время проведения теста разрушает статистическую валидность и гарантирует SRM.</li>
+        <li><b>Запуск теста перед праздниками без заморозки релизов (Release Freeze).</b> Смешение результатов с сезонными аномалиями и непредвиденными деплоями соседних команд.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="На собеседовании и в продакшене">
+      <p>На собеседовании: <i>«Расскажите ваш личный чек-лист перед нажатием кнопки «Запустить A/B тест»»</i>. Перечислите четкую структуру: 1) Дизайн (гипотеза, OEC, guardrails, MDE, размер выборки, длительность кратна неделе); 2) Инженерия (QA логирования, уникальная соль хэша, проверка работы фичи на реальных девайсах); 3) Аналитика (настроенный дашборд, автотест на SRM, критерии раскатки подписаны бизнесом).</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Зачем нужен предполетный чек-лист A/B эксперимента?</b></p><p>Для системного исключения методологических, технических и статистических ошибок до начала расходования трафика пользователей.</p></li>
+        <li><p><b>Почему в чек-листе обязательна фиксация срока, кратного 7 дням?</b></p><p>Для гарантии учета недельной цикличности поведения пользователей.</p></li>
+        <li><p><b>Что проверяется на этапе QA аналитической разметки перед стартом?</b></p><p>Корректность триггеров отправки событий, полнота payload, соответствие схеме и отправка факта экспозиции.</p></li>
+        <li><p><b>Почему нельзя менять пропорции сплитования во время идущего эксперимента?</b></p><p>Потому что это смешивает когорты разного времени, нарушает независимость наблюдений и создает ложный SRM.</p></li>
+        <li><p><b>Что такое критерии раскатки (Ship Criteria) и почему они должны быть зафиксированы до старта?</b></p><p>Это формализованные условия успеха, исключающие субъективную подгонку результатов под желаемый исход постфактум.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+    </ol>
+  </main>
+</body>
+</html>

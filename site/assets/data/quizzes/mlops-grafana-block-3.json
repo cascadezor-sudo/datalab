@@ -1,0 +1,88 @@
+{
+  "id": "mlops:grafana:block-3",
+  "title": "Grafana · Блок 3: алертинг и Loki",
+  "description": "Итоговая проверка по Grafana: Grafana Alerting и Prometheus Alerting Rules, contact points, notification policies, silences и аннотации, Loki против Elasticsearch, LogQL и переход от метрики к логам.",
+  "timeLimitSec": 540,
+  "shuffle": true,
+  "threshold": 0.8,
+  "items": [
+    {
+      "id": "b3_grafana_vs_prom",
+      "type": "single",
+      "q": "В чём преимущество Grafana Alerting перед Prometheus Alerting Rules по материалу?",
+      "options": [
+        "Правила лучше ложатся в GitOps как YAML в репозитории",
+        "Он работает только с Prometheus и поэтому быстрее",
+        "Он не требует data source",
+        "Работает с любыми data sources, а алерты видны прямо на дашборде как аннотации"
+      ],
+      "answer": [3],
+      "explain": "Prometheus-правила выигрывают в GitOps-чистоте, Grafana — в источниках данных и визуализации."
+    },
+    {
+      "id": "b3_contact_policy",
+      "type": "single",
+      "q": "Чем Contact Point отличается от Notification Policy?",
+      "options": [
+        "Contact Point — куда отправлять (Slack, PagerDuty, email), Notification Policy — какие алерты куда маршрутизировать",
+        "Contact Point задаёт порог алерта, Notification Policy — PromQL-запрос",
+        "Это два названия одного и того же",
+        "Contact Point хранит логи, Notification Policy — метрики"
+      ],
+      "answer": [0],
+      "explain": "Policy маршрутизирует алерты по правилам, Contact Point — конечный канал уведомления."
+    },
+    {
+      "id": "b3_silence",
+      "type": "single",
+      "q": "Команда запускает A/B-эксперимент, который намеренно меняет метрики. Что в Grafana применить, чтобы не получать ложные алерты?",
+      "options": [
+        "Удалить alert rule и потом создать заново",
+        "Аннотацию",
+        "Silence — временное отключение алертов по условию",
+        "Template variable"
+      ],
+      "answer": [2],
+      "explain": "Silences отключают алерты на время maintenance, деплоя или эксперимента."
+    },
+    {
+      "id": "b3_loki_index",
+      "type": "single",
+      "q": "Чем Loki отличается от Elasticsearch в подходе к индексированию?",
+      "options": [
+        "Loki индексирует полный текст, Elasticsearch — только метки",
+        "Loki индексирует только labels, а не содержимое логов, поэтому дешевле в хранении, но медленнее при поиске по тексту",
+        "Loki вообще не умеет фильтровать по тексту",
+        "Loki хранит логи в Prometheus TSDB"
+      ],
+      "answer": [1],
+      "explain": "Поиск по тексту в Loki — «grep» по сжатым чанкам, зато хранение дешёвое."
+    },
+    {
+      "id": "b3_logql",
+      "type": "multi",
+      "q": "Какие утверждения о LogQL верны? (несколько ответов)",
+      "options": [
+        "Синтаксически он похож на PromQL",
+        "Это SQL-диалект поверх Elasticsearch",
+        "Он умеет строить метрики из логов, например rate ошибок",
+        "Он работает только с неструктурированными логами"
+      ],
+      "answer": [0, 2],
+      "explain": "Базовый синтаксис `{selector} |= \"filter\" | parser | метрика`: фильтрация по labels и тексту плюс метрики из логов."
+    },
+    {
+      "id": "b3_data_links",
+      "type": "single",
+      "q": "На Prometheus-панели всплеск p95 latency. Как по материалу быстрее всего увидеть логи сервиса за тот же период?",
+      "options": [
+        "Выгрузить логи с сервера по SSH",
+        "Поставить silence и дождаться, пока всплеск пройдёт",
+        "Создать отдельную Grafana под логи",
+        "Перейти к логам Loki через Data Links или Explore прямо из Grafana"
+      ],
+      "answer": [3],
+      "explain": "Корреляция метрик и логов в один клик ускоряет root cause analysis."
+    }
+  ]
+}

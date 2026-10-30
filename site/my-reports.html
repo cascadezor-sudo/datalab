@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <!-- theme-boot:start -->
+  <script>
+    /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
+       первой отрисовки. Раньше тему ставили либо в window.onload (то есть
+       после загрузки всех картинок), либо в DOMContentLoaded, и человек с
+       тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
+       белого экрана при каждом открытии.
+
+       Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
+       запрос на критическом пути, а именно его тут быть и не должно.
+
+       Источник истины — атрибут html[data-theme]: он существует уже в <head>,
+       где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
+       для кода, который его читает (подписи переключателя оформления).
+
+       Менять тему руками умеет только модалка оформления в navigation.js —
+       она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
+       больше нет: её 65 копий не вызывались ни из одного места. */
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+
+      function read(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null; /* приватный режим — просто нет сохранённого выбора */
+        }
+      }
+      function write(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function normalizePalette(raw) {
+        if (!raw || raw === "classic") return "vibecode";
+        return raw;
+      }
+
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+
+      /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
+         ровно так же, как это делали прежние копии инициализации темы. */
+      function resolveTheme(stored) {
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body)
+          document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+
+      /* body ещё не распарсен. Ждём его вставки через MutationObserver:
+         колбэк — микрозадача, то есть класс окажется на body раньше, чем
+         браузер соберётся рисовать. */
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+
+      /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
+         и словарь должны быть готовы до первого скрипта, который рисует текст.
+         Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
+         «Каталог», поэтому страницы переводятся по одной, а не все разом.
+         Страницы /en/… (английские материалы) английские всегда. Словарь
+         грузится только для английского: русскому интерфейсу он не нужен. */
+      var lang = /^\/en(\/|$)/.test(location.pathname)
+        ? "en"
+        : read("lang") === "en"
+          ? "en"
+          : "ru";
+      root.lang = lang;
+      /* Английский выбран, а открыта русская страница материала — уходим в её
+         английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
+      var MATERIAL =
+        /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
+      if (lang === "en" && MATERIAL.test(location.pathname)) {
+        var tail = location.search + location.hash;
+        location.replace("/en" + location.pathname + tail);
+      }
+      var dict = {};
+      var i18n = {
+        lang: lang,
+        locale: lang === "en" ? "en-US" : "ru-RU",
+        add: function (entries) {
+          for (var key in entries) dict[key] = entries[key];
+        },
+        t: function (ru, params) {
+          var text = lang !== "ru" && dict[ru] != null ? dict[ru] : ru;
+          if (!params) return text;
+          return text.replace(/\{(\w+)\}/g, function (match, name) {
+            return params[name] != null ? params[name] : match;
+          });
+        },
+        /* forms: { ru: [один, два, пять], en: [one, many] } */
+        plural: function (count, forms) {
+          var list = forms[lang] || forms.ru;
+          var n = Math.abs(Number(count) || 0);
+          var rule;
+          try {
+            rule = new Intl.PluralRules(i18n.locale).select(n);
+          } catch (e) {
+            /* Safari < 13: PluralRules нет — считаем по-старому */
+            var mod10 = n % 10;
+            var mod100 = n % 100;
+            rule =
+              lang !== "ru"
+                ? n === 1
+                  ? "one"
+                  : "other"
+                : mod10 === 1 && mod100 !== 11
+                  ? "one"
+                  : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+                    ? "few"
+                    : "many";
+          }
+          if (lang === "ru")
+            return list[rule === "one" ? 0 : rule === "few" ? 1 : 2];
+          return list[rule === "one" ? 0 : 1];
+        },
+        remember: function (next) {
+          write("lang", next === "en" ? "en" : "ru");
+        },
+      };
+      /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
+         совпадающий с ключом словаря, переводится по месту. Страница включает
+         это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
+         непереведённая страница вышла бы наполовину английской. Вопросы, код
+         и формулы не трогаем — это материал, а не интерфейс. */
+      var SKIP = "#questions, pre, code, script, style, textarea, .katex";
+      var ATTRS = ["title", "placeholder", "aria-label", "alt"];
+      function translateTree(node) {
+        if (lang === "ru" || !node) return;
+        /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
+        var filter = {
+          acceptNode: function (el) {
+            var skip = el.matches && el.matches(SKIP);
+            return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          },
+        };
+        var show = NodeFilter.SHOW_ELEMENT;
+        var walker = document.createTreeWalker(node, show, filter);
+        for (var el = walker.currentNode; el; el = walker.nextNode()) {
+          for (var i = 0; i < ATTRS.length; i++) {
+            var value = el.getAttribute && el.getAttribute(ATTRS[i]);
+            if (value && dict[value.trim()] != null)
+              el.setAttribute(ATTRS[i], dict[value.trim()]);
+          }
+          for (var c = el.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 3) continue;
+            /* В разметке текст бывает перенесён строкой — сравниваем по
+               схлопнутым пробелам, края узла сохраняем. */
+            var key = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (key && dict[key] != null) {
+              var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
+              c.nodeValue = edges[1] + dict[key] + edges[2];
+            }
+          }
+        }
+      }
+      i18n.translate = translateTree;
+
+      window.i18n = i18n;
+      window.t = i18n.t;
+      if (lang === "en") {
+        document.write('<script src="assets/js/i18n/en.js"><\/script>');
+        document.addEventListener("DOMContentLoaded", function () {
+          if (!document.body.hasAttribute("data-i18n")) return;
+          var title = document.title.trim();
+          if (dict[title] != null) document.title = dict[title];
+          translateTree(document.body);
+        });
+      }
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мои отчёты</title>
+  <link href="assets/css/tokens.css" rel="stylesheet">
+  <link href="assets/css/task-table.css" rel="stylesheet">
+  <link href="assets/css/skeleton.css" rel="stylesheet">
+  <link href="assets/css/comparison-cards.css" rel="stylesheet">
+  <link href="assets/css/styles.css" rel="stylesheet">
+  <link href="assets/css/pages-modern.css" rel="stylesheet">
+  <link href="assets/css/navigation.css" rel="stylesheet">
+  <link href="assets/css/daily-reports.css" rel="stylesheet">
+  <link href="assets/css/fonts.css" rel="stylesheet" />
+<!-- Firebase SDK -->
+  <!-- firebase-sdk-full:start -->
+  
+  
+  
+  <!-- firebase-sdk-full:end -->
+  
+  <script src="assets/js/components/config-loader.js"></script>
+  <script src="assets/js/components/achievement-api.js"></script>
+  <script src="assets/js/components/daily-reports.js"></script>
+  <script src="assets/js/components/skeleton-loader.js"></script>
+
+  <script>
+    // Initialize Firebase
+    async function initializeFirebase() {
+      try {
+        const firebaseConfig = await window.configLoader.loadFirebaseConfig();
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+
+        // Show report skeletons while Firebase loads
+        SkeletonLoader.show('report', '#reports-container', 5);
+        SkeletonLoader.show('chartSkeleton', '#stats-container');
+
+        firebase.auth().onAuthStateChanged(async (user) => {
+          if (user) {
+            currentUser = user;
+            await window.dailyReportsSystem.initialize(firebaseConfig);
+            // initialize subscribes to auth asynchronously; use this already authenticated user
+            // before the first history read, rather than waiting for its second callback.
+            window.dailyReportsSystem.user = user;
+            currentUserRole = await getCurrentUserRole(user.uid);
+            // Отчёты — часть менторства: «только материалы» видит объяснение,
+            // сервер (createDailyReport) таким тоже отказывает. Сотрудника не
+            // трогаем: покупатель материалов, ставший куратором той же учёткой,
+            // открывает здесь отчёты учеников по ссылке.
+            const isStaff = canViewSharedReports(currentUserRole) || currentUserRole === 'admin-helper';
+            const format = (await firebase.database().ref(`users/${user.uid}/learningFormat`).once('value')).val();
+            if (format === 'materials' && !isStaff) {
+              document.querySelector('.reports-page').hidden = true;
+              document.getElementById('write-report-button').hidden = true;
+              document.getElementById('reports-format-notice').hidden = false;
+              return;
+            }
+            const sharedReportParams = getSharedReportParams();
+            if (sharedReportParams) {
+              await loadSharedReport(sharedReportParams);
+            } else {
+              await loadUserReports();
+            }
+          } else {
+            window.location.href = '/index.html';
+          }
+        });
+        
+      } catch (error) {
+        console.error('Failed to initialize Firebase:', error);
+      }
+    }
+    
+    let allReportsForChart = [];
+    let currentUser = null;
+    let currentUserRole = null;
+
+    function getSharedReportParams() {
+      const params = new URLSearchParams(window.location.search);
+      const userId = params.get('reportUserId') || params.get('uid');
+      const reportId = params.get('reportId') || params.get('report');
+      if (!userId || !reportId) return null;
+      return { userId, reportId };
+    }
+
+    async function getCurrentUserRole(uid) {
+      try {
+        const snapshot = await firebase.database().ref(`users/${uid}/role`).once('value');
+        return snapshot.val() || null;
+      } catch (error) {
+        console.error('Error loading user role:', error);
+        return null;
+      }
+    }
+
+    function canViewSharedReports(role) {
+      return role === 'admin' || role === 'mentor' || role === 'curator';
+    }
+
+    function buildReportShareUrl(report) {
+      const reportUserId = report.uid || (currentUser && currentUser.uid);
+      const reportId = report.reportId;
+      if (!reportUserId || !reportId) return '';
+      const url = new URL('/my-reports.html', window.location.origin);
+      url.searchParams.set('reportUserId', reportUserId);
+      url.searchParams.set('reportId', reportId);
+      return url.toString();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function showReportsMessage(title, message) {
+      const statsContainer = document.getElementById('stats-container');
+      const reportsTitle = document.querySelector('.reports-section .section-title');
+      const container = document.getElementById('reports-container');
+      SkeletonLoader.hide('#reports-container');
+      SkeletonLoader.hide('#stats-container');
+      if (statsContainer) statsContainer.style.display = 'none';
+      if (reportsTitle) reportsTitle.textContent = title;
+      if (container) {
+        container.innerHTML = `
+          <div class="no-reports">
+            <div class="no-reports-icon">📝</div>
+            <h3>${escapeHtml(title)}</h3>
+            <p>${escapeHtml(message)}</p>
+          </div>
+        `;
+      }
+    }
+
+    async function loadSharedReport({ userId, reportId }) {
+      if (!canViewSharedReports(currentUserRole)) {
+        showReportsMessage(t('Нет доступа'), t('Просмотр отчёта по ссылке доступен только ментору или куратору.'));
+        return;
+      }
+
+      try {
+        const [reportSnapshot, studentSnapshot] = await Promise.all([
+          firebase.database().ref(`daily_reports/${userId}/${reportId}`).once('value'),
+          firebase.database().ref(`users/${userId}`).once('value')
+        ]);
+
+        const report = reportSnapshot.val();
+        if (!report) {
+          showReportsMessage(t('Отчёт не найден'), t('Проверьте ссылку или попросите ученика отправить её ещё раз.'));
+          return;
+        }
+
+        const student = studentSnapshot.val() || {};
+        const normalizedReport = {
+          ...report,
+          uid: userId,
+          reportId: report.reportId || reportId,
+          studentName: student.displayName || student.email || report.email || t('Ученик')
+        };
+
+        await markSharedReportAsRead(userId, reportId);
+        displaySharedReport(normalizedReport);
+      } catch (error) {
+        console.error('Error loading shared report:', error);
+        showReportsMessage(t('Ошибка загрузки'), t('Не удалось открыть отчёт по ссылке.'));
+      }
+    }
+
+    async function markSharedReportAsRead(userId, reportId) {
+      if (!currentUser || !canViewSharedReports(currentUserRole)) return;
+      try {
+        await firebase.database().ref(`daily_reports/${userId}/${reportId}`).update({
+          readByMentorAt: Date.now(),
+          readBy: currentUser.uid
+        });
+      } catch (error) {
+        console.error('Error marking shared report as read:', error);
+      }
+    }
+
+    // Load user reports (365 дней для графика по месяцам)
+    async function loadUserReports() {
+      try {
+        const reportsForList = await window.dailyReportsSystem.getUserReports(30);
+        allReportsForChart = await window.dailyReportsSystem.getUserReports(365);
+        displayUserReports(reportsForList);
+        renderHoursChart(allReportsForChart);
+      } catch (error) {
+        console.error('Error loading user reports:', error);
+      }
+    }
+    
+    function renderReportCard(report, options = {}) {
+      const isToday = report.date === new Date().toISOString().split('T')[0];
+      const wordCount = ((report.done || '') + (report.plan || '') + (report.problems || '')).split(/\s+/).filter(Boolean).length;
+      const showDelete = options.showDelete !== false;
+      const showShare = options.showShare !== false;
+      const showAuthor = !!options.showAuthor && report.studentName;
+      const reportId = report.reportId || '';
+      const parsed = (value) => window.dailyReportsSystem ? window.dailyReportsSystem.parseMarkdown(value) : escapeHtml(value);
+
+      return `
+        <div class="report-card ${report.isRestDay ? 'rest-day-card' : ''}">
+          <div class="report-header">
+            <div class="date">📅 ${formatDate(report.date)}</div>
+            <div class="time">${formatTime(report.timestamp)}</div>
+            ${showAuthor ? `<div class="author">👤 ${escapeHtml(report.studentName)}</div>` : ''}
+            ${(report.hoursSpent != null && report.hoursSpent > 0) ? `<div class="report-stat-badge">⏱️ ${t('{hours} ч', { hours: escapeHtml(report.hoursSpent) })}</div>` : ''}
+            ${(report.tasksCompleted != null && report.tasksCompleted > 0) ? `<div class="report-stat-badge">✅ ${t('{count} задач', { count: escapeHtml(report.tasksCompleted) })}</div>` : ''}
+            ${report.topic ? `<div class="topic-badge">🧩 ${escapeHtml(report.topic)}</div>` : ''}
+            ${report.mood ? `<div class="mood-badge">${escapeHtml(report.mood)}</div>` : ''}
+            ${report.isRestDay ? `<div class="rest-day-badge">😴 ${t('Выходной')}</div>` : ''}
+            ${isToday ? `<div class="today-badge">${t('Сегодня')} ✅</div>` : ''}
+            ${report.readByMentorAt ? `<div class="read-by-mentor-badge" title="${t('Отчёт просмотрен ментором/куратором')}">✓ ${t('Прочитано')}</div>` : ''}
+            <div class="word-count">${t('{count} слов', { count: wordCount })}</div>
+            ${showShare ? `
+              <button class="share-report-btn" data-report-id="${escapeHtml(reportId)}" title="${t('Скопировать ссылку для ментора')}">
+                🔗
+              </button>
+            ` : ''}
+            ${showDelete ? `
+              <button class="delete-btn" onclick="deleteReport('${escapeHtml(reportId)}')" title="${t('Удалить отчёт')}">
+                🗑️
+              </button>
+            ` : ''}
+          </div>
+
+          <div class="report-content">
+            <div class="report-section report-done">
+              <h4>✅ ${t('Что сделал(а):')}</h4>
+              <p>${parsed(report.done)}</p>
+            </div>
+
+            ${report.plan ? `
+              <div class="report-section report-plan">
+                <h4>🚀 ${t('Планы:')}</h4>
+                <p>${parsed(report.plan)}</p>
+              </div>
+            ` : ''}
+
+            ${report.problems ? `
+              <div class="report-section report-issues">
+                <h4>🐛 ${t('Трудности:')}</h4>
+                <p>${parsed(report.problems)}</p>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function bindReportShareButtons(reports) {
+      const byId = new Map(reports.map(report => [report.reportId, report]));
+      document.querySelectorAll('.share-report-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          const report = byId.get(button.dataset.reportId);
+          if (report) copyReportLink(report, button);
+        });
+      });
+    }
+
+    // Display user reports
+    function displayUserReports(reports) {
+      const container = document.getElementById('reports-container');
+      if (!container) return;
+      SkeletonLoader.hide('#reports-container');
+      
+      if (reports.length === 0) {
+        container.innerHTML = `
+          <div class="no-reports">
+            <div class="no-reports-icon">📝</div>
+            <h3>${t('Пока нет отчётов')}</h3>
+            <p>${t('Начни заполнять ежедневные отчёты, чтобы отслеживать свой прогресс!')}</p>
+            <!-- <a href="main.html" class="btn-primary">На главную</a> -->
+          </div>
+        `;
+        return;
+      }
+      
+      container.innerHTML = `
+        <div class="report-list">
+          ${reports.map(report => renderReportCard(report)).join('')}
+        </div>
+      `;
+      bindReportShareButtons(reports);
+    }
+
+    function displaySharedReport(report) {
+      const statsContainer = document.getElementById('stats-container');
+      const reportsTitle = document.querySelector('.reports-section .section-title');
+      const pageTitle = document.querySelector('.page-header h1');
+      const subtitle = document.querySelector('.page-header .subtitle');
+      const container = document.getElementById('reports-container');
+      SkeletonLoader.hide('#reports-container');
+      SkeletonLoader.hide('#stats-container');
+      if (statsContainer) statsContainer.style.display = 'none';
+      if (reportsTitle) reportsTitle.textContent = t('Отчёт ученика');
+      if (pageTitle) pageTitle.textContent = t('Отчёт ученика');
+      if (subtitle) subtitle.textContent = t('Просмотр отчёта по ссылке');
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="shared-report-note">
+          ${t('Ссылка открыта в режиме просмотра для ментора или куратора.')}
+        </div>
+        <div class="report-list">
+          ${renderReportCard(report, { showDelete: false, showShare: false, showAuthor: true })}
+        </div>
+      `;
+    }
+    
+    let currentChartMonth = new Date().getMonth();
+    let currentChartYear = new Date().getFullYear();
+
+    function detectDarkMode() {
+      return (
+        document.documentElement.dataset.theme === 'dark' ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      );
+    }
+
+    function getHoursByDayForMonth(reports, year, month) {
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const hoursByDay = Array.from({ length: daysInMonth }, () => 0);
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
+      reports.forEach(r => {
+        const d = new Date(r.date);
+        if (d >= monthStart && d <= monthEnd) {
+          const dayIndex = d.getDate() - 1;
+          const h = typeof r.hoursSpent === 'number' ? r.hoursSpent : (parseFloat(r.hoursSpent) || 0);
+          hoursByDay[dayIndex] += h;
+        }
+      });
+      return {
+        labels: Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString()),
+        values: hoursByDay
+      };
+    }
+
+    function renderHoursChart(reports) {
+      const container = document.getElementById('stats-container');
+      if (!container) return;
+      SkeletonLoader.hide('#stats-container');
+
+      const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                          'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+      const { labels, values } = getHoursByDayForMonth(reports, currentChartYear, currentChartMonth);
+      const monthTitle = window.i18n?.lang === 'en'
+        ? new Date(currentChartYear, currentChartMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        : monthNames[currentChartMonth] + ' ' + currentChartYear;
+
+      const maxVal = Math.max(...values, 1);
+      // Round up to a nice Y-max (0.5 steps)
+      const yMax = Math.ceil(maxVal * 2) / 2;
+      const totalHours = values.reduce((s, v) => s + v, 0).toFixed(1);
+
+      // Y-axis ticks: up to 5 gridlines
+      const step = yMax <= 2 ? 0.5 : yMax <= 5 ? 1 : yMax <= 10 ? 2 : 5;
+      const yTicks = [];
+      for (let tick = 0; tick <= yMax; tick += step) yTicks.push(+tick.toFixed(1));
+
+      const barsHTML = labels.map((day, i) => {
+        const h = values[i];
+        const pct = yMax > 0 ? (h / yMax) * 100 : 0;
+        const showLabel = labels.length <= 15 || (i % 2 === 0);
+        return `
+          <div class="hbar-col" title="${t('{day}-е: {hours} ч', { day, hours: h })}">
+            <div class="hbar-bar-wrap">
+              ${h > 0 ? `<div class="hbar-tooltip">${t('{hours} ч', { hours: h })}</div>` : ''}
+              <div class="hbar-bar" style="height:${pct}%"></div>
+            </div>
+            <div class="hbar-x-label">${showLabel ? day : ''}</div>
+          </div>`;
+      }).join('');
+
+      const gridLinesHTML = yTicks.map(tick => {
+        const pct = (tick / yMax) * 100;
+        return `<div class="hbar-gridline" style="bottom:${pct}%"><span>${tick}</span></div>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="hours-chart-section">
+          <div class="hours-chart-header">
+            <button type="button" class="hours-chart-nav" id="chart-prev-month" aria-label="${t('Предыдущий месяц')}">‹</button>
+            <h3 class="hours-chart-title">${t('Часы на учёбу по дням')}</h3>
+            <span class="hours-chart-month" id="chart-month-label">${monthTitle}</span>
+            <button type="button" class="hours-chart-nav" id="chart-next-month" aria-label="${t('Следующий месяц')}">›</button>
+          </div>
+          <div class="hbar-chart" id="hours-chart">
+            <div class="hbar-y-axis">${gridLinesHTML}</div>
+            <div class="hbar-plot">
+              ${barsHTML}
+            </div>
+          </div>
+          <div class="hbar-summary">${t('Итого за месяц:')} <strong>${t('{hours} ч', { hours: totalHours })}</strong></div>
+        </div>
+      `;
+
+      document.getElementById('chart-prev-month').onclick = () => {
+        currentChartMonth--;
+        if (currentChartMonth < 0) { currentChartMonth = 11; currentChartYear--; }
+        renderHoursChart(allReportsForChart);
+      };
+      document.getElementById('chart-next-month').onclick = () => {
+        currentChartMonth++;
+        if (currentChartMonth > 11) { currentChartMonth = 0; currentChartYear++; }
+        const now = new Date();
+        if (currentChartYear > now.getFullYear() ||
+            (currentChartYear === now.getFullYear() && currentChartMonth > now.getMonth())) {
+          currentChartYear = now.getFullYear();
+          currentChartMonth = now.getMonth();
+        }
+        renderHoursChart(allReportsForChart);
+      };
+    }
+    
+    // Calculate streak from reports
+    function calculateStreak(reports) {
+      if (reports.length === 0) return 0;
+      
+      const dates = reports.map(r => r.date).sort().reverse();
+      let streak = 0;
+      let currentDate = new Date();
+      
+      for (let i = 0; i < dates.length; i++) {
+        const reportDate = new Date(dates[i]);
+        const daysDiff = Math.floor((currentDate - reportDate) / (1000 * 60 * 60 * 24));
+        
+        if (daysDiff === streak) {
+          streak++;
+          currentDate = reportDate;
+        } else {
+          break;
+        }
+      }
+      
+      return streak;
+    }
+    
+    // Helper functions
+    function getStreakEmoji(streak) {
+      if (streak >= 30) return '👑';
+      if (streak >= 14) return '💎';
+      if (streak >= 7) return '🚀';
+      if (streak >= 3) return '🔥';
+      return '💤';
+    }
+    
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString(window.i18n?.locale || 'ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        weekday: 'long'
+      });
+    }
+    
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString(window.i18n?.locale || 'ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    async function copyReportLink(report, button) {
+      const url = buildReportShareUrl(report);
+      if (!url) return;
+
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const input = document.createElement('textarea');
+          input.value = url;
+          input.setAttribute('readonly', '');
+          input.style.position = 'fixed';
+          input.style.opacity = '0';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          input.remove();
+        }
+
+        if (button) {
+          const previousText = button.textContent;
+          button.textContent = '✓';
+          button.classList.add('copied');
+          setTimeout(() => {
+            button.textContent = previousText;
+            button.classList.remove('copied');
+          }, 1600);
+        }
+        if (window.dailyReportsSystem) {
+          window.dailyReportsSystem.showNotification(t('Ссылка на отчёт скопирована'), 'success');
+        }
+      } catch (error) {
+        console.error('Error copying report link:', error);
+        if (window.dailyReportsSystem) {
+          window.dailyReportsSystem.showNotification(t('Не удалось скопировать ссылку'), 'error');
+        }
+      }
+    }
+    
+    // Delete report function
+    async function deleteReport(reportId) {
+      if (!reportId) return;
+      
+      try {
+        // Используем функцию удаления из системы ежедневных отчётов
+        if (window.dailyReportsSystem) {
+          await window.dailyReportsSystem.deleteReport(reportId);
+          
+          // Небольшая задержка для обновления Firebase
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Перезагружаем отчёты на странице
+          await loadUserReports();
+        } else {
+          console.error('Daily reports system not available');
+        }
+      } catch (error) {
+        console.error('Error deleting report:', error);
+      }
+    }
+    
+    // Initialize when DOM is loaded
+    document.addEventListener('DOMContentLoaded', initializeFirebase);
+    document.addEventListener('dailyReportSubmitted', async () => {
+      await loadUserReports();
+    });
+    
+    
+  </script>
+  <script src="assets/js/firebase-mock.js"></script>
+</head>
+<body class="main" data-i18n>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <header class="page-header">
+      <div class="page-header-content">
+        <img class="page-header-icon" src="assets/icons/online-report.svg" alt="" />
+        <div class="page-header-text">
+          <h1>Мои отчёты</h1>
+          <p class="subtitle">История твоих ежедневных отчётов</p>
+        </div>
+        <div class="page-header-cta">
+          <button type="button" id="write-report-button" onclick="window.dailyReportsSystem && window.dailyReportsSystem.showDailyReportModal()" class="page-header-button">Оставить отчёт</button>
+          <a href="profile.html" class="page-header-button">Назад к профилю</a>
+        </div>
+      </div>
+    </header>
+
+    <div id="reports-format-notice" class="no-reports" hidden>
+      <h3>Отчёты — часть менторства</h3>
+      <p>
+        Ежедневные отчёты читает куратор, поэтому на тарифе «только материалы»
+        их нет. Если хочешь перейти на менторство — напиши ментору.
+      </p>
+    </div>
+
+    <div class="reports-page">
+      <div id="stats-container" class="stats-section">
+        <!-- Stats will be loaded here -->
+      </div>
+
+      <div class="reports-section">
+        <h2 class="section-title">История отчётов</h2>
+        <div id="reports-container" class="reports-list">
+          <!-- Reports will be loaded here -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/js/components/navigation.js"></script>
+  <script src="authGuard.js"></script>
+</body>
+</html>
