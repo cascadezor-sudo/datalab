@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 2, Module 1 (metrics.html complete):
+Deep textbook generator for DataLab Analytics - Group 2, Module 1 (metrics.html complete):
 Questions 7-12 of metrics.html and builder.
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 from gen_deep_group2_metrics_p1 import (
     q_dau_mau_stickiness,

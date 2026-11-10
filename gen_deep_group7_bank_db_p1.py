@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 7:
+Deep textbook generator for DataLab Analytics - Group 7:
 site/bank/db.html (20 questions) - Part 1: questions 1-10
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question
 
 q_db_joins_interview = (

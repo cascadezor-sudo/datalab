@@ -10,43 +10,30 @@
   --bronze-color: #d97706;
 
   /* Light theme (default) */
-  --bg-color: #f5f1eb;
-  --card-bg: rgba(252, 251, 248, 0.95);
-  --border-color: rgba(180, 160, 120, 0.25);
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
+  --bg-color: var(--bg);
+  --card-bg: var(--bg-card);
+  --border-color: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
   --shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg:
     0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   --gradient-primary: var(--gradient-pop);
-  --gradient-secondary: linear-gradient(
-    135deg,
-    #0f172a 0%,
-    #1e293b 50%,
-    #334155 100%
-  );
-  --leaderboard-soft-gradient: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand) 34%, var(--neutral-500, #7a7870)),
-    color-mix(in srgb, var(--brand-secondary) 26%, var(--neutral-600, #56554e))
-  );
-  --leaderboard-soft-pop: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--brand) 72%, var(--text-muted, #64748b)),
-    color-mix(in srgb, var(--brand-secondary) 58%, var(--text-muted, #64748b))
-  );
+  --gradient-secondary: var(--bg-elevated);
+  --leaderboard-soft-gradient: var(--brand);
+  --leaderboard-soft-pop: var(--brand);
   --progress-fill: var(--leaderboard-soft-pop);
   --progress-empty: rgba(0, 0, 0, 0.1);
 }
 
 /* Dark theme */
 [data-theme="dark"] {
-  --bg-color: #1a1a1d;
-  --card-bg: rgba(30, 41, 59, 0.95);
+  --bg-color: var(--bg);
+  --card-bg: var(--bg-card);
   --border-color: color-mix(in srgb, var(--brand) 22%, transparent);
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
   --shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-lg:
@@ -55,28 +42,7 @@
 }
 
 body {
-  background:
-    radial-gradient(
-      ellipse 80% 55% at 15% 20%,
-      color-mix(in srgb, var(--brand) 18%, transparent) 0%,
-      transparent 55%
-    ),
-    radial-gradient(
-      ellipse 60% 45% at 88% 15%,
-      color-mix(in srgb, var(--brand-secondary) 15%, transparent) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      ellipse 55% 50% at 70% 85%,
-      color-mix(in srgb, var(--brand-secondary) 12%, transparent) 0%,
-      transparent 48%
-    ),
-    radial-gradient(
-      ellipse 65% 40% at 5% 75%,
-      rgba(212, 184, 120, 0.1) 0%,
-      transparent 44%
-    ),
-    var(--bg-color);
+  background: var(--bg);
   background-attachment: scroll;
   color: var(--text-primary);
   font-family:
@@ -245,13 +211,7 @@ body {
 .league-panel.league-tier-silver,
 .league-panel.league-tier-gold,
 .league-panel.league-tier-platinum {
-  background:
-    radial-gradient(
-      420px 180px at 0 0,
-      color-mix(in srgb, var(--tier-accent) 14%, transparent),
-      transparent 70%
-    ),
-    var(--card-bg);
+  background: var(--card-bg);
 }
 
 .league-badge {
@@ -2206,32 +2166,6 @@ body.mentor-user .leaderboard-entry:hover .admin-controls {
   border-top: 1px solid var(--border-color);
 }
 
-/* Грады на счёте — колонка только для персонала: сервер отдаёт walletBalances
-   в getStaffLeaderboardData, и leaderboard.js вешает класс на body. */
-.wallet-header,
-.wallet-count {
-  display: none;
-}
-
-body.wallet-visible .wallet-header {
-  display: block;
-  text-align: center;
-}
-
-body.wallet-visible .wallet-count {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-body.wallet-visible .leaderboard-header-row,
-body.wallet-visible .leaderboard-entry {
-  grid-template-columns: 80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr;
-}
-
 .admin-notice-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2244,23 +2178,7 @@ body.wallet-visible .leaderboard-entry {
   color: var(--text-secondary);
 }
 
-@media (max-width: 768px) {
-  body.wallet-visible .leaderboard-header-row,
-  body.wallet-visible .leaderboard-entry {
-    grid-template-columns: 60px 1fr 60px 60px 50px 50px 55px 60px;
-  }
-}
-
-@media (max-width: 480px) {
-  body.wallet-visible .leaderboard-header-row,
-  body.wallet-visible .leaderboard-entry {
-    grid-template-columns: 50px 1fr 50px 50px 40px 40px 45px 50px;
-  }
-}
-
-/* ---- Плотная таблица (2026-09-09): короткие заголовки, чипы отдельной
-   строкой, стрелка сортировки только у активной колонки, монета вместо ∇.
-   Десктоп: мобильные сетки выше остаются как есть. ---- */
+/* ---- Компактная таблица с короткими заголовками и стрелкой сортировки. ---- */
 @media (min-width: 769px) {
   .leaderboard-header-row,
   .leaderboard-entry {
@@ -2270,10 +2188,6 @@ body.wallet-visible .leaderboard-entry {
     align-items: center;
   }
 
-  body.wallet-visible .leaderboard-header-row,
-  body.wallet-visible .leaderboard-entry {
-    grid-template-columns: 72px minmax(0, 2.4fr) repeat(6, minmax(0, 1fr));
-  }
 
   .leaderboard-header-row .header-label {
     white-space: nowrap;
@@ -2285,8 +2199,7 @@ body.wallet-visible .leaderboard-entry {
   letter-spacing: 0.01em;
 }
 
-.leaderboard-header-row .sortable-header,
-.leaderboard-header-row .wallet-header {
+.leaderboard-header-row .sortable-header {
   justify-content: center;
 }
 
@@ -2349,21 +2262,11 @@ body.wallet-visible .leaderboard-entry {
 .hours-count,
 .achievements-count,
 .quizzes-count,
-.quiz-percent,
-body.wallet-visible .wallet-count {
+.quiz-percent {
   font-variant-numeric: tabular-nums;
   font-size: 15px;
 }
 
-body.wallet-visible .wallet-count {
-  gap: 5px;
-}
-
-.wallet-count .coin-icon {
-  width: 1.2em;
-  height: 1.2em;
-  vertical-align: -0.25em;
-}
 
 /* ── Лиги глазами персонала: все группы формата по тирам ─────────────────── */
 .league-formats {
@@ -2437,4 +2340,34 @@ a.league-name:hover {
   gap: 10px;
   padding: 8px 10px;
   font-size: 14px;
+}
+
+/* Keep leaderboard chrome on the same matte color system as learning pages. */
+[data-theme="dark"] body {
+  --bg-color: var(--bg);
+  --card-bg: var(--bg-card);
+  --border-color: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+}
+
+body,
+[data-theme="dark"] body {
+  background: var(--bg);
+  background-image: none;
+}
+
+:root,
+[data-theme="dark"] body {
+  --leaderboard-soft-gradient: var(--brand);
+  --leaderboard-soft-pop: var(--brand);
+  --progress-fill: var(--brand);
+}
+
+.stat-number,
+.progress-text,
+[data-theme="dark"] body .stat-number {
+  background: none;
+  color: var(--brand);
+  -webkit-text-fill-color: currentColor;
 }

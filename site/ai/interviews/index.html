@@ -1,26 +1,9 @@
 <!doctype html>
-
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
     <!-- theme-boot:start -->
     <script>
-      /* Оформление применяется ЗДЕСЬ — до первого <link rel=stylesheet> и до
-         первой отрисовки. Раньше тему ставили либо в window.onload (то есть
-         после загрузки всех картинок), либо в DOMContentLoaded, и человек с
-         тёмной темой успевал увидеть светлый фон: на bank/index.html это ~84 мс
-         белого экрана при каждом открытии.
-
-         Скрипт намеренно инлайновый и синхронный: внешний файл — это ещё один
-         запрос на критическом пути, а именно его тут быть и не должно.
-
-         Источник истины — атрибут html[data-theme]: он существует уже в <head>,
-         где document.body ещё нет. Класс body.dark остаётся зеркалом атрибута
-         для кода, который его читает (подписи переключателя оформления).
-
-         Менять тему руками умеет только модалка оформления в navigation.js —
-         она зовёт отсюда window.__applyTheme. Отдельной функции toggleTheme
-         больше нет: её 65 копий не вызывались ни из одного места. */
       (function themeBoot() {
         var root = document.documentElement;
         var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
@@ -29,15 +12,13 @@
           try {
             return localStorage.getItem(key);
           } catch (e) {
-            return null; /* приватный режим — просто нет сохранённого выбора */
+            return null;
           }
         }
         function write(key, value) {
           try {
             localStorage.setItem(key, value);
-          } catch (e) {
-            /* ignore */
-          }
+          } catch (e) {}
         }
 
         function normalizePalette(raw) {
@@ -59,8 +40,6 @@
           return palette;
         }
 
-        /* Сохранённое "system" (и отсутствие выбора) отдаём системной настройке —
-           ровно так же, как это делали прежние копии инициализации темы. */
         function resolveTheme(stored) {
           var prefersDark =
             window.matchMedia &&
@@ -81,9 +60,6 @@
         var palette = applyPaletteClasses(read("palette"));
         applyTheme(resolveTheme(read("theme")));
 
-        /* body ещё не распарсен. Ждём его вставки через MutationObserver:
-           колбэк — микрозадача, то есть класс окажется на body раньше, чем
-           браузер соберётся рисовать. */
         function syncBody() {
           if (!document.body) return false;
           applyTheme(root.dataset.theme);
@@ -103,26 +79,12 @@
         window.__resolveTheme = resolveTheme;
         window.__applyTheme = applyTheme;
 
-        /* Язык интерфейса. Здесь же, по той же причине, что и тема: <html lang>
-           и словарь должны быть готовы до первого скрипта, который рисует текст.
-           Ключ перевода — сама русская строка: t("Каталог") без перевода вернёт
-           «Каталог», поэтому страницы переводятся по одной, а не все разом.
-           Страницы /en/… (английские материалы) английские всегда. Словарь
-           грузится только для английского: русскому интерфейсу он не нужен. */
         var lang = /^\/en(\/|$)/.test(location.pathname)
           ? "en"
           : read("lang") === "en"
             ? "en"
             : "ru";
         root.lang = lang;
-        /* Английский выбран, а открыта русская страница материала — уходим в её
-           английскую копию /en/… (каталоги — scripts/_lib/en-pages.js). */
-        var MATERIAL =
-          /^\/(ai|python|math|db|github|linux|practise|bank|roadmap|materials)(\/|$)/;
-        if (lang === "en" && MATERIAL.test(location.pathname)) {
-          var tail = location.search + location.hash;
-          location.replace("/en" + location.pathname + tail);
-        }
         var dict = {};
         var i18n = {
           lang: lang,
@@ -137,7 +99,6 @@
               return params[name] != null ? params[name] : match;
             });
           },
-          /* forms: { ru: [один, два, пять], en: [one, many] } */
           plural: function (count, forms) {
             var list = forms[lang] || forms.ru;
             var n = Math.abs(Number(count) || 0);
@@ -145,7 +106,6 @@
             try {
               rule = new Intl.PluralRules(i18n.locale).select(n);
             } catch (e) {
-              /* Safari < 13: PluralRules нет — считаем по-старому */
               var mod10 = n % 10;
               var mod100 = n % 100;
               rule =
@@ -167,314 +127,297 @@
             write("lang", next === "en" ? "en" : "ru");
           },
         };
-        /* Статичный HTML не размечаем: текстовый узел или атрибут, целиком
-           совпадающий с ключом словаря, переводится по месту. Страница включает
-           это сама — <body data-i18n>, когда её тексты есть в словаре: иначе
-           непереведённая страница вышла бы наполовину английской. Вопросы, код
-           и формулы не трогаем — это материал, а не интерфейс. */
-        var SKIP = "#questions, pre, code, script, style, textarea, .katex";
-        var ATTRS = ["title", "placeholder", "aria-label", "alt"];
-        function translateTree(node) {
-          if (lang === "ru" || !node) return;
-          /* REJECT отсекает поддерево целиком: вопросы не обходятся вовсе. */
-          var filter = {
-            acceptNode: function (el) {
-              var skip = el.matches && el.matches(SKIP);
-              return skip ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-            },
-          };
-          var show = NodeFilter.SHOW_ELEMENT;
-          var walker = document.createTreeWalker(node, show, filter);
-          for (var el = walker.currentNode; el; el = walker.nextNode()) {
-            for (var i = 0; i < ATTRS.length; i++) {
-              var value = el.getAttribute && el.getAttribute(ATTRS[i]);
-              if (value && dict[value.trim()] != null)
-                el.setAttribute(ATTRS[i], dict[value.trim()]);
-            }
-            for (var c = el.firstChild; c; c = c.nextSibling) {
-              if (c.nodeType !== 3) continue;
-              /* В разметке текст бывает перенесён строкой — сравниваем по
-                 схлопнутым пробелам, края узла сохраняем. */
-              var key = c.nodeValue.replace(/\s+/g, " ").trim();
-              if (key && dict[key] != null) {
-                var edges = c.nodeValue.match(/^(\s*)[\s\S]*?(\s*)$/);
-                c.nodeValue = edges[1] + dict[key] + edges[2];
-              }
-            }
-          }
-        }
-        i18n.translate = translateTree;
-
         window.i18n = i18n;
         window.t = i18n.t;
-        if (lang === "en") {
-          document.write('<script src="../../assets/js/i18n/en.js"><\/script>');
-          document.addEventListener("DOMContentLoaded", function () {
-            if (!document.body.hasAttribute("data-i18n")) return;
-            var title = document.title.trim();
-            if (dict[title] != null) document.title = dict[title];
-            translateTree(document.body);
-          });
-        }
       })();
     </script>
     <!-- theme-boot:end -->
-    <title>Собеседования</title>
     <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Собеседования и карьера</title>
     <link href="../../assets/css/tokens.css" rel="stylesheet" />
     <link href="../../assets/css/task-table.css" rel="stylesheet" />
     <link href="../../assets/css/skeleton.css" rel="stylesheet" />
     <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
     <link href="../../assets/css/styles.css" rel="stylesheet" />
-    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
     <link href="../../assets/css/navigation.css" rel="stylesheet" />
-    <script src="../../assets/js/components/navigation.js"></script>
+    <link href="../../assets/css/pages-modern.css" rel="stylesheet" />
+    <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
     <link href="../../assets/css/fonts.css" rel="stylesheet" />
-<script src="../../assets/js/components/anchor-scroll.js"></script>
-<script src="../../assets/js/components/config-loader.js"></script>
     <script src="../../assets/js/firebase-mock.js"></script>
-</head>
-  <body class="interviews">
+    <script defer="" src="../../assets/js/core.js"></script>
+    <script defer="" src="../../assets/js/questions.js"></script>
+    <script src="../../assets/js/components/navigation.js"></script>
+    <script src="../../assets/js/components/anchor-scroll.js"></script>
+  </head>
+  <body class="interviews" data-i18n>
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
     <main id="main-content" tabindex="-1" class="container">
       <header class="page-header">
         <div class="page-header-content">
-          <img class="page-header-icon" src="../../assets/icons/interviews.svg" alt="" />
           <div class="page-header-text">
-            <h1 id="title">Собеседования</h1>
-            <p class="subtitle">Материалы по собеседованиям в ML</p>
+            <h1 id="title">Собеседования и карьера</h1>
+            <p class="subtitle">
+              Пошаговый маршрут выхода на рынок: от упаковки резюме, легенды и базы рекрутеров до банков вопросов, курса по поведенческому интервью и English Speaking Club
+            </p>
+          </div>
+          <div class="page-header-cta">
+            <a class="page-header-button" href="../../main.html">На главную</a>
           </div>
         </div>
       </header>
 
-      <div class="cards-grid">
-        <a class="card visualization-card" href="../../ai/interviews/jobs.html">
-          <div class="card-header">
-            <div class="card-icon research">
-              <img src="../../assets/icons/form.svg" alt="Площадки для поиска работы" />
+      <section aria-labelledby="route-1-title" style="margin-bottom: 36px;">
+        <div style="margin-bottom: 14px;">
+          <span class="pill">Маршрут 1</span>
+          <h2 id="route-1-title" style="margin: 8px 0 4px 0;">Резюме, профили и воронка откликов</h2>
+          <p style="margin: 0; color: var(--text-secondary);">Упаковка опыта, легенда, оформление hh.ru / LinkedIn, каналы поиска и прямые контакты рекрутеров для быстрого входа в воронку.</p>
+        </div>
+        <div class="cards-grid">
+          <a href="./cv.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/form.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Резюме (CV) и успешные примеры</h3>
             </div>
-            <h3 class="card-title">Площадки для поиска работы</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Стратегии поиска работы в сфере машинного обучения</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-        
-        <a class="card visualization-card" href="../../ai/interviews/probation.html">
-          <div class="card-header">
-            <div class="card-icon interviews">
-              <img src="../../assets/icons/training.svg" alt="Испытательный срок" />
+            <div class="card-content">
+              <p class="card-description">Структура сильного ML / Analytics резюме, формулировка достижений через метрики и реальные примеры резюме с офферами.</p>
+              <span class="card-link">Открыть →</span>
             </div>
-            <h3 class="card-title">Испытательный срок</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Путеводитель по первым неделям: что спрашивать, как встроиться в процесс и пройти испыталку без хаоса</p>
-            <span class="card-link">Открыть гайд</span>
-          </div>
-        </a>
-      </div>
+          </a>
 
-      <h2>Резюме, легенда и MLSD</h2>
-      <div class="cards-grid">
-        <a class="card" href="../../ai/interviews/cv.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../assets/icons/report.png" alt="Резюме" />
+          <a href="./legend.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/book.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Проработка легенды и самопрезентации</h3>
             </div>
-            <h3 class="card-title">Резюме</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Как составить эффективное резюме для ML-позиций</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-        <a class="card" href="../../ai/interviews/legend.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../assets/icons/chat.svg" alt="Легенда" />
+            <div class="card-content">
+              <p class="card-description">Как связно упаковать коммерческий опыт, архитектуру проектов, метрики и ответы на глубокие вопросы по проектам.</p>
+              <span class="card-link">Открыть →</span>
             </div>
-            <h3 class="card-title">Легенда</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Как подготовить легенду для собеседований</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-        <a class="card" href="../../ai/interviews/mlsd.html">
-          <div class="card-header">
-            <div class="card-icon interviews">
-              <img src="../../assets/icons/architecture.svg" alt="MLSD" />
-            </div>
-            <h3 class="card-title">MLSD</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Как проходить ML System Design и готовить MLSD-планы по проектам из резюме</p>
-            <span class="card-link">Открыть MLSD</span>
-          </div>
-        </a>
-        
-      </div>
+          </a>
 
-      <h2>Подготовка к собеседованию</h2>
-      <div class="cards-grid">
-        <a class="card" href="../../bank/index.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/form.svg" alt="Банк вопросов" />
+          <a href="./hh.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/rocket.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Гайд по hh.ru и сопроводительным</h3>
             </div>
-            <h3 class="card-title">Банк вопросов</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Банк вопросов с собеседований по ML</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Настройка видимости профиля, ключевые слова для ATS-фильтров и стратегия конверсионных откликов.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
 
-        <a class="card" href="../../ai/interviews/company-question-bank.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/question.svg" alt="Вопросы по компаниям" />
+          <a href="./linkedin.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/network.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Оформление LinkedIn и нетворкинг</h3>
             </div>
-            <h3 class="card-title">Банк вопросов по компаниям</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Вопросы с настоящих собеседований, сгруппированные по компаниям</p>
-            <span class="card-link">Открыть банк</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Headline, блок About, международный поиск, правильные заходы к нанимающим менеджерам и рефералы.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
 
-        <a class="card" href="../../ai/interviews/videos.html">
-          <div class="card-header">
-            <div class="card-icon interviews">
-              <img src="../../assets/icons/interviews.svg" alt="Записи собеседований" />
+          <a href="./jobs.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/compass.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Где искать работу и агрегаторы вакансий</h3>
             </div>
-            <h3 class="card-title">Записи собеседований</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Видеозаписи mock и реальных собеседований по темам: Deep Learning, NLP, RAG, Python и др.</p>
-            <span class="card-link">Смотреть записи</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Подборка площадок, профильных Telegram-каналов, карьерных страниц бигтеха и стратегия ведения воронки откликов.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
 
-        <a class="card" href="../../ai/interviews/your_questions.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/question.svg" alt="Вопросы интервьюеру" />
+          <a href="./recruiters.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/offers.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">База рекрутеров (LinkedIn + Telegram)</h3>
             </div>
-            <h3 class="card-title">Вопросы интервьюеру: что спрашивать</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Какие вопросы задавать на собеседовании</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Живая пополняемая таблица IT и ML-рекрутеров по компаниям с прямыми контактами и фильтрацией.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+        </div>
+      </section>
 
-        <a class="card" href="../../ai/interviews/algo-tasks.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/python.svg" alt="Задачки с алго-собесов" />
+      <section aria-labelledby="route-2-title" style="margin-bottom: 36px;">
+        <div style="margin-bottom: 14px;">
+          <span class="pill">Маршрут 2</span>
+          <h2 id="route-2-title" style="margin: 8px 0 4px 0;">Всё для прохождения собеседований</h2>
+          <p style="margin: 0; color: var(--text-secondary);">Курс по Behavioral из 10 блоков с тестами, банки вопросов компаний и моков, записи реальных собеседований и English Speaking Club.</p>
+        </div>
+        <div class="cards-grid">
+          <a href="./behavioral.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/online-achievements.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Курс по поведенческому интервью (10 блоков)</h3>
             </div>
-            <h3 class="card-title">Задачки с алго-собесов</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Задачи с алгоритмических собеседований: фильтры по компании, сложности и подходу</p>
-            <span class="card-link">Открыть задачки</span>
-          </div>
-        </a>
-      </div>
+            <div class="card-content">
+              <p class="card-description">Цикл Decode → Select → Deliver, схема CARL, 8 компетенций Signal Areas, матрица историй, Big Tech и тесты после каждого блока.</p>
+              <span class="card-link">Изучить курс →</span>
+            </div>
+          </a>
 
-      <h2>Заполнение профилей на платформах</h2>
-      <div class="cards-grid">
-        <a class="card" href="../../ai/interviews/hh.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../images/interviews/hh.png" alt="HH" />
+          <a href="./company-question-bank.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/online-bank.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Банк вопросов по компаниям</h3>
             </div>
-            <h3 class="card-title">HH</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Как заполнить HH для ML-инженера</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-        <a class="card" href="../../ai/interviews/linkedin.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../images/interviews/linkedin.png" alt="HH" />
+            <div class="card-content">
+              <p class="card-description">Реальные вопросы с собеседований (Яндекс, Авито, Т-Банк, Ozon, Сбер, ВК) с фильтром по области и подробными разборами.</p>
+              <span class="card-link">Открыть банк →</span>
             </div>
-            <h3 class="card-title">Linkedin</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Как оформить профиль на Linkedin под зарубежный рынок</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-      </div>
+          </a>
 
-      <h2>Ликбез: о процессах и ролях</h2>
-      <div class="cards-grid">
-        <a class="card" href="../../ai/interviews/roles.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../assets/icons/mentor-stats.svg" alt="Роли в Data и ML" />
+          <a href="./mock-question-bank.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/online-practice.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Банк вопросов с моков по темам</h3>
             </div>
-            <h3 class="card-title">Роли в Data и ML</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Чем отличаются Data Scientist, ML Engineer, Analyst, MLOps, Data Engineer, AI Engineer</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Вопросы и эталонные ответы с тренировочных мок-собеседований, сгруппированные по 11 техническим темам курса.</p>
+              <span class="card-link">Открыть банк моков →</span>
+            </div>
+          </a>
 
-        <a class="card" href="../../ai/interviews/scrum.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/settings.svg" alt="Управление проектами" />
+          <a href="./videos.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/play.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Записи собеседований (Видео и Аудио)</h3>
             </div>
-            <h3 class="card-title">Управление проектами</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Agile, Scrum, Waterfall</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Записи реальных собеседований, моков и секций ML System Design с таймкодами, PDF-отчётами и встроенным плеером.</p>
+              <span class="card-link">Смотреть записи →</span>
+            </div>
+          </a>
 
-        <a class="card" href="../../ai/interviews/dictionary.html">
-          <div class="card-header">
-            <div class="card-icon questions">
-              <img src="../../assets/icons/it-slang.png" alt="IT-сленг" />
+          <a href="./english-club.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/nlp.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">English Speaking Club и глоссарий</h3>
             </div>
-            <h3 class="card-title">Словарь IT-сленга</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Словарь IT-сленга</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
+            <div class="card-content">
+              <p class="card-description">Записи созвонов, интерактивные разборы ошибок («как сказали → как лучше → почему») и 100+ фраз для работы за рубежом.</p>
+              <span class="card-link">Открыть клуб →</span>
+            </div>
+          </a>
+        </div>
+      </section>
 
-        <a class="card" href="../../ai/interviews/ip-sz.html">
-          <div class="card-header">
-            <div class="card-icon base">
-              <img src="../../assets/icons/form.svg" alt="ИП и самозанятость" />
+      <section aria-labelledby="route-3-title" style="margin-bottom: 36px;">
+        <div style="margin-bottom: 14px;">
+          <span class="pill">Маршрут 3</span>
+          <h2 id="route-3-title" style="margin: 8px 0 4px 0;">Ликбез по секциям, онбордингу и работе в компании</h2>
+          <p style="margin: 0; color: var(--text-secondary);">Тактика на алгоритмических и системных секциях, вопросы интервьюеру, устройство команд, оформление и прохождение испытательного срока.</p>
+        </div>
+        <div class="cards-grid">
+          <a href="./algo-tasks.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/python.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Алгоритмические секции и лайвкодинг</h3>
             </div>
-            <h3 class="card-title">ИП и самозанятость</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">Разница между ИП и статусом самозанятого (НПД) в России: лимиты, налоги, когда что выбирать</p>
-            <span class="card-link">Открыть материалы</span>
-          </div>
-        </a>
-      </div>
-        
-      
+            <div class="card-content">
+              <p class="card-description">Как рассуждать вслух, уточнять граничные случаи, оценивать сложность и решать типовые задачи на собеседовании.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./mlsd.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/architecture.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">ML System Design</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Шаблон проектирования ML-систем за 45 минут: бизнес-метрики, данные, пайплайн кандидатов, ранжирование и мониторинг в продакшене.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./your_questions.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/book.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Вопросы интервьюеру</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Сильные вопросы к техлиду, нанимающему менеджеру и HR для диагностики команды, техдолга и процессов.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./roles.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/team.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Роли в команде и взаимодействие</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Кто за что отвечает в продуктовой и платформенной команде: PM, Tech Lead, MLE, DE, SRE и аналитики.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./scrum.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/calendar.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Scrum, Agile и рабочие ритуалы</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Спринты, дейли, груминг, планирование, ретроспектива, оценка задач в Story Points и работа с Jira.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./dictionary.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/dictionary.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Словарь IT и ML-сленга</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Рабочий язык инженеров и продактов: от «выкатить в прод» и «катить канарейку» до «перфоманс-ревью» и «постмортема».</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./ip-sz.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/legal.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">ТК РФ, ИП и самозанятость</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">Разбор форматов оформления, налогов, договоров ГПХ, актов и юридических нюансов при выходе на работу.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+
+          <a href="./probation.html" class="card">
+            <div class="card-header">
+              <div class="card-icon"><img src="../../assets/icons/progress.svg" alt="" width="36" height="36" /></div>
+              <h3 class="card-title">Как уверенно пройти испытательный срок</h3>
+            </div>
+            <div class="card-content">
+              <p class="card-description">План на первые 30–60–90 дней, фиксация ожиданий с руководителем, 1-on-1 встречи и первые результаты.</p>
+              <span class="card-link">Открыть →</span>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <script src="../../authGuard.js"></script>
+      <button aria-label="Наверх" id="scrollToTopBtn" type="button">
+        <svg
+          fill="none"
+          height="24"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <script src="../../assets/js/init-page.js"></script>
     </main>
-    <!-- Firebase SDK -->
-    <!-- firebase-sdk-auth:start -->
-    
-    
-    <!-- firebase-sdk-auth:end -->
-    <!-- Подключение authGuard -->
-    <script src="../../authGuard.js"></script>
   </body>
 </html>

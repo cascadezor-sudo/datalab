@@ -237,6 +237,7 @@
     <link href="../../assets/css/question-badges.css" rel="stylesheet" />
     <link href="../../assets/css/section-hero.css" rel="stylesheet" />
     <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+    <link href="../../assets/css/exercise-checker.css" rel="stylesheet" />
     <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
     <script defer="" src="../../assets/js/core.js"></script>
     <script defer="" src="../../assets/js/questions.js"></script>
@@ -263,9 +264,12 @@
     <script src="../../assets/js/components/lazy-init.js"></script>
     <script src="../../assets/js/components/question-presentation.js"></script>
     <script src="../../assets/js/components/question-badges.js"></script>
+    <script src="../../assets/js/components/exercise-checker.js"></script>
     <script src="../../assets/js/components/term-definitions.js"></script>
     <script src="../../assets/js/components/term-tooltip.js"></script>
     <script src="../../assets/js/firebase-mock.js"></script>
+
+  <link href="../../assets/css/learning-reading.css" rel="stylesheet" />
 </head>
   <body data-term-scope="all">
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
@@ -316,6 +320,96 @@
         $\global\def\tg{\mathrm{tg}\,}$ $\global\def\argtg{\text{argtg}\,}$
       </div>
       <ol id="questions">
+<li class="question" data-md-source="true" data-md-id="dl-mlp-torch" data-difficulty="easy" data-tests="import torch
+torch.manual_seed(42)
+model = ResidualMLP(in_features=16, hidden_features=32, out_features=5, dropout=0.1)
+x = torch.randn(8, 16, requires_grad=True)
+logits = model(x)
+assert logits.shape == (8, 5), f&quot;Ожидалась форма (8, 5), получена {logits.shape}&quot;
+loss = logits.pow(2).mean()
+loss.backward()
+assert x.grad is not None and torch.isfinite(x.grad).all(), &quot;Градиенты должны корректно проходить через ResidualMLP&quot; ">
+  <div class="name question-difficulty-easy" id="dl-mlp-torch">
+    MLP на PyTorch: Residual-блок с LayerNorm и GELU
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Реализовать на PyTorch модуль ResidualMLP с Pre-LayerNorm и остаточной связью, проверить размерности выходных логитов и прохождение градиентов.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>ResidualMLP(in_features, hidden_features, out_features, dropout=0.1)</code>, наследующийся от <code> torch.nn.Module</code>:</p>
+<ul>
+  <li>Входной линейный слой переводит <code>(B, in_features)</code> в <code>(B, hidden_features)</code>;</li>
+  <li>Внутри residual-ветки последовательно применяются <code>nn.LayerNorm(hidden_features)</code>, <code>nn.GELU()</code>, <code>nn.Linear(hidden_features, hidden_features)</code> и <code>nn.Dropout(dropout)</code>, после чего результат складывается с входом ветки (<code>h = h + residual</code>);</li>
+  <li>Выходной слой <code>nn.Linear(hidden_features, out_features)</code> возвращает логиты формы <code>(B, out_features)</code>.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">import torch
+import torch.nn as nn
+
+class ResidualMLP(nn.Module):
+    def __init__(self, in_features: int, hidden_features: int, out_features: int, dropout: float = 0.1):
+        super().__init__()
+        self.in_proj = nn.Linear(in_features, hidden_features)
+        self.norm = nn.LayerNorm(hidden_features)
+        self.act = nn.GELU()
+        self.fc = nn.Linear(hidden_features, hidden_features)
+        self.drop = nn.Dropout(dropout)
+        self.head = nn.Linear(hidden_features, out_features)
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        h = self.in_proj(x)
+        h = h + self.drop(self.fc(self.act(self.norm(h))))
+        return self.head(h)</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="dl-cnn-torch" data-difficulty="medium" data-tests="import torch
+model = ConvClassifier(in_channels=3, num_classes=10)
+out_28 = model(torch.randn(4, 3, 28, 28))
+out_48 = model(torch.randn(2, 3, 48, 48))
+assert out_28.shape == (4, 10), f&quot;Ожидалась форма (4, 10), получена {out_28.shape}&quot;
+assert out_48.shape == (2, 10), f&quot;Благодаря AdaptiveAvgPool2d сеть должна работать и на 48x48, получена {out_48.shape}&quot; ">
+  <div class="name question-difficulty-medium" id="dl-cnn-torch">
+    CNN на PyTorch: свёрточный классификатор с AdaptiveAvgPool2d
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Построить свёрточную сеть ConvClassifier(in_channels, num_classes), устойчивую к произвольному разрешению входного изображения за счёт Global Average Pooling.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>ConvClassifier(in_channels=3, num_classes=10)</code> на <code>torch.nn.Module</code>:</p>
+<ul>
+  <li>Два свёрточных блока: <code>Conv2d(in_channels, 32, kernel_size=3, padding=1)</code> → <code>BatchNorm2d(32)</code> → <code>ReLU()</code> → <code>MaxPool2d(2)</code>, затем <code>Conv2d(32, 64, kernel_size=3, padding=1)</code> → <code>BatchNorm2d(64)</code> → <code>ReLU()</code>;</li>
+  <li>Слой глобального пулинга <code>nn.AdaptiveAvgPool2d((1, 1))</code>, сводящий карту признаков любого размера <code>(B, 64, H, W)</code> к <code>(B, 64, 1, 1)</code>;</li>
+  <li>Выравнивание <code>torch.flatten(..., 1)</code> и линейный классификатор <code>nn.Linear(64, num_classes)</code>.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">import torch
+import torch.nn as nn
+
+class ConvClassifier(nn.Module):
+    def __init__(self, in_channels: int = 3, num_classes: int = 10):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+        self.classifier = nn.Linear(64, num_classes)
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        h = self.features(x)
+        h = torch.flatten(h, 1)
+        return self.classifier(h)</div>
+    
+  </div>
+</li>
         <!-- md:replace:dl-augmentation:start -->
 <li class="question" data-md-source="true" data-md-id="dl-augmentation" data-difficulty="medium">
   <div class="name question-difficulty-medium" id="dl-augmentation">
@@ -405,7 +499,14 @@
         </li> -->
 
         <!-- md:replace:dl-self-attention:start -->
-<li class="question" data-md-source="true" data-md-id="dl-self-attention" data-badge-type="additional" data-difficulty="hard">
+<li class="question" data-md-source="true" data-md-id="dl-self-attention" data-badge-type="additional" data-difficulty="hard" data-tests="import torch
+q = torch.ones(2, 2, 4, 8)
+k = torch.ones(2, 2, 4, 8)
+v = torch.arange(16, dtype=torch.float32).view(1, 1, 4, 4).expand(2, 2, 4, 4)
+out, w = scaled_dot_product_attention(q, k, v)
+assert out.shape == (2, 2, 4, 4), f&quot;Ожидалась форма (2, 2, 4, 4), получена {out.shape}&quot;
+assert w.shape == (2, 2, 4, 4), f&quot;Ожидалась форма весов (2, 2, 4, 4), получена {w.shape}&quot;
+assert torch.allclose(w.sum(dim=-1), torch.ones(2, 2, 4), atol=1e-5), &quot;Сумма весов по строке должна быть равна 1&quot; ">
   <div class="name question-difficulty-hard question-hard-title" id="dl-self-attention">
     Self-Attention: реализация на Python
   </div>
@@ -436,6 +537,17 @@
 </ul>
 
 </div>
+<div class="code-block" data-lang="python">import math
+import torch
+import torch.nn.functional as F
+
+def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None):
+    d_k = q.size(-1)
+    scores = (q @ k.transpose(-2, -1)) / math.sqrt(d_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, float("-inf"))
+    weights = F.softmax(scores, dim=-1)
+    return weights @ v, weights</div>
 <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
 <ol>
 <li><p><b>Зачем делить логиты на $\sqrt{d_k}$?</b></p>
@@ -522,6 +634,66 @@
 </ol>
 
 </div>
+  </div>
+</li>
+        <li class="question" data-md-source="true" data-md-id="dl-multihead-attention" data-difficulty="hard" data-tests="import torch
+torch.manual_seed(0)
+mha = MultiHeadAttention(d_model=32, num_heads=4)
+x = torch.randn(2, 6, 32)
+out, attn = mha(x, is_causal=True)
+assert out.shape == (2, 6, 32), f&quot;Ожидалась форма выхода (2, 6, 32), получена {out.shape}&quot;
+assert attn.shape == (2, 4, 6, 6), f&quot;Ожидалась форма весов (2, 4, 6, 6), получена {attn.shape}&quot;
+upper = torch.triu(attn, diagonal=1)
+assert torch.allclose(upper, torch.zeros_like(upper), atol=1e-6), &quot;При is_causal=True верхний треугольник матрицы внимания должен быть нулевым&quot;
+assert torch.allclose(attn.sum(dim=-1), torch.ones(2, 4, 6), atol=1e-5), &quot;Сумма весов внимания по последней оси должна быть равна 1&quot; ">
+  <div class="name question-difficulty-hard question-hard-title" id="dl-multihead-attention">
+    Multi-Head Causal Self-Attention на PyTorch
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Реализовать многоголовое внимание с поддержкой каузальной маски (Causal Mask) для авторегрессионных трансформеров.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй модуль <code>MultiHeadAttention(d_model, num_heads)</code> на PyTorch:</p>
+<ul>
+  <li>Разбей линейные проекции <code>Q, K, V</code> на <code>num_heads</code> голов размерности <code>d_k = d_model // num_heads</code> с формой <code>(B, num_heads, T, d_k)</code>;</li>
+  <li>Вычисли матрицу скоров <code>(Q @ K.transpose(-2, -1)) / sqrt(d_k)</code>. При <code>is_causal=True</code> замаскируй верхний треугольник (<code>diagonal=1</code>) значением <code>-inf</code> до вызова <code>softmax</code>;</li>
+  <li>Верни кортеж <code>(output, attn_weights)</code>, где <code>output</code> имеет форму <code>(B, T, d_model)</code> после объединения голов и выходной проекции <code>W_o</code>, а <code>attn_weights</code> — форму <code>(B, num_heads, T, T)</code>.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int):
+        super().__init__()
+        assert d_model % num_heads == 0, &quot;d_model must be divisible by num_heads&quot;
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+
+        self.w_q = nn.Linear(d_model, d_model, bias=False)
+        self.w_k = nn.Linear(d_model, d_model, bias=False)
+        self.w_v = nn.Linear(d_model, d_model, bias=False)
+        self.w_o = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x: torch.Tensor, is_causal: bool = False):
+        B, T, C = x.shape
+        q = self.w_q(x).view(B, T, self.num_heads, self.d_k).transpose(1, 2)
+        k = self.w_k(x).view(B, T, self.num_heads, self.d_k).transpose(1, 2)
+        v = self.w_v(x).view(B, T, self.num_heads, self.d_k).transpose(1, 2)
+
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        if is_causal:
+            mask = torch.triu(torch.ones(T, T, device=x.device, dtype=torch.bool), diagonal=1)
+            scores = scores.masked_fill(mask, float(&quot;-inf&quot;))
+
+        attn = F.softmax(scores, dim=-1)
+        ctx = (attn @ v).transpose(1, 2).contiguous().view(B, T, C)
+        return self.w_o(ctx), attn</div>
+    
   </div>
 </li>
         <!-- md:inject:end -->

@@ -54,7 +54,7 @@
   const ROADMAP_BADGE_LABEL = "Роадмап";
 
   function isRoadmapRoute(route) {
-    return /^\/(ai\/)?roadmap(\/|$)/.test(String(route || ""));
+    return /^\/((?:ai|analytics)\/)?roadmap(\/|$)/.test(String(route || ""));
   }
 
   // Плашка нужна только самим страницам роадмапа. Одного маршрута мало:
@@ -79,12 +79,6 @@
 
   const CATALOG = [
     {
-      title: "Повторение (карточки теорминимума)",
-      type: "practice",
-      tags: ["карточки", "повторение", "flashcards", "anki", "теорминимум", "интервальное", "cards", "questions"],
-      route: "/spaced-repetition.html",
-    },
-    {
       title: "Карта разделов",
       type: "roadmap",
       tags: ["карта", "путь", "роадмап", "map", "path", "roadmap"],
@@ -102,96 +96,6 @@
         "visual",
       ],
       route: "/roadmap/interactive.html",
-    },
-    {
-      title: "Аналитика данных (Каталог)",
-      type: "roadmap",
-      tags: ["аналитика", "analytics", "product", "продуктовая", "каталог", "ab"],
-      route: "/analytics/index.html",
-    },
-    {
-      title: "Интерактивная карта аналитика",
-      type: "roadmap",
-      tags: ["аналитика", "карта", "роадмап", "analytics", "interactive", "roadmap"],
-      route: "/analytics/roadmap/interactive.html",
-    },
-    {
-      title: "A/B-тестирование I (Статистика)",
-      type: "roadmap",
-      tags: ["ab", "а/б", "сплит", "тестирование", "p-value", "z-test", "welch", "бутстреп", "статистика"],
-      route: "/analytics/product/ab.html",
-    },
-    {
-      title: "A/B-тестирование II (Дизайн экспериментов)",
-      type: "roadmap",
-      tags: ["ab", "а/б", "mde", "cuped", "srm", "peeking", "sample size", "дизайн", "эксперименты"],
-      route: "/analytics/product/ab-design.html",
-    },
-    {
-      title: "Продуктовые метрики",
-      type: "roadmap",
-      tags: ["метрики", "dau", "mau", "retention", "churn", "ltv", "aarrr", "unit экономика", "north star"],
-      route: "/analytics/product/metrics.html",
-    },
-    {
-      title: "Логирование событий и Tracking Plan",
-      type: "roadmap",
-      tags: ["логирование", "трекинг", "tracking plan", "сессии", "identity resolution", "события"],
-      route: "/analytics/product/logging.html",
-    },
-    {
-      title: "Продуктовые исследования (Causal Inference)",
-      type: "roadmap",
-      tags: ["исследования", "causal", "did", "rice", "сегментация", "custdev", "причинность"],
-      route: "/analytics/product/research.html",
-    },
-    {
-      title: "BI и Yandex DataLens",
-      type: "roadmap",
-      tags: ["bi", "datalens", "дашборд", "визуализация", "яндекс"],
-      route: "/analytics/product/bi.html",
-    },
-    {
-      title: "Инструменты экспериментов",
-      type: "roadmap",
-      tags: ["growthbook", "вариокуб", "feature flags", "сплит система", "флаги"],
-      route: "/analytics/product/tools.html",
-    },
-    {
-      title: "Практика: Задачи A/B-тестирования",
-      type: "practice",
-      tags: ["практика", "ab", "задачи", "расчет", "z-test", "cuped", "python"],
-      route: "/analytics/practise/ab.html",
-    },
-    {
-      title: "Практика: Продуктовые метрики и SQL",
-      type: "practice",
-      tags: ["практика", "метрики", "sql", "воронка", "retention", "pandas"],
-      route: "/analytics/practise/metrics.html",
-    },
-    {
-      title: "Собеседования: Продуктовая аналитика",
-      type: "interview",
-      tags: ["собеседование", "интервью", "банк вопросов", "аналитик", "кейсы"],
-      route: "/analytics/bank/product.html",
-    },
-    {
-      title: "Хранилища данных DWH и ClickHouse",
-      type: "roadmap",
-      tags: ["dwh", "clickhouse", "хранилище", "olap", "звезда", "снежинка"],
-      route: "/db/dwh.html",
-    },
-    {
-      title: "Python для анализа данных (pandas, numpy)",
-      type: "roadmap",
-      tags: ["python", "pandas", "numpy", "eda", "анализ данных"],
-      route: "/python/data.html",
-    },
-    {
-      title: "Собеседования: SQL и Базы данных",
-      type: "interview",
-      tags: ["sql", "собеседование", "базы данных", "join", "оконные функции", "acid"],
-      route: "/bank/db.html",
     },
     {
       title: "Пререквизиты",
@@ -357,6 +261,86 @@
       type: "roadmap",
       tags: ["db", "databases", "базы", "postgresql", "postgres", "sql"],
       route: "/roadmap/db-postgresql.html",
+    },
+    {
+      title: "Базы данных / DWH и ClickHouse",
+      type: "roadmap",
+      tags: ["db", "databases", "базы", "dwh", "clickhouse", "data lake"],
+      route: "/roadmap/db-dwh.html",
+    },
+    {
+      title: "Python для анализа данных",
+      type: "roadmap",
+      tags: ["python", "pandas", "numpy", "jupyter", "matplotlib", "seaborn"],
+      route: "/roadmap/python-data.html",
+    },
+    {
+      title: "Продуктовая аналитика",
+      type: "roadmap",
+      tags: ["аналитика", "analytics", "product", "продукт"],
+      route: "/analytics/roadmap/index.html",
+    },
+    {
+      title: "Карта аналитика (интерактивная)",
+      type: "roadmap",
+      tags: [
+        "карта",
+        "интерактив",
+        "аналитика",
+        "map",
+        "interactive",
+        "analytics",
+      ],
+      route: "/analytics/roadmap/interactive.html",
+    },
+    {
+      title: "А/Б-тесты I",
+      type: "roadmap",
+      tags: ["аналитика", "аб", "a/b", "ab", "эксперимент", "experiment"],
+      route: "/analytics/roadmap/ab.html",
+    },
+    {
+      title: "А/Б-тесты II",
+      type: "roadmap",
+      tags: ["аналитика", "аб", "a/b", "ab", "mde", "дизайн эксперимента"],
+      route: "/analytics/roadmap/ab-design.html",
+    },
+    {
+      title: "Продуктовые метрики",
+      type: "roadmap",
+      tags: [
+        "аналитика",
+        "метрики",
+        "metrics",
+        "retention",
+        "воронка",
+        "funnel",
+      ],
+      route: "/analytics/roadmap/metrics.html",
+    },
+    {
+      title: "Логирование продукта",
+      type: "roadmap",
+      tags: ["аналитика", "логирование", "события", "logging", "events"],
+      route: "/analytics/roadmap/logging.html",
+    },
+    {
+      title: "Продуктовые исследования",
+      type: "roadmap",
+      tags: ["аналитика", "исследование", "research"],
+      route: "/analytics/roadmap/research.html",
+    },
+    {
+      title: "BI и дашборды",
+      type: "roadmap",
+      tags: ["аналитика", "bi", "дашборд", "dashboard", "datalens", "superset"],
+      route: "/analytics/roadmap/bi.html",
+    },
+    {
+      title: "Инструменты экспериментов",
+      type: "roadmap",
+      tags: ["аналитика", "growthbook", "firebase", "varioqube", "сплит"],
+      route: "/analytics/roadmap/tools.html",
     },
     {
       title: "MLOps / Docker",
@@ -614,6 +598,19 @@
       route: "/ai/interviews/legend.html",
     },
     {
+      title: "Поведенческое интервью",
+      type: "interview",
+      tags: [
+        "поведенческое",
+        "поведенческое интервью",
+        "soft skills",
+        "behavioral",
+        "STAR",
+        "CARL",
+      ],
+      route: "/ai/interviews/behavioral.html",
+    },
+    {
       title: "Испытательный срок",
       type: "interview",
       tags: [
@@ -649,6 +646,12 @@
       type: "interview",
       tags: ["видео", "записи", "video", "recordings"],
       route: "/ai/interviews/videos.html",
+    },
+    {
+      title: "English Speaking Club",
+      type: "interview",
+      tags: ["английский", "english", "esc", "глоссарий", "self-pitch"],
+      route: "/ai/interviews/english-club.html",
     },
     {
       title: "Scrum",
@@ -743,7 +746,7 @@
       title: "Офферы",
       type: "profile",
       tags: ["офферы", "offers"],
-      route: "/profile/offers.html",
+      route: "/offers.html",
     },
     {
       title: "Обратная связь",
@@ -936,9 +939,12 @@
   }
 
   function inferTypeFromRoute(route) {
-    if (/^\/(ai\/)?roadmap\//.test(route)) return "roadmap";
-    if (/^\/(ai\/)?practise\//.test(route)) return "practice";
-    if (/^\/(ai\/)?bank\//.test(route) || /^\/ai\/interviews\//.test(route))
+    if (/^\/((?:ai|analytics)\/)?roadmap\//.test(route)) return "roadmap";
+    if (/^\/((?:ai|analytics)\/)?practise\//.test(route)) return "practice";
+    if (
+      /^\/((?:ai|analytics)\/)?bank\//.test(route) ||
+      /^\/ai\/interviews\//.test(route)
+    )
       return "interview";
     if (/^\/tests\//.test(route)) return "quiz";
     if (/^\/profile/.test(route) || /^\/my-reports/.test(route))
@@ -1248,7 +1254,14 @@
   function withContentResults(byQuery, query) {
     if (!contentItems.length || query !== contentQuery) return byQuery;
     const seen = new Set(byQuery.map((item) => item.route));
-    return byQuery.concat(contentItems.filter((item) => !seen.has(item.route)));
+    const { direction } = document.documentElement.dataset;
+    return byQuery.concat(
+      contentItems.filter(
+        (item) =>
+          !seen.has(item.route) &&
+          !routeHiddenForDirection(item.route, direction),
+      ),
+    );
   }
 
   async function ensureCatalogLoaded() {
@@ -1353,11 +1366,38 @@
     return 5;
   }
 
+  // Направление ученика (data-direction на <html> ставит navigation.js,
+  // персоналу — нет): аналитику не предлагаем ML-разделов, кроме Classic ML
+  // и того, что правило directionVisibility (categories-config.json) ему
+  // оставляет; ML-ученику — ничего из /analytics/.
+  const ML_ONLY_ROUTE =
+    /^\/(?:ai\/(?:ml|mlops|practise|bank|roadmap|materials\/research)\/|ai\/interviews\/(?:mlsd|videos|english-club|algo-tasks|company-question-bank|mock-question-bank)\.html|roadmap\/interactive\.html|db\/redis\.html|roadmap\/db-redis\.html|practise\/db\/redis\.html)/;
+  const ML_ROUTES_FOR_ANALYSTS = new Set([
+    "/ai/ml/classic.html",
+    "/ai/mlops/infra/db.html",
+    "/ai/practise/classic_ml.html",
+    "/ai/bank/classic-ml.html",
+    "/ai/roadmap/classic_ml.html",
+    "/ai/roadmap/mlops-db.html",
+  ]);
+  function routeHiddenForDirection(route, direction) {
+    const path = String(route || "")
+      .split(/[?#]/)[0]
+      .replace(/^\/en\//, "/");
+    if (direction === "ml") return path.startsWith("/analytics/");
+    if (direction !== "analytics") return false;
+    return ML_ONLY_ROUTE.test(path) && !ML_ROUTES_FOR_ANALYSTS.has(path);
+  }
+
   // «Только материалы» отчётов не пишут; формат на <html> ставит navigation.js.
   function visibleCatalogItems() {
-    if (document.documentElement.dataset.learningFormat !== "materials")
-      return catalogItems.slice();
-    return catalogItems.filter((item) => !/^\/my-reports/.test(item.route));
+    const root = document.documentElement;
+    const reportsAllowed = root.dataset.learningFormat !== "materials";
+    return catalogItems.filter(
+      (item) =>
+        (reportsAllowed || !/^\/my-reports/.test(item.route)) &&
+        !routeHiddenForDirection(item.route, root.dataset.direction),
+    );
   }
 
   function filterCatalog(query) {

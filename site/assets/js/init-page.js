@@ -5,12 +5,9 @@
 
 // Подключение увеличения изображений на всех страницах с init-page.js (в т.ч. с lazy-questions)
 (function () {
-  const ragChatAssetVersion = "20260809-markdown-fix";
   const zoomCssPath = "/assets/css/image-zoom.css";
   const zoomScriptPath = "/assets/js/components/image-zoom.js";
   const questionReportsCssPath = "/assets/css/question-reports.css";
-  const questionAiHelpCssPath = `/assets/css/question-ai-help.css?v=${ragChatAssetVersion}`;
-  const ragChatCssPath = `/assets/css/rag-chat.css?v=${ragChatAssetVersion}`;
   if (!document.querySelector('link[href="' + zoomCssPath + '"]')) {
     const link = document.createElement("link");
     link.rel = "stylesheet";
@@ -21,18 +18,6 @@
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = questionReportsCssPath;
-    document.head.appendChild(link);
-  }
-  if (!document.querySelector('link[href="' + questionAiHelpCssPath + '"]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = questionAiHelpCssPath;
-    document.head.appendChild(link);
-  }
-  if (!document.querySelector('link[href="' + ragChatCssPath + '"]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = ragChatCssPath;
     document.head.appendChild(link);
   }
   if (
@@ -181,37 +166,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       const questionReportsScript = document.createElement("script");
       questionReportsScript.src = "/assets/js/components/question-reports.js";
       document.body.appendChild(questionReportsScript);
-    }
-
-    if (document.querySelector("li.question")) {
-      const ragChatAssetVersion = "20260809-markdown-fix";
-      const questionAiHelpScriptPath = `/assets/js/components/question-ai-help.js?v=${ragChatAssetVersion}`;
-      const ragChatScriptPath = `/assets/js/components/rag-chat.js?v=${ragChatAssetVersion}`;
-      const loadQuestionAiHelp = () => {
-        if (
-          !window.__questionAiHelpInitialized &&
-          !document.querySelector("script[data-question-ai-help-script]")
-        ) {
-          const questionAiHelpScript = document.createElement("script");
-          questionAiHelpScript.src = questionAiHelpScriptPath;
-          questionAiHelpScript.dataset.questionAiHelpScript = "true";
-          document.body.appendChild(questionAiHelpScript);
-        }
-      };
-
-      if (
-        !window.__ragChatInitialized &&
-        !document.querySelector("script[data-rag-chat-script]")
-      ) {
-        const ragChatScript = document.createElement("script");
-        ragChatScript.src = ragChatScriptPath;
-        ragChatScript.dataset.ragChatScript = "true";
-        ragChatScript.onload = loadQuestionAiHelp;
-        ragChatScript.onerror = loadQuestionAiHelp;
-        document.body.appendChild(ragChatScript);
-      } else {
-        loadQuestionAiHelp();
-      }
     }
 
     // Инициализируем систему геймификации для проверки достижений

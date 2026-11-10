@@ -148,7 +148,6 @@ class QuestionProgressTracker {
             data?.completed !== false,
           );
           window.autoUnlock?.showUnlocks(result?.unlockedLabels);
-          window.walletUi?.showCredit(result?.wallet);
         }
         if (this.db) {
           if (data?.completed !== false) {
@@ -183,7 +182,6 @@ class QuestionProgressTracker {
         const result =
           await window.achievementApi.setQuestionProgressBatch(bulkUpdate);
         window.autoUnlock?.showUnlocks(result?.unlockedLabels);
-        window.walletUi?.showCredit(result?.wallet);
       } else {
         // For localStorage, we still need to merge with existing data
         const existingData = localStorage.getItem("anonymous_progress");
@@ -429,6 +427,26 @@ class QuestionProgressTracker {
     } else {
       questionElement.classList.add("question-incomplete");
       questionElement.classList.remove("question-completed");
+    }
+
+    const title = questionElement.querySelector(".name");
+    if (!title) return;
+    let status = title.querySelector(".question-completion-label");
+
+    if (isCompleted) {
+      if (!status) {
+        status = document.createElement("span");
+        status.className = "question-completion-label";
+        title.appendChild(status);
+      }
+      status.textContent = "";
+      const completedLabel = window.t
+        ? window.t("Тема пройдена")
+        : "Тема пройдена";
+      status.setAttribute("aria-label", completedLabel);
+      status.title = completedLabel;
+    } else if (status) {
+      status.remove();
     }
   }
 

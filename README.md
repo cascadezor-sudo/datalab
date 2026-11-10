@@ -1,69 +1,79 @@
-# Schmidt ML — Полная оффлайн-версия сайта (Full Offline Mirror)
+# DataLab
 
-Полная автономная локальная копия платформы **[schmidtml.ru](https://schmidtml.ru)** со всеми обучающими материалами, вопросами к собеседованиям, схемами, формулами и кодом.
+Локальная учебная база по Python, математике, аналитике, Machine Learning,
+Deep Learning, NLP и MLOps. Материалы, практика, тесты, карты обучения и
+интервальное повторение собраны в одном проекте.
 
-## Обзор архива
+## Запуск на Windows
 
-* **Всего файлов:** более 1 500
-* **Общий размер:** ~523 МБ
-* **Количество интерактивных HTML-страниц:** 152 страницы
-* **Автономность:** Полная оффлайн-работа без интернета. Все стили, скрипты, формулы KaTeX, изображения, диаграммы и шрифты сохранены локально. Вход в аккаунт и сетевые проверки Firebase эмулированы моками (`firebase-mock.js` и локальный `authGuard.js`).
+Нужен Python 3 или Node.js, доступный в PATH.
 
----
+1. Дождитесь полного завершения `git clone`.
+2. Запустите `Start_DataLab.bat` или `start.bat`.
+3. Откройте http://localhost:8080/main.html.
+4. Для остановки сервера нажмите Ctrl+C в его окне.
 
-## Основные разделы и быстрый старт
+Для запуска из cmd в папке проекта:
 
-Чтобы начать изучение, откройте [`site/main.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/main.html) или [`site/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/index.html) в любом браузере:
+```bat
+Start_DataLab.bat
+```
 
-### 1. Фундаментальные дисциплины
-* **Python:** [`site/python/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/python/index.html)
-  * Базовый блок: [`site/python/base.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/python/base.html)
-  * Расширенный блок: [`site/python/advanced.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/python/advanced.html)
-  * Алгоритмы: [`site/python/algorithms.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/python/algorithms.html)
-* **Математика:** [`site/math/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/index.html)
-  * Линейная алгебра: [`site/math/algebra.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/algebra.html)
-  * Математический анализ: [`site/math/calculus.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/calculus.html)
-  * Теория вероятностей и статистика: [`site/math/probability.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/probability.html)
-  * Численные методы: [`site/math/numerical.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/numerical.html)
-  * Теория информации: [`site/math/teorinf.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/teorinf.html)
-  * Термины и определения: [`site/math/definitions.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/math/definitions.html)
-* **Базы данных:** [`site/db/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/db/index.html)
-  * PostgreSQL: [`site/db/postgresql.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/db/postgresql.html)
-  * Redis: [`site/db/redis.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/db/redis.html)
-* **Git:** [`site/github/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/github/index.html)
-  * Базовый Git: [`site/github/basics.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/github/basics.html)
-  * Рабочие процессы и ветвление: [`site/github/workflow.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/github/workflow.html)
-  * Продвинутый Git: [`site/github/advanced.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/github/advanced.html)
-* **Linux:** [`site/linux/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/linux/index.html)
-  * Основы командной строки и администрирования: [`site/linux/basics.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/linux/basics.html)
+Если окно сразу закрывается, запустите BAT из уже открытого cmd, чтобы увидеть ошибку.
+Порт 8080 должен быть свободен либо занят этой же версией DataLab.
 
-### 2. Machine Learning, Deep Learning & AI
-* **Классический ML и архитектуры:** [`site/ai/ml/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/index.html)
-  * Классический Machine Learning: [`site/ai/ml/classic.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/classic.html)
-  * Глубокое обучение (Deep Learning): [`site/ai/ml/dl.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/dl.html)
-  * Временные ряды (Time Series): [`site/ai/ml/timeseries.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/timeseries.html)
-  * Рекомендательные системы (RecSys): [`site/ai/ml/recsys.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/recsys.html)
-* **NLP & Large Language Models:** [`site/ai/ml/nlp/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/index.html)
-  * Базовый NLP: [`site/ai/ml/nlp/base.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/base.html)
-  * Расширенный NLP & трансформеры: [`site/ai/ml/nlp/advanced.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/advanced.html)
-  * Retrieval-Augmented Generation (RAG): [`site/ai/ml/nlp/rag.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/rag.html)
-  * AI-агенты: [`site/ai/ml/nlp/agents.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/agents.html)
-  * Оптимизация и квантизация LLM: [`site/ai/ml/nlp/optimization.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/nlp/optimization.html)
-* **Компьютерное зрение (Computer Vision):**
-  * Классическое CV: [`site/ai/ml/classic-cv.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/classic-cv.html)
-  * Deep Learning в CV: [`site/ai/ml/cv/dl.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/ml/cv/dl.html)
-* **MLOps & инфраструктура:** [`site/ai/mlops/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/mlops/index.html)
-  * Docker: [`site/ai/mlops/docker.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/mlops/docker.html)
-  * Kubernetes (K8s): [`site/ai/mlops/k8s.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/mlops/k8s.html)
-  * Apache Kafka: [`site/ai/mlops/kafka.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/mlops/kafka.html)
-  * Трекинг экспериментов (MLflow, ClearML, W&B, TensorBoard)
-  * Мониторинг (Prometheus, Grafana)
+## Основные разделы
 
-### 3. Банк вопросов, тесты и собеседования
-* **Банк вопросов по направлениям:** [`site/bank/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/bank/index.html)
-* **Материалы по собеседованиям:** [`site/ai/interviews/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/interviews/index.html)
-  * ML System Design: [`site/ai/interviews/mlsd.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/interviews/mlsd.html)
-  * Словарь терминов собеседований: [`site/ai/interviews/dictionary.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/interviews/dictionary.html)
-  * Алгоритмические задачи: [`site/ai/interviews/algo-tasks.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/ai/interviews/algo-tasks.html)
-* **Интерактивные карты обучения (Roadmaps):** [`site/roadmap/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/roadmap/index.html) и [`site/roadmap/interactive.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/roadmap/interactive.html)
-* **Практические задания:** [`site/practise/index.html`](file:///C:/Users/ZXKS/.gemini/antigravity/scratch/schmidtml_full_site/site/practise/index.html)
+- [Главная](site/main.html)
+- [Python](site/python/index.html)
+- [Математика](site/math/index.html)
+- [Аналитика](site/analytics/index.html)
+- [Machine Learning](site/ai/ml/index.html)
+- [MLOps](site/ai/mlops/index.html)
+- [Практика](site/practise/index.html)
+- [Банк вопросов](site/bank/index.html)
+- [Подготовка к собеседованиям](site/ai/interviews/index.html)
+- [Карта обучения](site/roadmap/index.html)
+- [Повторение](site/spaced-repetition.html)
+
+Эти ссылки показывают расположение файлов. Работать с приложением следует через локальный HTTP-сервер.
+
+## Сохранение прогресса
+
+Прогресс и настройки сохраняются в localStorage браузера. Используйте один адрес:
+`http://localhost:8080`. Другой браузер, профиль, hostname или порт имеют отдельное хранилище.
+При первом чтении совместимая более ранняя локальная база копируется в
+`datalab_offline_db`; исходная запись сохраняется как резервная копия.
+При повреждении или неоднозначном выборе базы приложение сообщает об ошибке,
+а не заменяет старое состояние пустым.
+
+## Локальный режим и интеграции
+
+Облачные реквизиты и предустановленные адреса внешних сервисов отсутствуют.
+Для входа в локальную базу аккаунт и пароль не нужны. Telegram-бот не подключён.
+AI-помощник недоступен, пока владелец проекта явно не задаст собственный
+`window.DATALAB_RAG_API_URL` до загрузки компонента.
+
+Основные материалы находятся в проекте. Внешние учебные ссылки и отдельные
+загружаемые библиотеки, включая Pyodide, могут требовать интернет.
+Локальная проверка упражнений через `/api/run` запускает обычный Python с правами
+текущего пользователя: используйте только доверенный код.
+
+## Структура
+
+- `site/` — страницы, компоненты, стили и учебные данные.
+- `server.py`, `server.js` — основной и резервный локальные серверы.
+- `offline_runner.py` — проверка Python-упражнений.
+- `gen_deep_*.py` — генераторы учебных материалов.
+- `generate_teormin_cards.js`, `generate_teormin_card_blocks.js` — сборка карточек и привязок к блокам.
+
+Переменная окружения `DATALAB_NO_BROWSER=1` отключает автоматическое открытие браузера.
+Репозиторий: https://github.com/cascadezor-sudo/datalab.
+
+## Проверки
+
+Контрактные проверки локального хранилища и ссылок используют встроенный test runner Node.js:
+
+```bat
+node --test tests/offline-storage.test.js
+```

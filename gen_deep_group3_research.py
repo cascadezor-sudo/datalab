@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 3, Module 1 (research.html):
+Deep textbook generator for DataLab Analytics - Group 3, Module 1 (research.html):
 All 7 questions of research.html and builder.
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 
 q_research_framing = (

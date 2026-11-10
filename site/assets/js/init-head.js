@@ -193,12 +193,12 @@ function updateThemeIcons() {
     localStorage.getItem("palette") || "vibecode",
   );
   const PALETTE_NAV_LABEL = {
-    vibecode: "Vibecode",
+    vibecode: "DataLab",
     earth: "Earth",
     sepia: "Sepia",
     graphite: "Graphite",
   };
-  const label = PALETTE_NAV_LABEL[palette] || "Vibecode";
+  const label = PALETTE_NAV_LABEL[palette] || "DataLab";
 
   // Обновляем иконку в навигации
   const themeToggleNav = document.getElementById("theme-toggle-nav");

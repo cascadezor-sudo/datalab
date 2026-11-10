@@ -655,7 +655,6 @@ class QuizSystem {
           ...(requestId ? { requestId } : {}),
         });
         Object.assign(resultData, saved.result);
-        window.walletUi?.showCredit(saved.wallet);
 
         // Обновляем локальный кеш после успешного сохранения
         const results = this.quizResults.get(quizId) || [];

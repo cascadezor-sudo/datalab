@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 1, Module 2 (ab-design.html):
+Deep textbook generator for DataLab Analytics - Group 1, Module 2 (ab-design.html):
 Questions 5-15 of ab-design.html and full page builder.
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 from gen_deep_group1_ab_design_p1 import (
     q_ab_metric_types,

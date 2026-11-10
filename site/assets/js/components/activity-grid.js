@@ -241,7 +241,6 @@ window.platformDayKey =
             <span><strong>${streak === null ? "—" : streak}</strong> ${t("дней streak")}</span>
             <span><strong>${activeDays}</strong> ${plural(activeDays, { ru: ["активный день", "активных дня", "активных дней"], en: ["active day", "active days"] })}</span>
             <span><strong>${totalQuestions}</strong> ${plural(totalQuestions, QUESTION_FORMS)}</span>
-            <span><strong data-wallet-balance>—</strong> <span data-wallet-unit>${t("градов")}</span></span>
           </div>
         </div>
         <div class="activity-grid-scroll" aria-label="${t("Календарь активности")}">
@@ -326,7 +325,6 @@ window.platformDayKey =
       );
 
       render(container, activityMap, { weeks }, streakSnap.val());
-      window.walletUi?.refresh?.();
     } catch (error) {
       console.error("Activity grid load failed:", error);
       renderError(container, t("Не удалось загрузить активность."));

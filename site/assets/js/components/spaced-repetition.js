@@ -708,7 +708,6 @@
       this.repetitionSyncInFlight = true;
       try {
         const synced = await window.achievementApi?.syncRepetitionProgress?.();
-        window.walletUi?.showCredit(synced?.wallet);
       } catch (error) {
         console.warn("SpacedRepetition: achievement sync failed", error);
       } finally {

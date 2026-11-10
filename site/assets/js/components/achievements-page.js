@@ -16,8 +16,6 @@
     "discount",
     "quiz",
   ];
-  // Тир достижения — то, за что платит кошелёк. Подписи те же, что на
-  // wallet.html; суммы — из того же конфига, по которому начисляет сервер.
   const TIER_ORDER = ["bronze", "silver", "gold", "platinum"];
   const TIER_LABELS = {
     bronze: "Бронза",
@@ -25,36 +23,12 @@
     gold: "Золото",
     platinum: "Платина",
   };
-  const WALLET_CONFIG_URL = "/assets/js/config/wallet-config.json";
 
-  async function loadTierRewards() {
-    try {
-      const response = await fetch(WALLET_CONFIG_URL, { cache: "no-cache" });
-      if (!response.ok) return {};
-      return (await response.json()).achievementTiers || {};
-    } catch (error) {
-      // Без конфига карточки покажут тир без суммы — страница живёт дальше.
-      return {};
-    }
+  function fillTier(target, tier) {
+    target.textContent = TIER_LABELS[tier] ? t(TIER_LABELS[tier]) : tier;
   }
 
-  // Подпись тира с наградой: «Золото · +150» и та же иконка монеты, что в
-  // навбаре и кошельке (символ #grad-coin вставляет navigation.js). Если
-  // навигация ещё не загрузилась — текстовый ∇.
-  function fillTier(target, tier, rewards) {
-    const label = TIER_LABELS[tier] ? t(TIER_LABELS[tier]) : tier;
-    const amount = Number(rewards?.[tier]);
-    target.replaceChildren();
-    if (!(amount > 0)) {
-      target.textContent = label;
-      return;
-    }
-    target.append(`${label} · +${amount} `);
-    const icon = window.walletUi?.createCoinIcon?.("coin-icon");
-    target.append(icon || "∇");
-  }
-
-  function renderTierLegend(rewards) {
+  function renderTierLegend() {
     const target = document.getElementById("achievements-tier-legend");
     if (!target) return;
     target.replaceChildren(
@@ -62,7 +36,7 @@
         const chip = document.createElement("span");
         chip.className = "achievement-tier-chip";
         chip.dataset.tier = tier;
-        fillTier(chip, tier, rewards);
+        fillTier(chip, tier);
         return chip;
       }),
     );
@@ -74,15 +48,15 @@
     }).format(new Date(timestamp));
   }
 
-  function createCard(achievement, unlockedAt, rewards) {
+  function createCard(achievement, unlockedAt) {
     const card = document.createElement("article");
     card.className = `achievement-card ${unlockedAt ? "achievement-unlocked" : "achievement-locked"} ${achievement.category}`;
     card.dataset.category = achievement.category;
     card.dataset.tier = achievement.tier;
     const tier = document.createElement("span");
     tier.className = "achievement-card-tier";
-    fillTier(tier, achievement.tier, rewards);
-    tier.title = t("Тир достижения и награда в градах");
+    fillTier(tier, achievement.tier);
+    tier.title = t("Тир достижения");
     card.appendChild(tier);
     card.appendChild(
       window.achievementCatalog.icon(
@@ -181,18 +155,14 @@
         // Тот же бэкфилл догоняет разделы, которые ученик добрал, пока
         // автооткрытие было сломано (см. functions/auto-unlock.js).
         window.autoUnlock?.showUnlocks(reconciled?.unlockedLabels);
-        // Бэкфилл монет за прошлую активность — та же ручка; сумму покажем
-        // один раз, дальше сервер отвечает нулём.
-        window.walletUi?.showCredit(reconciled?.wallet);
-        const [catalog, snapshot, rewards] = await Promise.all([
+        const [catalog, snapshot] = await Promise.all([
           window.achievementCatalog.load(),
           firebase
             .database()
             .ref(`user_achievements/${user.uid}`)
             .once("value"),
-          loadTierRewards(),
         ]);
-        renderTierLegend(rewards);
+        renderTierLegend();
         const unlocked = snapshot.val() || {};
         const entries = catalog.achievements.slice().sort((a, b) => {
           const aUnlocked = unlocked[a.id]?.unlockedAt || 0;
@@ -211,7 +181,6 @@
             createCard(
               achievement,
               unlocked[achievement.id]?.unlockedAt,
-              rewards,
             ),
           ),
         );

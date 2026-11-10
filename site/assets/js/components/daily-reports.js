@@ -441,7 +441,6 @@ class DailyReportsSystem {
       const result = await window.achievementApi.submitDailyReport(reportData);
       reportData.reportId = result.reportId;
       reportData.timestamp = Date.now();
-      window.walletUi?.showCredit(result?.wallet);
 
       // Обновляем статистику пользователя
       await this.updateUserStats();
@@ -516,28 +515,17 @@ class DailyReportsSystem {
       current: 0,
       freezesPerMonth: 0,
       freezesLeft: 0,
-      reserve: 0,
       lastActivityDay: null,
     };
     if (!this.user) return empty;
 
     try {
-      // Купленные заморозки лежат отдельно (streak_perks, пишет только
-      // сервер) и тратятся ночью, когда месячные кончились.
-      const [snapshot, reserveSnapshot] = await Promise.all([
-        this.db.ref(`users/${this.user.uid}/streakState`).once("value"),
-        this.db
-          .ref(`streak_perks/${this.user.uid}/freezes`)
-          .once("value")
-          .catch(() => null),
-      ]);
-      const reserve = Math.max(0, Number(reserveSnapshot?.val()) || 0);
+      const snapshot = await this.db
+        .ref(`users/${this.user.uid}/streakState`)
+        .once("value");
       const state = snapshot.val();
-      if (!state || typeof state !== "object") return { ...empty, reserve };
+      if (!state || typeof state !== "object") return empty;
       const freezesPerMonth = Number(state.freezesPerMonth) || 0;
-      // Остаток считаем по текущему месяцу, а не по записанному в проекции:
-      // проекция могла быть записана в прошлом месяце, когда заморозки уже
-      // были истрачены, а в новом месяце бюджет снова полон.
       const month = this.getTodayString().slice(0, 7);
       const usedThisMonth = (state.frozenDays || []).filter(
         (day) => String(day).slice(0, 7) === month,
@@ -547,7 +535,6 @@ class DailyReportsSystem {
         current: Number(state.current) || 0,
         freezesPerMonth,
         freezesLeft: Math.max(0, freezesPerMonth - usedThisMonth),
-        reserve,
         lastActivityDay: state.lastActivityDay || null,
       };
     } catch (error) {
@@ -560,8 +547,7 @@ class DailyReportsSystem {
   streakLabel(state) {
     if (!state.known) return t("считаем серию");
     if (!state.freezesPerMonth || state.current === 0) return t("дней подряд");
-    const reserve = state.reserve > 0 ? ` +${state.reserve}` : "";
-    return `${t("дней подряд")} · 🧊 ${state.freezesLeft}${reserve}`;
+    return `${t("дней подряд")} · 🧊 ${state.freezesLeft}`;
   }
 
   /** Пояснение к заморозкам. Живёт в title, чтобы не трогать разметку и стили. */
@@ -569,18 +555,9 @@ class DailyReportsSystem {
     if (!state.known) return t("Сервер ещё не пересчитал серию");
     if (!state.freezesPerMonth)
       return t("Дней подряд с отчётом или решённым вопросом");
-    const reserve =
-      state.reserve > 0
-        ? t(
-            ". В запасе ещё {count} из витрины: сработают ночью, когда месячные кончатся",
-            { count: state.reserve },
-          )
-        : "";
-    return (
-      t(
-        "Серия не рвётся за пропущенный день, пока в месяце есть заморозки: осталось {left} из {total}",
-        { left: state.freezesLeft, total: state.freezesPerMonth },
-      ) + reserve
+    return t(
+      "Серия не рвётся за пропущенный день, пока в месяце есть заморозки: осталось {left} из {total}",
+      { left: state.freezesLeft, total: state.freezesPerMonth },
     );
   }
 

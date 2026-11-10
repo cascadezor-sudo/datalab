@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проект: анализ спроса на велосипеды</title>
+  <link rel="stylesheet" href="../../assets/css/tokens.css">
+  <link rel="stylesheet" href="../../assets/css/styles.css">
+  <link rel="stylesheet" href="../../assets/css/pages-modern.css">
+  <link rel="stylesheet" href="../../assets/css/navigation.css">
+  <link rel="stylesheet" href="../../assets/css/fonts.css">
+  <link rel="stylesheet" href="../../assets/css/section-shell.css">
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+  <style>
+    .project-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:24px;align-items:start;margin-top:24px}
+    .project-content{min-width:0}
+    .project-sidebar{position:sticky;top:88px;padding:18px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm);color:var(--text)}
+    .project-sidebar strong{display:block;margin-bottom:10px;font-size:.95rem}
+    .project-sidebar a{display:block;padding:7px 9px;margin:1px -9px;border-radius:8px;color:var(--text-muted);text-decoration:none;font-size:.92rem;transition:background var(--transition-fast),color var(--transition-fast)}
+    .project-sidebar a:hover,.project-sidebar a:focus-visible{background:color-mix(in srgb,var(--brand) 9%,var(--bg-card));color:var(--brand)}
+    .project-panel{margin:0 0 18px;padding:24px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm);color:var(--text)}
+    .project-panel h2{margin:0 0 12px;font-size:1.3rem;line-height:1.35}
+    .project-panel h3{margin:22px 0 9px;font-size:1.02rem}
+    .project-panel p{line-height:1.7;color:var(--text)}
+    .project-panel li{margin:8px 0;line-height:1.6}
+    .project-meta{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0;padding:16px 24px}
+    .project-meta span{padding:6px 11px;border:1px solid var(--border);border-radius:var(--radius-full);background:var(--bg-secondary);color:var(--text-muted);font-size:.88rem}
+    .dataset-callout{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;border:1px solid var(--border-brand);border-radius:14px;background:color-mix(in srgb,var(--brand) 7%,var(--bg-card))}
+    .dataset-callout strong{font-size:1.05rem}.dataset-callout p{margin:5px 0 0;color:var(--text-muted)}
+    .dataset-callout a,.project-button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 15px;border:1px solid transparent;border-radius:10px;background:var(--brand);color:var(--brand-text);text-decoration:none;font-weight:650;transition:background var(--transition-fast),transform var(--transition-fast)}
+    .dataset-callout a:hover,.project-button:hover{background:var(--brand-hover);transform:translateY(-1px)}
+    .project-code{overflow:auto;margin:12px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-secondary);color:var(--text);font:.9rem/1.65 Consolas,Monaco,monospace;white-space:pre}
+    .project-code code{color:inherit;background:transparent}
+    .project-step{display:flex;gap:14px;align-items:flex-start}.step-number{flex:0 0 34px;height:34px;display:grid;place-items:center;border:1px solid var(--border-brand);border-radius:11px;background:color-mix(in srgb,var(--brand) 10%,var(--bg-card));color:var(--brand);font-weight:750}
+    .project-step h2{padding-top:3px}
+    .checklist{padding-left:22px}.hint{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}.hint summary{cursor:pointer;color:var(--brand);font-weight:650}.hint summary:hover{text-decoration:underline}.hint pre{margin-top:10px}
+    .result-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.result-grid div{padding:15px;border:1px solid var(--border);border-radius:12px;background:var(--bg-secondary)}.result-grid strong{display:block;margin-bottom:5px;color:var(--text)}
+    @media(max-width:850px){.project-layout{grid-template-columns:1fr}.project-sidebar{position:static;order:-1}.project-sidebar nav{display:flex;flex-wrap:wrap;gap:4px 14px}.project-sidebar a{padding:4px 0;margin:0}.result-grid{grid-template-columns:1fr}}
+    @media(max-width:560px){.project-panel{padding:18px}.project-step{gap:10px}.step-number{flex-basis:30px;height:30px}.dataset-callout{padding:16px}.dataset-callout a{width:100%}}
+  </style>
+  <link rel="stylesheet" href="../../assets/css/learning-reading.css">
+</head>
+<body class="ml">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" class="container" tabindex="-1">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка"><ol class="breadcrumbs__list">
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../index.html">Практика</a></li>
+      <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Проект по Pandas</span></li>
+    </ol></nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline"><span class="pill">Практика</span><span class="pill pill--soft">Pandas · модуль 5</span><span class="hero-dot">·</span><span class="hero-count">мини-проект</span></div>
+        <h1 class="section-shell__title">Когда и в какую погоду берут велосипеды?</h1>
+        <p class="section-shell__desc">Исследуй данные проката: подготовь таблицу, найди закономерности спроса и представь выводы графиками и коротким отчётом.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="project-meta"><span>Уровень: базовый Pandas</span><span>Время: 2–3 часа</span><span>Формат: Jupyter Notebook</span></div>
+    </section>
+
+    <div class="project-layout">
+      <div class="project-content">
+        <section class="project-panel" id="start">
+          <div class="dataset-callout"><div><strong>Датасет Bike Sharing Demand</strong><p>10&nbsp;886 почасовых наблюдений · 12 столбцов · CSV, около 633 КБ</p></div><a href="../../assets/data/bike-sharing-train.csv" download>Скачать train.csv</a></div>
+          <h3>Подготовь рабочее окружение</h3>
+          <p>Сохрани CSV рядом с ноутбуком. Открой Jupyter Notebook или JupyterLab и установи библиотеки, если их ещё нет:</p>
+          <pre class="project-code"><code>pip install pandas matplotlib jupyter</code></pre>
+          <p>Создай новый ноутбук и начни с импорта:</p>
+          <pre class="project-code"><code>import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("train.csv")</code></pre>
+          <p><strong>О чём данные:</strong> каждая строка — один час работы системы проката. <code>casual</code> — поездки незарегистрированных пользователей, <code>registered</code> — зарегистрированных, <code>count</code> — общее число поездок.</p>
+        </section>
+
+        <section class="project-panel" id="inspect"><div class="project-step"><span class="step-number">1</span><div><h2>Знакомство и проверка качества</h2>
+          <p>Сначала проверь, что именно загружено, и оцени качество таблицы.</p><ol>
+            <li>Покажи первые и последние строки, размер таблицы, названия и типы столбцов.</li>
+            <li>Посчитай пропуски и точные дубликаты. Проверь, совпадает ли <code>count</code> с суммой <code>casual + registered</code>.</li>
+            <li>Изучи числовые признаки через описательные статистики. Найди минимальный и максимальный спрос.</li>
+            <li>Объясни, почему столбец <code>datetime</code> пока не распознан как дата, и приведи его к типу datetime.</li>
+          </ol><div class="project-code"><code>df.info()
+df.isna().sum()
+df.duplicated().sum()
+df["datetime"] = pd.to_datetime(df["datetime"])</code></div>
+          <p><strong>Результат этапа:</strong> короткая заметка о размере, качестве данных и типах столбцов.</p></div></div>
+        </section>
+
+        <section class="project-panel" id="features"><div class="project-step"><span class="step-number">2</span><div><h2>Признаки времени</h2>
+          <p>Время поездки может влиять на спрос. Добавь отдельные признаки из даты:</p><ul>
+            <li><code>hour</code> — час суток;</li><li><code>weekday</code> — день недели;</li><li><code>month</code> — месяц;</li><li><code>date</code> — календарный день без часа.</li>
+          </ul><p>Сравни число поездок по часам и дням недели. В какие часы видны пики? Отличаются ли будни от выходных?</p>
+          <details class="hint"><summary>Подсказка по .dt</summary><pre class="project-code"><code>df["hour"] = df["datetime"].dt.hour
+df["weekday"] = df["datetime"].dt.dayofweek
+df["month"] = df["datetime"].dt.month
+by_hour = df.groupby("hour")["count"].mean()</code></pre></details>
+        </div></div></section>
+
+        <section class="project-panel" id="demand"><div class="project-step"><span class="step-number">3</span><div><h2>Спрос в разных условиях</h2>
+          <p>Проверь, как меняется число поездок в зависимости от обстоятельств.</p><ol>
+            <li>Сравни средний и суммарный спрос по сезонам (<code>season</code>) и погодным условиям (<code>weather</code>).</li>
+            <li>Сравни рабочие и нерабочие дни. Отдельно посмотри на часы пик.</li>
+            <li>Рассчитай долю незарегистрированных поездок в общем числе: <code>casual / count</code>. В какие часы она выше?</li>
+            <li>Проверь гипотезу: высокая температура связана с большим спросом? Посчитай корреляцию и построй диаграмму рассеяния.</li>
+          </ol><details class="hint"><summary>Подсказка: несколько метрик за одну группировку</summary><pre class="project-code"><code>season_summary = df.groupby("season").agg(
+    trips_mean=("count", "mean"),
+    trips_total=("count", "sum"),
+    temp_mean=("temp", "mean"),
+)
+print(season_summary)</code></pre></details>
+        </div></div></section>
+
+        <section class="project-panel" id="visualize"><div class="project-step"><span class="step-number">4</span><div><h2>Графики и выводы</h2>
+          <p>Сделай минимум три графика с подписями осей и понятными заголовками:</p><ul>
+            <li>среднее количество поездок по часам;</li><li>сравнение спроса по дням недели или сезонам;</li><li>зависимость спроса от температуры.</li>
+          </ul><p>Под каждым графиком добавь Markdown-ячейку: что видно и какое практическое решение можно из этого принять.</p>
+          <pre class="project-code"><code>by_hour = df.groupby("hour")["count"].mean()
+by_hour.plot(kind="line", marker="o", figsize=(9, 4))
+plt.xlabel("Час суток")
+plt.ylabel("Среднее число поездок")
+plt.title("Спрос на велосипеды по часам")
+plt.grid(alpha=0.25)
+plt.show()</code></pre>
+        </div></div></section>
+
+        <section class="project-panel" id="deliver"><div class="project-step"><span class="step-number">5</span><div><h2>Минипроект: подготовь рекомендацию</h2>
+          <p>Представь, что прокат хочет лучше распределять велосипеды. По результатам исследования ответь:</p><ol>
+            <li>В какие часы и дни стоит готовить больше велосипедов?</li><li>Какие сезон и погодные условия связаны с самым высоким спросом?</li><li>Чем отличается поведение зарегистрированных и обычных пользователей?</li><li>Какой один вывод нужно проверить на более свежих данных?</li>
+          </ol><p>Сохрани итоговую таблицу со средним спросом по часу и дню недели в CSV. В ноутбуке должны остаться код, графики и выводы.</p>
+          <pre class="project-code"><code>hour_weekday = df.pivot_table(
+    index="weekday", columns="hour", values="count", aggfunc="mean"
+)
+hour_weekday.to_csv("hour_weekday_demand.csv")</code></pre>
+        </div></div></section>
+
+        <section class="project-panel" id="submission"><h2>Что должно получиться</h2>
+          <div class="result-grid"><div><strong>Ноутбук</strong>Ячейки выполняются сверху вниз без ошибок.</div><div><strong>Исследование</strong>Есть таблицы группировок и ответы на вопросы.</div><div><strong>Визуализация</strong>Не меньше трёх подписанных графиков.</div><div><strong>Вывод</strong>Короткая рекомендация, опирающаяся на числа.</div></div>
+          <h3>Перед завершением проверь себя</h3><ul class="checklist"><li>Не смешивал сумму поездок и среднее за час.</li><li>Преобразовал <code>datetime</code> до извлечения календарных признаков.</li><li>Для сравнений указал, какие группы сравниваешь.</li><li>Не выдаёшь корреляцию за доказательство причинности.</li><li>Экспортировал итоговую сводную таблицу.</li></ul>
+          <p><a class="project-button" href="../../python/data.html">Повторить теорию Pandas</a></p>
+        </section>
+      </div>
+      <aside class="project-sidebar"><strong>Этапы проекта</strong><nav aria-label="Этапы проекта"><a href="#start">Старт и данные</a><a href="#inspect">1. Проверка данных</a><a href="#features">2. Признаки времени</a><a href="#demand">3. Анализ спроса</a><a href="#visualize">4. Графики</a><a href="#deliver">5. Рекомендация</a><a href="#submission">Критерии результата</a></nav></aside>
+    </div>
+  </main>
+</body>
+</html>
+
+
+
+
+

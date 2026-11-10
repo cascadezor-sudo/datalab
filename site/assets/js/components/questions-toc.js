@@ -95,6 +95,12 @@
         color: var(--text-color, #111827);
       }
 
+      .questions-toc__progress.is-complete .questions-toc__progress-text,
+      .questions-toc__progress.is-complete .questions-toc__progress-percent {
+        color: var(--success, #52745f);
+        font-weight: 700;
+      }
+
       /* Dark theme progress */
       body.dark .questions-toc__progress-bar {
         background: rgba(71, 85, 105, 0.4);
@@ -662,6 +668,32 @@
           a.classList.remove("completed");
         }
       });
+
+      const questionItems = items.filter((item) => item.type === "question");
+      const total = questionItems.length;
+      const done = questionItems.reduce(
+        (count, item) =>
+          count + Number(window.questionProgressTracker.isQuestionCompleted(item.id)),
+        0,
+      );
+      const percent = total ? Math.round((done / total) * 100) : 0;
+      const isComplete = total > 0 && done === total;
+      const fill = progressSection.querySelector(".questions-toc__progress-fill");
+      const text = progressSection.querySelector("#toc-progress-text");
+      const percentage = progressSection.querySelector("#toc-progress-percent");
+
+      if (fill) fill.style.width = `${percent}%`;
+      if (text) {
+        text.textContent = isComplete
+          ? t("Тема пройдена")
+          : t("Прочитано: {done} из {total}", { done, total });
+      }
+      if (percentage) percentage.textContent = `${percent}%`;
+      progressSection.classList.toggle("is-complete", isComplete);
+      progressSection.setAttribute(
+        "aria-label",
+        t("Прочитано: {done} из {total}", { done, total }),
+      );
     }
 
     // Retry until the progress tracker is available, then hook into updateUI

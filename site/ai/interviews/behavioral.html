@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Курс по поведенческому интервью — Собеседования и карьера</title>
+  <link href="../../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../../assets/css/styles.css" rel="stylesheet" />
+  <link href="../../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../../assets/code-styles.css" rel="stylesheet" />
+  <link href="../../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../../assets/css/section-shell.css" rel="stylesheet" />
+  <link href="../../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../../assets/js/components/questions-toc.js"></script>
+  <script src="../../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../../assets/js/core.js"></script>
+  <script defer="" src="../../assets/js/questions.js"></script>
+  <script defer="" src="../../assets/js/controls.js"></script>
+  <script defer="" src="../../assets/katex/katex.min.js"></script>
+  <script defer="" src="../../assets/katex/auto-render.min.js"></script>
+  <script src="../../assets/js/components/lazy-questions.js"></script>
+  <script src="../../assets/js/init-head.js"></script>
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/components/section-hero.js"></script>
+  <script src="../../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../../assets/js/components/difficulty-rating.js"></script>
+  <script src="../../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../../assets/js/components/info-cards.js"></script>
+  <script src="../../assets/js/components/quiz.js"></script>
+  <script src="../../assets/js/components/block-tests.js"></script>
+  <script src="../../assets/js/components/question-presentation.js"></script>
+  <script src="../../assets/js/components/question-badges.js"></script>
+  <script src="../../assets/js/components/term-definitions.js"></script>
+  <script src="../../assets/js/components/term-tooltip.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+
+  <link href="../../assets/css/learning-reading.css" rel="stylesheet" />
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="./index.html">Собеседования</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Поведенческое интервью</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Карьера</span>
+          <span class="pill pill--soft">Behavioral Interview</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">10 блоков</span>
+        </div>
+        <h1 id="title" class="section-shell__title">Курс по поведенческому интервью</h1>
+        <p class="section-shell__desc">Системная подготовка к Behavioral, Hiring Manager и Bar Raiser секциям: цикл Decode → Select → Deliver, структура CARL, 8 сигнальных компетенций, каталог историй, Project Deep Dive и ответы на вопросы об ИИ.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+
+    <ol id="questions">
+      <h3>Блок 1: зачем это нужно</h3>
+      <li class="question" data-md-source="true" data-md-id="why_behavioral_matters" data-interview="5">
+        <div class="name" id="why_behavioral_matters">
+          Зачем нужно поведенческое интервью: цикл Decode → Select → Deliver, структура CARL и сигнал грейда
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Определение и главная роль секции">
+            <p><b>Поведенческое интервью (Behavioral / Cultural / Hiring Manager Interview)</b> — это структурированная оценка того, как инженер принимает решения в условиях неопределённости, доводит сложные проекты до продакшена, разрешает технические и межличностные конфликты и извлекает уроки из ошибок.</p>
+            <p>Если алгоритмическая и ML-секции отвечают на вопрос <i>«Умеет ли кандидат писать код и формулы?»</i>, то поведенческое интервью определяет <b>грейд (Middle vs Senior/Staff)</b> и финальное решение о найме (Hire / No Hire) при равных технических баллах.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Трёхшаговый рабочий цикл: Decode → Select → Deliver">
+            <p>Сильный ответ на поведенческом интервью строится не импровизацией на ходу, а по трёхфазному алгоритму:</p>
+            <ol>
+              <li><b>Decode (Декодирование вопроса):</b> за первые 5 секунд понять, какую именно из 8 компетенций (Signal Areas) проверяет интервьюер и какое скрытое опасение (Red Flag) он хочет снять этим вопросом.</li>
+              <li><b>Select (Выбор истории из матрицы):</b> подобрать из заранее заготовленного каталога (Story Matrix из 6–8 ключевых кейсов) ту историю, где ваши личные действия (Actions) и масштаб (Scope) максимально бьют в целевую компетенцию.</li>
+              <li><b>Deliver (Структурированная подача по CARL):</b> рассказать историю за 2–3 минуты без воды, выделив 50–60% времени на инженерные и организационные действия, оцифровав результат и завершив зрелым выводом.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Почему CARL лучше классического STAR">
+            <p>В классическом фреймворке <b>STAR</b> (Situation, Task, Action, Result) кандидаты тратят половину времени на размытое разделение Situation и Task, но забывают сказать, <b>чему этот случай их научил</b> и что изменилось в процессах команды. В инженерных компаниях и Big Tech стандарт — <b>CARL</b>:</p>
+            <table class="task-table">
+              <thead>
+                <tr><th>Буква</th><th>Расшифровка</th><th>Доля времени</th><th>Что именно нужно сказать</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><b>C</b></td><td><b>Context</b> (Контекст и вызов)</td><td>~20% (25–30 сек)</td><td>Система, бизнес-цель, ставки (почему это было критично) и конкретное препятствие/неопределённость.</td></tr>
+                <tr><td><b>A</b></td><td><b>Actions</b> (Ваши действия)</td><td>~50% (60–90 сек)</td><td>Последовательность <b>ваших личных</b> инженерных и коммуникационных шагов: какие альтернативы сравнили, на какой компромисс пошли и почему.</td></tr>
+                <tr><td><b>R</b></td><td><b>Result</b> (Результат)</td><td>~20% (20–30 сек)</td><td>Измеримый бизнес- или технический эффект (метрики, latency, деньги, часы работы) и влияние на команду.</td></tr>
+                <tr><td><b>L</b></td><td><b>Learning</b> (Вывод и системный урок)</td><td>~10% (15–20 сек)</td><td>Какой принцип, регламент, алерт или архитектурное правило вы внедрили после этого случая, чтобы проблема больше не повторялась.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Чем ответ Senior отличается от ответа Junior/Middle">
+            <ul>
+              <li><b>Junior:</b> рассказывает, как выполнял чётко поставленную задачу по инструкции тимлида («мне дали тикет, я обучил CatBoost, метрика выросла»).</li>
+              <li><b>Middle:</b> показывает самостоятельное решение технической проблемы внутри своего сервиса и выбор правильного инструмента.</li>
+              <li><b>Senior / Lead:</b> показывает работу с <b>неопределённостью (Ambiguity)</b>, умение переформулировать бизнес-проблему до написания кода, выравнивание смежных команд (Alignment), расчёт компромиссов (Trade-offs) и <b>системные выводы (Learning)</b>, меняющие культуру и надёжность всей команды.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Из каких трёх шагов состоит цикл ответа на поведенческий вопрос?</b></p><p><b>Decode</b> (расшифровать проверяемую компетенцию и риск), <b>Select</b> (выбрать оптимальный кейс из подготовленного каталога историй) и <b>Deliver</b> (структурированно подать его по схеме CARL).</p></li>
+              <li><p><b>Чем структура CARL отличается от STAR и почему буква L критична для senior-грейда?</b></p><p>CARL объединяет Situation и Task в сжатый Context (20% времени) и добавляет финальный блок <b>Learning</b> (10%), который демонстрирует рефлексию, инженерную зрелость и способность превращать инциденты в системные улучшения процессов.</p></li>
+              <li><p><b>Почему поведенческое интервью напрямую влияет на предлагаемый грейд и оффер?</b></p><p>Технические секции проверяют инструментарий, а поведенческая секция измеряет масштаб ответственности (Scope), автономность, зрелость коммуникации и способность влиять на продукт и команду.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 2: Decode — как устроено интервью</h3>
+      <li class="question" data-md-source="true" data-md-id="decode_how_interviews_work" data-interview="5">
+        <div class="name" id="decode_how_interviews_work">
+          Decode — как устроено интервью: модели оценки, типы вопросов и 8 компетенций Signal Areas
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Как мыслит интервьюер по ту сторону экрана">
+            <p>Интервьюер на поведенческой секции не просто «болтает за жизнь» — перед ним открыта <b>оценочная рубрика (Scorecard)</b> из нескольких компетенций (Signal Areas). Его задача за 45 минут — собрать по каждой компетенции <b>поведенческие доказательства (Behavioral Evidence)</b> из вашего прошлого опыта и выставить оценку по шкале от <i>Strong No Hire</i> до <i>Strong Hire</i> с указанием уровня (L3 / L4 / L5 / L6).</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Три типа вопросов на поведенческом интервью">
+            <ol>
+              <li><b>Поведенческие (Past Behavioral — «Расскажите о случае, когда…»):</b> 80% всех вопросов. Опираются на принцип: <i>лучший предиктор будущего поведения — прошлое поведение в аналогичной ситуации</i>. Требуют конкретного реального кейса по CARL, а не рассуждений «как бы я поступил».</li>
+              <li><b>Гипотетические / Ситуационные («Представьте, что стейкхолдер требует выкатить сырую модель завтра…»):</b> проверяют фреймворк мышления и приоритизацию. Отвечаются по схеме: <i>уточнение вводных → развилка вариантов → принцип принятия решения → короткая отсылка к реальному похожему случаю из практики</i>.</li>
+              <li><b>Ценностные и мотивационные («Почему вы меняете работу?», «Какой инженерной культурой вы гордитесь?»):</b> проверяют совпадение ожиданий, осознанность и отсутствие токсичности.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="8 ключевых компетенций (Signal Areas), которые зашиты в вопросы">
+            <table class="task-table">
+              <thead>
+                <tr><th>№</th><th>Signal Area (Компетенция)</th><th>Типичная формулировка вопроса</th><th>Что на самом деле ищет интервьюер</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td><b>Ownership &amp; Drive (Ответственность и проактивность)</b></td><td>«Расскажите, когда вы взяли на себя задачу вне формальной зоны ответственности»</td><td>Не ждёте указаний, замечаете системные дыры и доводите решение до продакшена без микроменеджмента.</td></tr>
+                <tr><td>2</td><td><b>Dealing with Ambiguity (Работа с неопределённостью)</b></td><td>«Когда требования были размытыми или противоречивыми»</td><td>Умеете структурировать хаос, декомпозировать проблему, формулировать гипотезы и согласовывать критерии успеха.</td></tr>
+                <tr><td>3</td><td><b>Technical Decision Making &amp; Trade-offs (Инженерные компромиссы)</b></td><td>«Сложное архитектурное/ML решение с конкурирующими вариантами»</td><td>Сравниваете бейзлайны и альтернативы по цене, latency, поддерживаемости и бизнес-срокам, а не гонитесь за хайпом.</td></tr>
+                <tr><td>4</td><td><b>Execution &amp; Delivering Results (Доставка результата под давлением)</b></td><td>«Сжатые сроки, падение метрик или риск срыва дедлайна»</td><td>Умеете резать скоуп (MVP), управлять рисками, рано коммуницировать блокеры и доставлять бизнес-ценность вовремя.</td></tr>
+                <tr><td>5</td><td><b>Conflict Resolution &amp; Influence (Конфликты и влияние без полномочий)</b></td><td>«Несогласие с коллегой, тимлидом или продакт-менеджером»</td><td>Отделяете людей от проблемы, аргументируете данными и экспериментами, умеете убеждать и слышать чужие контраргументы.</td></tr>
+                <tr><td>6</td><td><b>Failure, Resilience &amp; Growth Mindset (Ошибки и рефлексия)</b></td><td>«Ваш самый серьёзный факап на продакшене или проваленный проект»</td><td>Не перекладываете вину на других, быстро купируете инцидент и внедряете постмортем/автоматическую защиту на будущее.</td></tr>
+                <tr><td>7</td><td><b>Collaboration &amp; Mentorship (Командность и развитие других)</b></td><td>«Как вы помогли вырасти младшему коллеге или наладили работу со смежниками»</td><td>Масштабируете экспертизу через код-ревью, онбординг, дизайн-доки и эмпатичную обратную связь.</td></tr>
+                <tr><td>8</td><td><b>Product &amp; Customer Obsession (Фокус на пользователе и бизнесе)</b></td><td>«Когда вы отказались от сложной ML-модели ради простого продуктового решения»</td><td>Понимаете, как ваша работа влияет на P&amp;L, удержание и боль реального пользователя.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Чем ответ на поведенческий вопрос («Расскажите о случае…») должен отличаться от ответа на гипотетический вопрос («Как бы вы поступили…»)?</b></p><p>На поведенческий вопрос нельзя отвечать обобщениями («обычно я делаю так…») — нужна одна конкретная история из прошлого по CARL. На гипотетический вопрос, наоборот, сначала дают структурированный алгоритм действий и критерии выбора, подкрепляя коротким примером.</p></li>
+              <li><p><b>Какие 8 базовых компетенций (Signal Areas) проверяются на поведенческом интервью?</b></p><p>Ownership, Dealing with Ambiguity, Technical Trade-offs, Execution &amp; Delivery, Conflict &amp; Influence, Failure &amp; Growth Mindset, Collaboration &amp; Mentorship, Product/Customer Obsession.</p></li>
+              <li><p><b>Что проверяет интервьюер, задавая вопрос про самый большой провал или ошибку?</b></p><p>Зрелость ответственности (отсутствие перекладывания вины), честность, скорость купирования последствий и системность выводов (что было изменено в пайплайне/тестах, чтобы класс ошибок исчез).</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 3: Select — как выбрать историю</h3>
+      <li class="question" data-md-source="true" data-md-id="select_choosing_stories" data-interview="5">
+        <div class="name" id="select_choosing_stories">
+          Select — как выбрать историю: каталог историй, вес Actions в CARL, критерии выбора и техника меню
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Матрица историй (Story Matrix) вместо 50 заученных ответов">
+            <p>Пытаться придумать отдельный ответ на 50 вопросов из интернета — тупиковый путь: на собеседовании формулировку чуть изменят, и вы растеряетесь. Вместо этого готовится <b>каталог из 6–8 сильных реальных историй (Story Matrix)</b>, каждая из которых может быть подсвечена под 2–3 разные компетенции (например, одна и та же история миграции скоринга может отвечать и на вопрос про <i>Technical Trade-offs</i>, и про <i>Cross-team Alignment</i>, и про <i>Tight Deadline</i>).</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Четыре критерия сильной истории для каталога">
+            <ol>
+              <li><b>Богатый блок Actions (Главный критерий):</b> в истории должно быть минимум 3–4 нетривиальных шага, которые предприняли <b>лично вы</b> (исследование проблемы, сравнение альтернатив, переговоры, внедрение). Если проблема решилась одной строчкой конфига за 10 минут — история слишком мелкая.</li>
+              <li><b>Свежесть (Recency):</b> кейсы за последние 1–2 года весят гораздо больше, чем истории пятилетней давности из университета.</li>
+              <li><b>Масштаб и сложность (Scope &amp; Complexity):</b> история должна соответствовать целевому грейду (влияние на метрики продукта, участие нескольких команд, высокие технические или бизнес-ставки).</li>
+              <li><b>Реальная преодоленная трудность (Tension):</b> без конфликта интересов, технического ограничения или неопределённости в истории нет драматургии и сигнала.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Техника «Меню» (Menu Technique), когда вы сомневаетесь, какой кейс лучше">
+            <p>Если вопрос широкий (например, <i>«Расскажите про сложную задачу с данными»</i>), а у вас есть два разных сильных кейса, не гадайте молча — используйте <b>технику меню</b> за 10 секунд:</p>
+            <p><i>«У меня есть два подходящих кейса: первый — про то, как мы обнаружили и устранили скрытый data leakage в фичах антифрода, сэкономив 4 млн рублей в месяц; второй — про перестройку пайплайна разметки для LLM в условиях жёсткого дедлайна и конфликта со смежной командой. Какой из них вам было бы интереснее разобрать?»</i></p>
+            <p><b>Почему это работает блестяще:</b> во-первых, вы сразу демонстрируете богатство опыта (оба кейса уже прозвучали в одном предложении!); во-вторых, интервьюер сам выбирает тот вектор, по которому ему не хватает сигнала в его рубрике.</p>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Сколько базовых историй нужно подготовить в матрице (Story Matrix) перед собеседованиями?</b></p><p>Достаточно 6–8 глубоко проработанных историй с разным контекстом, каждая из которых имеет 2–3 угла подачи под разные компетенции Signal Areas.</p></li>
+              <li><p><b>Почему богатство части Actions в CARL важнее, чем драматичность Context?</b></p><p>Оценка кандидата выставляется за его собственные решения и действия (Actions). Если Context звучит масштабно, но ваши личные действия свелись к тривиальному шагу, интервьюер не получит сигнала нужного грейда.</p></li>
+              <li><p><b>В чём заключается техника «Меню» (Menu Technique) при выборе истории?</b></p><p>Вы в двух коротких фразах предлагаете интервьюеру выбор между двумя релевантными кейсами с разным фокусом (например, сугубо техническим и кросс-командным), позволяя ему выбрать нужный сигнал для Scorecard.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 4: Deliver — как рассказать историю</h3>
+      <li class="question" data-md-source="true" data-md-id="deliver_telling_story" data-interview="5">
+        <div class="name" id="deliver_telling_story">
+          Deliver — как рассказать историю: структура CARL, что давать в Context и Actions, результат без метрик и адаптация
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Золотое правило подачи: Headline First + CARL">
+            <p>Человеческое внимание на звонке падает через 40 секунд, если слушатель не понимает, к чему вы ведёте. Поэтому любой ответ начинается с <b>однострочного заголовка-спойлера (Headline / TL;DR)</b>, за которым следует чёткая структура <b>CARL</b> длительностью 2–2.5 минуты.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Анатомия каждого блока CARL при устном рассказе">
+            <ul>
+              <li><b>Context (до 30 секунд — без «истории компании с 2015 года»):</b> назовите только 3 вещи: 1) что за продукт/система, 2) в чём состояла проблема или бизнес-цель, 3) почему это было сложно или срочно (ставки).</li>
+              <li><b>Actions (60–90 секунд — структурированный список шагов от первого лица «Я»):</b> разбейте свои действия на 3–4 логических блока: <i>«Во-первых, я провёл диагностику и выяснил… Во-вторых, я предложил два варианта архитектуры и защитил компромисс… В-третьих, я настроил канареечный выкат и мониторинг…»</i>.</li>
+              <li><b>Result (20–30 секунд — цифры До/После):</b> назовите прямой эффект на целевую метрику, скорость или стабильность.</li>
+              <li><b>Learning (15–20 секунд — инженерный вывод):</b> сформулируйте правило или процессное изменение, которое осталось в команде.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Как убедительно показать Result, если проект не измерялся продуктовой A/B-метрикой">
+            <p>Не каждый инженерный кейс заканчивается словами «выручка выросла на +5% по A/B-тесту». Если прямых продуктовых денег нет, используйте <b>4 типа инженерных и операционных метрик</b>:</p>
+            <ol>
+              <li><b>Системные и инфраструктурные показатели:</b> снижение p99 latency с 450 мс до 80 мс, сокращение потребления GPU/RAM на 40%, ускорение сборки или обучения модели с 6 часов до 45 минут.</li>
+              <li><b>Надёжность и качество разработки:</b> снижение числа ночных инцидентов с 4 в месяц до 0 за квартал, покрытие критического пайплайна автотестами, обнаружение data drift до выката.</li>
+              <li><b>Экономия времени команды и Time-to-Market:</b> сокращение времени развёртывания новой фичи с 2 недель до 1 дня для 8 дата-сайентистов отдела.</li>
+              <li><b>Масштаб внедрения (Adoption):</b> ваш внутренний инструмент или библиотека были переиспользованы тремя соседними командами и стали стандартом департамента.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="remark" data-title="Как адаптировать одну историю под разные вопросы (Re-angling)">
+            <p>Одна и та же история не должна звучать под копирку. При смене вопроса меняется <b>фокус внутри блока Actions</b>: если спросили про <i>конфликт</i> — 70% времени Actions посвятите аргументации, переговорам и выравниванию интересов сторон; если спросили про <i>технический челлендж</i> — 70% времени Actions посвятите профилированию, сравнению алгоритмов и результатам бенчмарков.</p>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Какую долю времени в ответе по CARL должны занимать Context, Actions, Result и Learning?</b></p><p>Context — около 20%, Actions — 50–60%, Result — 15–20%, Learning — 10% (при общей длительности ответа 2–3 минуты).</p></li>
+              <li><p><b>Чем заменить продуктовые метрики в блоке Result, если задача была инфраструктурной или исследовательской?</b></p><p>Техническими метриками (latency, throughput, стоимость GPU/CPU), операционными метриками (скорость итераций, часы ручного труда, частота алертов) или масштабом переиспользования (adoption в других командах).</p></li>
+              <li><p><b>В чём состоит приём адаптации (Re-angling) одной истории под разные вопросы?</b></p><p>Контекст и результат остаются прежними, но внутри блока Actions подробно раскрываются именно те шаги (переговорные, архитектурные или организационные), которые отвечают на проверяемую компетенцию вопроса.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 5: три главных вопроса</h3>
+      <li class="question" data-md-source="true" data-md-id="big_three_questions" data-interview="5">
+        <div class="name" id="big_three_questions">
+          Три главных вопроса: «Расскажите о себе», вопрос о любимом проекте, о конфликте и вопросы интервьюеру
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Вопросы со 100% вероятностью появления">
+            <p>На любом собеседовании вы гарантированно услышите четыре элемента: 1) стартовый <b>«Расскажите о себе» (Elevator Pitch)</b>, 2) <b>«Расскажите о самом сложном / гордом проекте»</b>, 3) <b>«Расскажите о конфликте или несогласии»</b> и 4) финальное <b>«Какие у вас есть вопросы к нам?»</b>. Подготовить их заранее — значит выиграть половину интервью ещё до начала.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="1. Формула идеального «Расскажите о себе» за 90 секунд (Present → Past → Future)">
+            <p>Не пересказывайте резюме хронологически начиная с первого курса вуза! Используйте формулу <b>Настоящее → Прошлое (мостик) → Будущее (почему мы здесь)</b>:</p>
+            <ul>
+              <li><b>Настоящее (30 сек — кто вы как инженер):</b> ваша текущая роль, домен, масштаб систем и главная специализация (например: <i>«Я ML-инженер с 4-летним опытом построения рекомендательных и поисковых систем в e-commerce с нагрузкой 15k RPS»</i>).</li>
+              <li><b>Прошлое — 2–3 главных хайлайта с цифрами (40 сек):</b> <i>«На текущем месте я отвечал за перевод ранжирования на двухбашенную нейросеть и внедрение Feature Store, что дало +3.2% к GMV. До этого развивал платформу A/B-тестирования и автоматизировал пайплайн переобучения моделей»</i>.</li>
+              <li><b>Будущее (20 сек — связка с вакансией):</b> почему вам интересна именно эта команда и какие задачи вы хотите решать дальше.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="2. Вопрос о самом сложном / любимом проекте (Flagship Project)">
+            <p>Это ваш главный козырь. Выбирайте проект, где одновременно присутствовали: <b>техническая глубина</b> (нетривиальные компромиссы, дебаггинг, архитектура), <b>кросс-функциональное взаимодействие</b> (продукт, бэкенд, аналитика) и <b>ощутимый бизнес-результат</b>. Сразу после краткого CARL-обзора на 2 минуты будьте готовы уйти на 15 минут вглубь любого технического узла (как собирали таргет, почему выбрали этот лосс, как валидировали офлайн и онлайн).</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="3. Вопрос о конфликте и несогласии (Conflict / Disagreement)">
+            <p><b>Две смертельные ошибки:</b> сказать <i>«У меня никогда не бывает конфликтов, мы все дружим»</i> (сигнал неискренности или пассивности) либо начать обвинять бывшего коллегу/менеджера в глупости (сигнал токсичности).</p>
+            <p><b>Правильная структура ответа о здоровом инженерном конфликте:</b></p>
+            <ol>
+              <li>Опишите ситуацию как <b>столкновение двух валидных профессиональных приоритетов</b> (например: продакт-менеджер хотел выкатить фичу к Чёрной пятнице без полного A/B-теста ради скорости, а вы видели риск просадки конверсии на старых клиентах).</li>
+              <li>Покажите, что вы <b>сначала выслушали и поняли</b> аргументы второй стороны (эмпатия и общая цель).</li>
+              <li>Переведите спор из плоскости мнений в плоскость <b>объективных данных, расчётов или быстрого эксперимента</b> (например, предложили короткий тест на 5% трафика с автоматическим kill-switch по guardrail-метрике).</li>
+              <li>Покажите конструктивный исход и сохранение доверительных отношений.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="4. Сильные вопросы интервьюеру в конце встречи">
+            <p>Фраза <i>«У меня вопросов нет, всё понятно»</i> снижает впечатление о вашей мотивации. Задайте 2–3 вопроса, заставляющих интервьюера представить вас уже работающим в команде:</p>
+            <ul>
+              <li><i>«Как будет выглядеть успех человека на этой позиции через первые 3 и 6 месяцев работы? Какую главную боль команды он должен закрыть в первую очередь?»</i></li>
+              <li><i>«Какой самый сложный технический или продуктовый компромисс вашей команде пришлось принять за последнее полугодие?»</i></li>
+              <li><i>«Как у вас устроен путь ML-гипотезы от идеи и ноутбука до выката в продакшен и кто отвечает за инфраструктурную часть?»</i></li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>По какой формуле строится ответ на вопрос «Расскажите о себе»?</b></p><p>По формуле <b>Present → Past → Future</b> на 90 секунд: кто вы сейчас и каков ваш профиль (30 сек), 2–3 ключевых достижения с метриками из недавнего опыта (40 сек) и почему вы мотивированы перейти именно в эту команду (20 сек).</p></li>
+              <li><p><b>Как правильно подать конфликт на собеседовании, чтобы не выглядеть ни конфликтным, ни безынициативным?</b></p><p>Представить ситуацию как столкновение двух обоснованных бизнес/инженерных приоритетов, показать понимание позиции оппонента и продемонстрировать разрешение спора через данные, прототип или компромиссный дизайн с сохранением рабочих отношений.</p></li>
+              <li><p><b>Зачем обязательно задавать содержательные вопросы интервьюеру в конце секции?</b></p><p>Вопросы диагностируют реальные процессы в компании (техдолг, зрелость MLOps, культуру переработок) и оставляют финальное впечатление вовлечённого, системно мыслящего инженера.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 6: Big Tech</h3>
+      <li class="question" data-md-source="true" data-md-id="adapting_big_tech" data-interview="5">
+        <div class="name" id="adapting_big_tech">
+          Big Tech: как показать готовность к масштабу, культурные мифы, опасения интервьюера и структурированное интервью
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Чем собеседование в Big Tech отличается от стартапа">
+            <p>В крупных технологических компаниях (Яндекс, Авито, Т-Банк, Ozon, ВК, а также международные FAANG) решение о найме принимает не один нанимающий менеджер по «химии», а <b>Hiring Committee (комитет по найму)</b> на основе письменного пакета фидбеков от 4–5 независимых интервьюеров и <b>Bar Raiser’а</b>. Поэтому каждый ваш ответ должен давать чёткие формулировки, которые интервьюер сможет дословно записать в форму отчёта как доказательство вашего грейда.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Как откалибровать масштаб (Scope) под уровни L4 (Middle), L5 (Senior) и L6 (Staff)">
+            <table class="task-table">
+              <thead>
+                <tr><th>Измерение</th><th>L4 (Middle)</th><th>L5 (Senior)</th><th>L6 (Staff / Principal)</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><b>Постановка задачи</b></td><td>Получает задачу с понятной целью, сам выбирает способ реализации.</td><td>Получает размытую бизнес-проблему, сам формулирует техническую постановку и метрики.</td><td>Сам находит системные точки роста и узкие места на уровне нескольких команд/департамента.</td></tr>
+                <tr><td><b>Горизонт и влияние</b></td><td>Отдельная фича или компонент внутри своей команды (недели).</td><td>End-to-end проект или подсистема, затрагивающая смежные команды (месяцы/квартал).</td><td>Архитектурная стратегия и платформенные стандарты для нескольких команд (полугодие–год).</td></tr>
+                <tr><td><b>Работа с рисками</b></td><td>Исправляет баги и пишет тесты на свой код.</td><td>Проектирует отказоустойчивость, мониторинг, деградацию (fallback) и предотвращает классы проблем.</td><td>Управляет организационными и техническими рисками всей продуктовой вертикали.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Культурные мифы о Big Tech и скрытые опасения интервьюера">
+            <ul>
+              <li><b>Миф №1: «Если я пришёл из небольшой компании, у меня нет масштаба для Big Tech».</b> На самом деле интервьюеры оценивают не размер кластера вашей прошлой компании, а <b>строгость инженерного подхода</b>: как вы работали с ограничениями, считали экономику, строили валидацию и договаривались со стейкхолдерами.</li>
+              <li><b>Миф №2: «Нужно притворяться идеальным роботом без слабостей».</b> Напротив, попытка скрыть промах или уйти от прямого вопроса на <i>probing follow-ups</i> («А почему именно вы приняли это решение?», «А что бы вы сделали иначе?») вызывает главный красный флаг — <b>Lack of Self-Awareness / Defensiveness</b> (неспособность принимать обратную связь).</li>
+              <li><b>Скрытые опасения интервьюера:</b> 1) <i>Герой-одиночка (Lone Wolf)</i>, который переписывает всё молча без код-ревью и дизайн-доков; 2) <i>Исполнитель тикетов</i>, который ждёт идеального ТЗ; 3) <i>Теоретик</i>, который строит сложнейшие модели полгода без выката бейзлайна в прод.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Кто принимает финальное решение о найме и грейде в структурированном процессе Big Tech?</b></p><p>Hiring Committee и Bar Raiser на основании письменных отчётов (Scorecards) с конкретными цитатами и примерами из ответов кандидата.</p></li>
+              <li><p><b>В чём главное отличие сигнала L5 (Senior) от L4 (Middle) на поведенческом интервью?</b></p><p>L5 демонстрирует самостоятельное разрешение неопределённости (Ambiguity), владение проектом end-to-end от бизнес-проблемы до мониторинга в проде, кросс-командное выравнивание и системное предотвращение ошибок.</p></li>
+              <li><p><b>Почему на уточняющие вопросы (follow-ups) интервьюера опасно уходить в глухую оборону?</b></p><p>Уточняющие вопросы проверяют глубину вашего участия и способность к критической рефлексии; защитная реакция (Defensiveness) трактуется как неспособность работать с код-ревью и обратной связью в команде.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 7: практика</h3>
+      <li class="question" data-md-source="true" data-md-id="practicing" data-interview="5">
+        <div class="name" id="practicing">
+          Практика: ключевые мысли вместо заученного текста, распределение времени по CARL и роль пробных интервью
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Почему нельзя учить ответы наизусть слово в слово">
+            <p>Когда кандидат читает по памяти зазубренный текст, его голос становится монотонным, а любой уточняющий вопрос в середине рассказа сбивает его с мысли и вызывает ступор. Вместо сплошного текста каждая история в вашей матрице должна храниться в виде <b>4–5 коротких буллитов (Anchor Bullets)</b> по блокам C–A–R–L.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Контроль тайминга: правило 2.5 минут и распределение CARL">
+            <p>Идеальная длина первичного ответа — <b>от 1 мин 45 сек до 2 мин 30 сек</b>. Если вы говорите меньше минуты — ответ поверхностный и в нём нет деталей; если больше 3.5 минут — вы утомляете собеседника и крадёте время у следующих вопросов рубрики.</p>
+            <ul>
+              <li><b>0:00 – 0:10:</b> Headline (одно предложение, о чём история и какой результат).</li>
+              <li><b>0:10 – 0:35 (Context):</b> система, проблема и почему это было важно.</li>
+              <li><b>0:35 – 1:45 (Actions):</b> 3 чётких шага от первого лица («Первым делом я… Затем я… Наконец, я…»).</li>
+              <li><b>1:45 – 2:10 (Result):</b> конкретные цифры До и После.</li>
+              <li><b>2:10 – 2:30 (Learning):</b> чему научились и какой процесс поменяли. Пауза и готовность к вопросам вглубь.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Трёхступенчатая методика тренировки перед реальным собеседованием">
+            <ol>
+              <li><b>Запись себя на диктофон/видео с таймером:</b> возьмите случайный вопрос, включите секундомер и ответьте вслух без подглядывания. Переслушайте запись: сразу станут заметны слова-паразиты, раздутый на 2 минуты Context и размытое «мы решили» вместо «я сделал».</li>
+              <li><b>Упражнение «Сжатие и Развёртывание» (1 минута vs 3 минуты):</b> потренируйтесь рассказывать каждую из 6 своих историй в двух режимах — сверхкороткий питч на 60 секунд (для скрининга с рекрутером) и полная версия на 2.5 минуты (для Hiring Manager).</li>
+              <li><b>Мок-интервью с живым собеседником:</b> попросите коллегу или ментора задавать вам жёсткие уточняющие вопросы после каждого рассказа (<i>«А почему вы не взяли готовое решение?», «А что именно сделали вы, а не тимлид?»</i>) — именно на follow-up вопросах проверяется подлинность истории.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Почему при подготовке историй нужно фиксировать опорные тезисы (bullet points), а не заучивать полный текст?</b></p><p>Опорные тезисы сохраняют естественную живую интонацию и позволяют легко перестраивать акценты истории под конкретную формулировку вопроса и уточнения интервьюера.</p></li>
+              <li><p><b>Какова оптимальная длительность ответа по структуре CARL до первых уточняющих вопросов?</b></p><p>Около 2–2.5 минут (из которых половина времени уходит на блок Actions). Более длинный монолог перегружает внимание интервьюера.</p></li>
+              <li><p><b>Зачем записывать свои тренировочные ответы вслух на аудио или видео?</b></p><p>Устная речь радикально отличается от текста в голове: запись сразу выявляет затянутый контекст, потерю структуры и подмену «я» на «мы».</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 8: типичные ошибки</h3>
+      <li class="question" data-md-source="true" data-md-id="common_pitfalls" data-interview="5">
+        <div class="name" id="common_pitfalls">
+          Типичные ошибки: промах мимо сигнала, перегруз контекстом, «мы» вместо «я», слабый выбор истории и подача
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Шесть главных ловушек, из-за которых сильные инженеры получают отказ или даунгрейд">
+            <p>Даже кандидаты с отличным опытом регулярно теряют офферы или получают оценку на грейд ниже (например, L4 вместо L5) из-за 6 систематических ошибок в подаче своих историй.</p>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Разбор 6 критических ошибок и способов их исправления">
+            <ol>
+              <li><b>Ошибка №1 — Синдром «Мы» (The Royal "We"):</b> <i>«Мы проанализировали данные, мы обучили модель, мы выкатили сервис»</i>. Интервьюер не понимает: вы были архитектором этого решения или просто сидели рядом на дейлике? <b>Исправление:</b> за 10 секунд обозначьте состав команды, а в блоке Actions говорите строго от первого лица (<i>«Моей зоной ответственности был ранжирующий слой: я спроектировал…, я провёл…»</i>).</li>
+              <li><b>Ошибка №2 — Вавилонская башня контекста (Context Overload):</b> кандидат 3 минуты объясняет бизнес-модель своего банка и структуру всех таблиц в DWH, а когда доходит до действий, время на вопрос истекает. <b>Исправление:</b> жёсткий лимит 30 секунд на Context. Если интервьюеру понадобятся детали предметной области, он сам спросит.</li>
+              <li><b>Ошибка №3 — Промах мимо проверяемого сигнала (Wrong Signal):</b> на вопрос про <i>межличностный конфликт</i> кандидат рассказывает чисто техническую историю про то, как он сравнивал две функции потерь в ноутбуке. <b>Исправление:</b> всегда делайте шаг Decode и проверяйте, есть ли в истории тот сигнал, о котором спросили.</li>
+              <li><b>Ошибка №4 — «Фальшивый факап» (Humblebrag Failure):</b> на вопрос об ошибке отвечать <i>«Моя главная ошибка — я слишком много работал и слишком качественно писал тесты»</i>. Это мгновенно считывается как неискренность. <b>Исправление:</b> расскажите о реальной инженерной или процессной ошибке (например, не учли сдвиг распределения в проде или поздно эскалировали риск), которая была быстро исправлена и привела к созданию полезного системного правила.</li>
+              <li><b>Ошибка №5 — Отсутствие цифр и масштаба в Result:</b> фраза <i>«В итоге всё заработало хорошо и заказчик остался доволен»</i> звучит неубедительно. <b>Исправление:</b> заранее вспомните или оцените порядок величин (RPS, размер датасета, дельта метрики, сэкономленные часы/деньги).</li>
+              <li><b>Ошибка №6 — Подача ниже своего уровня (Underselling Seniority):</b> сеньор-инженер рассказывает только про написание кода по ТЗ, умалчивая о том, что он сам сформулировал продуктовую гипотезу, отговорил бизнес от ненужной фичи и провёл ревью архитектуры.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Почему употребление местоимения «мы» в блоке Actions опасно на собеседовании?</b></p><p>Компания нанимает конкретного человека, а не всю его прошлую команду. За словом «мы» невозможно оценить ваш личный вклад, поэтому в блоке Actions нужно чётко отделять свою роль («я спроектировал, я договорился») от работы коллег.</p></li>
+              <li><p><b>Почему «фальшивый провал» («я слишком перфекционист») вредит кандидату сильнее, чем рассказ о реальном инциденте?</b></p><p>Он показывает закрытость и отсутствие рефлексии, тогда как рассказ о настоящем инциденте с грамотным постмортемом доказывает зрелость и надёжность инженера.</p></li>
+              <li><p><b>Как избежать перегруза контекстом (Context Overload) при рассказе о сложном доменном проекте?</b></p><p>Свести Context к трём предложениям (система, проблема, цена вопроса в бизнесе), убрав внутренний жаргон и второстепенные исторические подробности.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 9: особые форматы</h3>
+      <li class="question" data-md-source="true" data-md-id="special_formats" data-interview="5">
+        <div class="name" id="special_formats">
+          Особые форматы: разговор с рекрутером, выбор и подача проекта на Deep Dive, дополнительный поведенческий раунд
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Три специальных раунда с поведенческой оценкой">
+            <p>Помимо классического Behavioral-интервью, поведенческие сигналы оцениваются ещё в трёх форматах, у каждого из которых свои правила игры: 1) <b>HR / Recruiter Screening</b>, 2) <b>Project Deep Dive (технический разбор вашего проекта)</b> и 3) <b>Bar Raiser / Executive Final Round</b>.</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="1. Разговор с рекрутером (Recruiter Screen — 20–30 минут)">
+            <p>Задача рекрутера — проверить базовую адекватность, совпадение по стеку/масштабу задач, мотивацию перехода и зарплатную вилку. <b>Правила:</b></p>
+            <ul>
+              <li>Говорите структурно и понятно, без узкоспециализированного жаргона (связывайте технологии с бизнес-результатом).</li>
+              <li>Чётко формулируйте причину поиска работы в позитивном ключе («ищу больший масштаб нагрузки / задачи в области LLM и продакшен-ML», а не жалобы на бывшего начальника).</li>
+              <li>На вопрос о зарплатных ожиданиях называйте аргументированный диапазон или уточняйте структуру компенсации в компании (оклад, бонусы, RSU/опционы).</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="2. Project Deep Dive (Глубокий разбор вашего флагманского проекта — 45–60 минут)">
+            <p>На этой секции опытный инженер или тимлид копает один ваш проект до самого дна, проверяя, действительно ли вы понимаете каждую деталь или просто запускали чужие скрипты.</p>
+            <ol>
+              <li><b>Как выбрать проект для Deep Dive:</b> берите систему, которую вы знаете от сбора сырых данных и выбора функции потерь до деплоя и мониторинга в продакшене.</li>
+              <li><b>Структура подачи (6-шаговый план на 5 минут до начала вопросов):</b>
+                <ul>
+                  <li>Бизнес-задача и почему старое решение не работало;</li>
+                  <li>Перевод бизнес-задачи на язык ML и выбор офлайн/онлайн метрик;</li>
+                  <li>Данные, таргет, борьба с утечками (data leakage) и схема валидации;</li>
+                  <li>Эволюция моделей: от простого бейзлайна до финальной архитектуры (с объяснением <b>почему</b> отбросили альтернативы);</li>
+                  <li>Архитектура инференса в проде (latency, SLA, fallback при сбое);</li>
+                  <li>Результаты A/B-теста, ошибки, которые всплыли после выката, и что бы вы сделали иначе сегодня.</li>
+                </ul>
+              </li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="3. Раунд с Bar Raiser / Топ-менеджером">
+            <p><b>Bar Raiser</b> — независимый опытный интервьюер из другого департамента с правом вето, чья задача — проверить, что кандидат <b>выше среднего уровня текущих сотрудников этого грейда</b> и разделяет долгосрочные инженерные ценности компании. Если вам назначили дополнительный поведенческий раунд в конце пайплайна — чаще всего комиссия колеблется между двумя соседними грейдами (например, Middle+ vs Senior), и от вас ждут демонстрации стратегического мышления, кросс-командного влияния и высокой планки качества.</p>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Чем рассказ о проекте на рекрутерском скрининге отличается от Project Deep Dive?</b></p><p>На скрининге с рекрутером нужен 60-секундный верхнеуровневый обзор роли, стека и бизнес-эффекта. На Project Deep Dive нужен детальный инженерный разбор архитектуры, валидации, компромиссов, ограничений инференса и граничных случаев.</p></li>
+              <li><p><b>Почему на Project Deep Dive обязательно нужно рассказывать про бейзлайн и отвергнутые альтернативы?</b></p><p>Инженерная зрелость проявляется в умении обосновать выбор решения через сравнение стоимости, сложности и качества альтернатив, а не в слепом применении самой сложной модели.</p></li>
+              <li><p><b>Какова роль Bar Raiser’а и почему могут назначить дополнительный поведенческий раунд?</b></p><p>Bar Raiser защищает планку найма компании от компромиссов ради срочного закрытия вакансии. Дополнительный раунд обычно назначают для калибровки спорного грейда (например, L4 vs L5) или добора недостающего сигнала по одной из компетенций.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+
+      <h3>Блок 10: вопросы об ИИ</h3>
+      <li class="question" data-md-source="true" data-md-id="ai_questions" data-interview="5">
+        <div class="name" id="ai_questions">
+          Вопросы об ИИ на собеседовании: направления Work, Trust, Scaling и принципы работы с ИИ-инструментами
+        </div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Новый обязательный блок вопросов в 2025–2026 годах">
+            <p>Сегодня почти на каждом собеседовании (как у разработчиков, так и у ML-инженеров и аналитиков) задают вопросы о том, <b>как вы используете LLM и AI-ассистентов в ежедневной работе</b> и как проектируете надёжные AI-системы. Интервьюеры проверяют три вектора: <b>Work</b> (продуктивность), <b>Trust</b> (верификация и безопасность) и <b>Scaling</b> (системное масштабирование в продакшене).</p>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Три оси ответов об ИИ: Work, Trust, Scaling">
+            <table class="task-table">
+              <thead>
+                <tr><th>Направление</th><th>О чём спрашивают</th><th>Позиция зрелого инженера (Senior Signal)</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>1. Work (Личная и командная эффективность)</b></td>
+                  <td>«Как вы используете AI/LLM в своей повседневной инженерной работе?»</td>
+                  <td>Использую ИИ как ускоритель рутины: генерация шаблонного кода и параметризованных pytest-тестов, быстрый рефакторинг, написание черновиков документации и SQL/Pandas-пайплайнов, поиск корневых причин по стектрейсам, оставляя за собой архитектурный дизайн и финальное решение.</td>
+                </tr>
+                <tr>
+                  <td><b>2. Trust (Доверие, верификация и риски)</b></td>
+                  <td>«Как вы проверяете код или выводы, сгенерированные LLM? Сталкивались ли с галлюцинациями?»</td>
+                  <td>Принцип <b>«Trust, but Verify through deterministic checks»</b>: никогда не вливаю сгенерированный код без понимания каждой строки, прогона автотестов, проверки граничных случаев, анализа безопасности (утечки секретов, SQL-инъекции, лицензии) и валидации на реальных данных.</td>
+                </tr>
+                <tr>
+                  <td><b>3. Scaling (Масштабирование ИИ в продукте и команде)</b></td>
+                  <td>«Когда стоит внедрять LLM в продукт, а когда лучше обойтись классическим ML или эвристикой?»</td>
+                  <td>Оцениваю через <b>ROI, Latency и детерминизм</b>: если задачу решает регулярное выражение или лёгкий градиентный бустинг за 2 мс и $0.001, тащить туда LLM за 1500 мс — инженерная ошибка. Если LLM оправдана, обязательно строю пайплайн <b>Evals (автоматической оценки качества)</b>, Guardrails, кэширование и fallback.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Две крайности, которых нужно избегать при ответах об ИИ">
+            <ul>
+              <li><b>Крайность №1 — Скептик-луддит:</b> <i>«Я принципиально не пользуюсь AI-ассистентами, они пишут только мусор»</i>. Для компании это сигнал ригидности и потери скорости там, где коллеги делают прототип в 3 раза быстрее.</li>
+              <li><b>Крайность №2 — Слепой вайб-кодер:</b> <i>«Я просто промпчу модель и сразу пушу в прод, даже не читая дифф»</i>. Это страшнейший красный флаг для продакшена: первый же сгенерированный баг на граничном случае положит систему, а вы не сможете его отладить.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>По каким трём направлениям (Work, Trust, Scaling) строятся зрелые ответы на вопросы об использовании ИИ?</b></p><p><b>Work</b> — какие рутинные задачи вы ускоряете с помощью ИИ (тесты, бойлерплейт, исследование кода); <b>Trust</b> — как детерминированно верифицируете результат (тесты, код-ревью, защита от галлюцинаций и утечек); <b>Scaling</b> — как стандартизируете промпты/правила в команде и оцениваете целесообразность (ROI, Evals, Latency) внедрения ИИ в продакшен.</p></li>
+              <li><p><b>Почему слепое копирование кода из LLM без верификации является красным флагом на собеседовании?</b></p><p>Ответственность за надёжность, безопасность и поддерживаемость кода в продакшене всегда несёт инженер, а не языковая модель. LLM склонны к галлюцинациям API, пропуску граничных случаев и неоптимальным алгоритмическим решениям.</p></li>
+              <li><p><b>Как инженерно ответить на вопрос «Когда НЕ нужно использовать LLM в продакшен-системе»?</b></p><p>Когда задача требует жёсткого детерминизма, минимальной задержки (единицы миллисекунд), низкой стоимости на высоком RPS и успешно решается алгоритмическими правилами или классическим табличным ML.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+    </ol>
+  </main>
+  <script src="../../authGuard.js"></script>
+  <script src="../../assets/js/init-page.js"></script>
+</body>
+</html>

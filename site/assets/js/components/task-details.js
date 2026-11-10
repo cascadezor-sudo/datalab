@@ -24,7 +24,10 @@
     ((text, params) =>
       text.replace(/\{(\w+)\}/g, (match, key) => params?.[key] ?? match));
 
-  const SITE_URL = "https://schmidtml.ru";
+  const SITE_URL =
+    typeof window !== "undefined" && /^https?:$/.test(window.location?.protocol || "")
+      ? window.location.origin
+      : "";
 
   function escapeHtml(value) {
     return String(value ?? "").replace(

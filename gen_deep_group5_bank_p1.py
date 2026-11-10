@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 5:
+Deep textbook generator for DataLab Analytics - Group 5:
 site/analytics/bank/product.html (18 questions) - Part 1: questions 1-9
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 
 q_ab_cuped_interview = (

@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 6:
+Deep textbook generator for DataLab Analytics - Group 6:
 site/db/dwh.html (9 questions)
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 
 q_db_types_relational_nosql = (

@@ -233,7 +233,6 @@
     <!-- Мини-окно новостей на главной отключено
     <link href="assets/css/news-panel.css" rel="stylesheet" /> -->
     <link href="assets/css/daily-reports.css" rel="stylesheet" />
-    <link href="assets/css/rag-chat.css" rel="stylesheet" />
     <link href="assets/css/intro-tour.css" rel="stylesheet" />
     <link href="assets/katex/katex.min.css" rel="stylesheet" />
     <link href="assets/css/fonts.css" rel="stylesheet" />
@@ -258,8 +257,8 @@
 
       /* Avatar in the page header */
       .main-header-avatar {
-        width: 56px;
-        height: 56px;
+        width: 48px;
+        height: 48px;
         border-radius: 50%;
         background: color-mix(in srgb, var(--brand) 14%, transparent);
         border: 1px solid var(--border-color);
@@ -316,8 +315,7 @@
         color: var(--muted);
       }
 
-      /* Верхний ряд «Сегодня»: вопрос дня слева, серия и кольцо цели справа;
-         на узком экране половины сами переносятся друг под друга. */
+      /* Вопрос дня располагается отдельной полосой над карточками «Сегодня». */
       .main-today-top {
         display: flex;
         flex-wrap: wrap;
@@ -333,13 +331,15 @@
       }
 
       .main-today-pulse {
-        flex: 1 1 320px;
-        display: flex;
-        flex-wrap: wrap;
+        min-width: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+          "icon name"
+          "metric metric";
         align-items: center;
-        justify-content: space-between;
-        gap: 14px 24px;
-        padding: 16px 20px;
+        gap: 6px 12px;
+        padding: 18px 20px;
         border-radius: 18px;
         border: 1px solid var(--border);
         background: color-mix(in srgb, var(--card) 94%, transparent);
@@ -352,19 +352,23 @@
       }
 
       .main-today-streak {
+        grid-area: metric;
         display: flex;
         flex-wrap: wrap;
         align-items: baseline;
-        gap: 4px 10px;
+        gap: 6px 10px;
         min-width: 0;
+        min-height: 34px;
+        margin-top: 6px;
         color: var(--muted);
-        font-size: 0.92rem;
+        font-size: 0.9rem;
+        line-height: 1.4;
       }
 
       /* Не strong: глобальный градиент для strong перекрашивает эмодзи. */
       .main-today-streak-value {
-        color: var(--text);
-        font-size: 1.25rem;
+        color: var(--brand);
+        font-size: 1.7rem;
         font-weight: 700;
       }
 
@@ -381,22 +385,26 @@
         font-size: 0.82rem;
       }
 
-      /* Заморозка в запасе: пропуск серию не рвёт — без тревожного цвета. */
-      .main-today-streak-pending.is-soft {
-        background: color-mix(in srgb, var(--text) 7%, transparent);
-        color: var(--muted);
-      }
-
       .main-today-goal {
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 16px;
+        margin-top: 14px;
+        padding: 12px 18px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+        box-shadow: var(--shadow);
+      }
+
+      .main-today-goal[hidden] {
+        display: none;
       }
 
       .main-today-ring {
         position: relative;
-        width: 56px;
-        height: 56px;
+        width: 48px;
+        height: 48px;
         flex-shrink: 0;
       }
 
@@ -439,8 +447,12 @@
       }
 
       .main-today-goal-text {
-        display: grid;
-        gap: 6px;
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 12px;
+        min-width: 0;
         color: var(--muted);
         font-size: 0.9rem;
       }
@@ -451,6 +463,7 @@
       }
 
       .main-today-goal-hint {
+        color: var(--muted);
         font-size: 0.8rem;
       }
 
@@ -825,31 +838,16 @@
       }
 
       .main-priority-grid {
-        --main-catalog-surface:
-          radial-gradient(
-            circle at top left,
-            color-mix(in srgb, var(--brand) 10%, rgba(255, 255, 255, 0.08)),
-            transparent 42%
-          ),
-          linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--brand) 30%, var(--card) 70%),
-            color-mix(
-              in srgb,
-              var(--brand-secondary, var(--brand)) 22%,
-              var(--card) 78%
-            )
-          );
+        --main-catalog-surface: var(--bg-card);
         --main-catalog-border: color-mix(
           in srgb,
           var(--brand) 18%,
           var(--border)
         );
-        --main-catalog-shadow: 0 14px 32px
-          color-mix(in srgb, var(--brand) 10%, transparent);
-        --main-catalog-text: #fff;
-        --main-catalog-muted: rgba(255, 255, 255, 0.72);
-        --main-catalog-button-bg: rgba(255, 255, 255, 0.08);
+        --main-catalog-shadow: none;
+        --main-catalog-text: var(--text);
+        --main-catalog-muted: var(--text-muted);
+        --main-catalog-button-bg: var(--bg-elevated);
         --main-catalog-button-border: rgba(255, 255, 255, 0.16);
         --main-catalog-button-hover-bg: rgba(255, 255, 255, 0.12);
         --main-catalog-button-hover-border: rgba(255, 255, 255, 0.24);
@@ -1030,31 +1028,16 @@
 
       html[data-theme="light"] .main-priority-grid,
       [data-theme="light"] body .main-priority-grid {
-        --main-catalog-surface:
-          radial-gradient(
-            circle at top left,
-            color-mix(in srgb, #fff 72%, var(--brand) 28%),
-            transparent 46%
-          ),
-          linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--brand) 18%, #fff),
-            color-mix(
-              in srgb,
-              var(--brand-secondary, var(--brand)) 14%,
-              #f8f3ed
-            )
-          );
+        --main-catalog-surface: var(--bg-card);
         --main-catalog-border: color-mix(
           in srgb,
           var(--brand) 20%,
           var(--border)
         );
-        --main-catalog-shadow: 0 18px 38px
-          color-mix(in srgb, var(--brand) 10%, transparent);
-        --main-catalog-text: color-mix(in srgb, var(--text) 94%, #000);
-        --main-catalog-muted: color-mix(in srgb, var(--text) 72%, transparent);
-        --main-catalog-button-bg: rgba(255, 255, 255, 0.62);
+        --main-catalog-shadow: none;
+        --main-catalog-text: var(--text);
+        --main-catalog-muted: var(--text-muted);
+        --main-catalog-button-bg: var(--bg-elevated);
         --main-catalog-button-border: color-mix(
           in srgb,
           var(--brand) 16%,
@@ -1095,6 +1078,16 @@
           border-radius: 16px;
         }
 
+        .main-today-goal {
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .main-today-goal-options {
+          flex-basis: calc(100% - 60px);
+          margin-left: 60px;
+        }
+
         .main-qod {
           flex-direction: column;
           align-items: stretch;
@@ -1108,6 +1101,8 @@
         }
       }
     </style>
+    <link href="assets/css/design-system.css" rel="stylesheet" />
+    <link href="assets/css/main-home.css" rel="stylesheet" />
     <script>
       async function ensureCommandPaletteReady() {
         if (typeof window.openCommandPalette === "function") return;
@@ -1163,7 +1158,6 @@
     <script src="assets/js/components/achievement-api.js"></script>
     <script src="assets/js/components/achievement-notifications.js"></script>
     <script src="assets/js/notifications.js"></script>
-    <script src="assets/js/components/rag-chat.js"></script>
     <script src="assets/js/components/intro-tour.js"></script>
     <script src="assets/js/components/main-today.js"></script>
     <script src="assets/js/components/question-of-day.js"></script>
@@ -1196,7 +1190,7 @@
               try {
                 if (userRole) {
                   localStorage.setItem(
-                    "schmidtml_nav_role_cache_v1",
+                    "datalab_nav_role_cache_v1",
                     JSON.stringify({
                       uid: user.uid,
                       role: userRole,
@@ -1421,32 +1415,12 @@
               Добро пожаловать на платформу
             </p>
           </div>
-          <div class="page-header-cta">
-            <a
-              href="wallet.html"
-              class="page-header-button main-wallet-link"
-              title="Кошелёк: грады за учёбу"
-            >
-              <svg
-                viewBox="0 0 64 64"
-                aria-hidden="true"
-                focusable="false"
-                class="coin-icon"
-              >
-                <use href="#grad-coin"></use>
-              </svg>
-              <span data-wallet-balance>—</span>
-              <span data-wallet-unit>градов</span>
-            </a>
-          </div>
         </div>
       </header>
 
       <section class="main-today" id="mainToday" aria-label="Сегодня" hidden>
         <h2 class="main-today-title">Сегодня</h2>
-        <!-- Верхний ряд блока «Сегодня»: вопрос дня слева, серия и дневная
-             цель справа. Каждая половина может быть скрыта (раздел вопроса
-             закрыт, данные не прочитались) — оставшаяся занимает всю ширину. -->
+        <!-- Вопрос дня остаётся отдельной полосой; серия входит в ряд карточек. -->
         <div class="main-today-top">
           <div class="main-qod" id="questionOfDay" hidden>
             <div class="main-qod-body">
@@ -1465,65 +1439,23 @@
               Проверить себя
             </button>
           </div>
-          <div class="main-today-pulse" id="todayPulse" hidden>
-            <div class="main-today-streak">
-              <span
-                class="main-today-streak-value"
-                id="todayStreakValue"
-              ></span>
-              <span id="todayStreakHint"></span>
-              <span
-                class="main-today-streak-pending"
-                id="todayStreakPending"
-                hidden
-              ></span>
-            </div>
-            <div class="main-today-goal">
-              <div class="main-today-ring">
-                <svg viewBox="0 0 36 36" aria-hidden="true">
-                  <circle cx="18" cy="18" r="15" pathLength="100" />
-                  <circle
-                    id="todayGoalArc"
-                    cx="18"
-                    cy="18"
-                    r="15"
-                    pathLength="100"
-                    stroke-dasharray="0 100"
-                  />
-                </svg>
-                <span id="todayGoalCount"></span>
-              </div>
-              <div class="main-today-goal-text">
-                <span class="main-today-goal-title">Цель на день</span>
-                <span id="todayGoalLabel"></span>
-                <span class="main-today-goal-hint">
-                  Считаются решённые вопросы и повторённые карточки
-                </span>
-                <div
-                  class="main-today-goal-options"
-                  id="todayGoalOptions"
-                  role="group"
-                  aria-label="Дневная цель: сколько вопросов и карточек в день"
-                >
-                  <span class="main-today-goal-hint">Цель:</span>
-                  <button type="button" data-goal="5" title="Цель — 5 в день">
-                    5
-                  </button>
-                  <button type="button" data-goal="10" title="Цель — 10 в день">
-                    10
-                  </button>
-                  <button type="button" data-goal="20" title="Цель — 20 в день">
-                    20
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
         <div class="main-today-grid">
+          <div class="main-today-pulse" id="todayPulse" hidden>
+            <span
+              class="main-today-icon main-today-streak-icon"
+              aria-hidden="true"
+            >🔥</span>
+            <span class="main-today-name">Серия</span>
+            <div class="main-today-streak">
+              <span class="main-today-streak-value" id="todayStreakValue"></span>
+              <span id="todayStreakHint"></span>
+              <span class="main-today-streak-pending" id="todayStreakPending" hidden></span>
+            </div>
+          </div>
           <a
             href="spaced-repetition.html"
-            class="main-today-card is-loading"
+            class="main-today-card ui-surface is-loading"
             id="todayReview"
           >
             <span class="main-today-icon">
@@ -1556,22 +1488,38 @@
             </span>
             <span class="main-today-cta">Открыть</span>
           </a>
-
-          <a
-            href="profile/feedbacks.html"
-            class="main-today-card is-loading"
-            id="todayFeedback"
+        </div>
+        <div class="main-today-goal" id="todayGoalPanel" hidden>
+          <div class="main-today-ring" aria-hidden="true">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" pathLength="100" />
+              <circle
+                id="todayGoalArc"
+                cx="18"
+                cy="18"
+                r="15"
+                pathLength="100"
+                stroke-dasharray="0 100"
+              />
+            </svg>
+            <span id="todayGoalCount"></span>
+          </div>
+          <div class="main-today-goal-text">
+            <span class="main-today-goal-title">Цель на день</span>
+            <span id="todayGoalLabel"></span>
+            <span class="main-today-goal-hint">Вопросы и повторённые карточки</span>
+          </div>
+          <div
+            class="main-today-goal-options"
+            id="todayGoalOptions"
+            role="group"
+            aria-label="Дневная цель: сколько вопросов и карточек в день"
           >
-            <span class="main-today-icon">
-              <img src="assets/icons/chat.svg" alt="" aria-hidden="true" />
-            </span>
-            <span class="main-today-name">Фидбек</span>
-            <span class="main-today-metric">
-              <strong id="todayFeedbackCount"></strong>
-              <span id="todayFeedbackLabel">разборы собесов от ментора</span>
-            </span>
-            <span class="main-today-cta">Читать</span>
-          </a>
+            <span class="main-today-goal-hint">Цель</span>
+            <button type="button" data-goal="5" title="Цель — 5 в день">5</button>
+            <button type="button" data-goal="10" title="Цель — 10 в день">10</button>
+            <button type="button" data-goal="20" title="Цель — 20 в день">20</button>
+          </div>
         </div>
       </section>
 
@@ -1582,7 +1530,7 @@
             <p>Ищи по разделам, материалам, вопросам одной строкой.</p>
           </div>
           <div class="main-catalog-actions">
-            <button class="main-catalog-button" onclick="openMainCatalog()">
+            <button class="main-catalog-button ui-button ui-button--primary" onclick="openMainCatalog()">
               Открыть каталог
             </button>
           </div>
@@ -1630,7 +1578,7 @@
       >
         <a
           href="mentor-stats/index.html"
-          class="main-role-link"
+          class="main-role-link ui-surface"
           id="mainRolePanelLink"
         >
           <div>
@@ -1777,38 +1725,6 @@
           </div>
         </a>
       </div> -->
-
-      <h2>Работа с платформой</h2>
-      <div class="cards-grid">
-        <a href="guide/index.html" class="card visualization-card">
-          <div class="card-header">
-            <div class="card-icon start">
-              <img src="assets/icons/guide.svg" alt="Гайд" />
-            </div>
-            <h3 class="card-title">Видео-гайд</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">
-              Две минуты о том, как устроена платформа и с чего начать
-            </p>
-            <span class="card-link">Смотреть гайд</span>
-          </div>
-        </a>
-        <a href="start.html" class="card visualization-card">
-          <div class="card-header">
-            <div class="card-icon start">
-              <img src="assets/icons/start.svg" alt="Первые шаги" />
-            </div>
-            <h3 class="card-title">Первые шаги</h3>
-          </div>
-          <div class="card-content">
-            <p class="card-description">
-              Если ты в начале пути, начни с первых шагов
-            </p>
-            <span class="card-link">Начать обучение</span>
-          </div>
-        </a>
-      </div>
 
       <!-- Daily Fact Container -->
       <div id="daily-fact-container"></div>

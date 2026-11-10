@@ -32,7 +32,6 @@ window.platformDayKey =
     ((text, params) =>
       text.replace(/\{(\w+)\}/g, (match, key) => params?.[key] ?? match));
 
-  const WALLET_CONFIG_URL = "/assets/js/config/wallet-config.json";
   const GOAL_OPTIONS = [5, 10, 20];
   const DEFAULT_GOAL = 10;
 
@@ -63,18 +62,6 @@ window.platformDayKey =
           n,
           ["задача на доске", "задачи на доске", "задач на доске"],
           ["task on the board", "tasks on the board"],
-        ),
-    },
-    feedback: {
-      countId: "todayFeedbackCount",
-      labelId: "todayFeedbackLabel",
-      cardId: "todayFeedback",
-      emptyText: t("Новых нет"),
-      unit: (n) =>
-        plural(
-          n,
-          ["новый фидбек", "новых фидбека", "новых фидбеков"],
-          ["new review", "new reviews"],
         ),
     },
   };
@@ -136,12 +123,6 @@ window.platformDayKey =
     }).length;
   }
 
-  function countUnreadFeedbacks(userData) {
-    return Object.values(userData.feedbacks || {}).filter(
-      (feedback) => feedback && feedback.read !== true,
-    ).length;
-  }
-
   // Тот же запрос, что и в assets/js/kanban-board.js:1506 — единственный,
   // который правила RTDB разрешают ученику для kanbanTasks.
   async function loadTaskStats(db, uid) {
@@ -200,38 +181,16 @@ window.platformDayKey =
   }
 
   /** Ближайшая веха строго больше текущей серии; null — все пройдены. */
-  function nextMilestone(current, milestones) {
-    const target = Object.keys(milestones || {})
-      .map(Number)
-      .filter((value) => value > current)
-      .sort((a, b) => a - b)[0];
+  function nextMilestone(current) {
+    const target = [7, 14, 30, 60, 100, 200, 365].find((days) => days > current);
     return target ? { target, left: target - current } : null;
   }
 
-  // Остаток месячных заморозок — тот же расчёт, что в daily-reports.js:
-  // по текущему месяцу, а не по записанному в проекции. Купленный запас
-  // (streak_perks) сюда не входит: он лежит вне users/<uid>, а новых чтений
-  // ради подсказки не делаем — без него формулировка просто строже.
-  function freezesLeft(streakState, today) {
-    const perMonth = Number(streakState?.freezesPerMonth) || 0;
-    const month = String(today).slice(0, 7);
-    const used = Object.values(streakState?.frozenDays || {}).filter(
-      (day) => String(day).slice(0, 7) === month,
-    ).length;
-    return Math.max(0, perMonth - used);
-  }
-
   /**
-   * Тексты серии. `pending` — серия есть, но сегодня ещё не продлена: сервер
-   * считает день серии по вопросам, повторённым карточкам и отчётам, и его
-   * `lastActivityDay` здесь единственный критерий. Пока есть заморозка,
-   * пропуск серию не рвёт — формулировка мягкая (`soft`).
-   *
-   * Грады за веху не обещаем: сервер платит `s:<N>` один раз навсегда, а
-   * рекорда серии в users/<uid> нет — после обрыва «+50 градов» у вехи 7
-   * было бы обещанием, которое не сбудется.
+   * Тексты серии. Серия продлевается вопросами, карточками и отчётами;
+   * последняя активность за день определяет, показывать ли напоминание.
    */
-  function describeStreak(streakState, today, milestones, withReports) {
+  function describeStreak(streakState, today, withReports) {
     const current = Number(streakState?.current) || 0;
     if (current <= 0) {
       return {
@@ -240,20 +199,16 @@ window.platformDayKey =
           ? t("Серия начнётся с первого вопроса, карточки или отчёта сегодня")
           : t("Серия начнётся с первого вопроса или карточки сегодня"),
         pending: "",
-        soft: false,
       };
     }
-    const next = nextMilestone(current, milestones);
+    const next = nextMilestone(current);
     const waiting = streakState.lastActivityDay !== today;
-    const soft = waiting && freezesLeft(streakState, today) > 0;
     let pending = "";
     if (waiting) {
-      pending = soft
-        ? t("сегодня ещё не продлена · заморозка подстрахует")
-        : t("сегодня ещё не продлена");
+      pending = t("сегодня ещё не продлена");
     }
     return {
-      value: `🔥 ${current} ${dayWord(current)}`,
+      value: `${current} ${dayWord(current)}`,
       hint: next
         ? t("до вехи {target} {left}", {
             target: next.target,
@@ -269,7 +224,6 @@ window.platformDayKey =
           })
         : "",
       pending,
-      soft,
     };
   }
 
@@ -338,7 +292,7 @@ window.platformDayKey =
     }
   }
 
-  function renderStreak(userData, today, milestones) {
+  function renderStreak(userData, today) {
     const value = document.getElementById("todayStreakValue");
     const hint = document.getElementById("todayStreakHint");
     const pending = document.getElementById("todayStreakPending");
@@ -346,23 +300,22 @@ window.platformDayKey =
     const streak = describeStreak(
       userData.streakState,
       today,
-      milestones,
       userData.learningFormat !== "materials",
     );
     value.textContent = streak.value;
     hint.textContent = streak.hint;
     pending.textContent = streak.pending;
     pending.hidden = !streak.pending;
-    pending.classList.toggle("is-soft", streak.soft);
   }
 
   async function renderPulse(uid, userData) {
     const pulse = document.getElementById("todayPulse");
+    const goalPanel = document.getElementById("todayGoalPanel");
     const role = String(userData?.role || "")
       .trim()
       .toLowerCase();
     // Без userData числа неизвестны — блок остаётся скрытым, а не нулевым.
-    if (!pulse || !userData || STAFF_ROLES.has(role)) return;
+    if (!pulse || !goalPanel || !userData || STAFF_ROLES.has(role)) return;
 
     const today = window.platformDayKey();
     const done = countDoneToday(userData);
@@ -377,16 +330,9 @@ window.platformDayKey =
       };
     }
 
-    // Полоса видна сразу: кольцу и самой серии конфиг не нужен. Подсказка про
-    // веху дописывается, когда доедет публичный конфиг кошелька; упал или
-    // завис — серия остаётся без вехи.
-    renderStreak(userData, today, {});
+    renderStreak(userData, today);
     pulse.hidden = false;
-    const milestones = await fetch(WALLET_CONFIG_URL)
-      .then((response) => (response.ok ? response.json() : {}))
-      .then((config) => config.streakMilestones || {})
-      .catch(() => ({}));
-    renderStreak(userData, today, milestones);
+    goalPanel.hidden = false;
   }
 
   async function render(options) {
@@ -398,9 +344,6 @@ window.platformDayKey =
     renderPulse(uid, userData).catch((error) => {
       console.error("main-today: streak and goal failed", error);
     });
-
-    // userData отсутствует, если чтение users/<uid> упало. Пустой объект здесь
-    // недопустим: он дал бы «Всё повторено» и «Новых нет» при неизвестных данных.
     if (userData) {
       countDueCards(userData)
         .then((due) => setCount("review", due))
@@ -408,16 +351,8 @@ window.platformDayKey =
           console.error("main-today: review counter failed", error);
           setNeutral("review");
         });
-
-      try {
-        setCount("feedback", countUnreadFeedbacks(userData));
-      } catch (error) {
-        console.error("main-today: feedback counter failed", error);
-        setNeutral("feedback");
-      }
     } else {
       setNeutral("review");
-      setNeutral("feedback");
     }
 
     if (db && uid) {
@@ -448,7 +383,6 @@ window.platformDayKey =
     hide,
     _private: {
       countDueCards,
-      countUnreadFeedbacks,
       normalizeBoardStatus,
       isOverdue,
       plural,

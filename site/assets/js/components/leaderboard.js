@@ -15,9 +15,6 @@ class Leaderboard {
     this.leaderboardData = [];
     this.publicStats = {};
     this.studentLearningFormats = {};
-    // Грады на счёте по ученикам — только в ответе персоналу; у публичного
-    // лидерборда их нет, и колонка не показывается.
-    this.walletBalances = null;
     this.currentUserRole = null;
     this.timeFilter = "all";
     this.sortKey = "questions";
@@ -115,7 +112,6 @@ class Leaderboard {
       this.allAchievements = staffData.achievements || {};
       this.publicStats = staffData.publicStats || {};
       this.studentLearningFormats = staffData.studentLearningFormats || {};
-      this.walletBalances = staffData.walletBalances || null;
       this.applyVisibleFormats(staffData.visibleFormats);
 
       this.applyDefaultFormatFilter();
@@ -238,7 +234,6 @@ class Leaderboard {
     const publicProfiles = publicView?.profiles || {};
     this.publicStats = publicView?.publicStats || {};
     this.studentLearningFormats = publicView?.studentLearningFormats || {};
-    this.walletBalances = null;
     this.applyVisibleFormats(publicView?.visibleFormats);
     this.usersData = this.buildUsersDataFromPublicStats(
       this.publicStats,
@@ -505,7 +500,6 @@ class Leaderboard {
         studyHours: studyHours,
         quizzesSolved,
         quizAveragePercent,
-        walletBalance: this.walletBalance(userId),
         registrationDate: userData.registrationDate || null,
         subgroupHistory: userData.subgroupHistory || null,
         finishedAt: userData.finishedAt || null,
@@ -611,7 +605,6 @@ class Leaderboard {
       if (k === "quizzes") return entry.quizzesSolved ?? 0;
       if (k === "quizPercent") return entry.quizAveragePercent ?? 0;
       if (k === "achievementPercent") return entry.achievementPercent ?? 0;
-      if (k === "wallet") return entry.walletBalance ?? -1;
       return 0;
     };
     this.leaderboardData.sort((a, b) => {
@@ -724,7 +717,6 @@ class Leaderboard {
           status: userStatus,
           isFinished: isFinished,
           achievements: userAchievements,
-          walletBalance: this.walletBalance(userId),
         };
 
         if (isStaffProfile) {
@@ -1925,69 +1917,10 @@ class Leaderboard {
           <div class="achievements-count">${entry.achievementPercent != null ? entry.achievementPercent + "%" : "—"}</div>
           <div class="quizzes-count">${entry.quizzesSolved || 0}</div>
           <div class="quiz-percent">${entry.quizAveragePercent != null ? entry.quizAveragePercent + "%" : "—"}</div>
-          ${this.walletBalances ? `<div class="wallet-count" title="${t("Градов на счёте")}">${entry.walletBalance == null ? "—" : `${this.coinIconHtml()} ${entry.walletBalance}`}</div>` : ""}
         </div>
       `;
   }
 
-  /** Монета-иконка из navigation.js: createCoinIcon сам подгружает спрайт. */
-  coinIconHtml() {
-    const icon = window.walletUi?.createCoinIcon?.("coin-icon");
-    return icon ? icon.outerHTML : "∇";
-  }
-
-  /** Баланс ученика из ответа персоналу; null — колонки нет вовсе. */
-  walletBalance(userId) {
-    if (!this.walletBalances) return null;
-    // Ключа нет — грады ученику не положены («только материалы»): «—».
-    const value = this.walletBalances[userId];
-    return value === undefined ? null : Number(value) || 0;
-  }
-
-  /**
-   * Разовое начисление градов за прошлую активность всем ученикам: сервер
-   * идёт по десять за вызов, здесь крутим, пока не кончатся.
-   */
-  async backfillWallets() {
-    const button = document.getElementById("walletBackfillButton");
-    const status = document.getElementById("walletBackfillStatus");
-    if (!button || button.disabled || !window.staffApi) return;
-    button.disabled = true;
-    let offset = 0;
-    let processed = 0;
-    let credited = 0;
-    let total = 0;
-    try {
-      do {
-        const page = await window.staffApi.backfillStudentWallets({ offset });
-        processed += Number(page?.processed) || 0;
-        credited += Number(page?.credited) || 0;
-        total = Number(page?.total) || total;
-        offset = page?.nextOffset ?? null;
-        if (status) {
-          status.textContent = t(
-            "Обработано {processed} из {total}, начислено ∇ {credited}…",
-            { processed, total, credited },
-          );
-        }
-      } while (offset !== null);
-      if (status) {
-        status.textContent = t("Готово: {students}, начислено ∇ {credited}.", {
-          students: `${processed} ${this.plural(processed, ["ученик", "ученика", "учеников"], ["student", "students"])}`,
-          credited,
-        });
-      }
-      await this.refresh();
-    } catch (error) {
-      console.error("Backfill wallets failed:", error);
-      if (status)
-        status.textContent = t("Не удалось: {error}", {
-          error: error?.message || error,
-        });
-    } finally {
-      button.disabled = false;
-    }
-  }
 
   /**
    * Attach mouse-enter/leave listeners to each row to show the shared
@@ -2242,17 +2175,6 @@ class Leaderboard {
       adminNotice.style.display = this.isAdmin() ? "block" : "none";
     }
 
-    // Колонка градов и кнопка бэкфилла: колонка — всем, кому сервер отдал
-    // балансы, кнопка — только mentor/admin (сервер всё равно проверит).
-    document.body.classList.toggle(
-      "wallet-visible",
-      Boolean(this.walletBalances),
-    );
-    const backfillButton = document.getElementById("walletBackfillButton");
-    if (backfillButton) {
-      const role = this.usersData[this.currentUser?.uid]?.role;
-      backfillButton.hidden = !(role === "mentor" || role === "admin");
-    }
 
     // Add/remove mentor-user class to body for CSS styling
     if (this.isAdmin()) {

@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 2, Module 2 (logging.html):
+Deep textbook generator for DataLab Analytics - Group 2, Module 2 (logging.html):
 All 6 questions of logging.html and builder.
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 
 q_event_logging_basics = (

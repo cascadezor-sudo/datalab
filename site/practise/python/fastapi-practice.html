@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Практика FastAPI — локальный API</title>
+  <link rel="stylesheet" href="../../assets/css/tokens.css">
+  <link rel="stylesheet" href="../../assets/css/styles.css">
+  <link rel="stylesheet" href="../../assets/css/navigation.css">
+  <link rel="stylesheet" href="../../assets/css/pages-modern.css">
+  <link rel="stylesheet" href="../../assets/css/fonts.css">
+  <link rel="stylesheet" href="../../assets/css/section-shell.css">
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+  <style>
+    .project-meta{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0;padding:16px 24px}.project-meta span{padding:6px 11px;border:1px solid var(--border);border-radius:var(--radius-full);background:var(--bg-secondary);color:var(--text-muted);font-size:.88rem}
+    .fastapi-layout{display:grid;grid-template-columns:minmax(0,1fr) 245px;gap:22px;align-items:start;margin-top:22px}
+    .fastapi-main{min-width:0}.fastapi-nav{position:sticky;top:88px;padding:17px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm)}
+    .fastapi-nav strong{display:block;margin-bottom:9px}.fastapi-nav a{display:block;margin:1px -8px;padding:7px 8px;border-radius:8px;color:var(--text-muted);font-size:.9rem;text-decoration:none}.fastapi-nav a:hover{color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--bg-card))}
+    .fastapi-panel{margin:0 0 16px;padding:22px 24px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm);color:var(--text)}
+    .fastapi-panel h2{display:flex;align-items:center;gap:12px;margin:0 0 11px;font-size:1.22rem;line-height:1.4}.task-index{display:grid;place-items:center;flex:0 0 32px;height:32px;border:1px solid var(--border-brand);border-radius:10px;background:color-mix(in srgb,var(--brand) 9%,var(--bg-card));color:var(--brand);font-size:.92rem}
+    .fastapi-panel p,.fastapi-panel li{line-height:1.65}.fastapi-panel li{margin:6px 0}.fastapi-panel ul,.fastapi-panel ol{padding-left:22px}
+    .fastapi-panel pre{overflow:auto;margin:12px 0;padding:15px 16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-secondary);color:var(--text);font:.88rem/1.6 Consolas,Monaco,monospace;white-space:pre}.fastapi-panel code{color:inherit}
+    .fastapi-panel details{margin-top:13px;border-top:1px solid var(--border);padding-top:12px}.fastapi-panel summary{color:var(--brand);cursor:pointer;font-weight:650}.fastapi-panel summary:hover{text-decoration:underline}
+    .fastapi-callout{padding:16px 18px;border:1px solid var(--border-brand);border-radius:14px;background:color-mix(in srgb,var(--brand) 7%,var(--bg-card))}.fastapi-callout p{margin:5px 0}.fastapi-callout strong{color:var(--text)}
+    .fastapi-setup{margin:16px 0 2px;padding:14px 18px;border:1px solid var(--border);border-radius:14px;background:var(--bg-secondary)}.fastapi-setup p{margin:3px 0 8px}
+    .fastapi-note{margin-top:12px;padding:12px 14px;border-left:3px solid var(--warning);border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--warning) 8%,var(--bg-card))}
+    .fastapi-cta{display:inline-flex;align-items:center;min-height:40px;margin-top:10px;padding:8px 14px;border-radius:10px;background:var(--brand);color:var(--brand-text);font-weight:650;text-decoration:none}.fastapi-cta:hover{background:var(--brand-hover)}
+    @media(max-width:850px){.fastapi-layout{grid-template-columns:1fr}.fastapi-nav{position:static;order:-1}.fastapi-nav nav{display:flex;flex-wrap:wrap;gap:2px 12px}.fastapi-nav a{margin:0;padding:5px 0}}
+    @media(max-width:560px){.fastapi-panel{padding:18px}.fastapi-panel h2{align-items:flex-start}.task-index{flex-basis:28px;height:28px}}
+  </style>
+  <link rel="stylesheet" href="../../assets/css/learning-reading.css">
+</head>
+<body class="ml">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" class="container" tabindex="-1">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка"><ol class="breadcrumbs__list">
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../index.html">Практика</a></li>
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../python/fastapi.html">FastAPI</a></li>
+      <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">Практика</span></li>
+    </ol></nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline"><span class="pill">Практика</span><span class="pill pill--soft">FastAPI · модуль 9</span><span class="hero-dot">·</span><span class="hero-count">мини-проект</span></div>
+        <h1 class="section-shell__title">Собери API сервиса регистрации</h1>
+        <p class="section-shell__desc">От простого GET-маршрута — к проверке JSON, работе с PostgreSQL и валидируемому ответу.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="project-meta"><span>Python · FastAPI · Pydantic</span><span>Уровень: базовый</span><span>Формат: локальный проект</span></div>
+    </section>
+    <div class="fastapi-layout">
+      <div class="fastapi-main">
+        <section class="fastapi-panel" id="setup">
+          <div class="fastapi-callout"><strong>Что собрать</strong><p>Одно приложение <code>app.py</code> с маршрутами для приветствия, суммы, даты и регистрации пользователя. Затем подключить чтение пользователя и поста из PostgreSQL.</p></div>
+          <div class="fastapi-setup"><strong>1. Создай папку проекта и виртуальное окружение</strong>
+            <pre><code>py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+py -m pip install "fastapi[standard]"</code></pre>
+            <p>Создай файл <code>app.py</code>. После первого этапа запускай сервер из папки проекта:</p>
+            <pre><code>uvicorn app:app --reload --port 8000</code></pre>
+            <p>Интерактивная проверка API: <code>http://127.0.0.1:8000/docs</code>.</p>
+          </div>
+          <p>Иди по этапам по порядку. Проверяй каждый маршрут в Swagger UI (<code>/docs</code>) и смотри не только на тело ответа, но и на HTTP-статус.</p>
+        </section>
+
+        <section class="fastapi-panel" id="hello"><h2><span class="task-index">1</span>Первый маршрут</h2>
+          <p>Создай экземпляр приложения с именем <code>app</code> и маршрут <code>GET /</code>, который возвращает строку <code>"hello, world"</code>.</p>
+          <ul><li>Запусти сервер и открой корневой адрес.</li><li>Проверь маршрут также через <code>/docs</code>.</li><li>Зафиксируй, какой статус вернулся и как FastAPI представил строку в ответе.</li></ul>
+          <details><summary>Подсказка</summary><pre><code>from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return "hello, world"</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="query"><h2><span class="task-index">2</span>Query-параметры и типы</h2>
+          <p>Добавь <code>GET /sum</code> с обязательными целочисленными параметрами <code>a</code> и <code>b</code>. Он должен возвращать их сумму.</p>
+          <ul><li><code>/sum?a=5&amp;b=3</code> возвращает <code>8</code>.</li><li>Проверь запрос без параметра и запрос с текстом вместо числа. Посмотри код и детали ошибки.</li></ul>
+          <details><summary>Подсказка</summary><pre><code>@app.get("/sum")
+def sum_numbers(a: int, b: int) -> int:
+    return a + b</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="date"><h2><span class="task-index">3</span>Дата и валидация параметров</h2>
+          <p>Добавь <code>GET /sum_date</code> с параметрами <code>current_date</code> в формате <code>YYYY-MM-DD</code> и целым <code>offset</code>. Верни дату, сдвинутую на указанное число дней.</p>
+          <ul><li>Проверь <code>?current_date=2008-09-15&amp;offset=2</code> → <code>2008-09-17</code>.</li><li>Проверь отрицательный сдвиг, невалидную дату и нецелое смещение. Некорректные параметры должны получить ошибку валидации.</li></ul>
+          <details><summary>Подсказка</summary><pre><code>from datetime import date, timedelta
+
+@app.get("/sum_date")
+def sum_date(current_date: date, offset: int) -> str:
+    return (current_date + timedelta(days=offset)).isoformat()</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="user-model"><h2><span class="task-index">4</span>POST-запрос и Pydantic-модель</h2>
+          <p>Опиши модель <code>User</code> с обязательными полями <code>name: str</code>, <code>surname: str</code>, <code>age: int</code>, <code>registration_date: date</code>. Создай <code>POST /user/validate</code>, который принимает JSON-модель и отвечает строкой <code>Will add user: &lt;имя&gt; &lt;фамилия&gt; with age &lt;возраст&gt;</code>.</p>
+          <p>Проверь валидный JSON, JSON без обязательных полей, неверный тип <code>age</code> и неверную дату. Для ошибочных тел ожидай статус <code>422</code>.</p>
+          <details><summary>Подсказка</summary><pre><code>from datetime import date
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    surname: str
+    age: int
+    registration_date: date
+
+@app.post("/user/validate")
+def validate_user(user: User) -> str:
+    return f"Will add user: {user.name} {user.surname} with age {user.age}"</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="database"><h2><span class="task-index">5</span>Чтение из PostgreSQL</h2>
+          <p>Расширь API маршрутом <code>GET /user/{id}</code>: он ищет пользователя по ID и возвращает JSON с полями <code>gender</code>, <code>age</code> и <code>city</code>.</p>
+          <ol><li>Добавь подключение <code>psycopg2</code> и настрой его через переменную окружения <code>DATABASE_URL</code>.</li><li>Параметризуй SQL-запрос: значение ID передавай отдельно, а не склеивай строку запроса.</li><li>Если записи нет, верни <code>404</code> и JSON <code>{"detail":"user not found"}</code>.</li></ol>
+          <div class="fastapi-note"><strong>Подключение к БД</strong><br>Используй собственную строку подключения, выданную для твоей базы. Не записывай логин и пароль в <code>app.py</code> и не добавляй их в Git.</div>
+          <details><summary>Подсказка по переменной окружения в PowerShell</summary><pre><code>$env:DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+py -m pip install psycopg2-binary</code></pre></details>
+          <details><summary>Подсказка по обработке отсутствующего пользователя</summary><pre><code>from fastapi import HTTPException
+
+if user is None:
+    raise HTTPException(status_code=404, detail="user not found")</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="dependency"><h2><span class="task-index">6</span>Внедрение зависимости</h2>
+          <p>Вынеси создание подключения в функцию <code>get_db()</code>. Передай подключение обработчику через <code>Depends</code>, а закрытие соединения размести в <code>finally</code> или используй зависимость с <code>yield</code>.</p>
+          <p>После переноса проверь запрос к <code>GET /user/{id}</code> и убедись, что подключение освобождается даже при ошибке.</p>
+          <details><summary>Подсказка: форма зависимости с yield</summary><pre><code>import os
+from typing import Iterator
+from fastapi import Depends
+import psycopg2
+
+
+def get_db() -&gt; Iterator:
+    connection = psycopg2.connect(os.environ["DATABASE_URL"])
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+@app.get("/user/{user_id}")
+def get_user(user_id: int, db = Depends(get_db)):
+    ...</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="response"><h2><span class="task-index">7</span>Контракт ответа</h2>
+          <p>Добавь <code>GET /post/{id}</code>. Опиши <code>PostResponse</code> с полями <code>id: int</code>, <code>text: str</code> и <code>topic: str</code>, укажи модель в <code>response_model</code> и верни найденную запись как данные модели.</p>
+          <ul><li>Для отсутствующего поста верни 404 до построения ответа.</li><li>Проверь, что лишние поля из строки БД не попадают наружу, а некорректные значения ответа выявляются валидацией.</li><li>Сверь фактическую JSON-структуру с описанием модели.</li></ul>
+          <details><summary>Подсказка</summary><pre><code>class PostResponse(BaseModel):
+    id: int
+    text: str
+    topic: str
+
+@app.get("/post/{post_id}", response_model=PostResponse)
+def get_post(post_id: int, db = Depends(get_db)):
+    ...
+    return PostResponse(**row)</code></pre></details>
+        </section>
+
+        <section class="fastapi-panel" id="done"><h2>Итоговая проверка</h2>
+          <ul><li>Приложение запускается командой <code>uvicorn app:app --reload --port 8000</code>.</li><li>Все маршруты видны в <code>/docs</code>.</li><li>Неверные входные данные дают понятный 422, отсутствующие записи — 404.</li><li>Доступ к БД передаётся через зависимость и закрывается после запроса.</li><li>Ответы ограничены указанными Pydantic-моделями.</li><li>Секреты и персональные данные не попали в исходный код или Git.</li></ul>
+          <a class="fastapi-cta" href="../../python/fastapi.html">Вернуться к теории FastAPI →</a>
+        </section>
+      </div>
+      <aside class="fastapi-nav"><strong>Этапы практики</strong><nav aria-label="Этапы практики"><a href="#setup">Подготовка</a><a href="#hello">1. Первый маршрут</a><a href="#query">2. Query-параметры</a><a href="#date">3. Работа с датой</a><a href="#user-model">4. Pydantic-модель</a><a href="#database">5. PostgreSQL</a><a href="#dependency">6. Depends</a><a href="#response">7. Модель ответа</a><a href="#done">Итоговая проверка</a></nav></aside>
+    </div>
+  </main>
+</body>
+</html>
+
+
+
+
+

@@ -1,5 +1,5 @@
 /**
- * Schmidt ML — Node.js резервный локальный сервер
+ * DataLab — Node.js резервный локальный сервер
  */
 const http = require('http');
 const fs = require('fs');
@@ -31,7 +31,7 @@ const MIME_TYPES = {
 function startServer(port = 8080) {
   const server = http.createServer((req, res) => {
     if (req.url === '/api/run' && req.method === 'POST') {
-      if (req.headers.origin !== 'http://' + req.headers.host || req.headers['x-schmidtml-local'] !== '1') {
+      if (req.headers.origin !== 'http://' + req.headers.host || req.headers['x-datalab-local'] !== '1') {
         res.writeHead(403); return res.end('Forbidden');
       }
       let body = '', length = 0;
@@ -42,7 +42,7 @@ function startServer(port = 8080) {
         catch { res.writeHead(400); return res.end('Invalid payload'); }
         const bundled = path.join(os.homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe');
         const python = fs.existsSync(bundled) ? bundled : 'python';
-        const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'schmidtml-check-'));
+        const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'datalab-check-'));
         const child = spawn(python, ['-I', path.join(BASE_DIR, 'offline_runner.py')], { cwd: scratch, windowsHide: true });
         let stdout = '', done = false;
         const finish = data => {
@@ -108,8 +108,8 @@ function startServer(port = 8080) {
         });
         response.on('end', () => {
           if (response.statusCode === 200 && Buffer.concat(chunks).equals(expected)) {
-            console.log('SchmidtML already running: ' + url);
-            if (process.env.SCHMIDTML_NO_BROWSER !== '1') exec('start "" "' + url + '"');
+            console.log('DataLab already running: ' + url);
+            if (process.env.DATALAB_NO_BROWSER !== '1') exec('start "" "' + url + '"');
           } else {
             console.error('Port 8080 belongs to another service. Close it and restart. No switch to 8081.');
             process.exitCode = 1;
@@ -135,7 +135,7 @@ function startServer(port = 8080) {
     console.log(' Для остановки закройте это окно или нажмите Ctrl + C.');
     console.log('='.repeat(64));
 
-    if (process.env.SCHMIDTML_NO_BROWSER !== '1') exec(`start "" "${url}"`);
+    if (process.env.DATALAB_NO_BROWSER !== '1') exec(`start "" "${url}"`);
   });
 }
 

@@ -409,30 +409,25 @@
     return `<ol class="exc-visible-tests-list">${items}</ol>`;
   }
 
-  function buildVisibleTests(tests, qid) {
+  function buildVisibleTests(tests) {
     const tempNote = hasTempFileSetup(tests)
       ? `<div class="exc-visible-tests-note">${t("Эти тесты сами создают временные файлы. Для локального дебага скопируй весь блок: в нём есть и содержимое файлов, и вызовы функций.")}</div>`
       : "";
     const readableTests = buildReadableTests(tests);
 
     return `
-      <section class="exc-visible-tests" aria-label="${t("Проверочные тесты")}" data-question-id="${esc(qid)}">
+      <section class="exc-visible-tests" aria-label="${t("Проверочные тесты")}">
         <div class="exc-visible-tests-head">
           <div>
             <div class="exc-visible-tests-title">${t("Проверочные тесты")}</div>
             <div class="exc-visible-tests-subtitle">${t("Смысл проверок показан карточками, ниже — точный код автопроверки.")}</div>
           </div>
-          <div class="exc-visible-tests-actions">
-            <button type="button" class="exc-btn exc-btn--ghost exc-toggle-tests" aria-expanded="true">${t("Свернуть")}</button>
-            <button type="button" class="exc-btn exc-btn--ghost exc-copy-tests">${t("Скопировать тесты")}</button>
-          </div>
+          <button type="button" class="exc-btn exc-btn--ghost exc-copy-tests">${t("Скопировать тесты")}</button>
         </div>
-        <div class="exc-visible-tests-content">
-          ${tempNote}
-          ${readableTests}
-          <div class="exc-visible-tests-code-title">${t("Точный Python-код")}</div>
-          <pre class="exc-visible-tests-code"><code>${highlightPython(tests)}</code></pre>
-        </div>
+        ${tempNote}
+        ${readableTests}
+        <div class="exc-visible-tests-code-title">${t("Точный Python-код")}</div>
+        <pre class="exc-visible-tests-code"><code>${highlightPython(tests)}</code></pre>
       </section>
     `;
   }
@@ -484,7 +479,7 @@
   // {short} — в строку статуса, {full} — в панель результатов.
   function describeFailure(err) {
     if (err.name === "TimeoutError" || err.name === "AbortError") {
-      const short = t("Сервер проверки не ответил за 30 секунд");
+      const short = t("Сервер проверки не ответил за 60 секунд");
       return { short, full: `${short}. ${t("Попробуй ещё раз.")}` };
     }
     if (err.status) {
@@ -672,8 +667,7 @@
 
   async function fbToken() {
     const u = fbUser();
-    if (window.__schmidtOfflineChecker && u) return "offline-local";
-    return u && typeof u.getIdToken === "function" ? u.getIdToken(false) : null;
+    return u ? u.getIdToken(false) : null;
   }
 
   async function loadCode(qid) {
@@ -756,7 +750,7 @@
     root.className = "exc";
 
     root.innerHTML = `
-      ${buildVisibleTests(tests, qid)}
+      ${buildVisibleTests(tests)}
       <div class="exc-editor">
         <div class="exc-header">
           <span class="exc-lang">Python</span>
@@ -786,27 +780,6 @@
     const submitBtn = root.querySelector(".exc-submit");
     const resetBtn = root.querySelector(".exc-reset");
     const copyTestsBtn = root.querySelector(".exc-copy-tests");
-    const testsSection = root.querySelector(".exc-visible-tests");
-    const testsContent = root.querySelector(".exc-visible-tests-content");
-    const toggleTestsBtn = root.querySelector(".exc-toggle-tests");
-    const testsCollapsedKey = "exc-tests-collapsed:" + qid;
-    function setTestsCollapsed(collapsed, persist = true) {
-      if (!testsSection || !testsContent || !toggleTestsBtn) return;
-      testsContent.hidden = collapsed;
-      testsSection.classList.toggle("is-collapsed", collapsed);
-      toggleTestsBtn.setAttribute("aria-expanded", String(!collapsed));
-      toggleTestsBtn.textContent = collapsed ? t("Развернуть") : t("Свернуть");
-      if (persist) { try { localStorage.setItem(testsCollapsedKey, String(collapsed)); } catch (_) {} }
-    }
-    let testsStartCollapsed = true;
-    try {
-      const savedCollapseState = localStorage.getItem(testsCollapsedKey);
-      if (savedCollapseState !== null) testsStartCollapsed = savedCollapseState === "true";
-    } catch (_) {}
-    setTestsCollapsed(testsStartCollapsed, false);
-    toggleTestsBtn?.addEventListener("click", () => {
-      setTestsCollapsed(toggleTestsBtn.getAttribute("aria-expanded") === "true");
-    });
     const statusEl = root.querySelector(".exc-status");
     const resultsEl = root.querySelector(".exc-results");
 
@@ -959,7 +932,6 @@
           headers: {
             "Content-Type": "application/json",
             Authorization: "Bearer " + token,
-            ...(window.__schmidtOfflineChecker ? { "X-SchmidtML-Local": "1" } : {}),
           },
           body: JSON.stringify({
             code: textarea.value,
@@ -967,7 +939,7 @@
             question_id: qid,
           }),
           // Старые Safari/Chrome без AbortSignal.timeout просто ждут без лимита.
-          signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
+          signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined,
         });
         if (!resp.ok) {
           const detail = await readErrorDetail(resp);
@@ -1152,4 +1124,3 @@
     startObserver();
   }
 })();
-

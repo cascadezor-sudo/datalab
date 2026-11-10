@@ -68,8 +68,7 @@ window.platformDayKey =
       enqueueApiAction({ type: "askWithContext", context }),
   };
 
-  const RAG_STREAM_API_URL =
-    "https://schmidtml-rag-production.up.railway.app/rag/query/stream";
+  const RAG_STREAM_API_URL = window.DATALAB_RAG_API_URL || "";
   // Значение только для показа, пока не прочитан узел счётчика. Настоящий
   // лимит держит сервер (functions/rag-quota.js, RAG_DAILY_LIMIT) — он же
   // возвращает своё число в ответе, и браузеру верить в этой цифре нечему.
@@ -1039,7 +1038,7 @@ window.platformDayKey =
       "в предоставленных источниках",
       "в источниках отсутствует",
       "в источниках нет",
-      // Ответ по-английски (schmidtml-rag: NO_INFO_MESSAGE["en"]).
+      // Ответ по-английски: сообщение об отсутствии контекста.
       "contain no information",
       "no information on this question",
       "not found in the provided",
@@ -1441,6 +1440,13 @@ window.platformDayKey =
   // ── Send message ────────────────────────────────────────────────
   async function sendMessage(userText, messagesContainer, requestOptions) {
     if (!userText.trim()) return;
+    if (!RAG_STREAM_API_URL) {
+      const { row, bubble } = createBotRow("error");
+      bubble.textContent = t("AI-помощник пока недоступен. Учебные материалы доступны локально.");
+      messagesContainer.appendChild(row);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      return;
+    }
     const options = requestOptions || {};
     const displayText = String(options.displayText || userText).trim();
 
@@ -1546,7 +1552,7 @@ window.platformDayKey =
           question_context: questionContext || null,
           learner_progress: learnerProgress || null,
           history,
-          // Язык ответа ассистента — язык интерфейса (schmidtml-rag: RagQuery.language).
+          // Язык ответа ассистента — язык интерфейса.
           language: window.i18n?.lang === "en" ? "en" : "ru",
         }),
         signal: controller.signal,
@@ -1603,7 +1609,7 @@ window.platformDayKey =
       getStreamBubbles(messageId).forEach((bubble) => {
         bubble.className = "msg bot error";
         bubble.textContent = t(
-          "Произошла ошибка при получении ответа. Попробуйте ещё раз. Если вы в России — проверьте, что включён VPN: без него ассистент недоступен.",
+          "Не удалось получить ответ AI-помощника. Попробуйте позже.",
         );
       });
       messagesContainer.scrollTop = messagesContainer.scrollHeight;

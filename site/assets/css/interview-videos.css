@@ -1,10 +1,9 @@
 /* Interview Videos Page - filters, grid, modal */
 
 /* Filter bar: сегменты как мини-карты, мягкие границы, без «прыжков» */
+/* Не липнет к экрану при прокрутке: шапка закрывала карточки. */
 .interview-videos-filters {
-  position: sticky;
-  top: 12px;
-  z-index: 20;
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 16px 24px;
@@ -16,11 +15,6 @@
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-}
-
-.interview-videos-filters.is-hidden-on-scroll {
-  transform: translateY(calc(-100% - 16px));
-  pointer-events: none;
 }
 
 .interview-videos-filters::before {
@@ -54,11 +48,13 @@
   order: 0;
 }
 
-/* «Тема» занимает ширину, но тоже выглядит как сегмент */
+/* «Тема» — вторая строка, справа от неё «Найдено / Сбросить»: в первой
+   строке три сегмента, и блок счётчика с кнопкой «Сбросить» туда не влезал —
+   выбор фильтра переносил его отдельной строкой между ними. */
 .interview-videos-filter-block-topic {
-  flex-basis: 100%;
+  flex: 1 1 auto;
   min-width: 0;
-  order: 2;
+  order: 1;
 }
 
 /* лейбл как маленький caption */
@@ -137,7 +133,7 @@
   gap: 10px;
   flex-shrink: 0;
   margin-left: auto;
-  order: 1;
+  order: 2;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 16px;
@@ -253,6 +249,11 @@
 .interview-video-card-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
+  /* Размытая подложка своей обложки (filter + transform) рисуется отдельным
+     слоем, и overflow: hidden карточки его скругление не обрезает — углы
+     обложки скругляем и изолируем здесь же. */
+  border-radius: 15px 15px 0 0;
+  isolation: isolate;
   background:
     radial-gradient(
       1200px 400px at 20% 10%,
@@ -299,6 +300,38 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.interview-video-card-thumb:has(.is-contained) {
+  background: #eceef1;
+}
+
+[data-theme="dark"] .interview-video-card-thumb:has(.is-contained) {
+  background: #1c1d21;
+}
+
+.interview-video-card-thumb:has(.is-contained)::after {
+  display: none;
+}
+
+.interview-video-card-thumb .interview-video-card-thumb-backdrop {
+  position: absolute;
+  inset: 0;
+  filter: blur(24px) saturate(1.2);
+  transform: scale(1.2);
+}
+
+.interview-video-card-thumb img.is-contained {
+  position: relative;
+  box-sizing: border-box;
+  padding: 6%;
+  object-fit: contain;
+}
+
+/* У аудио низ обложки занимает полоса волны — логотип встаёт над ней. */
+.interview-video-card-thumb:has(.interview-audio-wave) img.is-contained {
+  height: 70%;
+  padding-bottom: 2%;
 }
 
 .interview-video-card-thumb-placeholder {
@@ -377,6 +410,12 @@
   overflow: hidden;
 }
 
+.interview-video-card-added {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 .interview-video-card-meta {
   display: flex;
   flex-wrap: wrap;
@@ -421,9 +460,7 @@
   color: #b91c1c;
 }
 
-.interview-video-card-badge.interview-video-card-badge-mode-algo,
-.interview-video-card-badge.interview-video-card-badge-mode-tech,
-.interview-video-card-badge.interview-video-card-badge-mode-hr {
+.interview-video-card-badge.interview-video-card-badge-mode {
   background: color-mix(in srgb, var(--brand-secondary) 12%, transparent);
   border-color: color-mix(in srgb, var(--brand-secondary) 18%, transparent);
   color: var(--brand);
@@ -559,11 +596,6 @@
   padding: 4px 10px;
   border-radius: 999px;
   flex-shrink: 0;
-}
-
-.interview-video-modal-badge-mode-algo,
-.interview-video-modal-badge-mode-tech,
-.interview-video-modal-badge-mode-hr {
   background: color-mix(in srgb, var(--brand-secondary) 20%, transparent);
   color: var(--brand);
 }
@@ -791,13 +823,6 @@ body.user-is-mentor .interview-video-card {
 }
 
 @media (max-width: 900px) {
-  .interview-videos-filters {
-    transition:
-      transform 0.22s ease,
-      opacity 0.18s ease;
-    will-change: transform;
-  }
-
   .interview-video-modal-body {
     flex-direction: column;
   }
@@ -1105,9 +1130,16 @@ body.user-is-mentor .interview-video-card {
   color: var(--brand);
 }
 
+/* Волна — полосой у нижнего края, на тёмной подложке: поверх центра обложки
+   она перечёркивала логотип и терялась на светлых картинках. */
 .interview-audio-wave {
   position: absolute;
-  inset: 22% 10% 22%;
+  inset: auto 0 0;
+  height: 30%;
+  padding: 8px 12%;
+  box-sizing: border-box;
+  background: rgba(12, 14, 22, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1188,4 +1220,969 @@ body.user-is-mentor .interview-video-card {
 .interview-audio-open:focus-visible {
   border-color: color-mix(in srgb, var(--brand) 45%, transparent);
   color: var(--brand);
+}
+
+/* Редактор записей — только ментору (interview-video-editor.js) */
+body.interviews .page-header-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* «Просмотрено»: своя отметка ученика (users/<uid>/watchedInterviewVideos) */
+.iv-watched-toggle {
+  align-self: flex-start;
+  margin-top: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.iv-watched-toggle:hover {
+  color: var(--text-primary);
+}
+
+.iv-watched-toggle.is-on {
+  border-color: color-mix(in srgb, #16a34a 35%, transparent);
+  background: color-mix(in srgb, #16a34a 12%, transparent);
+  color: #15803d;
+}
+
+[data-theme="dark"] body .iv-watched-toggle.is-on {
+  color: #4ade80;
+}
+
+#interview-video-modal-watched .iv-watched-toggle,
+.ec-record .iv-watched-toggle {
+  margin-top: 0;
+}
+
+.ec-record.is-watched .ec-media {
+  opacity: 0.6;
+}
+
+/* Подложку своей обложки гасим вместе с размытием: одно filter без blur
+   перебило бы её собственный и «разморозило» картинку. */
+.interview-video-card.is-watched .interview-video-card-thumb-img {
+  filter: grayscale(0.5) brightness(0.85);
+}
+
+.interview-video-card.is-watched .interview-video-card-thumb-backdrop {
+  filter: blur(24px) saturate(1.2) grayscale(0.5) brightness(0.85);
+}
+
+.interview-video-card.is-watched .interview-video-card-thumb::before {
+  content: "✓";
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.interview-video-card-admin {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.interview-video-card-admin button {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.interview-video-card-admin button:hover {
+  color: var(--text-primary);
+}
+
+.iv-editor {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-card, #fcfbf8);
+  color: var(--text-primary);
+}
+
+.iv-editor::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.iv-editor__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.iv-editor__title {
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 1.3rem;
+}
+
+.iv-editor__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.iv-editor__row > * {
+  flex: 1 1 160px;
+}
+
+.iv-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.iv-editor__field[hidden] {
+  display: none;
+}
+
+.iv-editor__field input:not([type="file"]),
+.iv-editor__field select,
+.iv-editor__field textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.iv-editor__thumb-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.1));
+  border-radius: 8px;
+}
+
+.iv-editor__current {
+  color: var(--text-tertiary, var(--text-secondary));
+  overflow-wrap: anywhere;
+}
+
+.iv-editor__topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.iv-editor__topics legend {
+  padding: 0 4px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.iv-editor__check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.iv-editor__progress {
+  width: 100%;
+}
+
+.iv-editor__status {
+  min-height: 1.2em;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.iv-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.iv-editor__actions button {
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.iv-editor__actions .iv-editor__save {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+
+.iv-editor__actions .iv-editor__save:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+body.interviews button.page-header-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Секции сетки (groupVideosForDisplay): заголовок на всю ширину, полоса слева
+   в цвет бейджа типа — real зелёный, mock янтарный, MLSD фирменный. */
+.iv-section-title {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 -6px;
+  padding: 4px 0 4px 12px;
+  border: none;
+  border-left: 4px solid var(--iv-section-accent, var(--brand));
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.iv-section-title:first-child {
+  margin-top: 0;
+}
+
+.iv-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.iv-section-title--real {
+  --iv-section-accent: var(--success-color);
+}
+
+.iv-section-title--mock {
+  --iv-section-accent: var(--warning-color);
+}
+
+.iv-section-title--mlsd {
+  --iv-section-accent: var(--brand);
+}
+
+.iv-section-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--iv-section-accent) 14%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* База рекрутеров (/ai/interviews/recruiters.html): поиск, таблица и кнопки
+   ментора; диалог правки — тот же .iv-editor. */
+.ir-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.ir-search {
+  flex: 1 1 260px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+/* Список компаний: фон непрозрачный, иначе в тёмной теме варианты нечитаемы. */
+.ir-company {
+  flex: 0 1 240px;
+  background: var(--bg-secondary);
+}
+
+.ir-company-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ir-logo {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.ir-table-wrap {
+  overflow-x: auto;
+}
+
+.ir-table td a {
+  overflow-wrap: anywhere;
+}
+
+.ir-admin {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ir-admin button {
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* English Speaking Club: записи встреч и глоссарий */
+.ec-record {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+
+.ec-record p,
+.ec-record-title {
+  margin: 0;
+}
+
+.ec-media {
+  width: 100%;
+  border-radius: 8px;
+}
+
+.ec-record-date {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.ec-glossary {
+  margin-bottom: 40px;
+}
+
+.ec-group {
+  margin-bottom: 10px;
+}
+
+.ec-group-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+  font-size: 1.1rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ec-group-title::-webkit-details-marker {
+  display: none;
+}
+
+.ec-group-title::before {
+  content: "›";
+  color: var(--text-secondary);
+  font-size: 1.3rem;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+.ec-group[open] > .ec-group-title::before {
+  transform: rotate(90deg);
+}
+
+.ec-group-title:hover {
+  border-color: var(--accent-color);
+}
+
+.ec-group-count {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.ec-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+/* Карточка фразы — как в PDF-разборе: фиолетовая полоса слева, пример медным.
+   Палитра своя только здесь, в остальном сайте акцент синий. */
+.ec-term {
+  --ec-violet: #5b4bc4;
+  --ec-violet-soft: #a79eea;
+  --ec-copper: #b4632f;
+  --ec-surface: linear-gradient(90deg, #f3f0fd, #faf9ff);
+  --ec-example-bg: #fff;
+  --ec-muted: var(--text-secondary);
+
+  position: relative;
+  padding: 14px 44px 16px 30px;
+  border-radius: 14px;
+  background: var(--ec-surface);
+}
+
+[data-theme="dark"] body .ec-term {
+  --ec-violet: #b9afff;
+  --ec-violet-soft: #6f62c8;
+  --ec-copper: #e3a77a;
+  --ec-surface: linear-gradient(
+    90deg,
+    color-mix(in srgb, #7c6cf0 18%, var(--bg-card)),
+    color-mix(in srgb, #7c6cf0 7%, var(--bg-card))
+  );
+  --ec-example-bg: var(--bg);
+  --ec-muted: #b3bac6;
+}
+
+.ec-term::before,
+.ec-term-example::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 12px;
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--ec-violet), var(--ec-violet-soft));
+}
+
+.ec-term-phrase {
+  margin: 0 0 8px;
+  color: var(--ec-violet);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ec-term p {
+  margin: 0;
+}
+
+.ec-term-meaning {
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.ec-term-when,
+.ec-term-example {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ec-term .ec-term-when {
+  margin-top: 8px;
+  color: var(--ec-muted);
+  line-height: 1.5;
+}
+
+.ec-term .ec-term-example {
+  position: relative;
+  margin-top: 8px;
+  padding: 10px 14px 10px 24px;
+  border-radius: 10px;
+  background: var(--ec-example-bg);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.ec-term-example::before {
+  top: 8px;
+  bottom: 8px;
+  left: 9px;
+  background: var(--ec-copper);
+}
+
+.ec-term-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  color: var(--ec-violet);
+}
+
+.ec-term-example .ec-term-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  color: var(--ec-copper);
+}
+
+.ec-term-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ec-term:hover .ec-term-delete,
+.ec-term-delete:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ec-term-delete {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .ec-term {
+    padding: 12px 14px 14px 24px;
+  }
+
+  .ec-term::before {
+    left: 9px;
+  }
+
+  .ec-term-phrase {
+    padding-right: 24px;
+    font-size: 1.15rem;
+  }
+}
+
+/* Разбор ошибок созвона — как раздел PDF: розовое «так сказали», зелёное
+   «лучше сказать», лавандовое «почему». */
+.ec-mistakes-open {
+  align-self: flex-start;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ec-mistakes-open:hover {
+  border-color: var(--accent-color);
+}
+
+.ec-mistakes {
+  --ec-said-bg: #fbe9ef;
+  --ec-said-label: #ad2f58;
+  --ec-said-text: #565b69;
+  --ec-better-bg: #e4f3ea;
+  --ec-better-label: #1f6b4a;
+  --ec-why-bg: #f5f3ff;
+  --ec-why-icon: #5b4bc4;
+
+  width: min(1040px, calc(100% - 32px));
+  max-width: none;
+  height: min(860px, calc(100dvh - 48px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.ec-mistakes[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme="dark"] body .ec-mistakes {
+  --ec-said-bg: #3a1f2b;
+  --ec-said-label: #ffa3bd;
+  --ec-said-text: #d7dbe3;
+  --ec-better-bg: #16352a;
+  --ec-better-label: #84e0b3;
+  --ec-why-bg: #25233d;
+  --ec-why-icon: #b9afff;
+
+  color-scheme: dark;
+}
+
+.ec-mistakes::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.ec-mistakes-head {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ec-mistakes-head h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 1.25rem;
+}
+
+.ec-mistakes-record {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.ec-mistakes-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ec-mistakes-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.ec-mistakes-body > .interview-videos-empty {
+  flex: 1;
+  margin: 20px;
+}
+
+.ec-mistakes-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.ec-mistakes-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-color);
+}
+
+.ec-mistakes-tab {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ec-mistakes-tab:hover {
+  color: var(--text-primary);
+}
+
+.ec-mistakes-tab[aria-selected="true"] {
+  background: var(--ec-why-bg);
+  color: var(--ec-why-icon);
+  font-weight: 600;
+}
+
+.ec-mistakes-tab-count {
+  flex: none;
+  font-weight: 500;
+}
+
+.ec-mistakes-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px 24px 28px;
+  overflow-y: auto;
+}
+
+.ec-mistakes-panel > h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.2rem;
+}
+
+.ec-mistakes-intro {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.ec-quote {
+  color: var(--ec-why-icon);
+  font-weight: 500;
+}
+
+.ec-summary {
+  margin: 0;
+}
+
+.ec-summary > div {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-color);
+  line-height: 1.5;
+}
+
+.ec-summary dt {
+  font-weight: 700;
+}
+
+.ec-summary dd {
+  margin: 0;
+}
+
+.ec-good {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ec-good-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--ec-better-bg);
+}
+
+.ec-good-item > .ec-fix-icon {
+  margin-top: 5px;
+  color: var(--ec-better-label);
+}
+
+.ec-good-item p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ec-good-phrase {
+  font-weight: 600;
+}
+
+.ec-good-phrase .ec-quote {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.ec-good-note {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.ec-mistakes-next {
+  flex: none;
+  align-self: flex-end;
+  margin-top: 6px;
+  padding: 10px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: right;
+  cursor: pointer;
+}
+
+.ec-mistakes-next:hover {
+  border-color: var(--accent-color);
+}
+
+/* Без flex: none панель сплющивает карточки: overflow снимает их минимальную высоту. */
+.ec-fix {
+  flex: none;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.ec-fix p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ec-fix-said,
+.ec-fix-better {
+  padding: 10px 16px 12px;
+}
+
+.ec-fix-said {
+  background: var(--ec-said-bg);
+  color: var(--ec-said-text);
+}
+
+.ec-fix-better {
+  background: var(--ec-better-bg);
+}
+
+.ec-fix-better p {
+  font-weight: 700;
+}
+
+.ec-fix-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ec-fix-said .ec-fix-label {
+  color: var(--ec-said-label);
+}
+
+.ec-fix-better .ec-fix-label {
+  color: var(--ec-better-label);
+}
+
+.ec-fix-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.ec-fix-why {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 16px;
+  background: var(--ec-why-bg);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] body .ec-fix-why {
+  color: #c3c9d4;
+}
+
+.ec-fix-bulb {
+  flex: none;
+  width: 16px;
+  height: 20px;
+  margin-top: 2px;
+  color: var(--ec-why-icon);
+}
+
+@media (max-width: 720px) {
+  .ec-mistakes {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .ec-mistakes-layout {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ec-mistakes-nav {
+    flex-direction: row;
+    gap: 4px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .ec-mistakes-tab {
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .ec-mistakes-panel {
+    padding: 16px;
+  }
+
+  .ec-summary > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .ec-fix-said,
+  .ec-fix-better,
+  .ec-fix-why {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
 }

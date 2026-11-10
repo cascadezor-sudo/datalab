@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator for SchmidtML Analytics - Group 3, Modules 2 & 3:
+Deep textbook generator for DataLab Analytics - Group 3, Modules 2 & 3:
 Module 2: site/analytics/product/bi.html (6 questions)
 Module 3: site/analytics/product/tools.html (6 questions)
 """
 
 import sys
-sys.path.append("C:/Users/ZXKS/Desktop/SchmidtML")
 from analytics_deep_helper import render_question, update_page_questions
 
 # ==========================================

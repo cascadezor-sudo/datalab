@@ -842,11 +842,11 @@
             });
           });
 
-          // Кнопки «В тексте ошибка?» и «Ассистент» вешают обработчики на
-          // оригинал — клон их не копирует, поэтому пересылаем клик туда.
+          // Кнопка «В тексте ошибка?» вешает обработчик на оригинал — клон
+          // его не копирует, поэтому пересылаем клик туда.
           // «Свернуть тему» на слайде сворачивать нечего.
           clonedContainer.querySelector(".question-collapse-footer")?.remove();
-          const forwardSelector = ".question-report-btn, .question-ai-help-btn";
+          const forwardSelector = ".question-report-btn";
           const originals =
             difficultyContainer.querySelectorAll(forwardSelector);
           clonedContainer

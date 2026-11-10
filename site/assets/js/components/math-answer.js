@@ -399,9 +399,9 @@
       try {
         const payload = { targetPage: page, questionId, answers };
         const verdict =
-          window.__schmidtOfflineChecker &&
-          typeof window.__schmidtOfflineMathCheck === "function"
-            ? await window.__schmidtOfflineMathCheck(payload)
+          window.__datalabOfflineChecker &&
+          typeof window.__datalabOfflineMathCheck === "function"
+            ? await window.__datalabOfflineMathCheck(payload)
             : await window.achievementApi.call("checkPracticeAnswers", payload);
         if (verdict?.error) {
           setStatus(verdict.error, "warn");

@@ -49,6 +49,9 @@
    * без повторов, и по умолчанию retry выключен.
    */
   async function call(name, data = {}, { retry = true } = {}) {
+    if (window.__datalabOffline) {
+      throw new Error("Эта функция недоступна в локальном режиме DataLab.");
+    }
     const user = await waitForUser();
     const projectId = window.firebase.app().options.projectId;
     const url = `https://us-central1-${projectId}.cloudfunctions.net/${name}`;
@@ -170,16 +173,6 @@
     // кнопка «Обновить»: она сбрасывает кэш перед перезагрузкой.
     getPublicLeaderboard: () => cachedCall("getPublicLeaderboard", {}, 300_000),
     listStaffFeedbacks: (params) => call("listStaffFeedbacks", params),
-    // Ручная операция с монетами ученика. requestId делает повтор после
-    // сетевой ошибки безопасным: сервер дедуплицирует по нему.
-    // Разовое начисление градов за прошлую активность всем ученикам, по
-    // десять за вызов: зовём, пока nextOffset не null. Только mentor/admin.
-    backfillStudentWallets: (params = {}) =>
-      mutate("backfillStudentWallets", params),
-    getOnlineStats: (params) => call("getStaffOnlineStats", params),
-    listWalletOrders: (params) => call("listStaffWalletOrders", params),
-    setWalletOrderStatus: (orderId, status) =>
-      call("setWalletOrderStatus", { orderId, status }),
     listRagFeedback: (params) => call("listRagFeedback", params),
     getRagFeedbackDetail: (studentId, feedbackId) =>
       call("getRagFeedbackDetail", { studentId, feedbackId }),

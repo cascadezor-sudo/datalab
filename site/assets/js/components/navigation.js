@@ -53,7 +53,35 @@ function getActivePage() {
 function createSimpleLink(link, activePage) {
   const a = document.createElement("a");
   a.href = typeof window.normalizeSiteUrl === "function" ? window.normalizeSiteUrl(link.href) : link.href;
-  a.textContent = link.text;
+  if (link.icon || link.hint) {
+    a.classList.add("dropdown-link");
+    if (link.icon) {
+      const icon = document.createElement("img");
+      icon.className = "dropdown-link__icon";
+      const rawIconPath = `/assets/icons/${link.icon}.svg`;
+      icon.src = typeof window.normalizeSiteUrl === "function" ? window.normalizeSiteUrl(rawIconPath) : rawIconPath;
+      icon.alt = "";
+      icon.width = 20;
+      icon.height = 20;
+      icon.decoding = "async";
+      a.appendChild(icon);
+    }
+    const body = document.createElement("span");
+    body.className = "dropdown-link__body";
+    const text = document.createElement("span");
+    text.className = "dropdown-link__text";
+    text.textContent = link.text;
+    body.appendChild(text);
+    if (link.hint) {
+      const hint = document.createElement("span");
+      hint.className = "dropdown-link__hint";
+      hint.textContent = link.hint;
+      body.appendChild(hint);
+    }
+    a.appendChild(body);
+  } else {
+    a.textContent = link.text;
+  }
   if (link.id === activePage) {
     a.classList.add("active");
     a.setAttribute("aria-current", "page");
@@ -239,13 +267,13 @@ function createDropdown(title, links, activePage, options = {}) {
   return dropdown;
 }
 
-const NAV_ROLE_CACHE_KEY = "schmidtml_nav_role_cache_v1";
+const NAV_ROLE_CACHE_KEY = "datalab_nav_role_cache_v1";
 const NAV_ROLE_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 // «Только материалы» отчётов не пишут (сервер им и откажет): формат кладётся
 // атрибутом на <html>, а ссылки на отчёты прячет одно правило в navigation.css.
 // Кэш в localStorage — чтобы пункт меню не мигал на каждой странице.
-const NAV_FORMAT_CACHE_KEY = "schmidtml_nav_learning_format_v1";
+const NAV_FORMAT_CACHE_KEY = "datalab_nav_learning_format_v1";
 function applyLearningFormat(format) {
   const materials = format === "materials";
   if (materials) document.documentElement.dataset.learningFormat = "materials";
@@ -339,32 +367,114 @@ function materialColumns() {
     {
       title: t("Основы"),
       links: [
-        { href: "/python/", text: "Python", id: "python" },
-        { href: "/math/", text: t("Математика"), id: "math" },
-        { href: "/db/", text: t("Базы данных"), id: "db" },
-        { href: "/github/", text: "Git", id: "github" },
-        { href: "/linux/", text: "Linux", id: "linux" },
+        {
+          href: "/python/",
+          text: "Python",
+          id: "python",
+          icon: "python",
+          hint: t("Синтаксис, ООП, библиотеки"),
+        },
+        {
+          href: "/math/",
+          text: t("Математика"),
+          id: "math",
+          icon: "math",
+          hint: t("Алгебра, анализ, вероятности"),
+        },
+        {
+          href: "/db/",
+          text: t("Базы данных"),
+          id: "db",
+          icon: "db",
+          hint: "SQL, PostgreSQL, Redis, DWH",
+        },
+        {
+          href: "/github/",
+          text: "Git",
+          id: "github",
+          icon: "online-git",
+          hint: t("Коммиты, ветки, GitHub"),
+        },
+        {
+          href: "/linux/",
+          text: "Linux",
+          id: "linux",
+          icon: "online-linux",
+          hint: t("Терминал и командная строка"),
+        },
       ],
     },
     {
       title: "Machine Learning",
       links: [
-        { href: "/ai/ml/", text: t("Машинное обучение"), id: "ml" },
-        { href: "/ai/mlops/", text: "MLOps", id: "mlops" },
-        { href: "/practise/", text: t("Практика"), id: "practise" },
+        {
+          href: "/ai/ml/",
+          text: t("Машинное обучение"),
+          id: "ml",
+          icon: "ml",
+          hint: t("Классика, DL, NLP, CV"),
+        },
+        {
+          href: "/ai/mlops/",
+          text: "MLOps",
+          id: "mlops",
+          icon: "online-mlops",
+          hint: t("Docker, Kubernetes, мониторинг"),
+        },
+        {
+          href: "/practise/",
+          text: t("Практика"),
+          id: "practise",
+          icon: "online-practice",
+          hint: t("Задачи по Python, SQL и ML"),
+        },
+        {
+          href: "/bank/",
+          text: t("Банк вопросов"),
+          id: "bank",
+          icon: "online-bank",
+          hint: t("Вопросы с реальных собесов"),
+        },
       ],
     },
     {
       title: t("Аналитика"),
       links: [
-        { href: "/analytics/index.html", text: t("Каталог аналитики"), id: "analytics-hub" },
-        { href: "/analytics/product/ab.html", text: "A/B-тестирование", id: "analytics-ab" },
-        { href: "/analytics/product/metrics.html", text: t("Продуктовые метрики"), id: "analytics-metrics" },
-        { href: "/analytics/product/logging.html", text: t("Логирование событий"), id: "analytics-logging" },
-        { href: "/analytics/product/research.html", text: t("Исследования (Causal)"), id: "analytics-research" },
-        { href: "/analytics/product/bi.html", text: "BI и DataLens", id: "analytics-bi" },
-        { href: "/analytics/practise/ab.html", text: t("Практика A/B"), id: "analytics-practise-ab" },
-        { href: "/analytics/bank/product.html", text: t("Собеседования"), id: "analytics-bank" },
+        {
+          href: "/analytics/index.html",
+          text: t("Продуктовая аналитика"),
+          id: "analytics-hub",
+          icon: "topics-progress",
+          hint: t("Все разделы: A/B, метрики, BI"),
+        },
+        {
+          href: "/analytics/product/ab.html",
+          text: "A/B-тестирование",
+          id: "analytics-ab",
+          icon: "probability",
+          hint: t("Статистика, дизайн, CUPED"),
+        },
+        {
+          href: "/analytics/product/metrics.html",
+          text: t("Продуктовые метрики"),
+          id: "analytics-metrics",
+          icon: "leaderboard",
+          hint: t("Retention, воронки, экономика"),
+        },
+        {
+          href: "/analytics/product/research.html",
+          text: t("Исследования и BI"),
+          id: "analytics-research",
+          icon: "research",
+          hint: t("Causal, логирование, DataLens"),
+        },
+        {
+          href: "/analytics/bank/product.html",
+          text: t("Практика и собесы"),
+          id: "analytics-bank",
+          icon: "interviews",
+          hint: t("Тренажёр A/B и банк вопросов"),
+        },
       ],
     },
   ];
@@ -382,13 +492,13 @@ function createMaterialsMenuItems() {
         },
         {
           href: "/roadmap/interactive.html",
-          text: t("интерактивная (ML)"),
+          text: t("Интерактивная: ML"),
           id: "materials-map-interactive",
           className: "dropdown-mega__secondary",
         },
         {
           href: "/analytics/roadmap/interactive.html",
-          text: t("карта аналитика"),
+          text: t("Интерактивная: Аналитика"),
           id: "materials-map-analytics",
           className: "dropdown-mega__secondary",
         },
@@ -404,7 +514,7 @@ function createMaterialsMenuItems() {
     {
       className: "dropdown-mega__footer",
       items: [
-        { href: "/materials/", text: t("Доп. источники"), id: "materials" },
+        { href: "/materials/", text: t("Доп. источники и литература"), id: "materials" },
       ],
     },
   ];
@@ -598,7 +708,6 @@ function createNavigation(options = {}) {
     { href: "/my-reports.html", text: t("Отчеты"), id: "my-reports" },
     { href: "/tests/", text: t("Тесты"), id: "tests" },
     { href: "/achievements.html", text: t("Достижения"), id: "achievements" },
-    { href: "/wallet.html", text: t("Кошелёк"), id: "wallet" },
   ];
   linkContainer.appendChild(
     createDropdown(t("Прогресс"), progressLinks, activePage),
@@ -631,12 +740,7 @@ function createNavigation(options = {}) {
 
   nav.appendChild(createSearchTrigger());
   nav.appendChild(createOnlineBadge(options.role));
-  // Баланс монет — только у учеников: персонал монеты не копит. Скрыт до
-  // первого ответа базы, чтобы до деплоя правил (или у гостя) не висел
-  // прочерк.
-  if (!isStaffNavigationRole(options.role)) {
-    nav.appendChild(createWalletBadge());
-  }
+
   // Меню аккаунта — последним и в DOM, и визуально: Tab идёт слева
   // направо (поиск, бейджи, аватар), как видит глаз.
   nav.appendChild(createAccountMenu(activePage));
@@ -741,15 +845,6 @@ function createLanguageToggle() {
   return button;
 }
 
-// ── Кошелёк: бейдж баланса и всплывающее «+N монет» ────────────────────────
-//
-// Живёт здесь, а не в отдельном файле: навигация подключена на каждой
-// странице платформы, а вопросы отмечают на сотнях страниц — подключать
-// туда ещё один скрипт значило бы править их все. Баланс читается из
-// `wallets/<uid>/summary` — собственный крошечный узел ученика, единственное,
-// что правила базы открывают браузеру из кошелька; начисляет монеты только
-// сервер (functions/wallet.js).
-
 function isStaffNavigationRole(role) {
   return (
     role === "mentor" ||
@@ -757,87 +852,6 @@ function isStaffNavigationRole(role) {
     role === "curator" ||
     role === "admin-helper"
   );
-}
-
-// Валюта платформы — «град» (∇, от градиентного спуска): 1 град, 2 града,
-// 5 градов. Формы совпадают с currency в wallet-config.json.
-const COIN_FORMS = { ru: ["град", "града", "градов"], en: ["grad", "grads"] };
-function pluralCoins(count) {
-  const n = Math.abs(Number(count) || 0);
-  if (window.i18n) return window.i18n.plural(n, COIN_FORMS);
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "град";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "града";
-  return "градов";
-}
-
-// Спрайт монеты вставляется в документ один раз: при внешнем <use> Chrome
-// ищет градиенты символа в документе страницы, а не в файле, и монета
-// остаётся пустой. После вставки все <use href="#grad-coin"> находят символ.
-const COIN_SPRITE_URL = "/assets/icons/grad-coin.svg";
-const COIN_ICON_HREF = "#grad-coin";
-let coinSpritePromise = null;
-
-function ensureCoinSprite() {
-  if (coinSpritePromise) return coinSpritePromise;
-  coinSpritePromise = fetch(COIN_SPRITE_URL)
-    .then((response) => (response.ok ? response.text() : ""))
-    .then((markup) => {
-      if (!markup || document.getElementById("grad-coin")) return;
-      // Разбираем как SVG, а не через innerHTML: HTML-парсер ломает
-      // самозакрывающиеся теги внутри спрайта.
-      const parsed = new DOMParser().parseFromString(markup, "image/svg+xml");
-      const symbol = parsed.getElementById("grad-coin");
-      if (!symbol) return;
-      const holder = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "svg",
-      );
-      holder.setAttribute("aria-hidden", "true");
-      holder.setAttribute("width", "0");
-      holder.setAttribute("height", "0");
-      holder.style.cssText =
-        "position:absolute;width:0;height:0;overflow:hidden";
-      holder.appendChild(document.importNode(symbol, true));
-      document.body.prepend(holder);
-    })
-    .catch(() => {
-      /* без спрайта монета останется пустой — не страшно */
-    });
-  return coinSpritePromise;
-}
-
-function createCoinIcon(className) {
-  ensureCoinSprite();
-  const icon = document.createElement("span");
-  icon.className = className;
-  icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = `<svg viewBox="0 0 64 64" focusable="false"><use href="${COIN_ICON_HREF}"></use></svg>`;
-  return icon;
-}
-
-function formatCoins(value) {
-  return new Intl.NumberFormat(window.i18n?.locale || "ru-RU").format(
-    Number(value) || 0,
-  );
-}
-
-function createWalletBadge() {
-  const badge = document.createElement("a");
-  badge.className = "nav-wallet-badge";
-  badge.href = typeof window.normalizeSiteUrl === "function" ? window.normalizeSiteUrl("/wallet.html") : "/wallet.html";
-  badge.hidden = true;
-  badge.setAttribute("aria-label", t("Кошелёк"));
-  badge.title = t("Кошелёк: грады за учёбу");
-  const icon = createCoinIcon("nav-wallet-badge__icon");
-  const value = document.createElement("span");
-  value.className = "nav-wallet-badge__value";
-  value.setAttribute("data-wallet-balance", "");
-  value.textContent = "—";
-  badge.appendChild(icon);
-  badge.appendChild(value);
-  return badge;
 }
 
 // ── Онлайн: сколько учеников сейчас на сайте ───────────────────────────────
@@ -855,7 +869,6 @@ const ONLINE_PAGE_LABELS = {
   main: ["online-home", t("На главной")],
   "spaced-repetition": ["topics-progress", t("Повторяют карточки")],
   leaderboard: ["leaderboard", t("Смотрят лидерборд")],
-  wallet: ["grad-coin", t("В кошельке")],
   // achievements.svg — спрайт символов, как картинка он пустой: у строки своя иконка.
   achievements: ["online-achievements", t("Смотрят достижения")],
   "my-reports": ["online-report", t("Пишут отчёт")],
@@ -926,9 +939,8 @@ function onlineSectionRows(sections, categoryLabels) {
     .map(([label, row]) => [label, row.count, row.icon]);
 }
 
-/** Иконка строки: монета — из общего спрайта, остальные — файлами. */
+/** Иконка строки загружается из файла раздела. */
 function createOnlineSectionIcon(icon) {
-  if (icon === "grad-coin") return createCoinIcon("nav-online-popover__icon");
   const image = document.createElement("img");
   image.className = "nav-online-popover__icon";
   image.src = `/assets/icons/${icon}.svg`;
@@ -1075,173 +1087,6 @@ function mountOnlineBadge(db) {
   );
 }
 
-let walletSubscription = null;
-
-function renderWalletBalance(summary) {
-  const balance = Number(summary?.balance) || 0;
-  const label = `${formatCoins(balance)} ${pluralCoins(balance)}`;
-  document.querySelectorAll("[data-wallet-balance]").forEach((element) => {
-    element.textContent = formatCoins(balance);
-    element.setAttribute("data-wallet-ready", "true");
-  });
-  document.querySelectorAll("[data-wallet-unit]").forEach((element) => {
-    element.textContent = pluralCoins(balance);
-  });
-  document.querySelectorAll(".nav-wallet-badge").forEach((badge) => {
-    badge.hidden = false;
-    badge.setAttribute("aria-label", t("Кошелёк: {label}", { label }));
-  });
-}
-
-// Кнопка кошелька в шапке main.html свёрстана статически: сотруднику её
-// прячем вместе с бейджем — витрина ему недоступна.
-function toggleMainWalletLink(visible) {
-  document
-    .querySelector(".main-wallet-link")
-    ?.toggleAttribute("hidden", !visible);
-}
-
-function unmountWalletBadge() {
-  toggleMainWalletLink(false);
-  if (walletSubscription) {
-    try {
-      walletSubscription.ref.off("value", walletSubscription.handler);
-    } catch (error) {
-      /* подписка уже снята */
-    }
-    walletSubscription = null;
-  }
-}
-
-function mountWalletBadge(db, uid) {
-  if (walletSubscription?.uid === uid) {
-    // Навбар пересобрали — старая подписка жива, нужно лишь перерисовать.
-    if (walletSubscription.last) renderWalletBalance(walletSubscription.last);
-    return;
-  }
-  unmountWalletBadge();
-  toggleMainWalletLink(true);
-  const ref = db.ref(`wallets/${uid}/summary`);
-  const subscription = { uid, ref, handler: null, last: null };
-  subscription.handler = ref.on(
-    "value",
-    (snapshot) => {
-      subscription.last = snapshot.val() || { balance: 0 };
-      renderWalletBalance(subscription.last);
-    },
-    () => {
-      // Правила ещё не выпущены или узла нет — бейдж остаётся скрытым.
-    },
-  );
-  walletSubscription = subscription;
-}
-
-let walletToastTimer = null;
-
-/**
- * Всплывающее «+N монет» после ответа сервера. Данные берутся из ответа
- * callable (`result.wallet`), лишних чтений нет; сам баланс в бейдже
- * обновит подписка на summary.
- */
-/** Тост кошелька с произвольным содержимым; showWalletCredit — частный случай. */
-function showWalletToast(fill) {
-  if (!document.body) return;
-  let toast = document.getElementById("wallet-toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.id = "wallet-toast";
-    toast.className = "wallet-toast";
-    toast.setAttribute("role", "status");
-    toast.setAttribute("aria-live", "polite");
-    document.body.appendChild(toast);
-  }
-  toast.innerHTML = "";
-  fill(toast);
-  toast.classList.add("is-visible");
-  clearTimeout(walletToastTimer);
-  walletToastTimer = setTimeout(() => {
-    toast.classList.remove("is-visible");
-  }, 4200);
-}
-
-function showWalletCredit(wallet) {
-  const credited = Number(wallet?.credited) || 0;
-  if (credited <= 0) return;
-  showWalletToast((toast) => {
-    toast.appendChild(createCoinIcon("wallet-toast__icon"));
-    const text = document.createElement("span");
-    text.textContent = `+${formatCoins(credited)} ${pluralCoins(credited)}`;
-    toast.appendChild(text);
-  });
-  document.querySelectorAll(".nav-wallet-badge").forEach((badge) => {
-    badge.classList.remove("is-bumped");
-    // Перезапуск анимации: без reflow повторный класс не сработает.
-    void badge.offsetWidth;
-    badge.classList.add("is-bumped");
-  });
-}
-
-/**
- * Купленная заморозка тратится ночью без участия ученика — иначе он узнал
- * бы о ней только по тому, что серия не порвалась. При первом заходе после
- * такой ночи показываем тост; какие дни уже показаны, помним в localStorage.
- */
-async function announceSpentFreezes(db, uid) {
-  const key = `streak-freeze-seen:${uid}`;
-  let seen = "";
-  try {
-    seen = localStorage.getItem(key) || "";
-  } catch (error) {
-    /* приватный режим — покажем и в следующий раз, не страшно */
-  }
-  let perks = null;
-  try {
-    perks = (await db.ref(`streak_perks/${uid}`).once("value")).val();
-  } catch (error) {
-    return;
-  }
-  const days = Object.keys(perks?.frozenDays || {}).sort();
-  if (!days.length) return;
-  // Старые дни (до появления тоста) не объявляем: только последние трое суток.
-  const floor = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-  const fresh = days.filter((day) => day > seen && day >= floor);
-  const latest = days[days.length - 1];
-  try {
-    localStorage.setItem(key, latest);
-  } catch (error) {
-    /* ignore */
-  }
-  if (!fresh.length) return;
-  const reserve = Math.max(0, Number(perks?.freezes) || 0);
-  showWalletToast((toast) => {
-    const text = document.createElement("span");
-    text.textContent =
-      (fresh.length > 1
-        ? t(
-            "🧊 Запасные заморозки закрыли {count} пропущенных дня — серия сохранена.",
-            { count: fresh.length },
-          )
-        : t("🧊 Ночью сработала запасная заморозка — серия сохранена.")) +
-      ` ${t("В запасе: {reserve}.", { reserve })}`;
-    toast.appendChild(text);
-  });
-}
-
-window.walletUi = {
-  showCredit: showWalletCredit,
-  createCoinIcon,
-  COIN_ICON_HREF,
-  // Для виджетов, которые рисуются позже подписки (сетка активности в
-  // профиле): перерисовать [data-wallet-balance] по последнему ответу.
-  refresh() {
-    if (walletSubscription?.last) renderWalletBalance(walletSubscription.last);
-  },
-  pluralCoins,
-  formatCoins,
-};
-
 async function getNavigationFirebaseConfig() {
   if (window.configLoader && window.configLoader.loadFirebaseConfig) {
     return window.configLoader.loadFirebaseConfig();
@@ -1286,7 +1131,6 @@ async function applyRoleNavigation() {
         renderNavAvatars();
         clearCachedNavigationRole();
         applyLearningFormat(null);
-        unmountWalletBadge();
         const currentNav = document.querySelector("#navbar");
         if (currentNav?.dataset.navVariant === "curator") {
           const defaultNavigation = createNavigation({ variant: "default" });
@@ -1322,13 +1166,6 @@ async function applyRoleNavigation() {
       applyLearningFormat(
         isStaffNavigationRole(role) ? null : formatSnap.val(),
       );
-      // Грады только на менторстве: у «только материалов» ни бейджа, ни кнопки.
-      if (isStaffNavigationRole(role) || formatSnap.val() === "materials")
-        unmountWalletBadge();
-      else {
-        mountWalletBadge(db, user.uid);
-        announceSpentFreezes(db, user.uid);
-      }
       const currentNav = document.querySelector("#navbar");
       const expectedVariant = isCuratorNavigationRole(role)
         ? "curator"
@@ -1348,8 +1185,6 @@ async function applyRoleNavigation() {
       else insertNavigationIntoBody(nextNavigation);
       renderMathInNavigation();
       updateThemeIcon();
-      if (walletSubscription?.last)
-        renderWalletBalance(walletSubscription.last);
     });
   } catch (error) {
     // На страницах без Firebase SDK оставляем обычную навигацию.
@@ -1414,12 +1249,9 @@ function insertNavigationIntoBody(navigation) {
   }
   document.body.insertBefore(navigation, anchor);
 }
-
 function insertNavigation() {
   const existingNav = document.querySelector("#navbar");
-  if (existingNav) {
-    existingNav.remove();
-  }
+  if (existingNav) existingNav.remove();
 
   const navigation = createNavigation({
     variant: getInitialNavigationVariant(),
@@ -1527,12 +1359,12 @@ function updateThemeIcon() {
     localStorage.getItem("palette") || "vibecode",
   );
   const PALETTE_NAV_LABEL = {
-    vibecode: "Vibecode",
+    vibecode: "DataLab",
     earth: "Earth",
     sepia: "Sepia",
     graphite: "Graphite",
   };
-  const label = PALETTE_NAV_LABEL[palette] || "Vibecode";
+  const label = PALETTE_NAV_LABEL[palette] || "DataLab";
 
   const themeToggleNav = document.getElementById("theme-toggle-nav");
   if (
@@ -1604,11 +1436,11 @@ function createAppearanceModal() {
         <div class="appearance-options appearance-options--palette" data-appearance-group="palette">
           <button type="button" class="appearance-option appearance-option--vibecode" data-palette-value="vibecode">
             <span class="appearance-option__swatches">
-              <span style="background:#2563eb"></span>
-              <span style="background:#ec4899"></span>
+              <span style="background:#3b6ef6"></span>
+              <span style="background:#0ea5e9"></span>
             </span>
-            <span class="appearance-option__title">Vibecode</span>
-            <span class="appearance-option__text">Синий и розовый — пара по умолчанию.</span>
+            <span class="appearance-option__title">DataLab</span>
+            <span class="appearance-option__text">Глубокий обсидиан в тёмной теме, чистый сланец в светлой и сапфирово-индиговый акцент.</span>
           </button>
           <button type="button" class="appearance-option appearance-option--earth" data-palette-value="earth">
             <span class="appearance-option__swatches">
@@ -1681,7 +1513,7 @@ const APPEARANCE_THEME_NAMES = {
   system: t("как в системе"),
 };
 const APPEARANCE_PALETTE_NAMES = {
-  vibecode: "Vibecode",
+  vibecode: "DataLab",
   earth: "Earth",
   sepia: "Sepia",
   graphite: "Graphite",
@@ -1752,7 +1584,6 @@ function updateAppearanceModalState() {
 
 // Инициализация при загрузке страницы
 document.addEventListener("DOMContentLoaded", () => {
-  if (document.querySelector('use[href="#grad-coin"]')) ensureCoinSprite();
   // Тему здесь больше не восстанавливаем: к этому моменту страница уже
   // отрисована, а сниппет theme-boot применил её ещё в <head>. Осталось
   // подписать переключатель.

@@ -16,7 +16,7 @@
   const OFFLINE_STUDENT = {
     uid: "offline_user",
     displayName: "Студент (Офлайн)",
-    email: "offline@schmidtml.local",
+    email: "offline@datalab.local",
     role: "student",
     status: "active",
     assignedStaffUid: "offline_user",
@@ -198,14 +198,13 @@
             });
           });
         }
-        window.dispatchEvent(new CustomEvent("schmidtml_achievements_updated", { detail: { newlyUnlocked } }));
+        window.dispatchEvent(new CustomEvent("datalab_achievements_updated", { detail: { newlyUnlocked } }));
       }
 
       const totalUnlockedCount = Object.keys(currentUnlocked).length + newlyUnlocked.length;
       return {
         success: true,
         newlyUnlocked,
-        wallet: { balance: 100 + totalUnlockedCount * 50 },
         unlockedLabels: []
       };
     } catch (err) {
@@ -396,7 +395,6 @@
       const result = await evaluateAchievements();
       return {
         success: true,
-        wallet: result.wallet || { balance: 100 }
       };
     },
 
@@ -408,9 +406,6 @@
       return { results: [] };
     },
 
-    purchaseWalletItems: async function () {
-      return { success: true };
-    },
 
     updateOwnTelegramNotificationSettings: async function () {
       return { success: true };

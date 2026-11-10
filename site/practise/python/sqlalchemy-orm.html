@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Практика SQLAlchemy ORM — модуль 10</title>
+  <link rel="stylesheet" href="../../assets/css/tokens.css">
+  <link rel="stylesheet" href="../../assets/css/styles.css">
+  <link rel="stylesheet" href="../../assets/css/navigation.css">
+  <link rel="stylesheet" href="../../assets/css/pages-modern.css">
+  <link rel="stylesheet" href="../../assets/css/fonts.css">
+  <link rel="stylesheet" href="../../assets/css/section-shell.css">
+  <script src="../../assets/js/components/navigation.js"></script>
+  <script src="../../assets/js/components/anchor-scroll.js"></script>
+  <script src="../../assets/js/components/config-loader.js"></script>
+  <script src="../../assets/js/firebase-mock.js"></script>
+  <style>
+    .course-meta{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0;padding:16px 24px}.course-meta span{padding:6px 11px;border:1px solid var(--border);border-radius:var(--radius-full);background:var(--bg-secondary);color:var(--text-muted);font-size:.88rem}
+    .course-layout{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:22px;align-items:start;margin-top:22px}.course-main{min-width:0}.course-nav{position:sticky;top:88px;padding:17px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm);color:var(--text)}.course-nav strong{display:block;margin-bottom:9px}.course-nav a{display:block;margin:1px -8px;padding:7px 8px;border-radius:8px;color:var(--text-muted);font-size:.9rem;text-decoration:none}.course-nav a:hover{color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--bg-card))}
+    .course-panel{margin:0 0 16px;padding:22px 24px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--shadow-sm);color:var(--text)}.course-panel h2{margin:0 0 11px;font-size:1.22rem;line-height:1.4}.course-panel h3{margin:20px 0 8px;font-size:1rem}.course-panel p,.course-panel li{line-height:1.65}.course-panel li{margin:6px 0}.course-panel ul,.course-panel ol{padding-left:22px}
+    .course-panel pre{overflow:auto;margin:12px 0;padding:15px 16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-secondary);color:var(--text);font:.86rem/1.65 Consolas,Monaco,monospace;white-space:pre}.course-panel pre code{color:inherit;background:transparent}.course-callout{padding:15px 17px;border:1px solid var(--border-brand);border-radius:14px;background:color-mix(in srgb,var(--brand) 7%,var(--bg-card))}.course-callout p{margin:5px 0}.course-note{margin-top:12px;padding:12px 14px;border-left:3px solid var(--warning);border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--warning) 8%,var(--bg-card))}.course-panel details{margin-top:12px;border-top:1px solid var(--border);padding-top:11px}.course-panel summary{cursor:pointer;color:var(--brand);font-weight:650}.task-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.task-card{padding:15px;border:1px solid var(--border);border-radius:12px;background:var(--bg-secondary)}.task-card strong{display:block;margin-bottom:5px}.task-card p{margin:0;color:var(--text-muted)}
+    @media(max-width:850px){.course-layout{grid-template-columns:1fr}.course-nav{position:static;order:-1}.course-nav nav{display:flex;flex-wrap:wrap;gap:2px 12px}.course-nav a{margin:0;padding:5px 0}.task-grid{grid-template-columns:1fr}}@media(max-width:560px){.course-panel{padding:18px}.course-meta{padding:13px 18px}}
+  </style>
+
+  <link href="../../assets/css/learning-reading.css" rel="stylesheet" />
+</head>
+<body class="ml">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" class="container" tabindex="-1">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка"><ol class="breadcrumbs__list">
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../../main.html">Главная</a></li>
+      <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../index.html">Практика</a></li>
+      <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">SQLAlchemy ORM</span></li>
+    </ol></nav>
+    <section class="section-shell"><header class="section-shell__hero">
+      <div class="hero-topline"><span class="pill">Практика</span><span class="pill pill--soft">Python · модуль 10</span><span class="hero-dot">·</span><span class="hero-count">учебный проект</span></div>
+      <h1 class="section-shell__title">Собери API поверх ORM-моделей</h1><p class="section-shell__desc">Преобразуй таблицы user, post и feed_action в ORM-модели, напиши выборки, добавь связи и выдай результаты через FastAPI.</p>
+    </header><div class="section-shell__divider"></div><div class="course-meta"><span>Python · SQLAlchemy 2.x · FastAPI</span><span>Уровень: базовый</span><span>Формат: API-проект</span></div></section>
+    <div class="course-layout"><div class="course-main"><section class="course-panel" id="setup"><div class="course-callout"><strong>Задача</strong><p>Сделай маленький сервис чтения ленты. Основной маршрут отдаёт популярные посты, дополнительные — пользователя, пост и действия по ним.</p></div><p>Материал модуля показывает SQLAlchemy 1.4 и старый стиль запросов. Здесь задания сохранены, а примеры приведены к декларативному mapping и <code>select()</code> из SQLAlchemy 2.x.</p><pre><code>python -m venv .venv
+# активируй окружение, затем:
+pip install "sqlalchemy>=2,<3" fastapi uvicorn pydantic</code></pre><p>Для первой итерации используй SQLite. Для PostgreSQL подключи собственный URL через переменную окружения.</p></section>
+<section class="course-panel" id="models"><h2>1. Опиши таблицы моделями</h2><p>Создай <code>Base</code> и модели <code>User</code>, <code>Post</code>, <code>FeedAction</code>. В учебной схеме нужны поля пользователя (страна, город, возраст, группа, ОС), публикации (текст, тема) и действий (тип и время).</p><pre><code>from datetime import datetime
+from sqlalchemy import ForeignKey, String, DateTime
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+class Base(DeclarativeBase):
+    pass
+
+class Post(Base):
+    __tablename__ = "post"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str] = mapped_column(String)
+    topic: Mapped[str] = mapped_column(String(80), index=True)
+
+class FeedAction(Base):
+    __tablename__ = "feed_action"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("post.id"), index=True)
+    action: Mapped[str] = mapped_column(String(16))
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    post: Mapped[Post] = relationship()</code></pre><p>Добавь <code>User</code> со связями и внешними ключами. Убедись, что ключи отражают реальные связи, а типы колонок подходят для данных.</p></section>
+<section class="course-panel" id="queries"><h2>2. Перенеси задания в ORM-запросы</h2><ul><li>Выбери последние 10 постов темы <code>business</code>, упорядочив по убыванию id.</li><li>Найди число пользователей по стране и ОС среди группы 3; оставь группы больше 100 и отсортируй по убыванию размера.</li><li>Выбери действия для заданного пользователя или поста в порядке от новых к старым.</li><li>Реализуй топ постов по числу лайков. Лимит маршрута должен быть ограничен разумным диапазоном.</li></ul><pre><code>from sqlalchemy import select
+
+stmt = (
+    select(Post)
+    .where(Post.topic == "business")
+    .order_by(Post.id.desc())
+    .limit(10)
+)
+posts = session.scalars(stmt).all()</code></pre><p>Для группировки выбирай только поля группировки и агрегаты; для нескольких таблиц явно задавай условия соединения.</p></section>
+<section class="course-panel" id="api"><h2>3. Добавь FastAPI-маршруты и схемы ответа</h2><ul><li><code>GET /user/{user_id}</code> и <code>GET /post/{post_id}</code> возвращают запись или HTTP 404.</li><li><code>GET /user/{user_id}/feed?limit=10</code> отдаёт последние действия; если записей нет, верни пустой список.</li><li><code>GET /post/recommendations/?limit=10</code> отдаёт посты, отсортированные по числу лайков.</li><li>Сессия базы создаётся на запрос и закрывается после него; не держи глобальную открытую Session.</li></ul><p>Создай Pydantic-схемы ответа отдельно от ORM-моделей. Вложенный ответ может включать автора и пост. Не сериализуй секретные поля пользователя.</p><pre><code>from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine("sqlite:///./practice.db")
+SessionLocal = sessionmaker(engine)
+
+def get_session():
+    with SessionLocal() as session:
+        yield session</code></pre><p>В каждом обработчике получай session через <code>Depends(get_session)</code>, а результат валидируй схемой ответа.</p></section>
+<section class="course-panel" id="migration"><h2>4. Проверь изменение схемы через Alembic</h2><p>После первой версии добавь поле или индекс и создай миграцию. Посмотри, какие DDL-команды Alembic сгенерировал, и проверь upgrade/downgrade на тестовой базе.</p><div class="course-note">Не запускай <code>create_all()</code> как замену миграциям в развиваемом приложении: он не версионирует изменения существующей схемы.</div></section>
+<section class="course-panel" id="done"><h2>Критерии готовности</h2><ul><li>Модели создают корректные таблицы и внешние ключи в локальной базе.</li><li>Выборки возвращают ожидаемые строки и порядок; пустые результаты и неверные id обработаны.</li><li>API отдаёт JSON по схемам, а сессии корректно закрываются.</li><li>Топ лайков устойчив к равным значениям; миграция воспроизводится на чистой базе.</li></ul><details><summary>Подсказка для топа лайков</summary><p>Сгруппируй действия по post_id, отфильтруй <code>action = 'like'</code>, соедини агрегат с Post, отсортируй по count по убыванию и добавь вторичный порядок по id для стабильного результата.</p></details></section></div>
+      <aside class="course-nav"><strong>В этом материале</strong><nav><a href="#setup">Структура проекта</a><a href="#models">Модели</a><a href="#queries">Запросы</a><a href="#api">API и схемы</a><a href="#migration">Миграции</a><a href="#done">Финальная проверка</a></nav></aside>
+    </div>
+  </main>
+</body>
+</html>

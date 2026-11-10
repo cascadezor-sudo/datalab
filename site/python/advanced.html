@@ -269,6 +269,8 @@
     <script src="../assets/js/components/term-definitions.js"></script>
     <script src="../assets/js/components/term-tooltip.js"></script>
     <script src="../assets/js/firebase-mock.js"></script>
+
+  <link href="../assets/css/learning-reading.css" rel="stylesheet" />
 </head>
   <body data-term-scope="all">
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
@@ -6408,6 +6410,342 @@ extend-select = ["D"]     # добавить проверку докстринг
   </div>
 </li>
 <!-- md:replace:ruff-toml:end -->
+
+        <h3>Блок 16: HTTP, эндпоинты и FastAPI</h3>
+        <!-- md:replace:http-rest-endpoints:start -->
+<li class="question" data-md-source="true" data-md-id="http-rest-endpoints" data-interview="5">
+  <div class="name" id="http-rest-endpoints">
+    HTTP, REST и эндпоинты
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>HTTP (HyperText Transfer Protocol)</b> — протокол прикладного уровня для обмена сообщениями в архитектуре «клиент–сервер», а <b>REST (Representational State Transfer)</b> — архитектурный стиль проектирования веб-API поверх HTTP, в котором данные и сервисы представляются как ресурсы с уникальными URI (эндпоинтами), а действия над ними задаются стандартными HTTP-методами.</p>
+      <p>Если совсем простыми словами: обученная ML-модель в ноутбуке бесполезна для продакшена, пока другие сервисы не смогут отправить ей признаки по сети (HTTP Request) и получить предсказание с понятным кодом статуса (HTTP Response).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Анатомия HTTP-запроса и ответа">
+      <ul>
+        <li><b>HTTP Request:</b> стартовая строка (метод + путь + версия протокола, например <code>POST /api/v1/predict HTTP/1.1</code>), заголовки (<code>Host</code>, <code>Content-Type: application/json</code>, <code>Authorization: Bearer ...</code>, <code>X-Request-ID</code>), пустая строка-разделитель и тело (<code>Body</code> — JSON с признаками объекта, бинарный файл или Protobuf).</li>
+        <li><b>HTTP Response:</b> статусная строка (<code>HTTP/1.1 200 OK</code>), заголовки ответа (<code>Content-Type</code>, <code>X-Latency-Ms</code>, <code>Retry-After</code>) и тело ответа с результатом инференса или описанием ошибки.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="HTTP-методы и идемпотентность">
+      <p>Операция называется <b>идемпотентной</b>, если повторный запрос с теми же параметрами приводит сервер в то же состояние и не создаёт дублирующих побочных эффектов. Это критично при сетевых таймаутах и автоматических ретраях (retries):</p>
+      <table class="task-table">
+        <thead>
+          <tr><th>Метод</th><th>Назначение в REST и ML-сервисах</th><th>Есть ли Body</th><th>Безопасный (Safe)</th><th>Идемпотентный</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>GET</code></td><td>Чтение ресурса, метаданных модели, <code>/health</code>, <code>/ready</code></td><td>Нет (параметры в query)</td><td>Да</td><td>Да</td></tr>
+          <tr><td><code>POST</code></td><td>Создание ресурса или запуск вычисления (<code>POST /predict</code> с признаками в Body)</td><td>Да</td><td>Нет</td><td>Нет (без <code>Idempotency-Key</code>)</td></tr>
+          <tr><td><code>PUT</code></td><td>Полная замена ресурса по известному URI (обновление конфига пайплайна)</td><td>Да</td><td>Нет</td><td>Да</td></tr>
+          <tr><td><code>PATCH</code></td><td>Частичное изменение полей ресурса (обновление порога классификации)</td><td>Да</td><td>Нет</td><td>Обычно нет</td></tr>
+          <tr><td><code>DELETE</code></td><td>Удаление ресурса или сброс кэша по URI</td><td>Нет</td><td>Нет</td><td>Да</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="info-card-auto" data-type="remark" data-title="Статус-коды, которые нужно знать наизусть">
+      <ul>
+        <li><b>2xx (Успех):</b> <code>200 OK</code> — штатный ответ инференса; <code>201 Created</code> — ресурс создан; <code>202 Accepted</code> — долгая задача (батч-скоринг, генерация видео) поставлена в очередь; <code>204 No Content</code> — успешно, но тело ответа пустое.</li>
+        <li><b>4xx (Ошибка клиента — ретраить тот же запрос бессмысленно):</b>
+          <ul>
+            <li><code>400 Bad Request</code> — синтаксически битый JSON или некорректный формат запроса.</li>
+            <li><code>401 Unauthorized</code> — клиент не аутентифицирован (нет токена или он просрочен).</li>
+            <li><code>403 Forbidden</code> — клиент опознан, но у него нет прав доступа к этому эндпоинту.</li>
+            <li><code>404 Not Found</code> — неверный путь эндпоинта или запрошенная версия модели не существует.</li>
+            <li><code>422 Unprocessable Entity</code> — JSON синтаксически корректен, но не прошёл валидацию схемы Pydantic (например, строка вместо <code>float</code> или <code>age &lt; 0</code>).</li>
+            <li><code>429 Too Many Requests</code> — превышен лимит запросов (Rate Limit).</li>
+          </ul>
+        </li>
+        <li><b>5xx (Ошибка сервера):</b> <code>500 Internal Server Error</code> — необработанное исключение в коде сервиса; <code>502 Bad Gateway</code> / <code>504 Gateway Timeout</code> — прокси (Nginx/Ingress) не получил ответ от воркера Uvicorn (процесс упал по OOM или завис); <code>503 Service Unavailable</code> — модель ещё не загружена в память или сервис перегружен.</li>
+      </ul>
+    </div>
+    <div class="code-block" data-lang="python">import json
+
+# Имитация REST-обработчика скоринга с поддержкой ключа идемпотентности
+IDEMPOTENCY_STORE: dict[str, dict] = {}
+
+def handle_post_predict(headers: dict, body: dict) -> tuple[int, dict]:
+    idem_key = headers.get("Idempotency-Key")
+    if idem_key and idem_key in IDEMPOTENCY_STORE:
+        # При сетевом ретрае возвращаем сохранённый ответ без повторного списания/логирования
+        return 200, IDEMPOTENCY_STORE[idem_key]
+
+    features = body.get("features")
+    if not isinstance(features, list) or not features:
+        return 422, {"detail": "Field 'features' must be a non-empty list of numbers"}
+
+    score = round(sum(features) / len(features), 4)
+    resp = {"request_id": idem_key, "score": score, "is_fraud": score >= 0.5}
+    if idem_key:
+        IDEMPOTENCY_STORE[idem_key] = resp
+    return 200, resp
+
+status, payload = handle_post_predict(
+    {"Idempotency-Key": "req-42"},
+    {"features": [0.15, 0.85, 0.65]}
+)
+print(f"HTTP {status} -> {json.dumps(payload, ensure_ascii=False)}")</div>
+    <div class="info-card-auto" data-type="warning" data-title="Что проверить глазами: почему /predict — это POST, а не GET">
+      <p>Хотя инференс модели часто не меняет состояние БД, для <code>/predict</code> всегда используют <code>POST</code>:</p>
+      <ol>
+        <li>У <code>GET</code> нет тела запроса (Body), а длина URL ограничена (2–8 КБ) — туда не поместится вектор из 500 признаков, текст или картинка.</li>
+        <li>URL-параметры <code>GET</code> записываются открытым текстом в логи всех прокси, балансировщиков и CDN (утечка персональных данных и признаков).</li>
+        <li>Промежуточные прокси могут кэшировать <code>GET</code>-ответы.</li>
+      </ol>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Чем отличаются статус-коды 400, 401, 403 и 422?</b></p><p><code>400</code> — синтаксически некорректный запрос (битый JSON); <code>401</code> — не выполнена аутентификация; <code>403</code> — аутентификация пройдена, но нет прав доступа; <code>422</code> — структура JSON валидна, но данные не прошли проверку типов/ограничений схемы (Pydantic).</p></li>
+        <li><p><b>Какие HTTP-методы идемпотентны и почему это важно при ретраях?</b></p><p><code>GET</code>, <code>PUT</code> и <code>DELETE</code> идемпотентны по спецификации: повторная отправка при обрыве связи безопасна. <code>POST</code> не идемпотентен по умолчанию, поэтому для защиты от дублей в платёжных и скоринговых API передают заголовок <code>Idempotency-Key</code>.</p></li>
+        <li><p><b>Почему для эндпоинта инференса <code>/predict</code> выбирают метод <code>POST</code>, а не <code>GET</code>?</b></p><p>Вектор признаков, текст или изображение передаются в теле запроса (Body) без ограничений длины URL и без попадания чувствительных данных в access-логи прокси-серверов.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<!-- md:replace:http-rest-endpoints:end -->
+
+        <!-- md:replace:fastapi-basics:start -->
+<li class="question" data-md-source="true" data-md-id="fastapi-basics" data-interview="5">
+  <div class="name" id="fastapi-basics">
+    FastAPI — первый сервис
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>FastAPI</b> — современный высокопроизводительный веб-фреймворк для построения API на Python, объединяющий асинхронное сетевое ядро <b>Starlette</b> (протокол <b>ASGI</b>) и декларативную валидацию данных через <b>Pydantic</b> на базе аннотаций типов Python.</p>
+      <p>Если совсем простыми словами: вы пишете обычную функцию с type hints, а FastAPI сам проверяет входной JSON, конвертирует типы, возвращает понятные ошибки <code>422</code> и автоматически рисует интерактивную страницу Swagger UI (<code>/docs</code>).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="WSGI против ASGI и роль сервера Uvicorn">
+      <p>Классические фреймворки (Flask, Django) работают по синхронному стандарту <b>WSGI</b>: один поток воркера блокируется на всё время ожидания базы данных или внешнего HTTP-вызова. FastAPI работает поверх асинхронного интерфейса <b>ASGI (Asynchronous Server Gateway Interface)</b> в связке с сервером <b>Uvicorn</b> (основанным на быстром цикле событий <code>uvloop</code>). Пока один запрос ждёт ответа от Feature Store или S3 по сети, Event Loop мгновенно переключается на обработку сотен других соединений.</p>
+    </div>
+    <div class="code-block" data-lang="python">from fastapi import FastAPI
+import asyncio
+
+app = FastAPI(
+    title="ML Scoring API",
+    version="1.0.0",
+    description="Сервис онлайн-предсказаний с автодокументацией OpenAPI"
+)
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    # Неблокирующий обработчик: выполняется напрямую в основном Event Loop
+    return {"status": "ok", "service": app.title}
+
+@app.get("/async-io")
+async def fetch_remote_features(user_id: int) -> dict[str, object]:
+    # async def используем ТОЛЬКО когда внутри вызываем await (asyncpg, httpx.AsyncClient)
+    await asyncio.sleep(0.01)
+    return {"user_id": user_id, "source": "async_feature_store"}
+
+@app.get("/sync-cpu")
+def compute_cpu_bound(n: int = 50_000) -> dict[str, int]:
+    # Синхронный def (без async!): FastAPI сам отправит его во внешний пул потоков
+    # (anyio threadpool), чтобы тяжёлый цикл не заморозил основной Event Loop!
+    return {"n": n, "sum_sq": sum(i * i for i in range(n))}
+
+print("Зарегистрированные пути:", [r.path for r in app.routes if hasattr(r, "path")])</div>
+    <div class="info-card-auto" data-type="warning" data-title="Главная ловушка собеседований: async def против обычного def">
+      <p>Что случится, если объявить эндпоинт как <code>async def predict()</code>, а внутри вызвать синхронный блокирующий код — например, <code>requests.get(...)</code>, <code>time.sleep(1)</code> или CPU-инференс <code>model.predict(X)</code>?</p>
+      <p><b>Весь Event Loop воркера Uvicorn встанет колом!</b> Пока синхронный вызов не завершится, воркер не сможет принять ни одного нового запроса и даже не ответит на <code>GET /health</code> (из-за чего Kubernetes решит, что под завис, и перезапустит его).</p>
+      <ul>
+        <li>Пишите <code>async def</code> <b>только</b> тогда, когда внутри используются неблокирующие <code>await</code>-вызовы (<code>httpx.AsyncClient</code>, <code>asyncpg</code>, <code>redis.asyncio</code>).</li>
+        <li>Если внутри синхронный код или прямой вызов CPU-модели — объявляйте функцию через обычный <code>def</code>: FastAPI автоматически выполнит её в отдельном потоке через <code>run_in_threadpool</code>, не блокируя Event Loop (при этом помните про GIL для чистого CPU-кода — для тяжёлого CPU-инференса используют несколько воркеров Gunicorn/Uvicorn или <code>ProcessPoolExecutor</code>).</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>На каких двух библиотеках построен FastAPI и за что отвечает каждая?</b></p><p>На <b>Starlette</b> (маршрутизация, ASGI-протокол, middleware, WebSockets) и <b>Pydantic</b> (валидация входных данных, приведение типов, сериализация ответов и генерация JSON Schema).</p></li>
+        <li><p><b>Что произойдёт, если внутри <code>async def</code> обработчика вызвать синхронный блокирующий код?</b></p><p>Он заблокирует единственный Event Loop текущего процесса Uvicorn, и все остальные запросы к этому воркеру будут ждать. Чтобы не блокировать цикл событий, синхронный код нужно оборачивать в обычный <code>def</code> (выполняется в пуле потоков) или вызывать через <code>run_in_executor</code>.</p></li>
+        <li><p><b>Откуда в FastAPI автоматически берутся страницы <code>/docs</code> и <code>/redoc</code>?</b></p><p>FastAPI инспектирует type hints параметров и Pydantic-моделей всех зарегистрированных маршрутов, формирует спецификацию OpenAPI (<code>/openapi.json</code>) и рендерит её через встроенные интерфейсы Swagger UI (<code>/docs</code>) и ReDoc (<code>/redoc</code>).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<!-- md:replace:fastapi-basics:end -->
+
+        <!-- md:replace:fastapi-params-schemas:start -->
+<li class="question" data-md-source="true" data-md-id="fastapi-params-schemas" data-interview="5">
+  <div class="name" id="fastapi-params-schemas">
+    FastAPI: параметры, схемы запроса и ответа, ошибки
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p>В FastAPI сигнатура функции-обработчика является единым контрактом эндпоинта: фреймворк автоматически разделяет <b>Path-параметры</b> (из шаблона пути URL), <b>Query-параметры</b> (из строки <code>?key=val</code>), <b>тело запроса</b> (Pydantic-схемы), <b>схему ответа</b> (<code>response_model</code>) и внедряемые зависимости (<code>Depends</code>).</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Как FastAPI отличает Path, Query и Body параметры">
+      <ol>
+        <li><b>Path-параметры:</b> имена аргументов, совпадающие с фигурными скобками в декораторе пути (например, <code>/models/{model_id}</code>). Задаются с ограничениями через <code>Path(..., ge=1)</code>.</li>
+        <li><b>Query-параметры:</b> аргументы скалярных типов (<code>int</code>, <code>float</code>, <code>str</code>, <code>bool</code>), которых нет в шаблоне пути. Ограничиваются через <code>Query(default=0.5, ge=0.0, le=1.0)</code>.</li>
+        <li><b>Request Body:</b> аргументы, тип которых наследуется от <code>pydantic.BaseModel</code> — считываются из JSON-тела запроса.</li>
+      </ol>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Зачем разделять Request и Response схемы (response_model)">
+      <p>В продакшене всегда создают отдельные модели для входа (<code>PredictIn</code>) и выхода (<code>PredictOut</code>) и указывают <code>response_model=PredictOut</code> в декораторе маршрута:</p>
+      <ul>
+        <li><b>Защита от утечки данных:</b> если функция вернёт внутренний объект БД или словарь с техническими полями (например, <code>internal_weights</code> или <code>api_token</code>), <code>response_model</code> гарантированно отфильтрует всё, чего нет в <code>PredictOut</code>.</li>
+        <li><b>Строгий контракт и OpenAPI:</b> фронтенд и смежные сервисы видят в Swagger UI точную схему ответа, а при нарушении контракта на сервере ошибка обнаружится сразу в тестах.</li>
+      </ul>
+    </div>
+    <div class="code-block" data-lang="python">import math
+from pydantic import BaseModel, Field, field_validator
+from fastapi import FastAPI, HTTPException, Path, Query, Depends
+
+app = FastAPI()
+
+class PredictIn(BaseModel):
+    user_id: int = Field(..., gt=0)
+    features: list[float] = Field(..., min_length=3, max_length=3)
+
+    @field_validator("features")
+    @classmethod
+    def reject_nan_inf(cls, v: list[float]) -> list[float]:
+        if any(math.isnan(x) or math.isinf(x) for x in v):
+            raise ValueError("Features cannot contain NaN or Inf")
+        return v
+
+class PredictOut(BaseModel):
+    user_id: int
+    probability: float = Field(..., ge=0.0, le=1.0)
+    is_positive: bool
+
+def common_threshold(threshold: float = Query(0.5, ge=0.05, le=0.95)) -> float:
+    return threshold
+
+@app.post("/v1/models/{model_name}/predict", response_model=PredictOut)
+def predict_endpoint(
+    payload: PredictIn,
+    model_name: str = Path(..., min_length=2, max_length=32),
+    threshold: float = Depends(common_threshold),
+) -> dict[str, object]:
+    if model_name != "credit_v1":
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+    prob = min(max(sum(payload.features) / 3.0, 0.0), 1.0)
+    # Даже если мы вернём лишнее поле secret_debug_key, response_model=PredictOut вырежет его!
+    return {
+        "user_id": payload.user_id,
+        "probability": round(prob, 4),
+        "is_positive": prob >= threshold,
+        "secret_debug_key": "DO_NOT_LEAK",
+    }
+
+req = PredictIn(user_id=7, features=[0.2, 0.6, 0.8])
+out = PredictOut.model_validate(predict_endpoint(req, model_name="credit_v1", threshold=0.5))
+print("Отфильтрованный ответ PredictOut:", out.model_dump())</div>
+    <div class="info-card-auto" data-type="remark" data-title="Обработка ошибок (HTTPException) и Dependency Injection (Depends)">
+      <ul>
+        <li><b><code>HTTPException(status_code=..., detail=...)</code>:</b> стандартный способ прервать выполнение запроса и вернуть клиенту JSON вида <code>{"detail": "..."}</code> с нужным HTTP-статусом. Для сквозного перехвата кастомных исключений доменной логики регистрируют <code>@app.exception_handler(MyDomainError)</code>.</li>
+        <li><b><code>Depends(...)</code>:</b> система внедрения зависимостей. Используется для проверки прав доступа (парсинг заголовка <code>Authorization</code>), передачи сессии базы данных (через функцию-генератор с <code>yield</code>, где после <code>yield</code> соединение закрывается в блоке <code>finally</code>) и переиспользования общих параметров. В тестах любая зависимость легко подменяется через <code>app.dependency_overrides[orig_dep] = fake_dep</code>.</li>
+      </ul>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Как FastAPI понимает, какой аргумент функции брать из URL-пути, какой из query-строки, а какой из JSON-тела?</b></p><p>Аргументы, чьи имена указаны в <code>{...}</code> маршрута — Path-параметры; остальные простые типы (<code>int</code>, <code>str</code>, <code>float</code>, <code>bool</code>) — Query-параметры; классы-наследники <code>BaseModel</code> — поля JSON-тела (Request Body).</p></li>
+        <li><p><b>Зачем указывать <code>response_model</code> в декораторе эндпоинта?</b></p><p>Он валидирует ответ сервера, генерирует точную схему ответа в OpenAPI и автоматически удаляет из ответа любые лишние или чувствительные поля, не объявленные в выходной модели.</p></li>
+        <li><p><b>Как работает зависимость <code>Depends</code> с оператором <code>yield</code>?</b></p><p>Код до <code>yield</code> выполняется перед запуском обработчика (например, открывает сессию БД), выданное значение передаётся в эндпоинт, а код после <code>yield</code> гарантированно выполняется после формирования ответа (закрывает соединение даже при исключении).</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<!-- md:replace:fastapi-params-schemas:end -->
+
+        <!-- md:replace:fastapi-ml-serving:start -->
+<li class="question" data-md-source="true" data-md-id="fastapi-ml-serving" data-interview="5">
+  <div class="name" id="fastapi-ml-serving">
+    Сервинг модели на FastAPI: загрузка, /predict, /health и тесты
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Определение">
+      <p><b>Онлайн-сервинг ML-модели</b> на FastAPI — это организация жизненного цикла веб-воркера, при которой веса модели загружаются и прогреваются ровно один раз при старте процесса через контекстный менеджер <b><code>lifespan</code></b>, готовность к трафику контролируется пробами <code>/health</code> и <code>/ready</code>, а контракт проверяется через <b><code>TestClient</code></b>.</p>
+    </div>
+    <div class="info-card-auto" data-type="warning" data-title="Два антипаттерна загрузки ML-модели">
+      <ol>
+        <li><b>Антипаттерн №1 — загрузка внутри <code>@app.post("/predict")</code>:</b> чтение файла весов с диска на каждый запрос превращает миллисекундный инференс в секундный и приводит к исчерпанию памяти/диска.</li>
+        <li><b>Антипаттерн №2 — загрузка на верхнем уровне модуля при <code>import app</code>:</b> тогда даже импорт файла в быстрых юнит-тестах или генерация схемы OpenAPI пытается скачать гигабайтные веса из S3 или падает при отсутствии файла модели.</li>
+      </ol>
+      <p><b>Правильный подход:</b> асинхронный контекстный менеджер <code>lifespan(app: FastAPI)</code>. До <code>yield</code> мы загружаем модель, прогоняем 1 фиктивный пример (<b>warm-up</b> — инициализация CUDA-контекста, JIT/ONNX графов и аллокаторов памяти) и сохраняем модель в <code>app.state.model</code>. После <code>yield</code> очищаем ресурсы при остановке контейнера.</p>
+    </div>
+    <div class="info-card-auto" data-type="explanation" data-title="Зачем нужны оба эндпоинта: /health (Liveness) и /ready (Readiness)">
+      <ul>
+        <li><b>Liveness probe (<code>GET /health</code>):</b> проверяет, что процесс Python/Uvicorn жив и Event Loop не завис. Если она перестаёт отвечать, Kubernetes убивает и перезапускает контейнер.</li>
+        <li><b>Readiness probe (<code>GET /ready</code>):</b> проверяет, что модель уже загружена в <code>app.state.model</code> и прогрета. Пока модель грузится при старте, <code>/ready</code> возвращает <code>503 Service Unavailable</code> — балансировщик просто ждёт и не направляет пользовательские запросы на этот под, не убивая его.</li>
+      </ul>
+    </div>
+    <div class="code-block" data-lang="python">from contextlib import asynccontextmanager
+import math
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
+
+class CreditModel:
+    def __init__(self, weights: list[float], bias: float) -> None:
+        self.weights = weights
+        self.bias = bias
+
+    def predict_proba(self, x: list[float]) -> float:
+        z = sum(w * xi for w, xi in zip(self.weights, x)) + self.bias
+        return 1.0 / (1.0 + math.exp(-z))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. Загрузка весов и обязательный прогрев (warm-up) один раз при старте воркера
+    model = CreditModel(weights=[1.4, -0.9, 0.6], bias=-0.2)
+    _ = model.predict_proba([0.0, 0.0, 0.0])
+    app.state.model = model
+    app.state.ready = True
+    yield
+    # 2. Graceful shutdown: очистка памяти при остановке контейнера
+    app.state.ready = False
+    app.state.model = None
+
+app = FastAPI(title="ML Inference Service", lifespan=lifespan)
+
+class PredictRequest(BaseModel):
+    features: list[float] = Field(..., min_length=3, max_length=3)
+
+class PredictResponse(BaseModel):
+    probability: float
+    prediction: int
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "alive"}
+
+@app.get("/ready")
+async def ready(request: Request) -> dict[str, str]:
+    if not getattr(request.app.state, "ready", False):
+        raise HTTPException(status_code=503, detail="Model is still loading")
+    return {"status": "ready"}
+
+@app.post("/predict", response_model=PredictResponse)
+def predict(payload: PredictRequest, request: Request) -> PredictResponse:
+    model: CreditModel | None = getattr(request.app.state, "model", None)
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model unavailable")
+    prob = model.predict_proba(payload.features)
+    return PredictResponse(probability=round(prob, 4), prediction=int(prob >= 0.5))
+
+# Автотест сервиса: контекстный менеджер with TestClient(app) запускает lifespan!
+with TestClient(app) as client:
+    assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
+    ok = client.post("/predict", json={"features": [1.2, -0.5, 0.4]})
+    bad = client.post("/predict", json={"features": [1.0]})  # длина 1 вместо 3 -> 422
+    print("Успешный /predict:", ok.status_code, ok.json())
+    print("Невалидный /predict:", bad.status_code)</div>
+    <div class="info-card-auto" data-type="remark" data-title="Тонкость автотестов с TestClient">
+      <p>Встроенный <code>fastapi.testclient.TestClient</code> (работает поверх <code>httpx</code>) позволяет тестировать сервис синхронно без поднятия реального сетевого порта. <b>Важно:</b> всегда оборачивайте его в <code>with TestClient(app) as client:</code> — только при входе в контекстный менеджер <code>with</code> срабатывает секция инициализации <code>lifespan</code> и заполняется <code>app.state.model</code>.</p>
+    </div>
+    <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+      <ol>
+        <li><p><b>Почему модель в FastAPI нужно загружать внутри <code>lifespan</code>, а не при импорте модуля и не внутри <code>/predict</code>?</b></p><p>Загрузка внутри <code>/predict</code> читает веса на каждый запрос и убивает latency; загрузка при импорте тормозит запуск тестов и линтеров. <code>lifespan</code> загружает и прогревает модель ровно один раз при старте воркера и корректно освобождает ресурсы при остановке.</p></li>
+        <li><p><b>Зачем делать прогрев модели (warm-up) при старте воркера?</b></p><p>Первый прогон через PyTorch/ONNX/CUDA инициализирует вычислительные графы, кэши аллокатора и ядра GPU. Если не сделать warm-up в <code>lifespan</code>, первые реальные пользователи получат огромную задержку (cold-start latency spike) или таймаут.</p></li>
+        <li><p><b>Почему в тестах нужно писать <code>with TestClient(app) as client:</code>, а не просто <code>client = TestClient(app)</code>?</b></p><p>Без контекстного менеджера <code>with</code> события старта и остановки <code>lifespan</code> не вызываются, и <code>app.state.model</code> останется пустым.</p></li>
+      </ol>
+    </div>
+  </div>
+</li>
+<!-- md:replace:fastapi-ml-serving:end -->
+
 
         <!-- Карточка входа в тест -->
         <div class="quiz-entry" 

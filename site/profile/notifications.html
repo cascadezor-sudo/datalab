@@ -2172,58 +2172,13 @@
 
         async function initializeTelegramCard() {
           const card = document.getElementById('telegramCard');
-          if (!card || !db || !currentUser) return;
-
-          let role = '';
-          let chatId = null;
-          let stored = {};
-          try {
-            // Точечные чтения собственного профиля: тянуть весь users/<uid>
-            // ради трёх полей запрещено стандартом доступа к данным.
-            const [roleSnapshot, chatSnapshot, preferencesSnapshot] = await Promise.all([
-              db.ref(`users/${currentUser.uid}/role`).once('value'),
-              db.ref(`users/${currentUser.uid}/telegramChatId`).once('value'),
-              db.ref(`users/${currentUser.uid}/telegramStudentPreferences`).once('value')
-            ]);
-            role = String(roleSnapshot.val() || '').toLowerCase();
-            chatId = chatSnapshot.val();
-            stored = preferencesSnapshot.val() || {};
-          } catch (error) {
-            console.warn('Не удалось прочитать настройки Telegram:', error);
-            return;
-          }
-
-          // У сотрудников свои переключатели в кабинете ментора.
-          if (STAFF_ROLES.includes(role)) return;
-
-          const statusEl = document.getElementById('telegramStatus');
-          const togglesEl = document.getElementById('telegramToggles');
-          const hintEl = document.getElementById('telegramHint');
-
+          if (!card) return;
           card.hidden = false;
-          telegramPreferences = Object.fromEntries(
-            TELEGRAM_PREFERENCE_KEYS.map(key => [key, stored[key] !== false])
-          );
-
-          if (!chatId) {
-            statusEl.textContent = t('Telegram пока не привязан');
-            statusEl.classList.remove('is-linked');
-            togglesEl.hidden = true;
-            hintEl.innerHTML = t('Привязка происходит автоматически, когда ментор выдаёт доступ через {bot}. Если бот у вас уже есть, а привязки нет — напишите ментору.', {
-              bot: '<a href="https://t.me/schmidtml_bot" target="_blank" rel="noopener">@schmidtml_bot</a>',
-            });
-            return;
-          }
-
-          statusEl.textContent = t('Telegram привязан — уведомления приходят в @schmidtml_bot');
-          statusEl.classList.add('is-linked');
-          togglesEl.hidden = false;
-          hintEl.textContent = t('Дедлайны приходят одним дайджестом утром, напоминание об отчёте — вечером.');
-          renderTelegramToggles();
-
-          togglesEl.querySelectorAll('input[data-pref]').forEach(input => {
-            input.addEventListener('change', () => saveTelegramPreference(input));
-          });
+          const statusEl = document.getElementById('telegramStatus');
+          statusEl.textContent = t('Telegram-уведомления не подключены');
+          statusEl.classList.remove('is-linked');
+          document.getElementById('telegramToggles').hidden = true;
+          document.getElementById('telegramHint').textContent = t('Уведомления доступны внутри DataLab.');
         }
 
         function renderTelegramToggles() {

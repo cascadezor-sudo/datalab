@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- theme-boot:start -->
+  <script>
+    (function themeBoot() {
+      var root = document.documentElement;
+      var OPTIONAL_PALETTES = ["earth", "sepia", "graphite"];
+      function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+      function write(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+      function normalizePalette(raw) { if (!raw || raw === "classic") return "vibecode"; return raw; }
+      function applyPaletteClasses(raw) {
+        var palette = normalizePalette(raw);
+        if (read("palette") === "classic") write("palette", "vibecode");
+        var targets = document.body ? [root, document.body] : [root];
+        for (var i = 0; i < OPTIONAL_PALETTES.length; i++) {
+          var name = OPTIONAL_PALETTES[i];
+          for (var j = 0; j < targets.length; j++) {
+            targets[j].classList.toggle("palette-" + name, palette === name);
+          }
+        }
+        root.dataset.palette = palette;
+        return palette;
+      }
+      function resolveTheme(stored) {
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark") return "dark";
+        if (stored === "light") return "light";
+        return prefersDark ? "dark" : "light";
+      }
+      function applyTheme(theme) {
+        var next = theme === "dark" ? "dark" : "light";
+        root.dataset.theme = next;
+        if (document.body) document.body.classList.toggle("dark", next === "dark");
+        return next;
+      }
+      var palette = applyPaletteClasses(read("palette"));
+      applyTheme(resolveTheme(read("theme")));
+      function syncBody() {
+        if (!document.body) return false;
+        applyTheme(root.dataset.theme);
+        applyPaletteClasses(root.dataset.palette);
+        return true;
+      }
+      if (!syncBody()) {
+        var pending = new MutationObserver(function () {
+          if (syncBody()) pending.disconnect();
+        });
+        pending.observe(root, { childList: true });
+      }
+      window.__normalizePalette = normalizePalette;
+      window.__applyPaletteClasses = applyPaletteClasses;
+      window.__resolveTheme = resolveTheme;
+      window.__applyTheme = applyTheme;
+    })();
+  </script>
+  <!-- theme-boot:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FastAPI — HTTP и API на Python</title>
+  <link href="../assets/css/tokens.css" rel="stylesheet" />
+  <link href="../assets/css/task-table.css" rel="stylesheet" />
+  <link href="../assets/css/skeleton.css" rel="stylesheet" />
+  <link href="../assets/css/comparison-cards.css" rel="stylesheet" />
+  <link href="../assets/css/styles.css" rel="stylesheet" />
+  <link href="../assets/css/navigation.css" rel="stylesheet" />
+  <link href="../assets/katex/katex.min.css" rel="stylesheet" />
+  <link href="../assets/css/fonts.css" rel="stylesheet" />
+  <link href="../assets/css/question-progress.css" rel="stylesheet" />
+  <link href="../assets/css/difficulty-rating.css" rel="stylesheet" />
+  <link href="../assets/css/scroll-to-top.css" rel="stylesheet" />
+  <link href="../assets/css/info-cards.css" rel="stylesheet" />
+  <link href="../assets/code-styles.css" rel="stylesheet" />
+  <link href="../assets/css/quiz.css" rel="stylesheet" />
+  <link href="../assets/css/question-presentation.css" rel="stylesheet" />
+  <link href="../assets/css/question-badges.css" rel="stylesheet" />
+  <link href="../assets/css/section-hero.css" rel="stylesheet" />
+  <link href="../assets/css/section-shell.css" rel="stylesheet" />
+  <style>.fastapi-practice-callout{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:-12px 0 24px;padding:16px 20px;border:1px solid var(--border-brand);border-radius:14px;background:color-mix(in srgb,var(--brand) 7%,var(--bg-card));color:var(--text)}.fastapi-practice-callout a{color:var(--brand);font-weight:700;text-decoration:none}.fastapi-practice-callout a:hover{text-decoration:underline}@media(max-width:600px){.fastapi-practice-callout{align-items:flex-start;flex-direction:column}}</style>
+  <link href="../assets/css/learning-reading.css" rel="stylesheet" />
+  <link href="../assets/css/term-tooltip.css" rel="stylesheet" />
+  <script src="../assets/js/components/questions-toc.js"></script>
+  <script src="../assets/js/components/lazy-init.js"></script>
+  <script defer="" src="../assets/js/core.js"></script>
+  <script defer="" src="../assets/js/questions.js"></script>
+  <script defer="" src="../assets/js/controls.js"></script>
+  <script defer="" src="../assets/katex/katex.min.js"></script>
+  <script defer="" src="../assets/katex/auto-render.min.js"></script>
+  <script src="../assets/js/components/lazy-questions.js"></script>
+  <script src="../assets/js/init-head.js"></script>
+  <script src="../assets/js/components/navigation.js"></script>
+  <script src="../assets/js/components/anchor-scroll.js"></script>
+  <script src="../assets/js/components/config-loader.js"></script>
+  <script src="../assets/js/components/section-hero.js"></script>
+  <script src="../assets/js/components/progress-tracker-questions.js"></script>
+  <script src="../assets/js/components/difficulty-rating.js"></script>
+  <script src="../assets/js/components/inline-code-highlighter.js"></script>
+  <script src="../assets/js/components/info-cards.js"></script>
+  <script src="../assets/js/components/quiz.js"></script>
+  <script src="../assets/js/components/block-tests.js"></script>
+  <script src="../assets/js/components/question-presentation.js"></script>
+  <script src="../assets/js/components/question-badges.js"></script>
+  <script src="../assets/js/components/term-definitions.js"></script>
+  <script src="../assets/js/components/term-tooltip.js"></script>
+  <script src="../assets/js/firebase-mock.js"></script>
+</head>
+<body data-term-scope="all">
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <main id="main-content" tabindex="-1" class="container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <ol class="breadcrumbs__list">
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="../main.html">Главная</a></li>
+        <li class="breadcrumbs__item"><a class="breadcrumbs__link" href="index.html">Python</a></li>
+        <li class="breadcrumbs__item"><span class="breadcrumbs__current" aria-current="page">FastAPI</span></li>
+      </ol>
+    </nav>
+    <section class="section-shell">
+      <header class="section-shell__hero">
+        <div class="hero-topline">
+          <span class="pill">Backend</span>
+          <span class="pill pill--soft">FastAPI</span>
+          <span class="hero-dot">·</span>
+          <span class="hero-count" data-section-hero="question-count">6 вопросов</span>
+        </div>
+        <h1 id="title" class="section-shell__title">FastAPI: от HTTP-запроса до API</h1>
+        <p class="section-shell__desc">Разбираем маршруты, параметры, проверку данных через Pydantic, ответы и зависимости. В конце — план небольшого API, который можно запустить локально.</p>
+      </header>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__actions">
+        <div class="controls">
+          <button onclick="HideQuestions()">Скрыть вопросы</button>
+          <button onclick="ShowQuestions()">Показать вопросы</button>
+          <button onclick="HideAnswers()">Скрыть ответы</button>
+          <button onclick="ShowAnswers()">Показать ответы</button>
+          <button onclick="ShowRandomElement(HideQuestions)">Случайный вопрос</button>
+        </div>
+      </div>
+      <div class="section-shell__divider"></div>
+      <div class="section-shell__filters"></div>
+    </section>
+
+    <div class="fastapi-practice-callout"><span>Готов применить это в коде?</span><a href="../practise/python/fastapi-practice.html">Перейти к практике FastAPI →</a></div>
+    <ol id="questions">
+      <li class="question" data-md-source="true" data-md-id="fastapi_http_api" data-interview="4">
+        <div class="name" id="fastapi_http_api">Что такое API и как FastAPI обрабатывает запрос?</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="API — договор между клиентом и сервером">
+            <p><b>API</b> описывает, как одна программа обращается к другой: по какому адресу и HTTP-методу, какие данные отправляет и какой ответ получит.</p>
+            <p>Например, браузер отправляет <code>GET /tasks/42</code>. Сервер ищет задачу с номером 42 и возвращает JSON вместе с HTTP-статусом. API задаёт форму и смысл запроса и ответа.</p>
+            <div class="code-block" data-lang="text"><pre><code>Клиент ── GET /tasks/42 ──▶ FastAPI
+Клиент ◀─ 200 + JSON ───── FastAPI</code></pre></div>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Из чего состоит маршрут">
+            <p>Маршрут связывает HTTP-метод и путь с Python-функцией. В FastAPI такую функцию называют обработчиком операции пути.</p>
+            <ul>
+              <li><code>GET</code> читает данные;</li>
+              <li><code>POST</code> обычно создаёт ресурс;</li>
+              <li><code>PUT</code> заменяет ресурс целиком, <code>PATCH</code> меняет часть;</li>
+              <li><code>DELETE</code> удаляет ресурс.</li>
+            </ul>
+            <p>URL обычно называет ресурс — например, <code>/tasks</code>, — а не действие вроде <code>/getTasks</code>. Один и тот же путь может иметь разные обработчики для <code>GET</code> и <code>POST</code>.</p>
+            <p>FastAPI разбирает HTTP-запрос, передаёт значения аргументам функции и упаковывает результат в HTTP-ответ. Starlette отвечает за веб-слой, а Pydantic используется для схем и валидации данных.</p>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Запомни">
+            <p>HTTP-запрос содержит метод, путь, заголовки и иногда тело. Ответ содержит статус, заголовки и обычно тело. API — это согласованный контракт между клиентом и сервером.</p>
+          </div>
+        </div>
+      </li>
+
+      <li class="question" data-md-source="true" data-md-id="fastapi_first_app" data-interview="3">
+        <div class="name" id="fastapi_first_app">Как запустить первое приложение?</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Приложение и обработчик">
+            <p>Объект <code>FastAPI</code> хранит маршруты и настройки приложения. Декоратор <code>@app.get("/health")</code> регистрирует функцию, которая будет вызвана для запроса <code>GET /health</code>.</p>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Создание и запуск">
+            <p>Создай виртуальное окружение, установи FastAPI со стандартными инструментами и сохрани пример в <code>main.py</code>:</p>
+            <div class="code-block" data-lang="bash"><pre><code>python -m venv .venv
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+python -m pip install "fastapi[standard]"</code></pre></div>
+            <div class="code-block" data-lang="python"><pre><code>from fastapi import FastAPI
+
+app = FastAPI(title="Tasks API")
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+@app.get("/")
+def read_root():
+    return {"message": "Мой первый API"}</code></pre></div>
+            <p>Из папки с файлом запусти <code>fastapi dev main.py</code>. Сервер для разработки будет доступен по адресу <code>http://127.0.0.1:8000</code>.</p>
+          </div>
+          <div class="info-card-auto" data-type="remark" data-title="Автоматическая документация">
+            <p>Открой <code>/docs</code>, чтобы проверить запрос через Swagger UI, или <code>/redoc</code>, чтобы посмотреть документацию в ReDoc. Схема OpenAPI доступна по <code>/openapi.json</code>. FastAPI строит её из маршрутов, аннотаций типов и моделей.</p>
+          </div>
+        </div>
+      </li>
+
+      <li class="question" data-md-source="true" data-md-id="fastapi_request_data" data-interview="5">
+        <div class="name" id="fastapi_request_data">Как принять и проверить входные данные?</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="explanation" data-title="Путь, query-параметры и JSON-тело">
+            <ul>
+              <li><b>Path-параметр</b> находится в пути: <code>/tasks/{task_id}</code>. Аннотация <code>int</code> просит преобразовать значение в число и проверить его.</li>
+              <li><b>Query-параметр</b> идёт после <code>?</code>: <code>/tasks?done=true</code>. Простой аргумент функции, которого нет в пути, читается из query-строки.</li>
+              <li><b>Тело запроса</b> обычно содержит JSON. Модель Pydantic описывает его поля, типы, обязательность и ограничения.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Модель запроса и обработчики">
+            <div class="code-block" data-lang="python"><pre><code>from pydantic import BaseModel, Field
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    done: bool = False
+
+
+@app.get("/tasks/{task_id}")
+def read_task(task_id: int, verbose: bool = False):
+    return {"id": task_id, "verbose": verbose}
+
+
+@app.post("/tasks")
+def create_task(task: TaskCreate):
+    return {"title": task.title, "done": task.done}</code></pre></div>
+            <p>В <code>GET /tasks/7?verbose=true</code> число <code>7</code> берётся из пути, а <code>true</code> — из query. В <code>POST /tasks</code> поля задачи приходят в JSON-теле.</p>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Что произойдёт с некорректным запросом">
+            <p>Если передать строку вместо целого числа или нарушить ограничение <code>min_length</code>, FastAPI вернёт структурированную ошибку валидации со статусом <code>422</code> и не вызовет обработчик с невалидными данными. Это сокращает ручные проверки, но не заменяет бизнес-правила: например, уникальность названия задачи надо проверять отдельно.</p>
+            <p>Для явного описания источника есть <code>Path()</code>, <code>Query()</code> и <code>Body()</code>. Больше о моделях — в <a href="advanced.html">расширенном Python</a>.</p>
+          </div>
+        </div>
+      </li>
+
+      <li class="question" data-md-source="true" data-md-id="fastapi_responses_errors" data-interview="5">
+        <div class="name" id="fastapi_responses_errors">Как описать ответ и вернуть ошибку?</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="definition" data-title="Ответ — данные и статус">
+            <p>Статус сообщает клиенту результат операции: <code>200 OK</code> — успешно, <code>201 Created</code> — ресурс создан, <code>204 No Content</code> — успешно, но без тела, <code>404 Not Found</code> — ресурс не найден. Статус — часть контракта, его нельзя рассматривать как техническую мелочь.</p>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Схема ответа и HTTPException">
+            <div class="code-block" data-lang="python"><pre><code>from fastapi import HTTPException, status
+from pydantic import BaseModel
+
+
+class TaskPublic(BaseModel):
+    id: int
+    title: str
+    done: bool
+
+
+@app.post(
+    "/tasks",
+    response_model=TaskPublic,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task(task: TaskCreate):
+    return {"id": 1, "title": task.title, "done": task.done}
+
+
+@app.get("/tasks/{task_id}", response_model=TaskPublic)
+def read_task(task_id: int):
+    task = find_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return task</code></pre></div>
+            <p><code>response_model</code> описывает публичную форму ответа, участвует в документации и не даёт случайно выдать клиенту лишние поля. <code>HTTPException</code> прекращает выполнение обработчика и возвращает HTTP-ошибку с заданным статусом и пояснением.</p>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Не смешивай разные причины">
+            <p><code>422</code> означает, что входные данные не прошли проверку. <code>404</code> означает, что ресурс не найден. Для создания ресурса укажи <code>201</code>. Не возвращай текст ошибки со статусом <code>200</code>: клиенту станет труднее правильно обработать ответ.</p>
+          </div>
+        </div>
+      </li>
+
+      <li class="question" data-md-source="true" data-md-id="fastapi_dependencies_async" data-interview="4">
+        <div class="name" id="fastapi_dependencies_async">Зачем нужны Depends, APIRouter и async?</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="explanation" data-title="Повторно используемые зависимости">
+            <p><code>Depends</code> позволяет объявить компонент, который FastAPI подготовит и передаст обработчику. Через зависимости обычно подключают общую проверку доступа, настройки приложения или сессию базы данных.</p>
+            <div class="code-block" data-lang="python"><pre><code>from typing import Annotated
+from fastapi import Depends, FastAPI
+
+app = FastAPI()
+
+
+def get_page_size() -&gt; int:
+    return 20
+
+
+PageSize = Annotated[int, Depends(get_page_size)]
+
+
+@app.get("/tasks")
+def list_tasks(limit: PageSize):
+    return {"limit": limit, "items": []}</code></pre></div>
+            <p>В настоящем приложении зависимость базы данных должна корректно закрывать сессию и учитывать транзакции. Сам факт использования <code>Depends</code> этого за тебя не гарантирует.</p>
+          </div>
+          <div class="info-card-auto" data-type="remark" data-title="Разделяй приложение по мере роста">
+            <p>В одном файле удобно показать идею. Затем маршруты группируют через <code>APIRouter</code>, а правила предметной области выносят в сервисные функции. Так обработчик HTTP не превращается в место, где одновременно живут маршрутизация, бизнес-логика и запросы к базе.</p>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="async — не ускоритель по умолчанию">
+            <p>И <code>def</code>, и <code>async def</code> подходят для обработчиков. Выбирай <code>async def</code>, когда внутри вызываешь асинхронные операции через <code>await</code>. Синхронный драйвер БД или <code>time.sleep()</code> внутри асинхронной функции всё равно блокируют выполнение. Подробности есть в <a href="advanced.html">разделе про async</a>.</p>
+          </div>
+        </div>
+      </li>
+
+      <li class="question" data-md-source="true" data-md-id="fastapi_practice" data-interview="3">
+        <div class="name" id="fastapi_practice">Практика: собери API для списка задач</div>
+        <div class="content">
+          <div class="info-card-auto" data-type="example" data-title="Порядок работы">
+            <p>Создай <code>main.py</code>, запусти <code>fastapi dev main.py</code> и проверяй запросы в <code>/docs</code>. Храни задачи в обычном словаре: на этом шаге важны HTTP и контракт API, а не база данных.</p>
+            <ol>
+              <li>Добавь <code>GET /health</code> с ответом <code>{"status": "ok"}</code>.</li>
+              <li>Добавь <code>GET /sum?a=3&amp;b=4</code>; ответ должен содержать сумму <code>7</code>.</li>
+              <li>Опиши входную модель задачи с непустым <code>title</code> и необязательным полем <code>done</code>.</li>
+              <li>Сделай <code>POST /tasks</code>: добавляй новую задачу и возвращай код <code>201</code>.</li>
+              <li>Сделай <code>GET /tasks/{task_id}</code>: для неизвестного ID возвращай <code>404</code>.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Критерии готовности">
+            <ul>
+              <li>В <code>/docs</code> видны маршруты и схемы запроса/ответа.</li>
+              <li>Некорректный тип или пустой заголовок отклоняется проверкой.</li>
+              <li>Создание возвращает <code>201</code>, неизвестная задача — <code>404</code>.</li>
+              <li>После перезапуска данные пропадают — это ожидаемое ограничение словаря.</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="remark" data-title="Официальные материалы">
+            <p>Для продолжения: <a href="https://fastapi.tiangolo.com/tutorial/first-steps/" target="_blank" rel="noopener noreferrer">первое приложение</a>, <a href="https://fastapi.tiangolo.com/tutorial/path-params/" target="_blank" rel="noopener noreferrer">параметры пути</a>, <a href="https://fastapi.tiangolo.com/tutorial/query-params/" target="_blank" rel="noopener noreferrer">query-параметры</a>, <a href="https://fastapi.tiangolo.com/tutorial/body/" target="_blank" rel="noopener noreferrer">тело запроса</a>, <a href="https://fastapi.tiangolo.com/tutorial/response-status-code/" target="_blank" rel="noopener noreferrer">коды ответа</a> и <a href="https://fastapi.tiangolo.com/tutorial/dependencies/" target="_blank" rel="noopener noreferrer">зависимости</a>.</p>
+          </div>
+        </div>
+      </li>
+    </ol>
+  </main>
+</body>
+</html>
+
+
+

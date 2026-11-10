@@ -267,6 +267,8 @@
     <script src="../../assets/js/components/term-definitions.js"></script>
     <script src="../../assets/js/components/term-tooltip.js"></script>
     <script src="../../assets/js/firebase-mock.js"></script>
+
+  <link href="../../assets/css/learning-reading.css" rel="stylesheet" />
 </head>
   <body data-term-scope="all">
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
@@ -2115,14 +2117,14 @@ def scaled_dot_product_attention(q, k, v, mask=None):
         q, k, v = [t.view(B, n, self.h, self.d_k).transpose(1, 2) for t in (q, k, v)]
         y, _ = scaled_dot_product_attention(q, k, v, mask)
         y = y.transpose(1, 2).contiguous().view(B, n, d)   # обратно к (B, n, d)
-        return self.out(y)</div><p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#multi_head_attention" target="_blank" rel="noopener">multi-head attention</a>.</p>
+        return self.out(y)</div><p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#multi-head-attention" target="_blank" rel="noopener">multi-head attention</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="На что смотрит интервьюер">
 <p>Задача проверяет не память на формулу, а понимание деталей. Обычно оценивают:</p>
 <p><b>1. Нормировку на $\sqrt{d_k}$ и объяснение зачем.</b> Без неё дисперсия скалярных произведений растёт с $d_k$, softmax насыщается (превращается в почти one-hot), градиенты затухают. Это первый уточняющий вопрос почти всегда.</p>
 <p><b>2. Ось softmax.</b> <code>dim=-1</code> — нормируем по ключам, то есть для каждого запроса получаем распределение по всем позициям. <code>dim=-2</code> — распространённая и трудноуловимая ошибка: код работает, обучение идёт, качество плохое.</p>
-<p><b>3. Маскирование до softmax.</b> $-\infty$ добавляется <b>к оценкам</b>, а не к весам после softmax. Иначе нарушается нормировка; см. <a href="../ml/dl.html#masked_attention" target="_blank" rel="noopener">masked attention</a>.</p>
+<p><b>3. Маскирование до softmax.</b> $-\infty$ добавляется <b>к оценкам</b>, а не к весам после softmax. Иначе нарушается нормировка; см. <a href="../ml/dl.html#masked-attention" target="_blank" rel="noopener">masked attention</a>.</p>
 <p><b>4. Работа с формами.</b> Переход <code>(B, n, d) → (B, h, n, d_k)</code> через <code>view</code> + <code>transpose</code>, и обратно через <code>transpose</code> + <code>contiguous</code> + <code>view</code>. Забытый <code>.contiguous()</code> даст ошибку.</p>
 <p><b>5. Понимание, что $Q$, $K$, $V$ — линейные проекции входа</b>, а не сам вход.</p>
 <p>Хороший ход — упомянуть, что в продакшене вместо ручной реализации используют <code>F.scaled_dot_product_attention</code>, который автоматически выбирает эффективный бэкенд (FlashAttention, memory-efficient) и работает в разы быстрее.</p>
@@ -2211,7 +2213,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>Attention</b> квадратична, но все взаимодействия вычисляются <b>одной матричной операцией</b>, идеально ложащейся на параллельное железо.</p>
 <p>Отсюда практический вывод, который и хочет услышать интервьюер: несмотря на худшую асимптотику, <b>при обучении attention оказывается быстрее</b> — параллелизм важнее квадратичности при умеренных $n$. Формально: RNN требует $\mathcal{O}(n)$ последовательных шагов, трансформер — $\mathcal{O}(1)$, а это ровно то, что определяет время на GPU.</p>
 <p>Точка равновесия зависит от соотношения $n$ и $d$: при $n &lt; d$ доминирует член $nd^2$ (проекции и MLP), и квадратичность внимания незаметна. При $n \gg d$ квадрат начинает доминировать, и трансформер проигрывает.</p>
-<p>Подробнее — <a href="../ml/dl.html#attention_complexity" target="_blank" rel="noopener">ограничения по сложности внимания</a>, <a href="../ml/dl.html#rnn-lstm-gru" target="_blank" rel="noopener">RNN</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#attention-complexity" target="_blank" rel="noopener">ограничения по сложности внимания</a>, <a href="../ml/dl.html#rnn-lstm-gru" target="_blank" rel="noopener">RNN</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Важная оговорка про инференс">
@@ -2253,7 +2255,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>GPT обучается предсказывать следующий токен.</b> Здесь двунаправленность недопустима: правильный ответ был бы виден в контексте. Causal-маска решает это и одновременно позволяет <b>обучать все позиции параллельно</b> за один проход.</li>
 </ul>
 <p><b>Следствия для применения:</b> BERT силён в задачах понимания (классификация, NER, retrieval), но не умеет генерировать; GPT естественно генерирует и через промпт решает задачи понимания.</p>
-<p>Подробнее — <a href="../ml/dl.html#masked_attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/nlp/base.html#bert" target="_blank" rel="noopener">BERT</a>, <a href="../ml/nlp/base.html#gpt" target="_blank" rel="noopener">GPT</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#masked-attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/nlp/base.html#bert" target="_blank" rel="noopener">BERT</a>, <a href="../ml/nlp/base.html#gpt" target="_blank" rel="noopener">GPT</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Что ещё различается">
@@ -2390,7 +2392,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>3. Одинаковое поведение на обучении и инференсе.</b> У BatchNorm два режима: статистики батча против накопленных. Для авторегрессионной генерации, где токены выдаются по одному, это порождает рассогласование. У LayerNorm накопленных статистик нет вовсе.</p>
 <p><b>4. Отсутствие зависимости между примерами.</b> С BatchNorm предсказание для одного объекта зависело бы от того, какие другие объекты оказались в батче, — для генерации это недопустимо: результат должен быть детерминированным.</p>
 <p>Дополнительно: LayerNorm не требует синхронизации между GPU при распределённом обучении.</p>
-<p>Подробнее — <a href="../ml/dl.html#layer_norm" target="_blank" rel="noopener">Layer Normalization</a>, <a href="../ml/nlp/advanced.html#rmsnorm" target="_blank" rel="noopener">RMSNorm</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#layer-norm" target="_blank" rel="noopener">Layer Normalization</a>, <a href="../ml/nlp/advanced.html#rmsnorm" target="_blank" rel="noopener">RMSNorm</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Pre-Norm против Post-Norm и RMSNorm">
@@ -2434,7 +2436,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>Почему это принципиально.</b> В Pre-Norm существует <b>непрерывный путь от входа к выходу без нормализации</b> — прямая «магистраль» для градиента, как в ResNet. Градиент проходит через десятки слоёв без затухания.</p>
 <p>В Post-Norm каждое residual-соединение проходит через LayerNorm, который «сжимает» масштаб. При большой глубине градиент на ранних слоях разваливается, и модель без тщательно подобранного <b>warm-up просто не обучается</b> — это была известная практическая проблема первых лет работы с трансформерами.</p>
 <p><b>Размен:</b> Pre-Norm заметно устойчивее и почти не требует warm-up; Post-Norm при равной глубине иногда даёт чуть лучшее итоговое качество, потому что нормализация «на выходе» блока действует сильнее. Устойчивость оказалась важнее, и Pre-Norm стал стандартом.</p>
-<p>Подробнее — <a href="../ml/nlp/advanced.html#llm_prenorm" target="_blank" rel="noopener">Pre-Norm и Post-Norm</a>, <a href="../ml/dl.html#layer_norm" target="_blank" rel="noopener">Layer Normalization</a>.</p>
+<p>Подробнее — <a href="../ml/nlp/advanced.html#llm_prenorm" target="_blank" rel="noopener">Pre-Norm и Post-Norm</a>, <a href="../ml/dl.html#layer-norm" target="_blank" rel="noopener">Layer Normalization</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Практические следствия">
@@ -2480,7 +2482,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>Local attention</b> — только окно вокруг текущей позиции (или предсказанной моделью точки фокуса).</li>
 </ul>
 <p>Это независимая классификация: внимание может быть soft и local одновременно — именно так устроен sliding window attention в Mistral.</p>
-<p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#attention_types" target="_blank" rel="noopener">виды внимания</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#attention-types" target="_blank" rel="noopener">виды внимания</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Почему победил soft attention">
@@ -2523,7 +2525,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>Зачем несколько голов.</b> Одна голова после softmax даёт <b>одно</b> распределение внимания: она вынуждена выбрать, на что смотреть. Несколько голов позволяют одновременно отслеживать разные типы связей — синтаксические зависимости, кореференцию, позиционные паттерны (предыдущий токен, начало предложения), редкие токены.</p>
 <p><b>Зачем выходная проекция $W^O$.</b> Конкатенация голов даёт вектор размерности $d$, но его части «принадлежат» разным подпространствам. $W^O$ смешивает их обратно в единое представление; без неё головы оставались бы изолированными.</p>
 <p>Типичные конфигурации: $h = 12$ при $d = 768$ (BERT-base), $h = 32$ при $d = 4096$ (Llama-7B). Обратите внимание, что $d_k$ держится в районе 64–128 практически везде — при масштабировании растёт число голов, а не размер каждой.</p>
-<p>Подробнее — <a href="../ml/dl.html#multi_head_attention" target="_blank" rel="noopener">multi-head attention</a>, <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#multi-head-attention" target="_blank" rel="noopener">multi-head attention</a>, <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Современные модификации: GQA и MQA">
@@ -2584,7 +2586,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>FlashAttention</b> — поблочное вычисление без материализации матрицы $n\times n$;</li>
 <li><b>PagedAttention</b> — страничное управление кэшем.</li>
 </ul>
-<p>Подробнее — <a href="../ml/dl.html#attention_types" target="_blank" rel="noopener">виды внимания</a>, <a href="../ml/nlp/advanced.html#llm_kv_attention" target="_blank" rel="noopener">эволюция схем внимания под давлением KV-кэша</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#attention-types" target="_blank" rel="noopener">виды внимания</a>, <a href="../ml/nlp/advanced.html#llm_kv_attention" target="_blank" rel="noopener">эволюция схем внимания под давлением KV-кэша</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Что реально используется в современных LLM">
@@ -2630,7 +2632,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>размер KV-кэша</b> при генерации пропорционален $h$ — вот это уже существенно, и именно на эту проблему нацелены MQA и GQA;</li>
 <li><b>выразительность отдельной головы падает</b> с уменьшением $d_k$: слишком узкие головы теряют способность выражать сложные отношения.</li>
 </ul>
-<p>Подробнее — <a href="../ml/dl.html#multi_head_attention" target="_blank" rel="noopener">multi-head attention</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#multi-head-attention" target="_blank" rel="noopener">multi-head attention</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Где предел">
@@ -2680,7 +2682,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>Causal (look-ahead) mask.</b> Верхнетреугольная: токен на позиции $i$ видит только позиции $\le i$. Нужна в декодере, чтобы при обучении на предсказание следующего токена модель не видела ответ. Именно эта маска позволяет обучать все позиции <b>параллельно</b> за один forward pass — иначе потребовалось бы $n$ отдельных проходов.</p>
 <p>В декодере обе маски применяются одновременно.</p>
 <p><b>Почему $-\infty$ до softmax, а не зануление после.</b> Если обнулить веса <b>после</b> softmax, оставшиеся перестанут суммироваться в единицу — распределение станет ненормированным, и масштаб выхода изменится непредсказуемо. Добавление $-\infty$ до softmax сохраняет корректную нормировку по разрешённым позициям.</p>
-<p>Подробнее — <a href="../ml/dl.html#masked_attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/dl.html#causal_attention" target="_blank" rel="noopener">causal attention</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#masked-attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/dl.html#causal-attention" target="_blank" rel="noopener">causal attention</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Где какие маски применяются">
@@ -2795,7 +2797,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 </tbody>
 </table><p>Пример: BERT-base — 12 слоёв по 12 голов, то есть 144 механизма внимания. Но это <b>не 144 независимых модуля</b>: 12 голов внутри слоя работают над одним входом, а 12 слоёв последовательно углубляют представление.</p>
 <p><b>Ключевая мысль:</b> головы дают <b>разнообразие</b> взгляда на один и тот же контекст, слои дают <b>композицию</b> — способность строить признаки над признаками.</p>
-<p>Подробнее — <a href="../ml/dl.html#multi_head_attention" target="_blank" rel="noopener">multi-head attention</a>, <a href="../ml/dl.html#transformer" target="_blank" rel="noopener">трансформеры</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#multi-head-attention" target="_blank" rel="noopener">multi-head attention</a>, <a href="../ml/dl.html#transformer" target="_blank" rel="noopener">трансформеры</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Что делают разные головы и разные слои">
@@ -2837,7 +2839,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>CNN</b> использует локальные окна фиксированной формы, поэтому относительное положение внутри окна учитывается автоматически.</li>
 </ul>
 <p>Трансформер отказался от рекуррентности ради параллелизма — и вместе с ней потерял встроенное понятие порядка. Позиционное кодирование возвращает его явно.</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Как возвращают информацию о позиции">
@@ -2887,7 +2889,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <tr><td><b>ALiBi</b></td><td>линейный штраф к оценкам внимания, пропорциональный расстоянию</td><td>предельно просто, хорошая экстраполяция на длину</td><td>менее выразителен</td></tr>
 </tbody>
 </table><p><b>RoPE — фактический стандарт</b> в современных LLM. Идея: позиция кодируется поворотом пар компонент $Q$ и $K$, и после поворота скалярное произведение зависит <b>только от разности</b> позиций — относительность получается «бесплатно», без дополнительных параметров и без изменения формулы внимания.</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/nlp/advanced.html#alibi" target="_blank" rel="noopener">ALiBi</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/nlp/advanced.html#alibi" target="_blank" rel="noopener">ALiBi</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Почему перешли от абсолютных к относительным">
@@ -2928,7 +2930,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>3. Нет информации об относительных позициях.</b> Из чисел 5 и 8 модель должна была бы вывести «расстояние 3» — но attention вычисляет скалярные произведения, и такая арифметика для него не естественна. Синусоидальное кодирование решает это специально: сдвиг на $k$ позиций выражается <b>линейным</b> преобразованием вектора, что модель может реализовать.</p>
 <p><b>4. Плохая обобщаемость.</b> Модель, обученная на позициях 0–512, не имеет никакого представления о значении 700 — она никогда не видела таких чисел.</p>
 <p><b>Что делают вместо:</b> многомерное кодирование позиции — синусоиды разных частот, обучаемые векторы позиций или встроенные в внимание схемы (RoPE, ALiBi).</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../bank/nlp.html#posemb-approaches-interview" target="_blank" rel="noopener">подходы для позиционных эмбеддингов</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../bank/nlp.html#posemb-approaches-interview" target="_blank" rel="noopener">подходы для позиционных эмбеддингов</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Почему синусоиды разных частот">
@@ -2970,7 +2972,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><span class="latex-copy-wrap" data-latex="$$PE_{(pos, 2i)} = \sin\!\left(\frac{pos}{10000^{2i/d}}\right), \qquad PE_{(pos, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d}}\right).$$">$$PE_{(pos, 2i)} = \sin\!\left(\frac{pos}{10000^{2i/d}}\right), \qquad PE_{(pos, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d}}\right).$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
 <p>Дополнительный аргумент авторов: для синусоидального кодирования сдвиг на $k$ позиций выражается <b>линейным</b> преобразованием, что теоретически позволяет модели выучить относительные отношения.</p>
 <p><b>Важная оговорка: на практике всё оказалось сложнее.</b> Обучаемые эмбеддинги показывали не худшее, а иногда лучшее качество внутри обученного диапазона, и BERT с GPT-2 использовали именно их. А обещанная экстраполяция синусоид на большие длины работала хуже ожидаемого: модель не обучалась на таких значениях, и качество деградировало.</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Чем всё закончилось">
@@ -3020,7 +3022,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 </tbody>
 </table><p><b>Плюс relative:</b> лучше переносится на последовательности другой длины и естественнее для языка, где важно относительное расположение, а не абсолютный номер слова.</p>
 <p><b>Минус:</b> классические реализации (Transformer-XL, DeBERTa) вычислительно дороже и плохо сочетаются с оптимизированными ядрами внимания. Именно поэтому победили <b>RoPE</b> и <b>ALiBi</b>, дающие относительность почти бесплатно.</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/nlp/advanced.html#alibi" target="_blank" rel="noopener">ALiBi</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/nlp/advanced.html#alibi" target="_blank" rel="noopener">ALiBi</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Почему RoPE стал стандартом">
@@ -3073,7 +3075,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li>совместим с FlashAttention и KV-кэшем — в отличие от классических relative-схем.</li>
 </ul>
 <p>Используется в Llama, Mistral, Qwen, DeepSeek и практически всех современных открытых моделях.</p>
-<p>Подробнее — <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
+<p>Подробнее — <a href="../ml/nlp/advanced.html#rope" target="_blank" rel="noopener">RoPE</a>, <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Расширение контекста через модификацию RoPE">
@@ -3299,7 +3301,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><span class="latex-copy-wrap" data-latex="$$Q = XW_Q, \qquad K = XW_K, \qquad V = XW_V.$$">$$Q = XW_Q, \qquad K = XW_K, \qquad V = XW_V.$$<button class="latex-copy-btn" type="button" aria-label="Скопировать LaTeX" title="Скопировать LaTeX">Copy</button></span></p>
 <p>Механика: скалярное произведение $q_i \cdot k_j$ измеряет, насколько токен $j$ релевантен запросу токена $i$. Softmax по всем $j$ превращает оценки в веса, и выход — взвешенная сумма значений $V$.</p>
 <p><b>Почему $Q$ и $K$ — разные проекции, а не одна.</b> Если бы использовалась одна матрица ($Q = K$), матрица оценок стала бы <b>симметричной</b>: релевантность $i$ для $j$ была бы равна релевантности $j$ для $i$. Но отношения в языке <b>асимметричны</b>: прилагательное сильно зависит от существительного, которое оно определяет, а обратная зависимость слабее. Раздельные проекции позволяют выразить направленные отношения — это и есть содержательный ответ на вопрос.</p>
-<p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#self_attention" target="_blank" rel="noopener">self-attention</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#attention" target="_blank" rel="noopener">механизм внимания</a>, <a href="../ml/dl.html#self-attention" target="_blank" rel="noopener">self-attention</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Роль V и деление на корень">
@@ -3387,7 +3389,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>Второе, не менее важное следствие — параллелизм обучения.</b> Благодаря маске за <b>один</b> forward pass вычисляются предсказания для <b>всех</b> позиций сразу, и каждая из них даёт свой обучающий сигнал. Без маски пришлось бы делать $n$ отдельных проходов — по одному на каждую позицию, — что сделало бы обучение на длинных последовательностях невозможным.</p>
 <p>Именно это свойство делает decoder-only архитектуру такой эффективной: последовательность длины $n$ порождает $n$ обучающих примеров при стоимости одного прохода. Для сравнения, MLM в BERT обучается лишь на 15 % позиций.</p>
 <p><b>Соответствие обучения и инференса.</b> При генерации токены выдаются по одному, и будущего действительно нет. Causal-маска обеспечивает, что модель обучалась ровно в тех условиях, в которых будет работать.</p>
-<p>Подробнее — <a href="../ml/dl.html#masked_attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/dl.html#causal_attention" target="_blank" rel="noopener">causal attention</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#masked-attention" target="_blank" rel="noopener">masked attention</a>, <a href="../ml/dl.html#causal-attention" target="_blank" rel="noopener">causal attention</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Как это выглядит на практике">
@@ -3426,7 +3428,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>3. Segment (token type) embedding</b> — только в BERT: указывает, к какому из двух сегментов относится токен (нужно для NSP и парных задач).</p>
 <p><b>Почему складывают, а не конкатенируют.</b> Конкатенация тратила бы часть размерности на позицию, уменьшая ёмкость под содержание. Сложение кажется странным (смешиваем разнородную информацию), но работает: размерность велика, и модель выучивает разделение сигналов.</p>
 <p><b>Важная деталь:</b> в оригинальном трансформере token embedding умножается на $\sqrt{d_{model}}$ перед сложением. Причина: эмбеддинги инициализируются с дисперсией порядка $1/d$, а синусоиды имеют амплитуду около 1 — без масштабирования позиционный сигнал доминировал бы.</p>
-<p>Подробнее — <a href="../ml/dl.html#embeddings" target="_blank" rel="noopener">эмбеддинги</a>, <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#embeddings" target="_blank" rel="noopener">эмбеддинги</a>, <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Что происходит дальше">
@@ -3905,7 +3907,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>Prefill</b> — обработка промпта целиком одним проходом. Много вычислений, GPU загружена, фаза <b>compute-bound</b>. Определяет time to first token.</li>
 <li><b>Decode</b> — генерация по одному токену с использованием <b>KV-кэша</b>. На каждом шаге читаются все веса ради одного токена: арифметическая интенсивность крайне низкая, фаза <b>memory-bound</b>. Определяет время на токен.</li>
 </ul>
-<p>Подробнее — <a href="../ml/dl.html#decoder_only" target="_blank" rel="noopener">decoder-only модели</a>, <a href="../ml/nlp/optimization.html#kv_cache" target="_blank" rel="noopener">KV-cache</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#decoder-only" target="_blank" rel="noopener">decoder-only модели</a>, <a href="../ml/nlp/optimization.html#kv_cache" target="_blank" rel="noopener">KV-cache</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Exposure bias — следствие этой разницы">
@@ -3946,7 +3948,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p><b>3. Фреймворки обычно защищаются.</b> HuggingFace бросает предупреждение или ошибку (<code>Token indices sequence length is longer than...</code>), API-провайдеры возвращают ошибку, некоторые пайплайны молча <b>обрезают</b> вход — и это самый опасный вариант: часть промпта исчезает, а вы об этом не узнаете.</p>
 <p><b>4. Attention и веса технически длину не ограничивают.</b> Матрицы $W_Q$, $W_K$, $W_V$ работают с любым $n$ — но растут квадратично требования к памяти под матрицу внимания.</p>
 <p>Ключевая мысль для ответа: ограничение задаётся <b>позиционным кодированием и режимом обучения</b>, а не размерностью весов.</p>
-<p>Подробнее — <a href="../ml/dl.html#positional_encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/dl.html#long_context" target="_blank" rel="noopener">увеличение контекста в Transformer</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#positional-encoding" target="_blank" rel="noopener">позиционное кодирование</a>, <a href="../ml/dl.html#long-context" target="_blank" rel="noopener">увеличение контекста в Transformer</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Что делать с длинными текстами">
@@ -3981,7 +3983,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <p>По времени сложность тоже квадратична: $\mathcal{O}(n^2 d)$. Удвоение длины учетверяет стоимость — при 128k токенов обучение и инференс становятся неприемлемо дорогими.</p>
 <p>Дополнительное ограничение при генерации — <b>KV-кэш</b>: он растёт линейно с длиной и с размером батча, и на длинных контекстах может превысить размер самих весов модели, ограничивая число одновременных запросов.</p>
 <p>Наконец, есть и качественная проблема: даже когда длинный контекст технически помещается, модели <b>плохо используют середину</b> — эффект «lost in the middle», при котором факт, помещённый в центр длинного промпта, находится хуже, чем в начале или конце.</p>
-<p>Подробнее — <a href="../ml/dl.html#attention_complexity" target="_blank" rel="noopener">ограничения по сложности внимания</a>, <a href="../ml/dl.html#long_context" target="_blank" rel="noopener">увеличение контекста</a>.</p>
+<p>Подробнее — <a href="../ml/dl.html#attention-complexity" target="_blank" rel="noopener">ограничения по сложности внимания</a>, <a href="../ml/dl.html#long-context" target="_blank" rel="noopener">увеличение контекста</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Как обходят квадрат">
@@ -4182,7 +4184,7 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 <li><b>Итерация.</b> Выбранный токен дописывается к последовательности, и цикл повторяется — теперь предсказание строится по промпту плюс уже сгенерированному.</li>
 </ol>
 <p>Генерация останавливается по токену конца последовательности или по достижении лимита длины.</p>
-<p>Подробнее — <a href="../ml/nlp/base.html#generation-strategies" target="_blank" rel="noopener">стратегии генерации текста</a>, <a href="../ml/dl.html#decoder_only" target="_blank" rel="noopener">decoder-only модели</a>.</p>
+<p>Подробнее — <a href="../ml/nlp/base.html#generation-strategies" target="_blank" rel="noopener">стратегии генерации текста</a>, <a href="../ml/dl.html#decoder-only" target="_blank" rel="noopener">decoder-only модели</a>.</p>
 
 </div>
 <div class="info-card-auto" data-type="explanation" data-title="Роль шаблона чата">

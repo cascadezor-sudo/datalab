@@ -1,81 +1,5 @@
 (function () {
   const PAGE_SIZE = 15;
-  // Логотипы лежат локально в /images/interviews/companies. Ключ — название компании
-  // из фидбека в нижнем регистре, значение — имя файла с расширением.
-  const COMPANY_LOGOS = {
-    airi: "airi.png",
-    "альфа банк": "alfabank.jpg",
-    aston: "aston.png",
-    "bell integrator": "bellintegrator.png",
-    bp: "bp.png",
-    "british petroleum": "bp.png",
-    hh: "hh.png",
-    ibs: "ibs.png",
-    "ibs geotech": "ibs.png",
-    indrive: "indrive.png",
-    ivi: "ivi.png",
-    lamoda: "lamoda.png",
-    "life pay": "lifepay.png",
-    revolut: "revolut.png",
-    s7: "s7.png",
-    сбер: "sber.png",
-    сбербанк: "sber.png",
-    wb: "wb.png",
-    wildberries: "wb.png",
-    "wsc sports": "wscsports.png",
-    x5: "x5.png",
-    яндекс: "яндекс.png",
-    "азот взрыв": "азотвзрыв.png",
-    билайн: "билайн.png",
-    "вкусно и точка": "вкусноиточка.png",
-    "лига ставок": "лигаставок.png",
-    литрес: "литрес.png",
-    магнит: "магнит.png",
-    мегафон: "мегафон.png",
-    мтс: "мтс.png",
-    нлмк: "нлмк.png",
-    пик: "пик.png",
-    промсвязьбанк: "промсвязьбанк.png",
-    райффайзен: "райф.png",
-    "райффайзен банк": "райф.png",
-    райффайзенбанк: "райф.png",
-    "правительство москвы": "правительствомосквы.svg",
-    реверслаб: "реверслаб.png",
-    "ренессанс страхование": "ренессансстрахование.png",
-    ростелеком: "ростелеком.png",
-    россельхозбанк: "рсхб.png",
-    сколтех: "сколтех.png",
-    согаз: "согаз.png",
-    bmpsoft: "bmpsoft.png",
-    спортмастер: "спортмастер.png",
-    itexus: "itexus.png",
-    ростех: "ростех.png",
-    "т банк": "тбанк.png",
-    "т банк тинькофф": "тбанк.png",
-    "центральный банк": "цб.png",
-    "центральный банк россии": "цб.png",
-    adapty: "adapty.png",
-    igaming: "igaming.png",
-    juicyscore: "juicyscore.png",
-    simbirsoft: "simbirsoft.png",
-    tele2: "t2.png",
-    eqvilent: "eqvilent.png",
-    ainnovator: "ainnovator.png",
-    iss: "iss.svg",
-    metamentor: "metamentor.png",
-    neurocore: "neurocore.jpeg",
-    qooqa: "qooqa.png",
-    vk: "vk.png",
-    waiw: "waiw.png",
-    автомакон: "автомакон.png",
-    всемайки: "всемайки.jpg",
-    иттех: "иттех.png",
-    эвокарго: "эвокарго.png",
-    instictools: "instictools.png",
-    epam: "epam.png",
-    plata: "plata.png",
-    // "": ".jpg",
-  };
   // Группы компаний по числу вопросов: компания попадает в первую, чей min
   // она набирает. ponytail: пороги подобраны на глаз, без боевого распределения.
   const COMPANY_TIERS = [
@@ -84,6 +8,7 @@
     { key: "few", min: 1, title: "Мало", range: "1–4" },
   ];
   let bank = {};
+  let bankLoaded = false;
   let database = null;
   let visibleQuestionsCount = PAGE_SIZE;
   let selectedCompanyId = "all";
@@ -93,6 +18,33 @@
   const collapsedTiers = new Set();
 
   const $ = (selector) => document.querySelector(selector);
+  // Иконки тем — те же, что у карточек разделов материалов.
+  const TOPIC_ICONS = {
+    topic_python: "python.svg",
+    topic_math: "math.svg",
+    topic_classic_ml: "classicml.png",
+    topic_dl: "dl.png",
+    topic_nlp_base: "book.svg",
+    topic_nlp_advanced: "rocket.svg",
+    topic_nlp_optimization: "rocket.svg",
+    topic_agents: "nlp-agents.png",
+    topic_rag: "nlp.svg",
+    topic_ml_system_design: "architecture.svg",
+    topic_legend: "form.svg",
+  };
+  // Та же страница обслуживает «Вопросы с мок-собеседований»: вместо компании —
+  // тема мока, данные — во втором экземпляре банка (mockQuestion*).
+  const isMock = () => document.body?.dataset.questionBank === "mock";
+  const bankPaths = () =>
+    isMock()
+      ? {
+          root: window.InterviewQuestionBank.MOCK_ROOT_PATH,
+          index: window.InterviewQuestionBank.MOCK_INDEX_PATH,
+        }
+      : {
+          root: window.InterviewQuestionBank.ROOT_PATH,
+          index: window.InterviewQuestionBank.INDEX_PATH,
+        };
 
   function setState(title, message) {
     const list = $("#companyBankList");
@@ -247,6 +199,8 @@
 
   function renderMath(container) {
     if (typeof window.renderMathInElement !== "function") return;
+    // «$390,000 to $430,000» — валюта, а не формула (math-dollars.js).
+    window.mathDollars?.protect(container);
     window.renderMathInElement(container, {
       delimiters: [
         { left: "$$", right: "$$", display: true },
@@ -254,6 +208,7 @@
         { left: "\\(", right: "\\)", display: false },
         { left: "\\[", right: "\\]", display: true },
       ],
+      ignoredClasses: window.mathDollars?.ignoredClasses || [],
       throwOnError: false,
     });
   }
@@ -264,18 +219,35 @@
     const header = document.createElement("div");
     header.className = "company-bank-question-header";
     const question = document.createElement("h2");
-    question.textContent = item.question;
+    // Старые фидбэки писали вопрос жирным: «### **Вопрос?**».
+    question.textContent = String(item.question).replace(
+      /^\*\*(.+)\*\*$/,
+      "$1",
+    );
     const type = document.createElement("span");
     type.className = "company-bank-question-type";
     type.textContent = item.kind === "hr" ? "HR" : "Технический";
     const labels = document.createElement("div");
     labels.className = "company-bank-question-labels";
     labels.append(type);
-    if (item.companyName) {
+    // У мока с несколькими темами — по чипу на тему, чтобы подписи переносились.
+    const groupNames = item.companyName
+      ? isMock()
+        ? item.companyName.split(" · ")
+        : [item.companyName]
+      : [];
+    groupNames.forEach((name) => {
       const company = document.createElement("span");
       company.className = "company-bank-question-company";
-      company.textContent = item.companyName;
+      company.textContent = name;
       labels.append(company);
+    });
+    if (item.domain) {
+      const domain = document.createElement("span");
+      domain.className =
+        "company-bank-question-company company-bank-question-domain";
+      domain.textContent = domainName(item.domain);
+      labels.append(domain);
     }
     header.append(question, labels);
     card.append(header);
@@ -298,7 +270,7 @@
         if (!question) {
           const snapshot = await database
             .ref(
-              `${window.InterviewQuestionBank.ROOT_PATH}/companies/${item.companyId}/questions/${item.questionId}`,
+              `${bankPaths().root}/companies/${item.companyId}/questions/${item.questionId}`,
             )
             .once("value");
           question = snapshot.val() || {};
@@ -401,14 +373,7 @@
   }
 
   function getCompanyLogoPath(name) {
-    const normalizedName = String(name || "")
-      .toLocaleLowerCase("ru")
-      .replace(/[—–-]/g, " ")
-      .replace(/\s*\([^)]*\)/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    const filename = COMPANY_LOGOS[normalizedName];
-    return filename ? `/images/interviews/companies/${filename}` : "";
+    return window.companyLogos?.url(name) || "";
   }
 
   function createCompanyButton(company) {
@@ -431,7 +396,11 @@
       : getCompanyInitials(company.name);
     logo.append(fallback);
 
-    const logoPath = getCompanyLogoPath(company.name);
+    const logoPath = isMock()
+      ? TOPIC_ICONS[company.id]
+        ? `/assets/icons/${TOPIC_ICONS[company.id]}`
+        : ""
+      : getCompanyLogoPath(company.name);
     if (logoPath) {
       const image = document.createElement("img");
       image.alt = "";
@@ -464,6 +433,29 @@
       selectedCompanyId = "all";
     }
     const query = $("#companySearch")?.value || "";
+    if (isMock()) {
+      // Тем десяток и порядок у них учебный, поэтому без групп по числу вопросов.
+      const order = window.InterviewQuestionBank.MOCK_TOPICS.map(
+        (topic) => `topic_${topic.id}`,
+      );
+      const grid = document.createElement("div");
+      grid.className =
+        "company-bank-company-grid company-bank-company-grid--topics";
+      grid.append(
+        createCompanyButton({
+          id: "all",
+          name: "Все темы",
+          questionCount: dedupeMockQuestions(
+            window.InterviewQuestionBank.listAllQuestions(bank),
+          ).length,
+        }),
+        ...[...companies]
+          .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+          .map(createCompanyButton),
+      );
+      $("#companyBankCompanyGrid").replaceChildren(grid);
+      return selectedCompanyId;
+    }
     const groups = groupCompaniesByCount(companies, query);
     const total = companies.reduce((sum, c) => sum + c.questionCount, 0);
     const nodes = [
@@ -499,6 +491,22 @@
     }
     $("#companyBankCompanyGrid").replaceChildren(...nodes);
     return selectedCompanyId;
+  }
+
+  /**
+   * У мока бывает несколько тем, и в «Все темы» один вопрос пришёл бы по разу
+   * из каждой. Оставляем первую карточку, а темы собираем в одну подпись.
+   * ponytail: разбор и частота берутся из первой темы; если один вопрос задавали
+   * на разных моках с разными темами, свежий разбор виден только внутри темы.
+   */
+  function dedupeMockQuestions(questions) {
+    const byId = new Map();
+    questions.forEach((question) => {
+      const seen = byId.get(question.questionId);
+      if (!seen) byId.set(question.questionId, { ...question });
+      else seen.companyName = `${seen.companyName} · ${question.companyName}`;
+    });
+    return [...byId.values()];
   }
 
   function groupCompaniesByCount(companies, query) {
@@ -551,15 +559,88 @@
     return nodes;
   }
 
+  // Ментор грузит логотип выбранной компании прямо отсюда (не в мок-режиме:
+  // там темы, а не компании).
+  function syncLogoUpload(company) {
+    const control = $("#companyLogoUpload");
+    if (!control) return;
+    const show = Boolean(
+      company && !isMock() && window.companyLogos?.canUpload,
+    );
+    control.hidden = !show;
+    if (!show) return;
+    control.dataset.company = company.name;
+    $("#companyLogoUploadLabel").textContent = getCompanyLogoPath(company.name)
+      ? `Заменить логотип «${company.name}»`
+      : `Загрузить логотип «${company.name}»`;
+  }
+
+  async function uploadLogo(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    const company = $("#companyLogoUpload").dataset.company;
+    input.value = "";
+    if (!file || !company) return;
+    const status = $("#companyLogoStatus");
+    status.textContent = "Загружаем логотип…";
+    try {
+      await window.companyLogos.upload(company, file);
+      status.textContent = `Логотип «${company}» сохранён.`;
+      render();
+    } catch (error) {
+      status.textContent = error?.message || "Не удалось загрузить логотип.";
+    }
+  }
+
+  const domainName = (id) =>
+    window.InterviewQuestionBank.DOMAINS.find((domain) => domain.id === id)
+      ?.name || "";
+
+  // Область вопроса настоящего собеса (Python, Математика, …) считается по
+  // тексту вопроса; у HR-вопросов области нет. Варианты списка — только
+  // области, что есть среди вопросов, с их числом.
+  function filterByDomain(questions) {
+    // Фильтр есть только на странице компаний: у мока темы и так разложены.
+    const select = $("#questionDomainFilter");
+    if (!select || isMock()) return questions;
+    const api = window.InterviewQuestionBank;
+    const withDomains = questions.map((question) => ({
+      ...question,
+      domain:
+        question.kind === "hr" ? "" : api.questionDomain(question.question),
+    }));
+    const counts = new Map();
+    withDomains.forEach(({ domain }) => {
+      if (domain) counts.set(domain, (counts.get(domain) || 0) + 1);
+    });
+    const current = select.value;
+    select.replaceChildren(
+      new Option("Все области", "all"),
+      ...api.DOMAINS.filter((domain) => counts.has(domain.id)).map(
+        (domain) =>
+          new Option(`${domain.name} (${counts.get(domain.id)})`, domain.id),
+      ),
+    );
+    select.value = counts.has(current) ? current : "all";
+    return select.value === "all"
+      ? withDomains
+      : withDomains.filter((question) => question.domain === select.value);
+  }
+
   function render() {
     const api = window.InterviewQuestionBank;
     const companies = api.listCompanies(bank);
     const companyId = syncCompanyGrid(companies);
     const company = (bank.companies || {})[companyId];
+    syncLogoUpload(company);
     const search = $("#questionSearch").value;
     const kind = $("#questionTypeFilter").value;
-    const allTechnical = api.listAllQuestions(bank, "", "technical").length;
-    const allHr = api.listAllQuestions(bank, "", "hr").length;
+    const listAll = (query, type) =>
+      isMock()
+        ? dedupeMockQuestions(api.listAllQuestions(bank, query, type))
+        : api.listAllQuestions(bank, query, type);
+    const allTechnical = listAll("", "technical").length;
+    const allHr = listAll("", "hr").length;
     $("#allQuestionsCount").textContent = allTechnical + allHr;
     $("#technicalQuestionsCount").textContent = allTechnical;
     $("#hrQuestionsCount").textContent = allHr;
@@ -568,24 +649,32 @@
       $("#companyBankSummary").textContent = "";
       setState(
         "Банк пока пуст",
-        "Добавьте компанию и вопросы в фидбек реального собеседования.",
+        isMock()
+          ? "Отметьте темы в фидбеке мок-собеседования."
+          : "Добавьте компанию и вопросы в фидбек реального собеседования.",
       );
       return;
     }
-    const questions =
+    const allQuestions =
       companyId === "all"
-        ? api.listAllQuestions(bank, search, kind)
+        ? listAll(search, kind)
         : api.listQuestions(company, search, kind).map((question) => ({
             ...question,
             companyId,
             companyName: company.name,
           }));
-    const companyLabel = companyId === "all" ? "Все компании" : company.name;
+    const questions = filterByDomain(allQuestions);
+    const allLabel = isMock() ? "Все темы" : "Все компании";
+    const companyLabel = companyId === "all" ? allLabel : company.name;
     $("#companyBankSummary").textContent =
       `${companyLabel}: ${questions.length} ${questions.length === 1 ? "вопрос" : "вопросов"}`;
     if (!questions.length) {
       setState(
-        search ? "Ничего не найдено" : "По этой компании пока нет вопросов",
+        search
+          ? "Ничего не найдено"
+          : isMock()
+            ? "По этой теме пока нет вопросов"
+            : "По этой компании пока нет вопросов",
         search
           ? "Попробуйте изменить запрос."
           : "Вопросы появятся после сохранения размеченного фидбека.",
@@ -621,10 +710,9 @@
         const refresh = $("#companyBankRefresh");
         if (refresh) refresh.disabled = true;
         try {
-          const snapshot = await database
-            .ref(window.InterviewQuestionBank.INDEX_PATH)
-            .once("value");
+          const snapshot = await database.ref(bankPaths().index).once("value");
           bank = window.InterviewQuestionBank.indexToBank(snapshot.val() || {});
+          bankLoaded = true;
           resetQuestionLimitAndRender();
         } catch (error) {
           console.error("Failed to load company interview index:", error);
@@ -637,12 +725,20 @@
         }
       };
       typeFilter.addEventListener("change", resetQuestionLimitAndRender);
+      $("#questionDomainFilter")?.addEventListener(
+        "change",
+        resetQuestionLimitAndRender,
+      );
       searchInput.addEventListener("input", resetQuestionLimitAndRender);
       showMoreButton.addEventListener("click", () => {
         visibleQuestionsCount += PAGE_SIZE;
         render();
       });
       $("#companyBankRefresh")?.addEventListener("click", loadIndex);
+      $("#companyLogoFile")?.addEventListener("change", uploadLogo);
+      // Загруженные логотипы приходят callable'ом — сетку перерисуем, когда
+      // доедут; до тех пор видны встроенные.
+      window.companyLogos?.load().then(() => bankLoaded && render());
       $("#companySearch")?.addEventListener("input", () =>
         syncCompanyGrid(window.InterviewQuestionBank.listCompanies(bank)),
       );
@@ -660,6 +756,7 @@
     module.exports = {
       appendMarkdownBlocks,
       appendInlineMarkdown,
+      dedupeMockQuestions,
       groupCompaniesByCount,
     };
   }
@@ -667,7 +764,9 @@
   document.addEventListener("DOMContentLoaded", () => {
     setState(
       "Загружаем вопросы…",
-      "Собираем актуальные вопросы с реальных собеседований.",
+      isMock()
+        ? "Собираем вопросы с мок-собеседований."
+        : "Собираем актуальные вопросы с реальных собеседований.",
     );
     initialize();
   });

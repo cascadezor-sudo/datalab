@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Deep textbook generator helper for SchmidtML Analytics.
+Deep textbook generator helper for DataLab Analytics.
 Avoids regex replacement issues with KaTeX formulas.
 """
 

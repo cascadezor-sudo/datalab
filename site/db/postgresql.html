@@ -268,6 +268,8 @@
   <script src="../assets/js/components/term-definitions.js"></script>
   <script src="../assets/js/components/term-tooltip.js"></script>
   <script src="../assets/js/firebase-mock.js"></script>
+
+  <link href="../assets/css/learning-reading.css" rel="stylesheet" />
 </head>
 <body data-term-scope="all">
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
@@ -3350,6 +3352,445 @@ SET hnsw.ef_search = 100;</div><table class="task-table">
 </div>
   </div>
 </li>
+        
+      <h3 data-md-source="true">Блок 5</h3>
+      <li class="question" data-md-source="true" data-md-id="sqla_logical_order_select" data-interview="5">
+        <div class="name" id="sqla_logical_order_select">
+          Порядок выполнения SQL-запроса (Logical Query Processing), литералы, алиасы и DISTINCT ON
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Лексический порядок против логического порядка выполнения">
+            <p>В SQL порядок, в котором мы <b>пишем</b> ключевые слова (<code>SELECT → FROM → WHERE → GROUP BY → HAVING → ORDER BY → LIMIT</code>), не совпадает с порядком, в котором СУБД <b>логически выполняет</b> запрос:</p>
+            <ol>
+              <li><code>FROM</code> и <code>JOIN</code> — сначала собирается декартово произведение и применяются предикаты <code>ON</code>.</li>
+              <li><code>WHERE</code> — отфильтровываются отдельные строки до любой группировки.</li>
+              <li><code>GROUP BY</code> — строки схлопываются в группы по уникальным комбинациям ключей.</li>
+              <li><code>HAVING</code> — фильтруются уже сформированные группы (здесь доступны агрегатные функции).</li>
+              <li><code>WINDOW</code> — вычисляются оконные функции (<code>OVER (...)</code>) поверх строк после группировки.</li>
+              <li><code>SELECT</code> — вычисляются итоговые выражения и присваиваются алиасы столбцов (<code>AS</code>).</li>
+              <li><code>DISTINCT</code> / <code>DISTINCT ON</code> — удаляются дубликаты из проекции.</li>
+              <li><code>UNION</code> / <code>INTERSECT</code> / <code>EXCEPT</code> — комбинируются результаты нескольких запросов.</li>
+              <li><code>ORDER BY</code> — сортируется результирующий набор (здесь уже можно ссылаться на алиасы из <code>SELECT</code>).</li>
+              <li><code>LIMIT</code> / <code>OFFSET</code> — отсекается нужное количество строк.</li>
+            </ol>
+          </div>
+          <div class="info-card-auto" data-type="warning" data-title="Классические следствия для собеседований">
+            <ul>
+              <li><b>Почему алиас из <code>SELECT</code> нельзя использовать в <code>WHERE</code>?</b> Потому что <code>WHERE</code> выполняется на шаге 2, а <code>SELECT</code> — только на шаге 6.</li>
+              <li><b>Почему оконную функцию нельзя написать в <code>WHERE</code> или <code>HAVING</code>?</b> Оконные функции считаются на шаге 5 — после <code>WHERE</code> и <code>HAVING</code>. Чтобы отфильтровать по <code>ROW_NUMBER()</code>, запрос оборачивают в CTE (<code>WITH</code>) или подзапрос.</li>
+            </ul>
+          </div>
+          <div class="code-block" data-lang="sql">-- DISTINCT ON (фишка PostgreSQL): берём ровно первую строку в каждой группе
+-- Например, самый свежий билет каждого пассажира без оконных функций:
+SELECT DISTINCT ON (passenger_id)
+    passenger_id,
+    trip_id,
+    place,
+    purchased_at
+FROM pass_in_trip
+ORDER BY passenger_id, purchased_at DESC;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>В каком порядке логически выполняются секции SQL-запроса?</b></p><p><code>FROM/JOIN → WHERE → GROUP BY → HAVING → WINDOW → SELECT → DISTINCT → UNION → ORDER BY → LIMIT/OFFSET</code>.</p></li>
+              <li><p><b>Чем <code>DISTINCT ON (col)</code> в PostgreSQL отличается от обычного <code>DISTINCT</code>?</b></p><p>Обычный <code>DISTINCT</code> удаляет только полные дубликаты по всем столбцам <code>SELECT</code>, а <code>DISTINCT ON (col)</code> оставляет ровно одну (первую согласно <code>ORDER BY</code>) строку на каждое уникальное значение <code>col</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_where_like_regexp" data-interview="5">
+        <div class="name" id="sqla_where_like_regexp">
+          Паттерны фильтрации строк: BETWEEN, IN, маски LIKE / ILIKE и регулярные выражения (REGEXP / ~)
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Операторы диапазонов, списков и символьных шаблонов">
+            <p>В аналитических и продуктовых запросах фильтрация текста и диапазонов встречается почти в каждой задаче. Важно точно знать граничные условия и разницу между простыми масками и регулярными выражениями:</p>
+            <table class="task-table">
+              <thead>
+                <tr><th>Оператор</th><th>Семантика и особенности</th><th>Пример</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>BETWEEN a AND b</code></td><td>Включает <b>обе границы</b> (<code>x &gt;= a AND x &lt;= b</code>). Для дат с временем (<code>TIMESTAMP</code>) опасен на правой границе: <code>'2025-06-30'</code> означает <code>00:00:00</code>, поэтому события дня после полуночи выпадут!</td><td><code>price BETWEEN 100 AND 500</code></td></tr>
+                <tr><td><code>LIKE</code> / <code>ILIKE</code></td><td>Простой шаблон: <code>%</code> — любая последовательность (0+ символов), <code>_</code> — ровно один любой символ. <code>ILIKE</code> (в Postgres) регистронезависим.</td><td><code>phone LIKE '+375%'</code></td></tr>
+                <tr><td><code>~</code> / <code>~*</code> / <code>REGEXP</code></td><td>Полноценные POSIX/PCRE регулярные выражения. В PostgreSQL <code>~</code> (с учётом регистра) и <code>~*</code> (без учёта регистра); в MySQL — <code>REGEXP</code> / <code>RLIKE</code>.</td><td><code>name ~ '^[A-Z][a-z]+\s[A-Z]\.$'</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="example" data-title="Экранирование спецсимволов в LIKE (ESCAPE)">
+            <p>Если нужно найти строку, содержащую сам символ процента <code>%</code> или нижнего подчёркивания <code>_</code> (например, скидку <code>50%</code> или название таблицы <code>user_logs</code>), используется ключевое слово <code>ESCAPE</code>:</p>
+          </div>
+          <div class="code-block" data-lang="sql">-- Ищем промокоды, где реально есть символ '_' и заканчивающиеся на '%'
+SELECT promo_code
+FROM campaigns
+WHERE promo_code LIKE '%!_%!%%' ESCAPE '!';
+
+-- Безопасная фильтрация дат с временем за июнь 2005 года (полуинтервал):
+SELECT *
+FROM payments
+WHERE date &gt;= DATE '2005-06-01'
+  AND date &lt;  DATE '2005-07-01';</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Почему для колонки типа <code>TIMESTAMP</code> лучше писать <code>dt &gt;= '2025-06-01' AND dt &lt; '2025-07-01'</code> вместо <code>BETWEEN</code>?</b></p><p>Строка <code>'2025-06-30'</code> приводится к <code>2025-06-30 00:00:00</code>, поэтому <code>BETWEEN</code> потеряет все записи за 30 июня после 00:00:00. Полуинтервал <code>[start, next_month)</code> захватывает сутки целиком.</p></li>
+              <li><p><b>В чём разница между спецсимволами <code>%</code> и <code>_</code> в операторе <code>LIKE</code>?</b></p><p><code>%</code> заменяет любое количество символов (включая 0), а <code>_</code> — ровно один символ.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_sorting_limit_offset_keyset" data-interview="5">
+        <div class="name" id="sqla_sorting_limit_offset_keyset">
+          Сортировка (ORDER BY, NULLS FIRST/LAST), LIMIT/OFFSET и Keyset Pagination (Seek Method)
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Как сортируются NULL и почему OFFSET тормозит на глубине">
+            <p>В PostgreSQL по умолчанию <code>NULL</code> считается <b>больше</b> любого значения: поэтому при <code>ORDER BY score ASC</code> значения <code>NULL</code> окажутся в конце, а при <code>ORDER BY score DESC</code> — <b>в самом начале</b>! Чтобы явно управлять этим, используют <code>NULLS LAST</code> или <code>NULLS FIRST</code>.</p>
+            <p>При пагинации через <code>LIMIT 20 OFFSET 100000</code> база данных обязана прочитать, отсортировать и отбросить все 100 020 строк. На больших таблицах вместо <code>OFFSET</code> применяют <b>Keyset Pagination (курсорную пагинацию)</b> через условие <code>WHERE (created_at, id) &lt; (:last_dt, :last_id)</code> по составному B-Tree индексу.</p>
+          </div>
+          <div class="code-block" data-lang="sql">-- 1. Явное управление позицией NULL при сортировке по убыванию:
+SELECT student_id, name, avg_grade
+FROM students
+ORDER BY avg_grade DESC NULLS LAST, name ASC;
+
+-- 2. Медленная OFFSET-пагинация (O(N) чтений на глубоких страницах):
+SELECT id, created_at, amount FROM orders
+ORDER BY created_at DESC, id DESC
+LIMIT 50 OFFSET 100000;
+
+-- 3. Быстрая Keyset / Cursor пагинация (O(log N) по индексу (created_at DESC, id DESC)):
+SELECT id, created_at, amount FROM orders
+WHERE (created_at, id) &lt; ('2025-05-10 14:22:00', 849201)
+ORDER BY created_at DESC, id DESC
+LIMIT 50;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Где окажутся строки с <code>NULL</code> при <code>ORDER BY price DESC</code> в PostgreSQL?</b></p><p>В самом верху выдачи, так как в PostgreSQL <code>NULL</code> по умолчанию сортируется выше всех непустых значений. Чтобы убрать их вниз, нужно указать <code>ORDER BY price DESC NULLS LAST</code>.</p></li>
+              <li><p><b>Почему <code>LIMIT k OFFSET n</code> деградирует при большом <code>n</code> и как это лечится?</b></p><p>БД всё равно вычитывает и сортирует <code>n + k</code> строк перед тем, как отбросить первые <code>n</code>. Лечится переходом на Keyset Pagination (<code>WHERE (sort_col, id) &lt; (last_val, last_id) LIMIT k</code>) по индексу.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <h3 data-md-source="true">Блок 6</h3>
+      <li class="question" data-md-source="true" data-md-id="sqla_case_filter_pivot" data-interview="5">
+        <div class="name" id="sqla_case_filter_pivot">
+          Условная логика и разворот таблиц (Pivot): CASE WHEN, COALESCE, NULLIF и агрегация с FILTER
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Инструменты условных вычислений в SQL">
+            <ul>
+              <li><code>CASE WHEN cond THEN val1 ELSE val2 END</code> — универсальное ветвление. Проверяет ветки сверху вниз до первого <code>TRUE</code>; если <code>ELSE</code> не указан, возвращает <code>NULL</code>.</li>
+              <li><code>COALESCE(a, b, c)</code> — возвращает первый аргумент, отличный от <code>NULL</code>. Незаменим для замены <code>NULL</code> на <code>0</code> после <code>LEFT JOIN</code>.</li>
+              <li><code>NULLIF(a, b)</code> — возвращает <code>NULL</code>, если <code>a = b</code>, иначе возвращает <code>a</code>. Главный паттерн защиты от деления на ноль: <code>revenue / NULLIF(clicks, 0)</code> вернёт <code>NULL</code> вместо падения запроса с <code>division by zero</code>!</li>
+              <li><code>COUNT(*) FILTER (WHERE ...)</code> — стандартный и читаемый синтаксис условной агрегации в PostgreSQL вместо громоздкого <code>SUM(CASE WHEN ... THEN 1 ELSE 0 END)</code>.</li>
+            </ul>
+          </div>
+          <div class="code-block" data-lang="sql">-- Считаем воронку и конверсию одним проходом по таблице событий
+-- с защитой от деления на ноль через NULLIF:
+SELECT
+    campaign_id,
+    COUNT(*) FILTER (WHERE event_type = 'view') AS views,
+    COUNT(*) FILTER (WHERE event_type = 'purchase') AS purchases,
+    ROUND(
+        100.0 * COUNT(*) FILTER (WHERE event_type = 'purchase')
+        / NULLIF(COUNT(*) FILTER (WHERE event_type = 'view'), 0),
+        2
+    ) AS cr_percent
+FROM events
+GROUP BY campaign_id;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Как безопасно поделить столбец <code>a</code> на столбец <code>b</code> в SQL, если <code>b</code> может быть равен <code>0</code>?</b></p><p>Использовать <code>a / NULLIF(b, 0)</code> (или <code>COALESCE(a / NULLIF(b, 0), 0)</code>). При <code>b = 0</code> функция <code>NULLIF(b, 0)</code> вернёт <code>NULL</code>, и деление даст <code>NULL</code> без ошибки выполнения.</p></li>
+              <li><p><b>В чём опасность конструкции <code>AVG(CASE WHEN flag = 1 THEN amount ELSE 0 END)</code>?</b></p><p>Нули из ветки <code>ELSE 0</code> попадут в знаменатель среднего и занизят результат. Для среднего по подмножеству нужно писать <code>ELSE NULL</code> (или <code>AVG(amount) FILTER (WHERE flag = 1)</code>), а для доли единиц — наоборот <code>AVG(CASE WHEN flag = 1 THEN 1.0 ELSE 0.0 END)</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_correlated_exists_any_all" data-interview="5">
+        <div class="name" id="sqla_correlated_exists_any_all">
+          Коррелированные подзапросы и кванторы: EXISTS / NOT EXISTS, ANY, ALL и LATERAL JOIN
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Подзапросы, зависящие от внешней строки, и ловушка NOT IN с NULL">
+            <p><b>Коррелированный подзапрос</b> ссылается на столбцы внешнего запроса. Оптимизатор современной СУБД обычно переписывает <code>EXISTS</code> в эффективный <b>Semi-Join</b>, а <code>NOT EXISTS</code> — в <b>Anti-Join</b>, останавливая проверку при первом же совпадении.</p>
+            <p><b>Критическая ловушка <code>NOT IN</code>:</b> если подзапрос внутри <code>WHERE id NOT IN (SELECT parent_id FROM ...)</code> вернёт хотя бы один <code>NULL</code>, то всё условие <code>id &lt;&gt; 1 AND id &lt;&gt; 2 AND id &lt;&gt; NULL</code> станет <code>UNKNOWN</code>, и запрос вернёт <b>0 строк</b>! Предикат <code>NOT EXISTS</code> этой болезни лишён.</p>
+          </div>
+          <div class="code-block" data-lang="sql">-- 1. Найти товары, которые НИ РАЗУ не покупали в 2005 году (надёжный NOT EXISTS):
+SELECT g.good_id, g.good_name
+FROM goods g
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM payments p
+    WHERE p.good = g.good_id
+      AND p.date &gt;= '2005-01-01' AND p.date &lt; '2006-01-01'
+);
+
+-- 2. LATERAL JOIN: для каждого пользователя достать его 2 самых дорогих заказа:
+SELECT u.id AS user_id, u.name, top_orders.order_id, top_orders.amount
+FROM users u
+CROSS JOIN LATERAL (
+    SELECT o.id AS order_id, o.amount
+    FROM orders o
+    WHERE o.user_id = u.id
+    ORDER BY o.amount DESC
+    LIMIT 2
+) AS top_orders;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Почему <code>WHERE id NOT IN (SELECT col FROM t2)</code> возвращает пустой результат, если в <code>t2.col</code> есть хотя бы один <code>NULL</code>?</b></p><p>В трёхзначной логике SQL выражение <code>x NOT IN (1, NULL)</code> эквивалентно <code>x &lt;&gt; 1 AND x &lt;&gt; NULL</code>, что даёт <code>UNKNOWN</code> для любого <code>x</code>. Вместо <code>NOT IN</code> следует использовать <code>NOT EXISTS</code> или <code>LEFT JOIN ... WHERE t2.col IS NULL</code>.</p></li>
+              <li><p><b>Зачем нужен <code>LATERAL JOIN</code> в PostgreSQL?</b></p><p>Он позволяет табличному подзапросу справа от <code>JOIN</code> обращаться к столбцам таблиц слева (например, взять <code>LIMIT N</code> строк на каждую строку левой таблицы).</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_set_ops_intersect_except" data-interview="5">
+        <div class="name" id="sqla_set_ops_intersect_except">
+          Реляционная алгебра множеств: INTERSECT и EXCEPT для сверки витрин и поиска расхождений
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Три оператора множеств и их поведение с NULL">
+            <ul>
+              <li><code>UNION [ALL]</code> — объединение строк двух запросов (<code>UNION</code> удаляет дубликаты, <code>UNION ALL</code> склеивает как есть без сортировки/хеширования).</li>
+              <li><code>INTERSECT [ALL]</code> — пересечение: строки, которые присутствуют <b>в обоих</b> запросах.</li>
+              <li><code>EXCEPT [ALL]</code> (в Oracle — <code>MINUS</code>) — разность множеств: строки первого запроса, которых <b>нет во втором</b>.</li>
+            </ul>
+            <p><b>Важное отличие от <code>JOIN</code>:</b> в операторах множеств (<code>UNION</code>, <code>INTERSECT</code>, <code>EXCEPT</code>) два значения <code>NULL</code> считаются <b>равными друг другу</b> (как в <code>IS NOT DISTINCT FROM</code>)! Поэтому <code>EXCEPT</code> идеально подходит для тестирования миграций и сверки двух витрин данных.</p>
+          </div>
+          <div class="code-block" data-lang="sql">-- Проверка идентичности старой и новой витрины (Symmetric Difference):
+-- Если запрос вернул 0 строк — таблицы совпадают с точностью до NULL!
+(
+    SELECT user_id, dt, revenue, clicks FROM mart_old
+    EXCEPT
+    SELECT user_id, dt, revenue, clicks FROM mart_new
+)
+UNION ALL
+(
+    SELECT user_id, dt, revenue, clicks FROM mart_new
+    EXCEPT
+    SELECT user_id, dt, revenue, clicks FROM mart_old
+);</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Как операторы <code>INTERSECT</code> и <code>EXCEPT</code> сравнивают значения <code>NULL</code>?</b></p><p>В отличие от обычного оператора <code>=</code> в <code>WHERE</code>/<code>JOIN</code>, операторы множеств считают <code>NULL</code> равным <code>NULL</code>.</p></li>
+              <li><p><b>Как одним SQL-запросом проверить, что две витрины содержат одинаковый набор строк?</b></p><p>Взять объединение двух разностей: <code>(SELECT * FROM A EXCEPT SELECT * FROM B) UNION ALL (SELECT * FROM B EXCEPT SELECT * FROM A)</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <h3 data-md-source="true">Блок 7</h3>
+      <li class="question" data-md-source="true" data-md-id="sqla_datetime_intervals_timezones" data-interview="5">
+        <div class="name" id="sqla_datetime_intervals_timezones">
+          Глубокая работа с датой, временем и часовыми поясами: DATE_TRUNC, EXTRACT, AGE, INTERVAL и GENERATE_SERIES
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Ключевые функции времени в аналитике и тренажёрах">
+            <table class="task-table">
+              <thead>
+                <tr><th>Функция / Выражение</th><th>Что возвращает</th><th>Пример использования</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>DATE_TRUNC('month', ts)</code></td><td>Усекает дату/время до начала указанного периода (<code>hour</code>, <code>day</code>, <code>week</code>, <code>month</code>, <code>year</code>), сохраняя тип <code>TIMESTAMP</code>.</td><td>Группировка выручки по месяцам и когортам: <code>GROUP BY DATE_TRUNC('month', created_at)</code></td></tr>
+                <tr><td><code>EXTRACT(field FROM ts)</code></td><td>Извлекает числовую компоненту (<code>YEAR</code>, <code>MONTH</code>, <code>DAY</code>, <code>DOW</code>, <code>EPOCH</code> — секунды).</td><td>Возраст в полных годах: <code>EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthday))</code></td></tr>
+                <tr><td><code>ts + INTERVAL '7 days'</code></td><td>Арифметика дат с поддержкой календарных сдвигов.</td><td>Окно атрибуции 24 часа: <code>click_ts + INTERVAL '24 hours'</code></td></tr>
+                <tr><td><code>GENERATE_SERIES(start, stop, step)</code></td><td>Табличная функция, генерирующая непрерывную сетку дат или чисел без пропусков.</td><td>Построение календаря дат перед <code>LEFT JOIN</code> заказов.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="code-block" data-lang="sql">-- Точный расчёт полных лет (возраста) студента на текущую дату:
+-- В PostgreSQL:
+SELECT
+    name,
+    birthday,
+    EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthday))::INT AS age_years
+FROM student;
+
+-- В MySQL / SQLite (универсальная формула через год и день года):
+-- TIMESTAMPDIFF(YEAR, birthday, CURDATE())</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Чем <code>DATE_TRUNC('month', ts)</code> отличается от <code>EXTRACT(MONTH FROM ts)</code>?</b></p><p><code>EXTRACT(MONTH FROM ts)</code> возвращает только номер месяца (число от 1 до 12), склеивая январь 2024 и январь 2025 года в одну группу. <code>DATE_TRUNC('month', ts)</code> возвращает полную дату начала месяца (<code>2025-01-01 00:00:00</code>), сохраняя год.</p></li>
+              <li><p><b>Почему для хранения времени событий на бэкенде и в DWH всегда выбирают <code>TIMESTAMPTZ</code> (UTC)?</b></p><p><code>TIMESTAMPTZ</code> хранит момент времени в UTC и корректно учитывает часовые пояса при сравнениях и конвертации через <code>AT TIME ZONE</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_string_json_arrays" data-interview="5">
+        <div class="name" id="sqla_string_json_arrays">
+          Строковые функции, массивы и JSON в SQL: STRING_AGG, SPLIT_PART, UNNEST и операторы JSONB
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Обработка текста и полуструктурированных данных прямо в СУБД">
+            <ul>
+              <li><b>Конкатенация и разрезка строк:</b> оператор <code>||</code> или <code>CONCAT(a, b)</code> (игнорирует <code>NULL</code>, в отличие от <code>||</code>!), <code>SUBSTRING(s FROM start FOR len)</code>, <code>LEFT(s, n)</code>, <code>SPLIT_PART(s, '.', 2)</code>.</li>
+              <li><b>Агрегация строк в список:</b> в PostgreSQL — <code>STRING_AGG(col, ', ' ORDER BY col)</code>; в MySQL — <code>GROUP_CONCAT</code>; в SQLite — <code>GROUP_CONCAT</code>.</li>
+              <li><b>Массивы и JSONB:</b> <code>ARRAY_AGG(col)</code> собирает массив, <code>UNNEST(arr)</code> разворачивает массив обратно в строки, а в <code>JSONB</code> оператор <code>-&gt;</code> возвращает JSON-объект, <code>-&gt;&gt;</code> — текст (<code>TEXT</code>), а <code>@&gt;</code> проверяет вхождение по GIN-индексу.</li>
+            </ul>
+          </div>
+          <div class="code-block" data-lang="sql">-- 1. Форматирование ФИО в вид «Фамилия.И.»:
+SELECT
+    last_name || '.' || SUBSTRING(first_name, 1, 1) || '.' AS short_name
+FROM student
+ORDER BY short_name ASC;
+
+-- 2. Извлечение параметров из JSONB-колонки логов и агрегация списка тегов:
+SELECT
+    user_id,
+    payload-&gt;&gt;'device_os' AS os,
+    (payload-&gt;' Geo'-&gt;&gt;'lat')::FLOAT AS lat,
+    STRING_AGG(DISTINCT event_name, ' -&gt; ' ORDER BY event_name) AS path
+FROM raw_events
+WHERE payload @&gt; '{"country": "RU"}'::jsonb
+GROUP BY user_id, payload-&gt;&gt;'device_os', (payload-&gt;'Geo'-&gt;&gt;'lat')::FLOAT;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Чем конкатенация через <code>CONCAT(a, b)</code> отличается от оператора <code>a || b</code> при наличии <code>NULL</code>?</b></p><p>Оператор <code>a || NULL</code> возвращает <code>NULL</code>, а функция <code>CONCAT(a, NULL)</code> трактует <code>NULL</code> как пустую строку <code>''</code> и возвращает <code>a</code>.</p></li>
+              <li><p><b>В чём разница между операторами <code>-&gt;</code> и <code>-&gt;&gt;</code> при работе с <code>JSONB</code> в PostgreSQL?</b></p><p><code>-&gt;</code> возвращает значение в типе <code>JSONB</code> (в кавычках для строк), а <code>-&gt;&gt;</code> извлекает скалярное значение сразу как <code>TEXT</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_window_frames_rows_range_groups" data-interview="5">
+        <div class="name" id="sqla_window_frames_rows_range_groups">
+          Анатомия рамок оконных функций: ROWS vs RANGE vs GROUPS, ловушка LAST_VALUE и NTILE
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Почему LAST_VALUE из коробки возвращает текущую строку, а не последнюю">
+            <p>Когда в <code>OVER (PARTITION BY ... ORDER BY ...)</code> указан <code>ORDER BY</code>, но не указана рамка окна, СУБД по умолчанию подставляет рамку:</p>
+            <p><code>RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code></p>
+            <p>Это значит, что окно заканчивается на <b>текущей строке</b> (и равных ей по ключу сортировки)! Поэтому:</p>
+            <ul>
+              <li>Вызов <code>LAST_VALUE(col) OVER (PARTITION BY dept ORDER BY salary)</code> вернёт зарплату <b>текущего сотрудника</b>, а не максимальную по отделу! Чтобы увидеть всю партицию до конца, нужно явно задать рамку: <code>ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING</code>.</li>
+              <li>При наличии дубликатов по ключу сортировки <code>RANGE</code> склеивает все строки с одинаковым значением <code>ORDER BY</code> в один шаг накопительной суммы, а <code>ROWS</code> прибавляет строго по одной физической строке.</li>
+            </ul>
+          </div>
+          <div class="code-block" data-lang="sql">-- Сравнение ROWS и RANGE и правильный вызов LAST_VALUE:
+SELECT
+    user_id,
+    dt,
+    amount,
+    -- Скользящее среднее по 3 физическим строкам (текущая + 2 предыдущие):
+    AVG(amount) OVER (
+        PARTITION BY user_id
+        ORDER BY dt
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS ma_3_rows,
+    -- Последнее значение в партиции (с полной рамкой до конца окна!):
+    LAST_VALUE(amount) OVER (
+        PARTITION BY user_id
+        ORDER BY dt
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS final_amount,
+    -- Разбиение пользователей на 4 квартиля (бакета) по выручке:
+    NTILE(4) OVER (ORDER BY amount DESC) AS quartile
+FROM user_payments;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Какая рамка окна используется по умолчанию, если в <code>OVER (...)</code> написан <code>ORDER BY</code>?</b></p><p><code>RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code>.</p></li>
+              <li><p><b>Чем отличается рамка <code>ROWS</code> от рамки <code>RANGE</code>?</b></p><p><code>ROWS</code> отсчитывает фиксированное число физических строк до/после текущей, а <code>RANGE</code> объединяет строки с одинаковым значением ключа сортировки (peers) и позволяет задавать смещение в единицах самого значения (например, <code>RANGE BETWEEN INTERVAL '7 days' PRECEDING AND CURRENT ROW</code>).</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <h3>Блок 4: DML (UPSERT, RETURNING), рекурсивные CTE, представления и хранимые процедуры</h3>
+      <li class="question" data-md-source="true" data-md-id="sqla_dml_upsert_returning_merge" data-interview="5">
+        <div class="name" id="sqla_dml_upsert_returning_merge">
+          Модификация данных (DML): INSERT ... SELECT, ON CONFLICT (UPSERT), UPDATE ... FROM и RETURNING
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Идемпотентная запись в БД и возврат изменённых строк за один сетевой поход">
+            <p>В реальных пайплайнах данных и бэкенде почти никогда не делают голый <code>INSERT</code> без обработки дубликатов:</p>
+            <ul>
+              <li><code>ON CONFLICT (key) DO NOTHING</code> или <code>DO UPDATE SET ... = EXCLUDED....</code> (<b>UPSERT</b>) — атомарно вставляет новую строку или обновляет существующую при конфликте по уникальному индексу без гонок (Race Conditions).</li>
+              <li><code>RETURNING id, updated_at</code> — позволяет сразу получить сгенерированные БД идентификаторы или старые/новые значения изменённых строк в `INSERT`, `UPDATE` и `DELETE` без второго `SELECT`-запроса.</li>
+            </ul>
+          </div>
+          <div class="code-block" data-lang="sql">-- 1. Атомарный UPSERT витрины дневных метрик с доступом к вставляемой строке через EXCLUDED:
+INSERT INTO daily_user_stats (user_id, dt, clicks, revenue)
+VALUES (42, '2025-11-01', 5, 1200.0)
+ON CONFLICT (user_id, dt) DO UPDATE
+SET
+    clicks  = daily_user_stats.clicks + EXCLUDED.clicks,
+    revenue = daily_user_stats.revenue + EXCLUDED.revenue
+RETURNING user_id, dt, clicks, revenue;
+
+-- 2. Массовый UPDATE таблицы через соединение с другой таблицей (UPDATE ... FROM):
+UPDATE goods g
+SET unit_price = g.unit_price * 1.10
+FROM good_types gt
+WHERE g.type = gt.good_type_id
+  AND gt.good_type_name = 'delicacies';</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Что означает псевдотаблица <code>EXCLUDED</code> внутри <code>ON CONFLICT DO UPDATE</code>?</b></p><p>Она содержит значения строки, которую мы пытались вставить (но которая вызвала конфликт уникальности), позволяя записать их в существующую строку.</p></li>
+              <li><p><b>Зачем в PostgreSQL используется секция <code>RETURNING</code> в <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code>?</b></p><p>Чтобы за один атомарный запрос вернуть клиенту (или во внешний CTE) значения столбцов вставленных, обновлённых или удалённых строк без повторного чтения таблицы.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_views_matviews_recursive_cte" data-interview="5">
+        <div class="name" id="sqla_views_matviews_recursive_cte">
+          Иерархические запросы (WITH RECURSIVE) и представления (VIEW vs MATERIALIZED VIEW CONCURRENTLY)
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Когда нужен рекурсивный CTE и чем материализованное представление отличается от обычного">
+            <p><b>Рекурсивный CTE (<code>WITH RECURSIVE</code>)</b> состоит из двух частей, соединённых через <code>UNION ALL</code>: <b>базовой (anchor)</b> части и <b>рекурсивного шага</b>, который обращается к результатам предыдущей итерации. Применяется для обхода деревьев категорий, оргструктуры сотрудников (`manager_id -> employee_id`), графов и генерации последовательностей.</p>
+            <p><b><code>VIEW</code> vs <code>MATERIALIZED VIEW</code>:</b> обычный <code>VIEW</code> не хранит данные на диске — это просто сохранённый текст запроса, который подставляется при каждом чтении. <code>MATERIALIZED VIEW</code> физически сохраняет результат на диск (по нему можно строить индексы!) и обновляется по команде <code>REFRESH MATERIALIZED VIEW [CONCURRENTLY]</code>.</p>
+          </div>
+          <div class="code-block" data-lang="sql">-- Обход дерева подчинённых от CEO (manager_id IS NULL) с подсчётом уровня иерархии:
+WITH RECURSIVE org_tree AS (
+    -- 1. Базовый шаг (Anchor): корень дерева
+    SELECT id, name, manager_id, 1 AS level, name::TEXT AS path
+    FROM employees
+    WHERE manager_id IS NULL
+
+    UNION ALL
+
+    -- 2. Рекурсивный шаг: присоединяем прямых подчинённых текущего уровня
+    SELECT e.id, e.name, e.manager_id, t.level + 1, t.path || ' -&gt; ' || e.name
+    FROM employees e
+    INNER JOIN org_tree t ON e.manager_id = t.id
+    WHERE t.level &lt; 10 -- защита от бесконечных циклов в графе
+)
+SELECT id, name, level, path FROM org_tree ORDER BY path;</div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>Из каких частей состоит запрос <code>WITH RECURSIVE</code>?</b></p><p>Из стартового (нерекурсивного) запроса (Anchor member), оператора <code>UNION ALL</code> (или <code>UNION</code>) и рекурсивной части, ссылающейся на имя самого CTE.</p></li>
+              <li><p><b>Что требуется для выполнения <code>REFRESH MATERIALIZED VIEW CONCURRENTLY</code> без блокировки чтения?</b></p><p>На материализованном представлении должен быть создан хотя бы один <code>UNIQUE INDEX</code>.</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+      <li class="question" data-md-source="true" data-md-id="sqla_stored_procs_functions_triggers" data-interview="5">
+        <div class="name" id="sqla_stored_procs_functions_triggers">
+          Хранимые функции и процедуры (PL/pgSQL), табличные функции и триггеры
+        </div>
+        <div class="content">
+<div class="info-card-auto" data-type="definition" data-title="Чем хранимая процедура (PROCEDURE) отличается от функции (FUNCTION)">
+            <table class="task-table">
+              <thead>
+                <tr><th>Критерий</th><th><code>FUNCTION</code> (Функция)</th><th><code>PROCEDURE</code> (Процедура, с PG 11+)</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Вызов</td><td>Внутри SQL-выражений: <code>SELECT my_func(x) FROM ...</code></td><td>Отдельной командой: <code>CALL my_proc(x);</code></td></tr>
+                <tr><td>Возвращаемое значение</td><td>Возвращает скаляр, запись или таблицу (<code>RETURNS TABLE(...)</code>).</td><td>Не возвращает значение напрямую (только через <code>INOUT</code>-параметры).</td></tr>
+                <tr><td>Управление транзакциями</td><td>Работает строго внутри внешней транзакции (нельзя делать <code>COMMIT</code> / <code>ROLLBACK</code>).</td><td>Может управлять транзакциями внутри тела (делать <code>COMMIT</code> и <code>ROLLBACK</code> между шагами батча).</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-card-auto" data-type="explanation" data-title="Категории изменчивости функций: IMMUTABLE, STABLE, VOLATILE">
+            <p>Чтобы оптимизатор PostgreSQL мог использовать вызов функции в индексе или не вычислять её заново на каждой строке, функции задают категорию:</p>
+            <ul>
+              <li><code>IMMUTABLE</code> — чистая функция: при одних и тех же аргументах <b>всегда</b> возвращает один и тот же результат и не читает таблицы (разрешена в функциональных индексах).</li>
+              <li><code>STABLE</code> — не меняет БД и в рамках одного SQL-запроса возвращает одинаковый результат для одинаковых аргументов (например, <code>CURRENT_DATE</code>).</li>
+              <li><code>VOLATILE</code> (по умолчанию) — может менять данные или возвращать разный результат при каждом вызове (<code>RANDOM()</code>, <code>CLOCK_TIMESTAMP()</code>).</li>
+            </ul>
+          </div>
+          <div class="info-card-auto" data-type="teormin" data-title="Теоретический минимум">
+            <ol>
+              <li><p><b>В чём главное архитектурное отличие <code>PROCEDURE</code> от <code>FUNCTION</code> в PostgreSQL?</b></p><p>Процедура вызывается через <code>CALL</code> и имеет право выполнять <code>COMMIT</code> и <code>ROLLBACK</code> внутри своего тела, а функция вызывается внутри <code>SELECT</code> и выполняется целиком в рамках текущей транзакции.</p></li>
+              <li><p><b>Зачем помечать чистую пользовательскую функцию как <code>IMMUTABLE</code>?</b></p><p>Это позволяет планировщику предвычислять её на этапе компиляции запроса с константами и строить по ней функциональные индексы (<code>CREATE INDEX ON t (my_func(col))</code>).</p></li>
+            </ol>
+          </div>
+        </div>
+      </li>
+    
         <!-- md:inject:end -->
     </ol>
   </main>

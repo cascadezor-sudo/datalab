@@ -1,0 +1,629 @@
+/* ==========================================================================
+   Reading System for DataLab Lessons & Topics
+   Unified left axis, modern semantic callout cards, sticky expanded header,
+   calm term tooltips, and structured Teormin cards.
+   ========================================================================== */
+
+:root {
+  --reading-measure: 74ch;
+  --reading-column-max: 900px;
+  --reading-body-size: 1.035rem;
+  --reading-body-leading: 1.72;
+  --reading-paragraph-gap: 0.85em;
+  --reading-section-gap: 1.85rem;
+}
+
+/* ── Section Hero ────────────────────────────────────────────────────────── */
+.section-shell__hero {
+  padding: clamp(24px, 3vw, 36px) clamp(22px, 3vw, 34px) 22px;
+}
+
+.section-shell__title {
+  max-width: 32ch;
+  margin: 0 0 10px;
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: clamp(1.9rem, 3vw, 2.45rem);
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.section-shell__desc {
+  max-width: var(--reading-measure);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 1.04rem;
+  line-height: 1.65;
+}
+
+.hero-topline {
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 0.8125rem;
+}
+
+.hero-topline .pill {
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hero-dot {
+  display: none;
+}
+
+.hero-count {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Questions List & Block Headings ─────────────────────────────────────── */
+#questions {
+  margin-block: 32px 64px;
+}
+
+#questions > h3 {
+  margin: 36px 0 14px;
+  padding: 0 4px 10px;
+  border-bottom: 1px solid var(--border-strong, var(--border));
+  color: var(--text);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Closed question row: clean list item */
+#questions .question {
+  margin: 0;
+  overflow: visible;
+  border: 1px solid transparent;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    margin 0.18s ease;
+}
+
+#questions .question:hover {
+  background: color-mix(in srgb, var(--bg-card) 45%, transparent);
+}
+
+/* Expanded question: cohesive card container with subtle elevation */
+#questions .question:has(> .name[data-expanded="true"]),
+#questions .question:has(> .content[style*="block"]) {
+  margin: 14px 0 22px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-card) 68%, var(--bg-page, transparent) 32%);
+  box-shadow: 0 10px 30px -12px rgba(2, 6, 23, 0.22);
+}
+
+/* Question Header (.name) */
+#questions .question .name {
+  min-height: 56px;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.45;
+  transition: background-color 0.15s ease;
+}
+
+/* Sticky header when question is expanded so reader never loses context */
+#questions .question .name[data-expanded="true"],
+#questions .question:has(> .content[style*="block"]) > .name {
+  position: sticky;
+  top: 56px;
+  z-index: 12;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 15px 15px 0 0;
+  background: color-mix(in srgb, var(--bg-card) 90%, var(--bg-page, #0b1120) 10%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+/* ── Unified Reading Column Inside .content ──────────────────────────────── */
+#questions .question .content,
+.course-panel,
+.task-card,
+.project-panel,
+.fastapi-panel {
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--reading-body-size);
+  line-height: var(--reading-body-leading);
+  text-align: left;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+}
+
+#questions .question .content {
+  padding: 22px clamp(18px, 3vw, 32px) 28px;
+  border-bottom: 0;
+}
+
+/* All direct children inside .content align to the SAME left axis — NO margin: auto zig-zag! */
+#questions .question .content > p,
+#questions .question .content > ul,
+#questions .question .content > ol,
+#questions .question .content > h2,
+#questions .question .content > h3,
+#questions .question .content > h4,
+#questions .question .content > .info-card,
+#questions .question .content > .callout,
+#questions .question .content > table,
+#questions .question .content > .table-wrapper {
+  max-width: var(--reading-column-max);
+  margin-left: 0;
+  margin-right: auto;
+}
+
+#questions .question .content p,
+#questions .question .content li,
+.course-panel p,
+.course-panel li,
+.task-card p,
+.task-card li,
+.project-panel p,
+.project-panel li,
+.project-panel .checklist,
+.fastapi-panel p,
+.fastapi-panel li {
+  max-width: var(--reading-measure);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+#questions .question .content p,
+.course-panel p,
+.project-panel p,
+.fastapi-panel p {
+  margin-block: var(--reading-paragraph-gap);
+}
+
+/* Section subheadings inside a topic (e.g., "Основные правила") */
+#questions .question .content h2,
+.course-panel h2,
+.project-panel h2,
+.fastapi-panel h2 {
+  max-width: var(--reading-column-max);
+  margin: var(--reading-section-gap) 0 0.7em;
+  padding-top: 0.6em;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  color: var(--text);
+  font-size: 1.38rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+#questions .question .content h3,
+.course-panel h3,
+.project-panel h3,
+.fastapi-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: var(--reading-column-max);
+  margin: 1.65em 0 0.6em;
+  color: var(--text);
+  font-size: 1.16rem;
+  font-weight: 680;
+  line-height: 1.36;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+#questions .question .content > h3::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 1.1em;
+  border-radius: 999px;
+  background: var(--brand);
+  flex-shrink: 0;
+}
+
+#questions .question .content li,
+.course-panel li,
+.task-card li,
+.project-panel li,
+.fastapi-panel li {
+  margin-block: 0.42em;
+  padding-inline-start: 0.12em;
+}
+
+#questions .question .content ul,
+#questions .question .content ol,
+.course-panel ul,
+.course-panel ol,
+.task-card ul,
+.task-card ol,
+.project-panel ul,
+.project-panel ol,
+.fastapi-panel ul,
+.fastapi-panel ol {
+  max-width: var(--reading-measure);
+  padding-inline-start: 1.35em;
+}
+
+/* ── Semantic Info Cards (Callouts) ──────────────────────────────────────── */
+#questions .question .content .info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+  max-width: var(--reading-column-max);
+  margin: 16px 0;
+  padding: 16px 20px;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--variant, var(--brand)) 20%, var(--border));
+  border-left: 4px solid var(--variant, var(--brand));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--variant, var(--brand)) 8%);
+  box-shadow: 0 2px 10px rgba(2, 6, 23, 0.04);
+  color: var(--text);
+}
+
+[data-theme="dark"] body #questions .question .content .info-card {
+  background: color-mix(in srgb, var(--bg-card) 90%, var(--variant, var(--brand)) 10%);
+  border-color: color-mix(in srgb, var(--variant, var(--brand)) 24%, var(--border));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
+/* Restore compact semantic icon badge inside info-card */
+#questions .question .content .info-icon {
+  display: flex;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  margin-top: 1px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--variant, var(--brand)) 15%, transparent);
+  color: var(--variant, var(--brand));
+}
+
+#questions .question .content .info-icon::before {
+  width: 18px;
+  height: 18px;
+}
+
+#questions .question .content .info-card .info-content {
+  flex: 1;
+  min-width: 0;
+}
+
+#questions .question .content .info-card .info-title {
+  max-width: 50ch;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 1.06rem;
+  font-weight: 680;
+  line-height: 1.35;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+#questions .question .content .info-card p,
+#questions .question .content .info-card li {
+  max-width: var(--reading-measure);
+  color: color-mix(in srgb, var(--text) 92%, var(--text-muted) 8%);
+  font-size: 0.995rem;
+  line-height: 1.7;
+}
+
+#questions .question .content .info-card p {
+  margin-block: 0.65em;
+}
+
+#questions .question .content .info-card p:first-of-type {
+  margin-top: 0;
+}
+
+#questions .question .content .info-card p:last-child {
+  margin-bottom: 0;
+}
+
+#questions .question .content .info-card ul,
+#questions .question .content .info-card ol {
+  margin-block: 10px;
+  padding-inline-start: 1.25em;
+}
+
+#questions .question .content .info-card li {
+  margin-block: 5px;
+  padding-inline-start: 4px;
+}
+
+/* Worked examples & Example cards */
+#questions .question .content .info-card.lesson-worked,
+#questions .question .content .info-card.example {
+  margin-block: 16px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--info-card-example, #10b981) 26%, var(--border));
+  border-left: 4px solid var(--info-card-example, #10b981);
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--info-card-example, #10b981) 8%);
+}
+
+#questions .question .content .info-card.lesson-worked .info-title,
+#questions .question .content .info-card.example .info-title {
+  font-size: 1.08rem;
+}
+
+#questions .question .content .lesson-principle {
+  padding-inline-start: 15px;
+  border-left: 2px solid var(--brand);
+  color: var(--text-muted);
+}
+
+#questions .question .content .lesson-takeaway {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+/* ── Teormin Self-Check Cards ────────────────────────────────────────────── */
+#questions .question .content .info-card.teormin .info-content ol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 100%;
+}
+
+#questions .question .content .info-card.teormin .info-content ol > li {
+  position: relative;
+  max-width: none;
+  margin: 0;
+  padding: 12px 16px 12px 44px;
+  border: 1px solid color-mix(in srgb, var(--info-card-teormin, #06b6d4) 22%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card) 82%, var(--info-card-teormin, #06b6d4) 5%);
+}
+
+#questions .question .content .info-card.teormin .info-content ol > li::before {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--info-card-teormin, #06b6d4) 20%, transparent);
+  color: var(--info-card-teormin, #06b6d4);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+#questions .question .content .info-card.teormin .info-content ol > li p:first-child {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+#questions .question .content .info-card.teormin .info-content ol > li p + p {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--info-card-teormin, #06b6d4) 25%, var(--border));
+  color: var(--text-muted);
+  font-size: 0.94rem;
+  line-height: 1.62;
+}
+
+/* ── Typography Emphasis, Links & Calm Term Tooltips ─────────────────────── */
+#questions .question .content strong,
+#questions .question .content b,
+.course-panel strong,
+.task-card strong,
+.project-panel strong,
+.fastapi-panel strong {
+  background: none;
+  color: var(--text);
+  -webkit-text-fill-color: currentColor;
+  font-weight: 650;
+}
+
+#questions .question .content a {
+  color: color-mix(in srgb, var(--brand) 85%, var(--text));
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+#questions .question .content a:hover,
+#questions .question .content a:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+/* Subtle dashed underline for term tooltips instead of noisy solid line */
+#questions .question .content .term-tooltip {
+  color: var(--text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  text-decoration: none !important;
+  border-bottom: 1px dashed color-mix(in srgb, var(--brand) 55%, var(--text-muted)) !important;
+  padding-bottom: 1px;
+  border-radius: 3px;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+#questions .question .content .term-tooltip:hover,
+#questions .question .content .term-tooltip:focus-visible {
+  background-color: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-bottom-style: solid !important;
+  border-bottom-color: var(--brand) !important;
+}
+
+/* ── Code Blocks, Math & Tables ──────────────────────────────────────────── */
+#questions .question .content pre,
+.code-block pre,
+.course-panel pre,
+.project-code,
+.fastapi-panel pre {
+  max-width: 100%;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+  font-size: 0.875rem;
+  line-height: 1.68;
+  tab-size: 4;
+}
+
+#questions .question .content .code-block {
+  max-width: var(--reading-column-max);
+  margin: 14px 0;
+  border-radius: 12px;
+}
+
+#questions .question .content .katex-display,
+.course-panel .katex-display,
+.project-panel .katex-display,
+.fastapi-panel .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.35em;
+  text-align: left;
+}
+
+.lesson-table,
+#questions .question .content .task-table {
+  width: 100%;
+  max-width: var(--reading-column-max);
+  margin: 16px 0;
+  border-collapse: collapse;
+  color: var(--text);
+  font-size: 0.94em;
+  line-height: 1.55;
+}
+
+.lesson-table th,
+.lesson-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.lesson-table thead th {
+  color: var(--text-muted);
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.lesson-table tbody th,
+.lesson-table td strong {
+  font-weight: 620;
+}
+
+.lesson-table td {
+  font-weight: 450;
+}
+
+.lesson-compare tbody th:first-child {
+  width: 18%;
+  color: var(--text);
+  font-weight: 620;
+}
+
+.project-panel {
+  padding: clamp(20px, 2.6vw, 30px);
+}
+
+.project-panel h2,
+.project-step h2 {
+  margin-top: 0;
+}
+
+/* ── Mobile Adjustments ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  :root {
+    --reading-body-size: 0.98rem;
+    --reading-body-leading: 1.66;
+    --reading-paragraph-gap: 0.8em;
+    --reading-section-gap: 1.5rem;
+  }
+
+  .section-shell__hero {
+    padding: 20px 16px 18px;
+  }
+
+  #questions .question .name[data-expanded="true"],
+  #questions .question:has(> .content[style*="block"]) > .name {
+    padding: 12px 14px;
+    top: 48px;
+  }
+
+  #questions .question .content {
+    padding: 16px 14px 20px;
+  }
+
+  #questions .question .content .info-card {
+    flex-direction: row;
+    gap: 12px;
+    padding: 14px 14px;
+  }
+
+  #questions .question .content .info-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .lesson-table {
+    font-size: 0.86em;
+  }
+
+  .lesson-table th,
+  .lesson-table td {
+    padding: 9px 7px;
+  }
+
+  .lesson-compare thead {
+    display: none;
+  }
+
+  .lesson-compare,
+  .lesson-compare tbody,
+  .lesson-compare tr,
+  .lesson-compare th,
+  .lesson-compare td {
+    display: block;
+    width: 100%;
+  }
+
+  .lesson-compare tr {
+    padding-block: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .lesson-compare th,
+  .lesson-compare td {
+    padding: 5px 0;
+    border: 0;
+  }
+}

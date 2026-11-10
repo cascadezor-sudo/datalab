@@ -6,16 +6,9 @@
  *   window.avatarUpload.load(uid, db)                     → Promise<string|null>
  *   window.avatarUpload.applyToElement(el, avatarUrl, initials)
  *
- * The Worker URL must match the deployed Cloudflare Worker.
- * Set AVATAR_WORKER_URL before this script loads, or update the constant below.
+ * Images are resized and stored locally in the offline profile.
  */
 (function () {
-  // Deployed Cloudflare Worker URL.
-  // After deploying cloudflare-worker/avatar-upload.js, replace this with the actual URL.
-  var WORKER_URL =
-    window.AVATAR_WORKER_URL ||
-    "https://avatar-upload.schmidtml.workers.dev";
-
   var MAX_SIZE = 2 * 1024 * 1024; // 2 MB
   var OUTPUT_SIZE = 256; // resize to 256×256 px
 

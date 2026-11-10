@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 r"""
-Deep textbook generator for SchmidtML Analytics - Group 1:
+Deep textbook generator for DataLab Analytics - Group 1:
 - site/analytics/product/ab.html (14 questions)
 - site/analytics/product/ab-design.html (15 questions)
 r"""

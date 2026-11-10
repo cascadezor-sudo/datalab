@@ -265,6 +265,8 @@
     <script src="../../assets/js/components/term-definitions.js"></script>
     <script src="../../assets/js/components/term-tooltip.js"></script>
     <script src="../../assets/js/firebase-mock.js"></script>
+
+  <link href="../../assets/css/learning-reading.css" rel="stylesheet" />
 </head>
   <body data-term-scope="all">
     <a class="skip-link" href="#main-content">Перейти к содержимому</a>
@@ -1604,6 +1606,452 @@ assert slugify(&quot;  A  B  &quot;) == &quot;a-b&quot;, &quot;Пробелы с
 </div>
 <div class="code-block" data-lang="python">def slugify(text):
     pass</div>
+  </div>
+</li>
+        
+        <h3 data-md-source="true">Структуры данных своими руками</h3>
+<li class="question" data-md-source="true" data-md-id="ds_stack" data-difficulty="easy" data-tests="s = MinStack()
+assert len(s) == 0, &quot;Новый стек должен быть пустым&quot;
+s.push(5)
+s.push(2)
+s.push(7)
+s.push(2)
+assert len(s) == 4, &quot;После 4 push длина должна быть 4&quot;
+assert s.get_min() == 2, &quot;Минимум для [5, 2, 7, 2] равен 2&quot;
+assert s.top() == 2, &quot;Вершина стека равна 2&quot;
+assert s.pop() == 2, &quot;Первый pop возвращает 2&quot;
+assert s.get_min() == 2, &quot;После удаления одной двойки минимум всё ещё 2&quot;
+assert s.pop() == 7, &quot;Второй pop возвращает 7&quot;
+assert s.pop() == 2, &quot;Третий pop возвращает 2&quot;
+assert s.get_min() == 5, &quot;Теперь в стеке осталась только 5 -&gt; минимум 5&quot;
+assert s.pop() == 5, &quot;Последний pop возвращает 5&quot;
+try:
+    s.pop()
+    assert False, &quot;pop() на пустом стеке должен выбрасывать IndexError&quot;
+except IndexError:
+    pass">
+  <div class="name question-difficulty-easy" id="ds_stack">
+    Стек своими руками с поддержкой минимума за O(1) (MinStack)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Реализовать структуру данных LIFO (стек) с отслеживанием текущего минимума за константное время O(1) без линейного перебора.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>MinStack</code>, поддерживающий операции стека за <code>O(1)</code> по времени:</p>
+<ul>
+  <li><code>push(val)</code> — кладёт число <code>val</code> на вершину стека;</li>
+  <li><code>pop()</code> — удаляет и возвращает верхний элемент (если стек пуст, выбрасывает <code>IndexError</code>);</li>
+  <li><code>top()</code> — возвращает верхний элемент без удаления (если стек пуст, выбрасывает <code>IndexError</code>);</li>
+  <li><code>get_min()</code> — возвращает минимальный элемент среди всех, находящихся сейчас в стеке, за <code>O(1)</code> (если стек пуст, выбрасывает <code>IndexError</code>);</li>
+  <li><code>__len__()</code> — возвращает количество элементов в стеке.</li>
+</ul>
+<p><b>Подсказка:</b> храни на каждом уровне стека кортеж <code>(val, current_min)</code>, где <code>current_min</code> — минимум среди элементов от дна до текущего уровня включительно.</p>
+    </div>
+    <div class="code-block" data-lang="python">class MinStack:
+    def __init__(self):
+        self._items = []
+
+    def push(self, val: int) -&gt; None:
+        curr_min = val if not self._items else min(val, self._items[-1][1])
+        self._items.append((val, curr_min))
+
+    def pop(self) -&gt; int:
+        if not self._items:
+            raise IndexError(&quot;pop from empty MinStack&quot;)
+        return self._items.pop()[0]
+
+    def top(self) -&gt; int:
+        if not self._items:
+            raise IndexError(&quot;top from empty MinStack&quot;)
+        return self._items[-1][0]
+
+    def get_min(self) -&gt; int:
+        if not self._items:
+            raise IndexError(&quot;get_min from empty MinStack&quot;)
+        return self._items[-1][1]
+
+    def __len__(self) -&gt; int:
+        return len(self._items)</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ds_queue" data-difficulty="easy" data-tests="q = MyQueue()
+assert len(q) == 0, &quot;Новая очередь пуста&quot;
+q.enqueue(&quot;a&quot;)
+q.enqueue(&quot;b&quot;)
+q.enqueue(&quot;c&quot;)
+assert len(q) == 3, &quot;Длина очереди равна 3&quot;
+assert q.peek() == &quot;a&quot;, &quot;Первый элемент очереди -&gt; &#x27;a&#x27;&quot;
+assert q.dequeue() == &quot;a&quot;, &quot;dequeue() возвращает &#x27;a&#x27;&quot;
+q.enqueue(&quot;d&quot;)
+assert q.dequeue() == &quot;b&quot;, &quot;Следующий элемент -&gt; &#x27;b&#x27;&quot;
+assert q.dequeue() == &quot;c&quot;, &quot;Следующий элемент -&gt; &#x27;c&#x27;&quot;
+assert q.dequeue() == &quot;d&quot;, &quot;Последний элемент -&gt; &#x27;d&#x27;&quot;
+assert len(q) == 0, &quot;Очередь снова пуста&quot;
+try:
+    q.dequeue()
+    assert False, &quot;dequeue() на пустой очереди должен выбрасывать IndexError&quot;
+except IndexError:
+    pass">
+  <div class="name question-difficulty-easy" id="ds_queue">
+    Очередь FIFO на двух стеках за амортизированное O(1) (MyQueue)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Понять, почему list.pop(0) работает за O(n), и построить быструю очередь FIFO поверх двух обычных списков-стеков.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>MyQueue</code> (очередь First-In, First-Out), используя внутри два списка <code>_in_stack</code> и <code>_out_stack</code> (разрешены только операции с конца списка — <code>append()</code> и <code>pop()</code>):</p>
+<ul>
+  <li><code>enqueue(val)</code> — добавляет элемент в конец очереди за <code>O(1)</code>;</li>
+  <li><code>dequeue()</code> — удаляет и возвращает самый старый элемент очереди за амортизированное <code>O(1)</code> (при пустой очереди выбрасывает <code>IndexError</code>);</li>
+  <li><code>peek()</code> — возвращает первый в очереди элемент без удаления (при пустой очереди выбрасывает <code>IndexError</code>);</li>
+  <li><code>__len__()</code> — возвращает текущее количество элементов в очереди.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">class MyQueue:
+    def __init__(self):
+        self._in_stack = []
+        self._out_stack = []
+
+    def _shift(self) -&gt; None:
+        if not self._out_stack:
+            while self._in_stack:
+                self._out_stack.append(self._in_stack.pop())
+
+    def enqueue(self, val) -&gt; None:
+        self._in_stack.append(val)
+
+    def dequeue(self):
+        self._shift()
+        if not self._out_stack:
+            raise IndexError(&quot;dequeue from empty MyQueue&quot;)
+        return self._out_stack.pop()
+
+    def peek(self):
+        self._shift()
+        if not self._out_stack:
+            raise IndexError(&quot;peek from empty MyQueue&quot;)
+        return self._out_stack[-1]
+
+    def __len__(self) -&gt; int:
+        return len(self._in_stack) + len(self._out_stack)</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ds_dynamic_array" data-difficulty="medium" data-tests="arr = DynamicArray(4)
+assert len(arr) == 0 and arr.capacity == 4, &quot;Начальная ёмкость 4, размер 0&quot;
+for x in [10, 20, 30, 40]:
+    arr.append(x)
+assert len(arr) == 4 and arr.capacity == 4, &quot;После 4 элементов ёмкость всё ещё 4&quot;
+arr.append(50)
+assert len(arr) == 5 and arr.capacity == 8, &quot;При 5-м элементе буфер должен удвоиться до 8&quot;
+assert arr[0] == 10 and arr[4] == 50 and arr[-1] == 50, &quot;Индексация (включая отрицательную) должна работать&quot;
+assert arr.pop() == 50 and len(arr) == 4, &quot;pop() возвращает 50 и уменьшает длину до 4&quot;
+try:
+    _ = arr[10]
+    assert False, &quot;Выход за границы должен выбрасывать IndexError&quot;
+except IndexError:
+    pass">
+  <div class="name question-difficulty-medium" id="ds_dynamic_array">
+    Динамический массив с удвоением буфера (DynamicArray)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Реализовать внутреннюю механику динамического массива (как устроен list в CPython) с автоматическим ресайзом буфера.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>DynamicArray</code> поверх низкоуровневого буфера фиксированной длины <code>self._buffer = [None] * initial_capacity</code> (по умолчанию <code>initial_capacity = 4</code>):</p>
+<ul>
+  <li><code>append(val)</code> — кладёт элемент в конец массива; если буфер заполнен (<code>size == capacity</code>), выделяет новый буфер размера <code>capacity * 2</code> и копирует туда элементы;</li>
+  <li><code>__getitem__(index)</code> — возвращает элемент по индексу (с поддержкой отрицательных индексов от <code>-len</code> до <code>len - 1</code>; при выходе за границы выбрасывает <code>IndexError</code>);</li>
+  <li><code>pop()</code> — удаляет и возвращает последний элемент (при пустом массиве выбрасывает <code>IndexError</code>);</li>
+  <li><code>__len__()</code> и свойство <code>capacity</code> — текущее число элементов и ёмкость буфера.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">class DynamicArray:
+    def __init__(self, initial_capacity: int = 4):
+        self._size = 0
+        self._capacity = max(1, initial_capacity)
+        self._buffer = [None] * self._capacity
+
+    @property
+    def capacity(self) -&gt; int:
+        return self._capacity
+
+    def __len__(self) -&gt; int:
+        return self._size
+
+    def _resize(self, new_capacity: int) -&gt; None:
+        new_buf = [None] * new_capacity
+        for i in range(self._size):
+            new_buf[i] = self._buffer[i]
+        self._buffer = new_buf
+        self._capacity = new_capacity
+
+    def append(self, val) -&gt; None:
+        if self._size == self._capacity:
+            self._resize(self._capacity * 2)
+        self._buffer[self._size] = val
+        self._size += 1
+
+    def __getitem__(self, index: int):
+        if index &lt; 0:
+            index += self._size
+        if not (0 &lt;= index &lt; self._size):
+            raise IndexError(&quot;DynamicArray index out of range&quot;)
+        return self._buffer[index]
+
+    def pop(self):
+        if self._size == 0:
+            raise IndexError(&quot;pop from empty DynamicArray&quot;)
+        self._size -= 1
+        val = self._buffer[self._size]
+        self._buffer[self._size] = None
+        return val</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ds_linked_list" data-difficulty="medium" data-tests="ll = SinglyLinkedList()
+ll.append(1)
+ll.append(2)
+ll.append(3)
+ll.prepend(0)
+assert ll.to_list() == [0, 1, 2, 3], &quot;После prepend(0) и append(1,2,3) -&gt; [0, 1, 2, 3]&quot;
+assert ll.delete(2) is True, &quot;Удаление существующего элемента возвращает True&quot;
+assert ll.delete(99) is False, &quot;Удаление отсутствующего элемента возвращает False&quot;
+assert ll.to_list() == [0, 1, 3], &quot;Список после удаления двойки -&gt; [0, 1, 3]&quot;
+ll.reverse()
+assert ll.to_list() == [3, 1, 0], &quot;Список после разворота -&gt; [3, 1, 0]&quot; ">
+  <div class="name question-difficulty-medium" id="ds_linked_list">
+    Односвязный список и разворот на месте (SinglyLinkedList)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Потренировать работу со ссылочными узлами и классический алгоритм разворота односвязного списка за O(n) по времени и O(1) по памяти.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс узла <code>ListNode(val, next_node=None)</code> и класс односвязного списка <code>SinglyLinkedList</code> с методами:</p>
+<ul>
+  <li><code>prepend(val)</code> — добавляет узел в начало списка за <code>O(1)</code>;</li>
+  <li><code>append(val)</code> — добавляет узел в конец списка;</li>
+  <li><code>delete(val)</code> — удаляет первое вхождение значения <code>val</code> и возвращает <code>True</code> (или <code>False</code>, если значения нет);</li>
+  <li><code>reverse()</code> — разворачивает список на месте (in-place), переставляя ссылки <code>next</code>;</li>
+  <li><code>to_list()</code> — возвращает обычный список значений узлов от головы к хвосту.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">class ListNode:
+    def __init__(self, val, next_node=None):
+        self.val = val
+        self.next = next_node
+
+class SinglyLinkedList:
+    def __init__(self):
+        self.head = None
+
+    def prepend(self, val) -&gt; None:
+        self.head = ListNode(val, self.head)
+
+    def append(self, val) -&gt; None:
+        node = ListNode(val)
+        if self.head is None:
+            self.head = node
+            return
+        curr = self.head
+        while curr.next is not None:
+            curr = curr.next
+        curr.next = node
+
+    def delete(self, val) -&gt; bool:
+        prev, curr = None, self.head
+        while curr is not None:
+            if curr.val == val:
+                if prev is None:
+                    self.head = curr.next
+                else:
+                    prev.next = curr.next
+                return True
+            prev, curr = curr, curr.next
+        return False
+
+    def reverse(self) -&gt; None:
+        prev, curr = None, self.head
+        while curr is not None:
+            nxt = curr.next
+            curr.next = prev
+            prev = curr
+            curr = nxt
+        self.head = prev
+
+    def to_list(self) -&gt; list:
+        out, curr = [], self.head
+        while curr is not None:
+            out.append(curr.val)
+            curr = curr.next
+        return out</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ds_hash_map" data-difficulty="medium" data-tests="hm = HashMap(initial_buckets=4)
+for i in range(12):
+    hm.put(f&quot;key_{i}&quot;, i * 10)
+assert len(hm) == 12, &quot;В таблице должно быть 12 ключей&quot;
+assert hm.get(&quot;key_5&quot;) == 50, &quot;get(&#x27;key_5&#x27;) -&gt; 50&quot;
+assert &quot;key_11&quot; in hm and &quot;missing&quot; not in hm, &quot;Проверка оператора in&quot;
+hm.put(&quot;key_5&quot;, 555)
+assert hm.get(&quot;key_5&quot;) == 555 and len(hm) == 12, &quot;Обновление существующего ключа не меняет размер&quot;
+assert hm.remove(&quot;key_5&quot;) == 555 and &quot;key_5&quot; not in hm and len(hm) == 11, &quot;remove удаляет ключ и возвращает его значение&quot;
+try:
+    hm.remove(&quot;key_5&quot;)
+    assert False, &quot;Повторное удаление должно выбрасывать KeyError&quot;
+except KeyError:
+    pass">
+  <div class="name question-difficulty-medium" id="ds_hash_map">
+    Хеш-таблица методом цепочек с рехешированием (HashMap)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Собрать собственный аналог dict с разрешением коллизий методом цепочек (Separate Chaining) и автоматическим расширением при росте Load Factor.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>HashMap</code> без использования встроенного словаря <code>dict</code> (храни массив бакетов <code>self._buckets</code>, где каждый бакет — список пар <code>[key, value]</code>):</p>
+<ul>
+  <li><code>put(key, value)</code> — вставляет или обновляет значение по ключу; если <code>(size + 1) / len(buckets) &gt; 0.75</code>, удваивает число бакетов и перераспределяет все пары (<code>_rehash</code>);</li>
+  <li><code>get(key, default=None)</code> — возвращает значение по ключу или <code>default</code>;</li>
+  <li><code>remove(key)</code> — удаляет пару по ключу и возвращает значение (если ключа нет — выбрасывает <code>KeyError</code>);</li>
+  <li><code>__contains__(key)</code> и <code>__len__()</code>.</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">class HashMap:
+    def __init__(self, initial_buckets: int = 8):
+        self._buckets = [[] for _ in range(max(2, initial_buckets))]
+        self._size = 0
+
+    def _index(self, key, num_buckets: int | None = None) -&gt; int:
+        n = num_buckets or len(self._buckets)
+        return hash(key) % n
+
+    def _rehash(self) -&gt; None:
+        new_cap = len(self._buckets) * 2
+        new_buckets = [[] for _ in range(new_cap)]
+        for bucket in self._buckets:
+            for k, v in bucket:
+                new_buckets[self._index(k, new_cap)].append([k, v])
+        self._buckets = new_buckets
+
+    def put(self, key, value) -&gt; None:
+        if (self._size + 1) / len(self._buckets) &gt; 0.75:
+            self._rehash()
+        bucket = self._buckets[self._index(key)]
+        for pair in bucket:
+            if pair[0] == key:
+                pair[1] = value
+                return
+        bucket.append([key, value])
+        self._size += 1
+
+    def get(self, key, default=None):
+        for k, v in self._buckets[self._index(key)]:
+            if k == key:
+                return v
+        return default
+
+    def remove(self, key):
+        bucket = self._buckets[self._index(key)]
+        for i, (k, v) in enumerate(bucket):
+            if k == key:
+                bucket.pop(i)
+                self._size -= 1
+                return v
+        raise KeyError(key)
+
+    def __contains__(self, key) -&gt; bool:
+        return any(k == key for k, _ in self._buckets[self._index(key)])
+
+    def __len__(self) -&gt; int:
+        return self._size</div>
+    
+  </div>
+</li>
+<li class="question" data-md-source="true" data-md-id="ds_lru_cache" data-difficulty="hard" data-tests="cache = LRUCache(2)
+cache.put(1, 10)
+cache.put(2, 20)
+assert cache.get(1) == 10, &quot;Ключ 1 найден (10) и становится самым свежим&quot;
+cache.put(3, 30)
+assert cache.get(2) == -1, &quot;Ключ 2 должен быть вытеснен при добавлении ключа 3&quot;
+cache.put(4, 40)
+assert cache.get(1) == -1, &quot;Ключ 1 должен быть вытеснен при добавлении ключа 4&quot;
+assert cache.get(3) == 30 and cache.get(4) == 40, &quot;Ключи 3 и 4 находятся в кэше&quot;
+cache.put(3, 300)
+cache.put(5, 500)
+assert cache.get(4) == -1 and cache.get(3) == 300, &quot;Обновление ключа 3 сделало его свежим, поэтому вытеснен ключ 4&quot; ">
+  <div class="name question-difficulty-hard question-hard-title" id="ds_lru_cache">
+    LRU-кэш за O(1) на двусвязном списке и хеш-таблице (LRUCache)
+  </div>
+  <div class="content">
+    <div class="info-card-auto" data-type="definition" data-title="Цель">
+      <p>Реализовать классическую структуру данных LRUCache(capacity) со строгой сложностью O(1) на чтение и запись без использования OrderedDict.</p>
+    </div>
+    <div class="info-card-auto" data-type="exercise" data-title="Задание">
+      <p>Реализуй класс <code>LRUCache(capacity)</code> (Least Recently Used Cache), комбинирующий словарь <code>key -&gt; DLinkedNode</code> и двусвязный список с фиктивными узлами <code>head</code> и <code>tail</code>:</p>
+<ul>
+  <li><code>get(key)</code> — если ключ есть в кэше, перемещает его узел в позицию самого свежего (перед <code>tail</code>) и возвращает значение; иначе возвращает <code>-1</code>;</li>
+  <li><code>put(key, value)</code> — обновляет значение существующего ключа (делая его самым свежим) или добавляет новый ключ. Если после добавления размер кэша превышает <code>capacity</code>, удаляет самый давно не использовавшийся узел (сразу после <code>head</code>).</li>
+</ul>
+    </div>
+    <div class="code-block" data-lang="python">class _DNode:
+    __slots__ = (&quot;key&quot;, &quot;val&quot;, &quot;prev&quot;, &quot;next&quot;)
+    def __init__(self, key=0, val=0):
+        self.key = key
+        self.val = val
+        self.prev = None
+        self.next = None
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.cache = {}
+        self.head = _DNode()
+        self.tail = _DNode()
+        self.head.next = self.tail
+        self.tail.prev = self.head
+
+    def _remove(self, node: _DNode) -&gt; None:
+        p, n = node.prev, node.next
+        p.next = n
+        n.prev = p
+
+    def _add_to_mru(self, node: _DNode) -&gt; None:
+        prev_last = self.tail.prev
+        prev_last.next = node
+        node.prev = prev_last
+        node.next = self.tail
+        self.tail.prev = node
+
+    def get(self, key: int) -&gt; int:
+        node = self.cache.get(key)
+        if node is None:
+            return -1
+        self._remove(node)
+        self._add_to_mru(node)
+        return node.val
+
+    def put(self, key: int, value: int) -&gt; None:
+        if key in self.cache:
+            node = self.cache[key]
+            node.val = value
+            self._remove(node)
+            self._add_to_mru(node)
+            return
+        if len(self.cache) &gt;= self.capacity:
+            lru = self.head.next
+            self._remove(lru)
+            del self.cache[lru.key]
+        node = _DNode(key, value)
+        self.cache[key] = node
+        self._add_to_mru(node)</div>
+    
   </div>
 </li>
         <!-- md:inject:end -->

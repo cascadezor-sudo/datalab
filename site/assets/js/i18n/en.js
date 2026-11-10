@@ -12,7 +12,9 @@ window.i18n.add({
   "Основная навигация": "Main navigation",
   "Меню навигации": "Navigation menu",
   Домой: "Home",
-  "Schmidt ML — на главную": "Schmidt ML — home",
+  "DataLab — на главную": "DataLab — home",
+  "AI-помощник пока недоступен. Учебные материалы доступны локально.": "The AI assistant is currently unavailable. Learning materials are available locally.",
+  "Не удалось получить ответ AI-помощника. Попробуйте позже.": "Could not get a response from the AI assistant. Please try again later.",
   Материалы: "Materials",
   Основы: "Foundations",
   интерактивная: "interactive",
@@ -32,7 +34,6 @@ window.i18n.add({
   Отчеты: "Reports",
   Тесты: "Quizzes",
   Достижения: "Achievements",
-  Кошелёк: "Wallet",
   "Карта разделов": "Section map",
   "Карта разделов (интерактивная)": "Section map (interactive)",
   Собесы: "Interviews",
@@ -42,15 +43,12 @@ window.i18n.add({
   Оформление: "Appearance",
   Каталог: "Catalog",
   "Открыть каталог": "Open catalog",
-  "Кошелёк: грады за учёбу": "Wallet: grads earned by studying",
-  "Кошелёк: {label}": "Wallet: {label}",
   онлайн: "online",
   "Учеников на сайте за последние {minutes} минут":
     "Students on the site in the last {minutes} minutes",
   "На главной": "On the home page",
   "Повторяют карточки": "Reviewing cards",
   "Смотрят лидерборд": "Viewing the leaderboard",
-  "В кошельке": "In the wallet",
   "Смотрят достижения": "Viewing achievements",
   "Пишут отчёт": "Writing a report",
   "Читают новости": "Reading news",
@@ -101,7 +99,6 @@ window.i18n.add({
   "Продуктивного дня 💪": "Have a productive day 💪",
   "Добрый вечер 🌆": "Good evening 🌆",
   "Ночная сессия 🌙": "Late-night session 🌙",
-  градов: "grads",
   Выйти: "Log out",
   Сегодня: "Today",
   "Цель на день": "Daily goal",
@@ -209,9 +206,6 @@ window.i18n.add({
   "Управление статусом учеников": "Managing student status",
   "Наведите курсор на запись ученика, чтобы увидеть кнопки управления статусом. Завершившие обучение или покинувшие курс ученики будут перемещены в конец списка и визуально выделены.":
     "Hover over a student's row to see the status controls. Students who finished or left the course move to the bottom of the list and are highlighted.",
-  "Начислить грады за всю прошлую активность каждому ученику. Повторный запуск ничего не доплатит.":
-    "Credit grads for all past activity to every student. Running it again won't pay anything extra.",
-  "Начислить грады за историю": "Credit grads for past activity",
   "Общий зачёт и лига": "Overall and league",
   "Общий зачёт": "Overall",
   "Моя лига": "My league",
@@ -261,8 +255,6 @@ window.i18n.add({
   "Ср. балл": "Avg. score",
   "Средний процент правильных ответов по всем пройденным тестам (берётся лучший результат по каждому тесту).":
     "Average percentage of correct answers across all completed quizzes (best attempt per quiz).",
-  "Сортировать по градам на счёте": "Sort by grad balance",
-  Грады: "Grads",
   "Загрузка лидерборда...": "Loading leaderboard...",
   "Последнее обновление: никогда": "Last updated: never",
   "Последнее обновление: {time}": "Last updated: {time}",
@@ -313,7 +305,6 @@ window.i18n.add({
   "Редактировать даты переходов": "Edit transition dates",
   Даты: "Dates",
   "{hours} ч": "{hours} h",
-  "Градов на счёте": "Grad balance",
   "Обработано {processed} из {total}, начислено ∇ {credited}…":
     "Processed {processed} of {total}, credited ∇ {credited}…",
   "Готово: {students}, начислено ∇ {credited}.":
@@ -383,93 +374,9 @@ window.i18n.add({
 
   // (конец секции leaderboard)
 
-  // ── Кошелёк и достижения (wallet.html, wallet-page.js, achievements.html, achievements-page.js) ──
-  // @i18n-section:wallet — переводы этой группы дописываются сразу под этой строкой.
-  // wallet.html
-  "Грады — валюта платформы. Название от градиентного спуска: каждый шаг обучения приближает к минимуму.":
-    "Grads are the platform currency. The name comes from gradient descent: every learning step brings you closer to the minimum.",
   "Назад к профилю": "Back to profile",
-  "Грады и витрина доступны ученикам на менторстве: с куратором, отчётами и подгруппой. Если хочешь перейти на менторство — напиши ментору.":
-    "Grads and the shop are available to mentorship students — with a curator, reports and a subgroup. Want to switch to mentorship? Message your mentor.",
-  "На счёте": "Balance",
-  Итоги: "Totals",
-  "Вопросы, тесты, отчёты, карточки, серия и достижения":
-    "Questions, tests, reports, cards, streak and achievements",
-  "За учёбу": "From learning",
-  "Бонусы за приведённых учеников": "Bonuses for students you referred",
-  "За рефералов": "From referrals",
-  Потрачено: "Spent",
-  "Ученики, которых ты привёл на менторство — за каждого начислен бонус":
-    "Students you brought to mentorship — you get a bonus for each one",
-  "Приведено учеников": "Students referred",
-  "Купленные заморозки сверх двух месячных":
-    "Purchased streak freezes on top of the two monthly ones",
-  "Заморозок в запасе": "Streak freezes in stock",
-  "Множитель сейчас · дни серии": "Current multiplier · streak days",
-  "Шкала множителя за серию": "Streak multiplier scale",
-  "Спуск по серии": "Streak descent",
-  "Каждый рубеж серии — точка на кривой потерь. Дошёл до рубежа — рубеж оплачен, один раз и навсегда. Серию держат отчёты и решённые вопросы; две заморозки в месяц прощают пропуск.":
-    "Each streak milestone is a point on the loss curve. Reach a milestone and it pays out — once and for all. Reports and solved questions keep the streak going; two freezes a month forgive a missed day.",
-  "Кривая потерь с рубежами серии: 7, 14, 30, 60, 100, 200 и 365 дней.":
-    "Loss curve with streak milestones: 7, 14, 30, 60, 100, 200 and 365 days.",
-  Ставки: "Rates",
-  "Базовая ставка умножается на множитель за серию и регулярные отчёты. Справа в каждой карточке — сколько это даёт при твоём множителе прямо сейчас.":
-    "The base rate is multiplied by your streak and regular-report multiplier. The right side of each card shows what it's worth at your multiplier right now.",
-  "За достижения — фиксированно, по тиру":
-    "Achievements pay a fixed amount by tier",
-  Витрина: "Shop",
-  Корзина: "Cart",
-  "Пока пусто. Добавь награду из витрины.":
-    "Nothing here yet. Add a reward from the shop.",
-  Итого: "Total",
-  Останется: "Remaining",
-  "Оформить заказ": "Place order",
-  Заказы: "Orders",
-  "Грады списываются при оформлении. Ментор получает уведомление в Telegram и передаёт награду; отменённый заказ возвращает грады.":
-    "Grads are deducted when you place an order. Your mentor gets a Telegram notification and hands over the reward; a cancelled order refunds your grads.",
-  "Загружаем заказы…": "Loading orders…",
-  История: "History",
-  "Последние 50 начислений и списаний по московскому времени.":
-    "Last 50 credits and debits, Moscow time.",
   "Загружаем историю…": "Loading history…",
-  // wallet-page.js
-  "Изучены вопросы": "Questions studied",
-  "Сдан тест": "Test passed",
-  "Тест на 100%": "Test at 100%",
-  "Сдан тест блока": "Block test passed",
-  "Ежедневный отчёт": "Daily report",
-  "Отчёт о выходном": "Day-off report",
-  "Повторение карточек": "Card review",
-  "Бонус за повторение": "Review bonus",
-  "Рубеж серии": "Streak milestone",
-  "Стартовое начисление за прошлую активность":
-    "Starting credit for past activity",
-  "Начисление персоналом": "Credited by staff",
-  "Списание за покупку": "Purchase debit",
-  "Заказ из витрины": "Shop order",
-  "Возврат за отменённый заказ": "Refund for a cancelled order",
-  "Приведённый ученик": "Referred student",
-  "Ждёт выдачи": "Awaiting delivery",
-  Выдан: "Delivered",
-  Отменён: "Cancelled",
-  "Серия {streak} даёт {factor}, до {next} — ещё {left}.":
-    "A streak of {streak} gives {factor}; {left} more to reach {next}.",
-  "Серия {streak} даёт {factor} — это максимум.":
-    "A streak of {streak} gives {factor} — that's the maximum.",
-  "Отчёты регулярные: {bonus} сверху.": "Regular reports: {bonus} on top.",
-  "Отчётов за 7 дней: {count}. Дотяни — и получишь ещё +{bonus}.":
-    "Reports in the last 7 days: {count}. Get there and you'll earn another +{bonus}.",
   "{done} из {needed}": "{done} of {needed}",
-  "ты · {days}": "you · {days}",
-  "дни серии →": "streak days →",
-  "Один раз за каждый вопрос": "Once per question",
-  "Пересдачи бесплатны": "Retakes are free",
-  "Сверх ставки за сдачу": "On top of the pass rate",
-  "Один раз за каждый блок, без множителя": "Once per block, no multiplier",
-  "Один отчёт в день": "One report per day",
-  "Вместо обычного отчёта": "Instead of a regular report",
-  "Не больше {count} карточек в день": "Up to {count} cards per day",
-  "От {count} карточек за день": "From {count} cards in a day",
   "Один раз за каждого, кого ты привёл на менторство":
     "Once for each person you bring to mentorship",
   "Раз в день, кнопка на главной": "Once a day, button on the home page",
@@ -490,60 +397,16 @@ window.i18n.add({
   "Заказ оформлен: списано {amount}. Ментор получит уведомление.":
     "Order placed: {amount} deducted. Your mentor will be notified.",
   "Не удалось оформить заказ.": "Couldn't place the order.",
-  "Витрина пока пуста.": "The shop is empty for now.",
-  Хватает: "Enough",
-  "Накоплено {pct}% · не хватает {amount}": "{pct}% saved · {amount} to go",
-  "Количество: {title}": "Quantity: {title}",
-  "Убрать одну": "Remove one",
-  "Добавить ещё": "Add one more",
-  "В корзину": "Add to cart",
-  "Накоплено на «{title}»": "Saved toward “{title}”",
-  "Заказов пока не было.": "No orders yet.",
-  Заказ: "Order",
   "{label}: {count} карт.": "{label}: {count} cards",
   Вчера: "Yesterday",
-  "Пока пусто. Отметь вопрос, пройди тест или повтори карточки — первые грады появятся здесь.":
-    "Nothing here yet. Mark a question, take a test or review cards — your first grads will show up here.",
-  персонал: "staff",
-  "Не удалось загрузить настройки кошелька. Обновите страницу.":
-    "Couldn't load wallet settings. Reload the page.",
-  "Заказы недоступны. Попробуйте позже.":
-    "Orders are unavailable. Try again later.",
-  "История недоступна. Попробуйте позже.":
-    "History is unavailable. Try again later.",
-  // Витрина (wallet-config.json). Описания коробок и книги содержимое не
   // раскрывают намеренно — сюрприз и есть награда.
-  "Положи награды в корзину и оформи заказ: грады спишутся сразу. Заморозки серии зачисляются мгновенно, остальное передаст ментор — он получит уведомление в Telegram.":
-    "Put rewards in your cart and place an order: grads are deducted right away. Streak freezes are added instantly; your mentor hands over everything else and gets a Telegram notification.",
-  "Заморозка серии": "Streak freeze",
-  "Запасная заморозка сверх двух месячных: сработает ночью на пропущенный день, когда месячные кончились.":
-    "A spare freeze on top of the two monthly ones: it kicks in overnight for a missed day once the monthly ones run out.",
-  "Мини-коробка": "Mini box",
-  "Небольшая посылка-сюрприз от ментора. Что внутри — узнаешь, когда откроешь. Отправим почтой.":
-    "A small surprise package from your mentor. You'll find out what's inside when you open it. Sent by mail.",
-  "Telegram Premium на месяц": "Telegram Premium for a month",
-  "Подарок в Telegram от ментора: стикеры, реакции и без рекламы.":
-    "A Telegram gift from your mentor: stickers, reactions and no ads.",
-  "Скидка 10% на следующий месяц": "10% off next month",
-  "Скидка на следующий месяц менторства. Один заказ — одна скидка.":
-    "A discount on your next month of mentorship. One order — one discount.",
-  "Книга в твёрдом переплёте": "Hardcover book",
-  "Книга по машинному обучению с полки ментора. Какая именно — узнаешь при получении. Отправим почтой.":
-    "A machine learning book from your mentor's shelf. You'll find out which one when it arrives. Sent by mail.",
-  "Легендарная коробка": "Legendary box",
-  "Главная награда витрины, цель на год. Что внутри — секрет до самой распаковки. Отправим почтой.":
-    "The shop's top reward, a goal for the year. What's inside stays secret until you unbox it. Sent by mail.",
   // achievements.html, achievements-page.js
   "Мои достижения": "My achievements",
-  "Отслеживай свой прогресс и получай награды":
-    "Track your progress and earn rewards",
   Все: "All",
   Регулярность: "Consistency",
   Объём: "Volume",
   Особые: "Special",
   Скидки: "Discounts",
-  "Тиры достижений и награда в градах": "Achievement tiers and grad rewards",
-  "Тир достижения и награда в градах": "Achievement tier and grad reward",
   "Получено: {date}": "Earned: {date}",
   "Ещё не получено": "Not earned yet",
   "Не удалось загрузить достижения. Попробуйте обновить страницу.":
@@ -770,7 +633,6 @@ window.i18n.add({
   "Как по маслу": "Smooth sailing",
   "50 карточек закрыты оценкой «Легко»": "50 cards rated “Easy”",
 
-  // (конец секции wallet)
 
   // ── Профиль (profile.html, profile/*) ──
   // @i18n-section:profile — переводы этой группы дописываются сразу под этой строкой.
@@ -793,9 +655,6 @@ window.i18n.add({
   "Карточки по теоретическому минимуму из изученных вопросов":
     "Theory-minimum cards from the questions you've studied",
   "Открыть карточки": "Open cards",
-  ". Грады — валюта платформы: за вопросы, тесты, карточки, отчёты и серию дней.":
-    ". Grads are the platform currency: earned for questions, quizzes, cards, reports and streaks.",
-  "Открыть кошелёк": "Open wallet",
   "Прогресс по курсу": "Course progress",
   "0% изучено": "0% studied",
   "{percent}% изучено": "{percent}% studied",
@@ -923,8 +782,8 @@ window.i18n.add({
   "Telegram пока не привязан": "Telegram isn't connected yet",
   "Привязка происходит автоматически, когда ментор выдаёт доступ через {bot}. Если бот у вас уже есть, а привязки нет — напишите ментору.":
     "It connects automatically when your mentor grants access via {bot}. If you already have the bot but it isn't connected, message your mentor.",
-  "Telegram привязан — уведомления приходят в @schmidtml_bot":
-    "Telegram is connected — notifications go to @schmidtml_bot",
+  "Telegram-уведомления не подключены": "Telegram notifications are not connected",
+  "Уведомления доступны внутри DataLab.": "Notifications are available inside DataLab.",
   "Дедлайны приходят одним дайджестом утром, напоминание об отчёте — вечером.":
     "Deadlines arrive as one digest in the morning, the report reminder in the evening.",
   "Настройки сохранены.": "Settings saved.",
@@ -1280,8 +1139,6 @@ window.i18n.add({
     "The server hasn't recalculated your streak yet",
   "Дней подряд с отчётом или решённым вопросом":
     "Days in a row with a report or a solved question",
-  ". В запасе ещё {count} из витрины: сработают ночью, когда месячные кончатся":
-    ". Plus {count} in reserve from the shop: they kick in overnight once the monthly ones run out",
   "Серия не рвётся за пропущенный день, пока в месяце есть заморозки: осталось {left} из {total}":
     "A missed day won't break your streak while you have freezes left this month: {left} of {total} left",
   "вопросов сегодня": "questions today",
@@ -1801,7 +1658,7 @@ window.i18n.add({
   попыток: "attempts",
   "Ошибка загрузки каталога тестов": "Couldn't load the quiz catalog",
   "Гайд по работе с платформой": "Platform guide",
-  "Schmidt ML · базовый гайд": "Schmidt ML · basic guide",
+  "DataLab · базовый гайд": "DataLab · basic guide",
   "Как устроена платформа": "How the platform works",
   "Открыть базовый гайд": "Open the basic guide",
   "Выбери этап в оглавлении или листай стрелками ← →":
@@ -1827,7 +1684,6 @@ window.i18n.add({
   "Банк вопросов по компаниям": "Company question bank",
   "Лидерборд и достижения": "Leaderboard and achievements",
   "Открыть лидерборд": "Open the leaderboard",
-  "Грады: валюта за учёбу": "Grads: currency for studying",
   "Сообщество и обновления": "Community and updates",
   "Двухминутное видео обо всех возможностях платформы.":
     "A two-minute video on everything the platform can do.",
@@ -2156,30 +2012,19 @@ window.i18n.add({
     "Sampled every {minutes} minutes, last at {time}. Online means students who opened the site in those {minutes} minutes.",
   "В последнем замере никого не было": "No one was online in the last sample",
   "Не удалось загрузить статистику онлайна.": "Couldn't load online stats.",
-  "Заказы за грады": "Grad orders",
-  "Кто что заказал на витрине и что ещё нужно выдать":
-    "Who ordered what from the shop and what still needs to be handed out",
   "Фильтр заказов": "Order filter",
   "Статус заказа": "Order status",
   "Ждут выдачи ·": "Awaiting delivery ·",
   Выданные: "Delivered",
   Отменённые: "Cancelled",
-  "Заморозки серии выдаются сами и сразу попадают в «Выданные»":
-    "Streak freezes are delivered automatically and go straight to “Delivered”",
   Выдано: "Delivered",
-  "Отменён, грады возвращены": "Cancelled, grads refunded",
-  "{count} градов": "{count} grads",
   "Выдано автоматически": "Delivered automatically",
   Сумма: "Total",
   Заказан: "Ordered",
-  "Отменить заказ и вернуть грады ученику":
-    "Cancel the order and refund the grads to the student",
   Отменить: "Cancel",
   "Все заказы выданы": "All orders have been delivered",
   "Таких заказов нет": "No such orders",
   "Не удалось загрузить заказы": "Couldn't load orders",
-  "Отменить заказ и вернуть ученику {count} градов?":
-    "Cancel the order and refund {count} grads to the student?",
   "Не удалось изменить заказ": "Couldn't update the order",
   "Прогресс учеников — Mentor Stats": "Student progress — Mentor Stats",
   "Прогресс учеников": "Student progress",
@@ -2730,6 +2575,8 @@ window.i18n.add({
   "Свернуть/развернуть панель навигации":
     "Collapse/expand the navigation panel",
   "Прочитано: {done} из {total}": "Done: {done} of {total}",
+  "Тема пройдена": "Topic completed",
+  Пройдена: "Completed",
   "Фильтр вопросов...": "Filter questions...",
   "Открыть навигацию по вопросам": "Open question navigation",
   Навигация: "Navigation",

@@ -1003,8 +1003,6 @@ class GamificationSystem {
   async grantAchievement(achievementId) {
     if (achievementId === "onboarding_complete" && window.achievementApi) {
       const result = await window.achievementApi.completeOnboarding();
-      // Онбординг платит грады, как и остальные ручки достижений.
-      window.walletUi?.showCredit(result?.wallet);
       return result;
     }
     console.warn(

@@ -4,14 +4,14 @@
  * Вопрос выбирает браузер — rendezvous-хэш по пулу
  * (question-of-day-pool.json, его пишет scripts/generate-questions-list.js).
  * Сервер вопроса не знает: бандл функций выкатывается руками и отстаёт от
- * контента, а пул приезжает вместе с сайтом. Отметку, счётчик и грады ведёт
+ * контента, а пул приезжает вместе с сайтом. Отметку и счётчик ведёт
  * callable claimQuestionOfDay; из базы браузер читает ровно два узла —
  * question_of_day/<день> (два обезличенных числа) и собственную отметку.
  *
  * Отметка — не клик, а самопроверка: кнопка открывает карточки теорминимума
  * этого вопроса (getTeorminCards с questionId), ученик вспоминает ответ,
- * сверяется и оценивает себя от 1 до 4. Награда от оценок не зависит — иначе
- * все жали бы «4»; оценка идёт в общий счётчик «ответили уверенно».
+ * сверяется и оценивает себя от 1 до 4; оценка идёт в общий счётчик
+ * «ответили уверенно».
  *
  * Виджет необязательный, поэтому на главной любая ошибка тихая: нет пула —
  * виджета нет, не прочитался счётчик — нет числа. Ошибки самопроверки видны
@@ -28,7 +28,6 @@
   const isEnglish = () => window.i18n?.lang === "en";
 
   const POOL_URL = "/assets/js/config/question-of-day-pool.json";
-  const WALLET_CONFIG_URL = "/assets/js/config/wallet-config.json";
   const STAFF_ROLES = new Set(["mentor", "admin", "curator", "admin-helper"]);
   // Сбой кошелька на сервере (paid: false): тихо повторяем, вызов идемпотентен.
   const UNPAID_RETRIES = 2;
@@ -104,13 +103,6 @@
     return `${claimed ? "уже" : "сегодня"} ${verb} ${solved} ${people}`;
   }
 
-  function coinsText(amount) {
-    if (!(amount > 0)) return "";
-    const word = window.walletUi?.pluralCoins?.(amount) || "градов";
-    return `+${amount} ${word}`;
-  }
-
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function fetchJson(url) {
     const response = await fetch(url, { cache: "no-cache" });
@@ -158,19 +150,10 @@
       return;
     }
 
-    // Грады положены только менторству (walletEligible на сервере); ставка
-    // без множителя, поэтому число из конфига и есть то, что начислят.
-    const reward =
-      userData.learningFormat === "materials"
-        ? Promise.resolve(0)
-        : fetchJson(WALLET_CONFIG_URL)
-            .then((config) => Number(config.earn?.questionOfDay?.base) || 0)
-            .catch(() => 0);
     const day = await serverDay(db);
-    const [counters, marker, coins] = await Promise.all([
+    const [counters, marker] = await Promise.all([
       readValue(db, `question_of_day/${day}`),
       readValue(db, `question_of_day_solvers/${day}/${uid}`),
-      reward,
     ]);
 
     // Вопрос общий для всех, поэтому из «доступного подмножества» не
@@ -189,7 +172,6 @@
       const parts = state.claimed ? [`✓ ${t("Разобран")}`] : [];
       parts.push(solvedText(Number(state.solved) || 0, state.claimed));
       parts.push(confidentText(Number(state.confident) || 0));
-      parts.push(coinsText(coins));
       currentQuestion = question;
       shownDay = state.day;
       const text = parts.filter(Boolean).join(" · ");
@@ -218,26 +200,11 @@
         solved: result.solved,
         confident: result.confident,
       });
-      window.walletUi?.showCredit?.(result.wallet);
       return result;
     }
 
-    // Отметка состоялась с первого ответа. Сбой кошелька (paid: false) тихо
-    // добирается повторами в фоне — окно самопроверки их не ждёт и не выдаёт
-    // их ошибку за «не удалось засчитать».
     async function claim(ratings) {
-      const result = await claimOnce(ratings);
-      if (result.paid === false) {
-        (async () => {
-          for (let attempt = 0; attempt < UNPAID_RETRIES; attempt += 1) {
-            await sleep(UNPAID_PAUSE_MS);
-            if ((await claimOnce()).paid !== false) return;
-          }
-        })().catch((error) =>
-          console.warn("question-of-day: settle failed", error),
-        );
-      }
-      return result;
+      return claimOnce(ratings);
     }
 
     show({
@@ -250,7 +217,7 @@
     // Отметка есть, а счёт или выплата не подтверждены (сбой на сервере в
     // прошлый раз): один тихий вызов на загрузку главной всё добирает. В
     // штатном состоянии оба флага стоят, и callable отсюда не зовётся.
-    if (marker?.at && (marker.counted !== true || marker.paid !== true)) {
+    if (marker?.at && marker.counted !== true) {
       claim().catch((error) =>
         console.warn("question-of-day: settle failed", error),
       );
@@ -452,7 +419,7 @@
         "p",
         "qod-dialog-note",
         t(
-          "Сначала ответьте про себя, потом откройте ответ и оцените честно: награда от оценки не зависит.",
+          "Сначала ответьте про себя, потом откройте ответ и оцените, насколько уверенно вспомнили.",
         ),
       );
       body.replaceChildren(

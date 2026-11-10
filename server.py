@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Schmidt ML — Локальный многопоточный сервер базы знаний
+DataLab — Локальный многопоточный сервер базы знаний
 Автоматически находит свободный порт, запускает сервер и открывает сайт в браузере.
 """
 
@@ -25,7 +25,7 @@ class CustomHTTPHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
             return
         expected_origin = 'http://' + self.headers.get('Host', '')
-        if self.headers.get('Origin') != expected_origin or self.headers.get('X-SchmidtML-Local') != '1':
+        if self.headers.get('Origin') != expected_origin or self.headers.get('X-DataLab-Local') != '1':
             self.send_error(403)
             return
         try:
@@ -38,7 +38,7 @@ class CustomHTTPHandler(SimpleHTTPRequestHandler):
                 self.send_error(400)
                 return
             runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'offline_runner.py')
-            with tempfile.TemporaryDirectory(prefix='schmidtml-check-') as scratch:
+            with tempfile.TemporaryDirectory(prefix='datalab-check-') as scratch:
                 process = subprocess.run([sys.executable, '-I', runner], input=json.dumps(payload),
                     text=True, capture_output=True, timeout=5, cwd=scratch)
             data = json.loads(process.stdout) if process.returncode == 0 else {'tests': [], 'error': 'Процесс Python завершился с ошибкой'}
@@ -102,8 +102,8 @@ def main():
         except (OSError, urllib.error.URLError):
             matches = False
         if matches:
-            print("SchmidtML already running: " + url, flush=True)
-            if os.environ.get("SCHMIDTML_NO_BROWSER") != "1":
+            print("DataLab already running: " + url, flush=True)
+            if os.environ.get("DATALAB_NO_BROWSER") != "1":
                 webbrowser.open(url)
             return
         print("Port 8080 is occupied or unavailable. Close the other server and restart. No switch to 8081: progress stays at localhost:8080.", flush=True)
@@ -130,7 +130,7 @@ def main():
     def open_browser():
         webbrowser.open(url)
 
-    if os.environ.get("SCHMIDTML_NO_BROWSER") != "1":
+    if os.environ.get("DATALAB_NO_BROWSER") != "1":
         threading.Timer(0.6, open_browser).start()
 
     try:

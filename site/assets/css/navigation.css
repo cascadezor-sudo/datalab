@@ -687,26 +687,15 @@ button [data-feather] {
   overflow: auto;
   padding: 26px;
   border: 1px solid var(--border);
-  border-radius: 24px;
-  background:
-    radial-gradient(
-      circle at 16% 0%,
-      color-mix(in srgb, var(--brand) 15%, transparent),
-      transparent 34%
-    ),
-    radial-gradient(
-      circle at 100% 12%,
-      color-mix(in srgb, var(--accent) 18%, transparent),
-      transparent 32%
-    ),
-    var(--bg-elevated);
-  box-shadow: var(--shadow-xl);
-  transform: translateY(8px) scale(0.98);
-  transition: transform 0.18s ease;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(4px);
+  transition: transform 0.16s ease;
 }
 
 .appearance-modal-backdrop.show .appearance-modal {
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
 }
 
 .appearance-modal__header {
@@ -810,19 +799,13 @@ button [data-feather] {
 
 .appearance-option:hover,
 .appearance-option.active {
-  transform: translateY(-1px);
+  transform: none;
   border-color: var(--border-brand);
-  box-shadow: var(--shadow-md);
+  box-shadow: none;
 }
 
 .appearance-option.active {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--brand) 10%, transparent),
-      transparent
-    ),
-    var(--bg-card);
+  background: color-mix(in srgb, var(--brand) 7%, var(--bg-card));
 }
 
 .appearance-option__swatches {
@@ -861,28 +844,6 @@ button [data-feather] {
   }
 }
 
-/* ── Кошелёк: бейдж баланса в навбаре и всплывающее «+N монет» ─────────── */
-
-.nav-wallet-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 11px;
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  text-decoration: none;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  margin-left: var(--nav-search-margin, 6px);
-  white-space: nowrap;
-  transition:
-    background var(--transition-base),
-    border-color var(--transition-base),
-    transform var(--transition-base);
-}
 
 .nav-online-badge {
   display: inline-flex;
@@ -975,97 +936,10 @@ button [data-feather] {
   background: #22c55e;
 }
 
-.nav-wallet-badge:hover,
-.nav-wallet-badge:focus-visible {
-  background: var(--border-strong);
-  border-color: var(--border-brand);
-}
 
-.nav-wallet-badge__icon,
-.wallet-toast__icon {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  flex: none;
-}
-
-.nav-wallet-badge__icon svg,
-.wallet-toast__icon svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.wallet-toast__icon {
-  width: 22px;
-  height: 22px;
-}
-
-.nav-wallet-badge.is-bumped {
-  animation: wallet-bump 0.6s ease;
-}
-
-@keyframes wallet-bump {
-  0% {
-    transform: scale(1);
-  }
-
-  30% {
-    transform: scale(1.18);
-    border-color: var(--border-brand);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
-.wallet-toast {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  position: fixed;
-  right: 20px;
-  bottom: 24px;
-  z-index: 1100;
-  padding: 10px 16px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--bg-card, var(--bg));
-  border: 1px solid var(--border-brand);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 18%));
-  opacity: 0;
-  transform: translateY(12px);
-  pointer-events: none;
-  transition:
-    opacity var(--transition-base),
-    transform var(--transition-base);
-}
-
-.wallet-toast.is-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nav-wallet-badge.is-bumped {
-    animation: none;
-  }
-
-  .wallet-toast {
-    transition: none;
-  }
-}
 
 @media (max-width: 768px) {
-  .nav-wallet-badge {
-    margin-left: 8px;
-    padding: 6px 9px;
-  }
 
-  /* На телефоне рядом кошелёк и поиск: остаётся точка с числом. */
   .nav-online-badge {
     margin-left: 8px;
     padding: 6px 9px;
@@ -1076,21 +950,13 @@ button [data-feather] {
   }
 }
 
-/* На самых узких экранах рядом поиск, онлайн и кошелёк — от логотипа
-   остаётся значок. */
+/* На самых узких экранах от логотипа остаётся значок. */
 @media (max-width: 420px) {
   .nav-logo__text {
     display: none;
   }
 }
 
-/* Монета «град» как инлайн-иконка рядом с текстом (главная, профиль). */
-.coin-icon {
-  display: inline-block;
-  width: 1.15em;
-  height: 1.15em;
-  vertical-align: -0.2em;
-}
 
 /* «Только материалы» отчётов не пишут: пункт меню, карточка профиля и ссылка
    из подсказки лидерборда. Атрибут ставит navigation.js (applyLearningFormat).
@@ -1101,4 +967,467 @@ html[data-learning-format="materials"]
   .column-tooltip-content
   a[href="/my-reports.html"] {
   display: none;
+}
+
+/* ── Общая система шапки и интерактивных элементов ────────────────────────
+   Единый ритм для учебных страниц: спокойные прямоугольные контроли,
+   заметное состояние раздела и отдельный клавиатурный фокус. */
+#navbar {
+  gap: 6px;
+  border-bottom-color: color-mix(in srgb, var(--border) 82%, transparent);
+  box-shadow: none;
+}
+
+#navbar.scrolled {
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.nav-logo {
+  min-height: 40px;
+  margin-right: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  transition: background-color 150ms ease;
+}
+
+.nav-logo:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.nav-links a,
+#navbar .dropdown-btn {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.nav-links a:hover,
+#navbar .dropdown-btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.nav-links a.active,
+#navbar .dropdown-btn.active,
+[data-theme="dark"] body .dropdown-btn.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 11%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--brand) 20%, var(--border));
+  box-shadow: none;
+  font-weight: 650;
+}
+
+.dropdown-content {
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 12px;
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--text) 14%, transparent);
+  transition: opacity 140ms ease, visibility 140ms ease, transform 140ms ease;
+}
+
+.dropdown-content a,
+.dropdown-content button {
+  min-height: 38px;
+  justify-content: flex-start;
+  align-content: center;
+  text-align: left;
+  padding: 8px 11px;
+  border-radius: 7px;
+  border-bottom-color: transparent;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.dropdown-content a:hover,
+.dropdown-content button:hover {
+  background: color-mix(in srgb, var(--brand) 8%, var(--bg-card));
+}
+
+.nav-search-btn {
+  min-height: 38px;
+  min-width: 196px;
+  padding: 0 9px 0 11px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.nav-search-btn:hover {
+  background: var(--bg-card);
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--border));
+}
+
+.nav-search-btn kbd {
+  min-width: 28px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.nav-account .dropdown-btn {
+  min-height: 38px;
+  border-radius: 10px;
+}
+
+.nav-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.nav-online-badge {
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+}
+
+.mobile-menu-btn {
+  width: 40px;
+  height: 40px;
+  display: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  font-size: 20px;
+  line-height: 1;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.mobile-menu-btn:hover {
+  background: color-mix(in srgb, var(--brand) 7%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
+}
+
+/* Один понятный контур для клавиатуры: не смешиваем его с активным пунктом. */
+:where(
+  .nav-logo,
+  .nav-links a,
+  #navbar .dropdown-btn,
+  .dropdown-content a,
+  .dropdown-content button,
+  .nav-search-btn,
+  .nav-online-badge,
+  .mobile-menu-btn,
+  .appearance-modal button,
+  .ui-button,
+  .page-header-button
+):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--nav-focus-ring) 78%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.appearance-modal {
+  border-radius: 16px;
+  background: var(--bg-elevated);
+}
+
+.appearance-modal__kicker {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.appearance-modal__close {
+  border-radius: 9px;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.appearance-option {
+  min-height: 108px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.appearance-option:hover,
+.appearance-option.active {
+  transform: none;
+  border-color: color-mix(in srgb, var(--brand) 40%, var(--border));
+  box-shadow: none;
+}
+
+.appearance-option.active {
+  background: color-mix(in srgb, var(--brand) 7%, var(--bg-card));
+}
+
+/* Общие кнопки главной и заголовков страниц используют те же контролы. */
+.ui-button,
+.page-header-button {
+  min-height: 40px;
+  border-radius: 9px;
+  font-family: inherit;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.ui-button:hover,
+.page-header-button:hover {
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: grid;
+  }
+
+  .nav-links {
+    gap: 3px;
+    padding: 10px 14px 14px;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 14px 28px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+
+  .nav-links a,
+  #navbar .dropdown-btn {
+    min-height: 42px;
+    justify-content: flex-start;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+
+  .nav-search-btn {
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0;
+    border-radius: 10px;
+  }
+
+  .nav-account .dropdown-btn {
+    min-height: 40px;
+    padding: 3px;
+  }
+
+  .nav-online-badge {
+    min-height: 38px;
+    margin-left: 6px;
+    padding: 0 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #navbar *,
+  .appearance-modal,
+  .appearance-modal-backdrop,
+  .ui-button,
+  .page-header-button {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Материалы: компактный 3-колоночный каталог с иконками и подсказками. */
+.dropdown-content a.dropdown-link {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 7px 10px;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.dropdown-link .dropdown-link__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+}
+
+.dropdown-link__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.dropdown-link__text {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.dropdown-link__hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-subtle);
+  line-height: 1.3;
+}
+
+.dropdown-link.active .dropdown-link__text,
+.dropdown-link.active .dropdown-link__hint {
+  color: inherit;
+}
+
+.dropdown-link.active .dropdown-link__hint {
+  opacity: 0.85;
+}
+
+.nav-links .dropdown-link.active {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-radius: 8px;
+}
+
+@media (min-width: 769px) {
+  .dropdown--mega .dropdown-content {
+    width: min(780px, calc(100vw - 32px));
+    min-width: 0;
+    max-height: calc(100vh - 84px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .dropdown-mega__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 0 12px;
+    margin: 0 0 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dropdown--mega .dropdown-mega__top a,
+  .nav-links .dropdown-mega__top .dropdown-mega__secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 36px;
+    width: auto;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .dropdown--mega .dropdown-mega__top a:hover,
+  .nav-links .dropdown-mega__top .dropdown-mega__secondary:hover {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
+    background: color-mix(in srgb, var(--brand) 8%, var(--bg-card));
+  }
+
+  .dropdown-mega__top a:first-child {
+    flex: 1;
+    justify-content: space-between;
+    padding: 7px 14px;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--brand);
+    background: color-mix(in srgb, var(--brand) 10%, var(--bg-card));
+    border-color: color-mix(in srgb, var(--brand) 24%, var(--border));
+  }
+
+  .dropdown-mega__top a:first-child::after {
+    content: "→";
+    flex: 0 0 auto;
+    margin-left: 8px;
+  }
+
+  .dropdown-mega__columns {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 0;
+  }
+
+  .dropdown-mega__columns .dropdown-group {
+    min-width: 0;
+    gap: 2px;
+    padding: 2px 8px;
+  }
+
+  .dropdown-mega__columns .dropdown-group:first-child {
+    padding-left: 2px;
+  }
+
+  .dropdown-mega__columns .dropdown-group:last-child {
+    padding-right: 2px;
+  }
+
+  .dropdown-mega__columns .dropdown-group + .dropdown-group {
+    border-left: 1px solid var(--border);
+  }
+
+  .dropdown-mega__columns .dropdown-group__title {
+    padding: 4px 10px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brand);
+  }
+
+  .dropdown--mega .dropdown-group > a {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-height: 36px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.3;
+    text-align: left;
+  }
+
+  .dropdown--mega .dropdown-group > a:hover,
+  .dropdown--mega .dropdown-group > a.active {
+    color: var(--text);
+    background: color-mix(in srgb, var(--brand) 8%, var(--bg-card));
+  }
+
+  .dropdown-mega__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .dropdown--mega .dropdown-mega__footer a {
+    justify-content: flex-start;
+    padding: 6px 10px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 920px) {
+  .dropdown--mega .dropdown-content {
+    width: min(640px, calc(100vw - 24px));
+  }
 }
