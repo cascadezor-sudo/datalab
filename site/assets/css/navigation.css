@@ -581,17 +581,24 @@ button [data-feather] {
     transform: rotate(180deg);
   }
 
-  /* На узком экране список схлопнут высотой, а не только visibility. Если бы
-     :focus-within из десктопной части просто показал его, ссылки стали бы
-     фокусируемыми внутри блока нулевой высоты — фокус уходил бы в никуда.
-     Поэтому здесь фокус раскрывает меню так же, как тап. */
-  .dropdown.open .dropdown-content,
-  .dropdown:focus-within .dropdown-content {
+  /* На телефоне раскрытием управляет класс .open, который ставит обработчик
+     кнопки. Фокус и эмуляция :hover на iOS не должны менять высоту списка. */
+  .dropdown.open .dropdown-content {
     height: auto;
     opacity: 1;
     visibility: visible;
     padding: 4px 0 4px 16px;
     border-left: 2px solid var(--border-brand);
+  }
+
+  /* На сенсорном экране Safari сначала включает :hover/:focus-within.
+     Список должен менять высоту только после обработанного нажатия. */
+  .nav-links .dropdown:not(.open) > .dropdown-content {
+    height: 0;
+    padding: 0;
+    opacity: 0;
+    visibility: hidden;
+    border-left: 0;
   }
 
   .dropdown.dropdown-dismissed .dropdown-content {
@@ -614,8 +621,7 @@ button [data-feather] {
     min-width: 0;
   }
 
-  .dropdown--mega.open .dropdown-content,
-  .dropdown--mega:focus-within .dropdown-content {
+  .dropdown--mega.open .dropdown-content {
     padding: 4px 0 4px 12px;
   }
 

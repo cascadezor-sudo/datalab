@@ -196,6 +196,7 @@ function createDropdown(title, links, activePage, options = {}) {
     // Закрываем все открытые дропдауны
     document.querySelectorAll(".dropdown.open").forEach((otherDropdown) => {
       otherDropdown.classList.remove("open");
+      otherDropdown.querySelector(".dropdown-btn")?.setAttribute("aria-expanded", "false");
     });
 
     // Если дропдаун не был открыт, открываем его
@@ -223,6 +224,7 @@ function createDropdown(title, links, activePage, options = {}) {
       const first = content.querySelector("a, button");
       if (first) {
         undismiss();
+        if (window.innerWidth <= 768) dropdown.classList.add("open");
         setExpanded(true);
         if (e.target === button) {
           e.preventDefault();
@@ -674,10 +676,22 @@ function createNavigation(options = {}) {
   mobileMenuBtn.setAttribute("aria-label", t("Меню навигации"));
   mobileMenuBtn.setAttribute("aria-expanded", "false");
   mobileMenuBtn.setAttribute("aria-controls", NAV_LINKS_ID);
-  mobileMenuBtn.onclick = () => {
+  mobileMenuBtn.onclick = (event) => {
+    event.stopPropagation();
     const shown = linkContainer.classList.toggle("show");
     mobileMenuBtn.innerHTML = shown ? "✕" : "☰";
     mobileMenuBtn.setAttribute("aria-expanded", shown ? "true" : "false");
+    linkContainer.querySelectorAll(".dropdown.open").forEach((dropdown) => {
+      dropdown.classList.remove("open");
+      dropdown.querySelector(".dropdown-btn")?.setAttribute("aria-expanded", "false");
+    });
+    const materials = linkContainer.querySelector(".dropdown--mega");
+    if (materials && shown) {
+      materials.classList.add("open");
+      materials.classList.remove("dropdown-dismissed");
+      materials.querySelector(".dropdown-btn")?.setAttribute("aria-expanded", "true");
+    }
+    if (shown) linkContainer.scrollTop = 0;
   };
   nav.appendChild(mobileMenuBtn);
 
@@ -1291,6 +1305,10 @@ function insertNavigation() {
 
     function closeMobileMenu(nodes) {
       nodes.linkContainer.classList.remove("show");
+      nodes.linkContainer.querySelectorAll(".dropdown.open").forEach((dropdown) => {
+        dropdown.classList.remove("open");
+        dropdown.querySelector(".dropdown-btn")?.setAttribute("aria-expanded", "false");
+      });
       nodes.mobileMenuBtn.innerHTML = "☰";
       // Иначе кнопка навсегда останется «раскрытой» для скринридера.
       nodes.mobileMenuBtn.setAttribute("aria-expanded", "false");
