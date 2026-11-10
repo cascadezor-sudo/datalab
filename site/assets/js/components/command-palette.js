@@ -3,6 +3,17 @@
  * Стеклянная панель, fuzzy-поиск, навигация с клавиатуры.
  */
 (function () {
+  const scriptPath = document.currentScript?.src
+    ? new URL(document.currentScript.src).pathname
+    : "";
+  const sitePrefix = scriptPath.match(/^(.*)\/assets\/js\/components\/command-palette\.js$/)?.[1] || "";
+
+  function navigationHref(route) {
+    if (!sitePrefix || !route?.startsWith("/") || route.startsWith("//")) return route;
+    if (route === sitePrefix || route.startsWith(`${sitePrefix}/`)) return route;
+    return `${sitePrefix}${route}`;
+  }
+
   // Перевод интерфейса (ядро — сниппет theme-boot). В тестах под Node его нет:
   // остаётся русский текст с подставленными значениями.
   const t =
@@ -1655,7 +1666,7 @@
     }
     filtered.forEach((item, i) => {
       const row = document.createElement("a");
-      row.href = item.route;
+      row.href = navigationHref(item.route);
       row.className =
         "cp-item" + (i === selectedIndex ? " cp-item-active" : "");
       row.id = `cp-item-${item.id}`;
@@ -1688,7 +1699,7 @@
 
   function navigate(item) {
     close();
-    window.location.href = item.route;
+    window.location.href = navigationHref(item.route);
   }
 
   async function open() {
