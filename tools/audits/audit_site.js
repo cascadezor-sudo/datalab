@@ -10,7 +10,8 @@ function walk(dir, list = []) {
   return list;
 }
 
-const files = walk('site');
+const projectRoot = path.resolve(__dirname, '../..');
+const files = walk(path.join(projectRoot, 'site'));
 const domains = {};
 
 const urlRegex = /https?:\/\/([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})([^\s'"`<>)]*)/g;
@@ -23,7 +24,7 @@ for (const file of files) {
     if (domain.includes('w3.org') || domain.includes('schema.org') || domain.includes('localhost') || domain.includes('127.0.0.1')) continue;
     if (!domains[domain]) domains[domain] = [];
     if (domains[domain].length < 3) {
-      domains[domain].push(file.replace(/\\/g, '/'));
+      domains[domain].push(path.relative(projectRoot, file).replace(/\\/g, '/'));
     }
   }
 }

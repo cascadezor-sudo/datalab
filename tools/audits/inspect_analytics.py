@@ -1,5 +1,8 @@
 import re
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 files = [
     "site/analytics/product/ab.html",
@@ -19,7 +22,7 @@ files = [
 
 total = 0
 for f in files:
-    with open(f, "r", encoding="utf-8") as fp:
+    with open(PROJECT_ROOT / f, "r", encoding="utf-8") as fp:
         c = fp.read()
     qs = re.findall(r'<li class="question"[^>]*data-md-id="([^"]+)"', c)
     names = re.findall(r'<div class="name"[^>]*id="([^"]+)">\s*([^<]+)', c)

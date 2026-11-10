@@ -2,7 +2,10 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 import os
+from pathlib import Path
 from bs4 import BeautifulSoup
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 pages = [
     'site/analytics/product/ab.html',
@@ -27,9 +30,10 @@ print(f"| {'Модуль':<40} | {'Размер':<14} | {'Вопросов':<10}
 print("|" + "-"*42 + "|" + "-"*16 + "|" + "-"*12 + "|" + "-"*20 + "|")
 
 for p in pages:
-    sz = os.path.getsize(p)
+    page_path = PROJECT_ROOT / p
+    sz = os.path.getsize(page_path)
     total_size += sz
-    with open(p, 'r', encoding='utf-8') as f:
+    with open(page_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
     qs = soup.select('ol#questions > li.question')
     cnt = len(qs)

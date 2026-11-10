@@ -8,7 +8,7 @@ const { exec, spawn } = require('child_process');
 const os = require('os');
 
 const BASE_DIR = __dirname;
-const SITE_DIR = fs.existsSync(path.join(BASE_DIR, 'site')) ? path.join(BASE_DIR, 'site') : BASE_DIR;
+const SITE_DIR = path.resolve(BASE_DIR, '..', 'site');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -124,7 +124,7 @@ function startServer(port = 8080) {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    const url = `http://localhost:${port}/main.html`;
+    const url = `http://localhost:${server.address().port}/main.html`;
     console.log('='.repeat(64));
     console.log('         DATALAB -- ЛОКАЛЬНАЯ АВТОНОМНАЯ БАЗА ЗНАНИЙ (Node.js)');
     console.log('='.repeat(64));
@@ -137,7 +137,10 @@ function startServer(port = 8080) {
 
     if (process.env.DATALAB_NO_BROWSER !== '1') exec(`start "" "${url}"`);
   });
+  return server;
 }
 
-startServer(8080);
+if (require.main === module) startServer(8080);
+
+module.exports = { startServer };
 

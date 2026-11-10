@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 
-const projectRoot = process.env.DATALAB_TEST_ROOT || path.resolve(__dirname, '..');
+const projectRoot = process.env.DATALAB_TEST_ROOT || path.resolve(__dirname, '../..');
 const mockSource = readFileSync(path.join(projectRoot, 'site/assets/js/firebase-mock.js'), 'utf8');
 
 function fixture(progress = { algebra: { completed: true } }) {
@@ -19,9 +19,9 @@ function fixture(progress = { algebra: { completed: true } }) {
   };
 }
 
-function boot(entries = {}) {
+function boot(entries = {}, { blocked = false } = {}) {
   const values = new Map(Object.entries(entries));
-  let blockWrites = false;
+  let blockWrites = blocked;
   const storage = {
     get length() { return values.size; },
     key(index) { return [...values.keys()][index] ?? null; },
@@ -95,8 +95,7 @@ test('multiple compatible earlier stores require a deliberate choice', () => {
 
 test('failed migration retains the original and can be retried', async () => {
   const original = JSON.stringify(fixture());
-  const app = boot({ previous_offline_db: original });
-  app.setBlocked(true);
+  const app = boot({ previous_offline_db: original }, { blocked: true });
   assert.throws(app.readUser, error => error.code === 'OFFLINE_STORAGE_FAILED');
   assert.equal(app.storage.getItem('previous_offline_db'), original);
   assert.equal(app.storage.getItem('datalab_offline_db'), null);

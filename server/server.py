@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 DataLab — Локальный многопоточный сервер базы знаний
-Автоматически находит свободный порт, запускает сервер и открывает сайт в браузере.
+Запускает сайт на localhost:8080 и открывает его в браузере.
 """
 
 import os
@@ -14,7 +14,12 @@ import urllib.error
 import json
 import subprocess
 import tempfile
+from functools import partial
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+
+SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SERVER_DIR)
+SITE_DIR = os.path.join(PROJECT_ROOT, 'site')
 
 class LocalHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = False
@@ -37,7 +42,7 @@ class CustomHTTPHandler(SimpleHTTPRequestHandler):
             if not isinstance(payload.get('code'), str) or not isinstance(payload.get('tests'), str):
                 self.send_error(400)
                 return
-            runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'offline_runner.py')
+            runner = os.path.join(SERVER_DIR, 'offline_runner.py')
             with tempfile.TemporaryDirectory(prefix='datalab-check-') as scratch:
                 process = subprocess.run([sys.executable, '-I', runner], input=json.dumps(payload),
                     text=True, capture_output=True, timeout=5, cwd=scratch)
@@ -74,22 +79,17 @@ def find_free_port(start_port=8080, max_attempts=50):
                 continue
     return start_port
 
-def main():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    site_dir = os.path.join(base_dir, "site")
-    if os.path.isdir(site_dir):
-        serve_dir = site_dir
-    else:
-        serve_dir = base_dir
+def create_server(port=8080):
+    handler = partial(CustomHTTPHandler, directory=SITE_DIR)
+    return LocalHTTPServer(('127.0.0.1', port), handler)
 
+
+def main():
+    serve_dir = SITE_DIR
     port = 8080
-    
-    class HandlerWithDir(CustomHTTPHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=serve_dir, **kwargs)
 
     try:
-        httpd = LocalHTTPServer(('127.0.0.1', port), HandlerWithDir)
+        httpd = create_server(port)
     except OSError as e:
         # Reuse only this exact site's main page, never an unrelated service.
         url = "http://localhost:8080/main.html"

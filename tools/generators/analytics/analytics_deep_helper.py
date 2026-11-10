@@ -5,6 +5,9 @@ Avoids regex replacement issues with KaTeX formulas.
 """
 
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 def render_question(q_id, title, rating, definition_html, explanation_html, example_html, code_lang, code_content, warning_items, remark_html, teormin_qa_list):
     warnings_lis = "".join(f"\n        <li><b>{w[0]}</b> {w[1]}</li>" for w in warning_items)
@@ -45,6 +48,7 @@ def render_question(q_id, title, rating, definition_html, explanation_html, exam
 </li>"""
 
 def update_page_questions(html_path, questions_html):
+    html_path = PROJECT_ROOT / html_path
     with open(html_path, "r", encoding="utf-8") as f:
         content = f.read()
 

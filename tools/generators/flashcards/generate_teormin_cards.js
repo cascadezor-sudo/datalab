@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const summaryPath = './site/assets/js/config/teormin-cards-summary.json';
-const qlistPath = './site/assets/js/config/questions-list.json';
-const blockManifestPath = './site/assets/js/config/teormin-card-blocks.json';
-const outputPath = './site/assets/data/teormin-cards.json';
+const siteRoot = path.resolve(__dirname, '../../../site');
+const summaryPath = path.join(siteRoot, 'assets/js/config/teormin-cards-summary.json');
+const qlistPath = path.join(siteRoot, 'assets/js/config/questions-list.json');
+const blockManifestPath = path.join(siteRoot, 'assets/js/config/teormin-card-blocks.json');
+const outputPath = path.join(siteRoot, 'assets/data/teormin-cards.json');
 
 const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
 const qlist = JSON.parse(fs.readFileSync(qlistPath, 'utf8'));
@@ -76,7 +77,7 @@ const allCards = [];
 const cardsByQuestionId = {};
 
 for (const [page, qIds] of Object.entries(qlist.pages)) {
-  const filePath = path.join('./site', page);
+  const filePath = path.join(siteRoot, page);
   if (!fs.existsSync(filePath)) continue;
   const content = fs.readFileSync(filePath, 'utf8');
 
