@@ -73,7 +73,7 @@
      */
     async shouldShowIntro() {
       try {
-        if (localStorage.getItem("introShown") === "true") return false;
+        if ((window.DataLabStorage?.local || localStorage).getItem("introShown") === "true") return false;
       } catch (e) {}
 
       if (!this.user || !this.db) return false;
@@ -86,7 +86,7 @@
 
         // Show intro if flag is not set or is false
         if (introShown === true) {
-          try { localStorage.setItem("introShown", "true"); } catch (e) {}
+          try { window.DataLabStorage.local.setItem("introShown", "true"); } catch (e) {}
           return false;
         }
         return false; // Default offline: don't annoy user on every launch
@@ -101,7 +101,7 @@
      */
     async markIntroAsShown() {
       try {
-        localStorage.setItem("introShown", "true");
+        window.DataLabStorage.local.setItem("introShown", "true");
       } catch (e) {}
 
       if (!this.user || !this.db) return;

@@ -117,7 +117,7 @@ window.platformDayKey =
 
     return cards.filter((card) => {
       // Страница повторения учитывает только карточки пройденных вопросов.
-      if (progress[card.questionId]?.completed !== true) return false;
+      if (!(window.DataLabProgress?.isCompleted(progress[card.questionId]) ?? false)) return false;
       const state = reviewState[card.id];
       return !state || !state.nextReviewAt || state.nextReviewAt <= now;
     }).length;
@@ -255,19 +255,15 @@ window.platformDayKey =
   // Цель — удобство зрителя, серверу она не нужна: localStorage на uid.
   function readGoal(uid) {
     try {
-      const stored = Number(localStorage.getItem(`main-daily-goal:${uid}`));
+      const stored = Number((window.DataLabStorage?.local || localStorage).getItem(`main-daily-goal:${uid}`));
       return GOAL_OPTIONS.includes(stored) ? stored : DEFAULT_GOAL;
     } catch {
       return DEFAULT_GOAL;
     }
   }
 
-  function writeGoal(uid, goal) {
-    try {
-      localStorage.setItem(`main-daily-goal:${uid}`, String(goal));
-    } catch {
-      // Приватное окно: цель проживёт до перезагрузки.
-    }
+  async function writeGoal(uid, goal) {
+    await window.DataLabStorage.local.setItem(`main-daily-goal:${uid}`, String(goal));
   }
 
   function renderGoal(done, goal) {
@@ -322,11 +318,16 @@ window.platformDayKey =
     renderGoal(done, readGoal(uid));
     const options = document.getElementById("todayGoalOptions");
     if (options) {
-      options.onclick = (event) => {
+      options.onclick = async (event) => {
         const goal = Number(event.target?.dataset?.goal);
         if (!GOAL_OPTIONS.includes(goal)) return;
-        writeGoal(uid, goal);
-        renderGoal(done, goal);
+        try {
+          await writeGoal(uid, goal);
+          renderGoal(done, goal);
+        } catch (error) {
+          console.error("Не удалось сохранить цель:", error);
+          renderGoal(done, readGoal(uid));
+        }
       };
     }
 

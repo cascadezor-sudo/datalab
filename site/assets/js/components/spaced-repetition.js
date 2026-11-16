@@ -259,7 +259,7 @@
         // очередь 'due' окажется полностью пустой (0 карточек).
         // В этом случае по умолчанию показываем 'all' ("Все карточки"), чтобы сразу были доступны все материалы.
         const hasCompleted = Object.values(this.progressData).some(
-          (p) => p && (p.completed === true || p.status === "completed")
+          (p) => window.DataLabProgress?.isCompleted(p) ?? false
         );
         if (!hasCompleted) {
           this.mode = "all";
@@ -285,7 +285,7 @@
     }
 
     isCardFromCompletedQuestion(card) {
-      return this.progressData[card.questionId]?.completed === true;
+      return window.DataLabProgress?.isCompleted(this.progressData[card.questionId]) ?? false;
     }
 
     isDue(card) {
@@ -631,9 +631,10 @@
       return t("{n} д", { n: intervalDays });
     }
 
-    gradeCurrentCard(grade) {
+    async gradeCurrentCard(grade) {
       const card = this.filteredQueue[this.currentIndex];
-      if (!card || !this.user) return;
+      if (!card || !this.user || this.grading) return;
+      this.grading = true;
 
       const previous = this.getCardState(card) || {
         repetitions: 0,
@@ -648,21 +649,30 @@
         updatedAt: Date.now(),
       };
 
-      this.reviewState[card.id] = state;
-      // Не ждём ответа сервера: RTDB сперва применяет запись локально, и
-      // ученик переходит к следующей карточке без паузы.
-      this.db
-        .ref(`users/${this.user.uid}/spaced_repetition/${card.id}`)
-        .set(state)
-        .then(() => {
-          // Связь вернулась — плашка уйдёт со следующей карточкой.
-          this.saveFailed = false;
-        })
-        .catch((error) => {
-          console.error("SpacedRepetition: failed to save grade", error);
-          this.saveFailed = true;
-          this.renderCard();
-        });
+      try {
+        if (window.__datalabOffline && window.DataLabStorage) {
+          this.reviewState[card.id] = await window.DataLabStorage.mutate((snapshot) => {
+            const user = snapshot.db.users[this.user.uid];
+            user.spaced_repetition ||= {};
+            const current = user.spaced_repetition[card.id] || { repetitions: 0, intervalDays: 0, ease: 2.5 };
+            const updated = { ...current, ...this.schedule(current, grade), lastGrade: grade,
+              lastReviewedAt: Date.now(), updatedAt: Date.now() };
+            user.spaced_repetition[card.id] = updated;
+            return updated;
+          });
+        } else {
+          await this.db.ref(`users/${this.user.uid}/spaced_repetition/${card.id}`).set(state);
+          this.reviewState[card.id] = state;
+        }
+        this.saveFailed = false;
+      } catch (error) {
+        console.error("SpacedRepetition: failed to save grade", error);
+        this.saveFailed = true;
+        this.renderCard();
+        return;
+      } finally {
+        this.grading = false;
+      }
       this.sessionGraded += 1;
       this.scheduleRepetitionSync();
       // Оценённая карточка может выпасть из очереди (режим «К повторению»),
@@ -871,7 +881,7 @@
       if (resetEl) {
         resetEl.addEventListener("click", async () => {
           const hasCompleted = Object.values(this.progressData).some(
-            (p) => p && (p.completed === true || p.status === "completed")
+            (p) => window.DataLabProgress?.isCompleted(p) ?? false
           );
           this.mode = hasCompleted ? "due" : "all";
           this.category = "";

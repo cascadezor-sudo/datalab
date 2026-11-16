@@ -374,7 +374,7 @@
       if (collapsed) toc.classList.add("collapsed");
       else toc.classList.remove("collapsed");
       try {
-        localStorage.setItem("dictionaryTocCollapsed", collapsed ? "1" : "0");
+        window.DataLabStorage.local.setItem("dictionaryTocCollapsed", collapsed ? "1" : "0");
       } catch (_) {}
       setToggleIcon();
     };
@@ -385,7 +385,7 @@
 
     let saved = null;
     try {
-      saved = localStorage.getItem("dictionaryTocCollapsed");
+      saved = (window.DataLabStorage?.local || localStorage).getItem("dictionaryTocCollapsed");
     } catch (_) {
       saved = null;
     }

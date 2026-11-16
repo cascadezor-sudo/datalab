@@ -190,7 +190,7 @@ function loadImageZoom() {
 function updateThemeIcons() {
   const isDark = document.body.classList.contains("dark");
   const palette = window.__normalizePalette(
-    localStorage.getItem("palette") || "vibecode",
+    (window.DataLabStorage?.local || localStorage).getItem("palette") || "vibecode",
   );
   const PALETTE_NAV_LABEL = {
     vibecode: "DataLab",

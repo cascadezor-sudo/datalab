@@ -10,7 +10,7 @@ class RoadmapProgress {
   static calculateCategoryProgress(questionIds, progressData) {
     const total = Array.isArray(questionIds) ? questionIds.length : 0;
     const completed = (questionIds || []).filter(
-      (questionId) => progressData?.[questionId]?.completed === true,
+      (questionId) => window.DataLabProgress?.isCompleted(progressData?.[questionId]) ?? false,
     ).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 

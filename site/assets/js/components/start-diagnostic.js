@@ -123,7 +123,7 @@
 
   function getSavedResult() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = (window.DataLabStorage?.local || localStorage).getItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch (error) {
       console.warn("Failed to read diagnostic result:", error);
@@ -142,7 +142,7 @@
      и вопрос останется без ответа. */
   function saveProgress() {
     try {
-      localStorage.setItem(
+      window.DataLabStorage.local.setItem(
         PROGRESS_KEY,
         JSON.stringify({
           version: QUESTIONS_VERSION,
@@ -161,7 +161,7 @@
 
   function clearProgress() {
     try {
-      localStorage.removeItem(PROGRESS_KEY);
+      window.DataLabStorage.local.removeItem(PROGRESS_KEY);
     } catch (error) {
       console.warn("Failed to clear diagnostic progress:", error);
     }
@@ -169,7 +169,7 @@
 
   function restoreProgress() {
     try {
-      const raw = localStorage.getItem(PROGRESS_KEY);
+      const raw = (window.DataLabStorage?.local || localStorage).getItem(PROGRESS_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
       if (
@@ -196,11 +196,12 @@
     }
   }
 
-  function saveLocalResult(result) {
+  async function saveLocalResult(result) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      await window.DataLabStorage.local.setItem(STORAGE_KEY, JSON.stringify(result));
     } catch (error) {
       console.warn("Failed to save diagnostic result:", error);
+      throw error;
     }
   }
 
@@ -385,7 +386,7 @@
     return route.slice(0, 5);
   }
 
-  function finishDiagnostic() {
+  async function finishDiagnostic() {
     const scores = buildScores();
     const result = {
       completedAt: new Date().toISOString(),
@@ -399,9 +400,14 @@
         correct: QUESTIONS[index].options[answerIndex]?.score === 1,
       })),
     };
+    try {
+      await saveLocalResult(result);
+      await window.DataLabStorage.local.removeItem(PROGRESS_KEY);
+    } catch (error) {
+      console.error("Не удалось сохранить результат диагностики:", error);
+      return;
+    }
     state.result = result;
-    clearProgress();
-    saveLocalResult(result);
     renderResults(result);
     saveFirebaseResult(result);
   }
@@ -527,7 +533,7 @@
     state.result = null;
     clearProgress();
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      window.DataLabStorage.local.removeItem(STORAGE_KEY);
     } catch (error) {
       console.warn("Failed to reset diagnostic result:", error);
     }

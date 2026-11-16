@@ -234,13 +234,14 @@
       if (db) {
         await db.ref("users/offline_user").update({ introShown: true, introShownAt: Date.now() });
       }
-      try { localStorage.setItem("introShown", "true"); } catch (e) {}
+      if (window.DataLabStorage) await window.DataLabStorage.local.setItem("introShown", "true");
       await evaluateAchievements();
       return { success: true };
     },
 
     setQuestionProgress: async function (questionId, completed = true) {
       const db = getDb();
+      if (!db) throw new Error("Progress database is unavailable");
       if (db) {
         if (completed) {
           await db.ref(`users/offline_user/progress/${questionId}`).set({
@@ -253,45 +254,29 @@
         }
       }
 
-      try {
-        const anon = JSON.parse(localStorage.getItem("anonymous_progress") || "{}");
-        if (completed) {
-          anon[questionId] = { completed: true, timestamp: Date.now() };
-        } else {
-          delete anon[questionId];
-        }
-        localStorage.setItem("anonymous_progress", JSON.stringify(anon));
-      } catch (e) {}
-
       return await evaluateAchievements();
     },
 
     setQuestionProgressBatch: async function (params) {
       const updates = params && params.updates ? params.updates : (params || {});
       const db = getDb();
-      const anon = JSON.parse(localStorage.getItem("anonymous_progress") || "{}");
+      if (!db) throw new Error("Progress database is unavailable");
 
       if (db) {
         const dbUpdates = {};
         for (const [qId, val] of Object.entries(updates)) {
-          if (val === true || (val && val.completed !== false)) {
+          if (window.DataLabProgress.isCompleted(val)) {
             dbUpdates[`users/offline_user/progress/${qId}`] = {
               completed: true,
               timestamp: Date.now(),
               userId: "offline_user"
             };
-            anon[qId] = { completed: true, timestamp: Date.now() };
           } else {
             dbUpdates[`users/offline_user/progress/${qId}`] = null;
-            delete anon[qId];
           }
         }
         await db.ref().update(dbUpdates);
       }
-
-      try {
-        localStorage.setItem("anonymous_progress", JSON.stringify(anon));
-      } catch (e) {}
 
       return await evaluateAchievements();
     },
@@ -507,7 +492,11 @@
     }
   };
 
-  window.achievementApi = Object.assign(window.achievementApi || {}, api);
+  // The Firebase offline adapter owns overlaps; this supplies fallbacks only.
+  window.achievementApi = window.achievementApi || {};
+  Object.keys(api).forEach(function (name) {
+    if (typeof window.achievementApi[name] === "undefined") window.achievementApi[name] = api[name];
+  });
 
   // Set up staffApi mock for roadmap interactions
   window.staffApi = Object.assign(window.staffApi || {}, {

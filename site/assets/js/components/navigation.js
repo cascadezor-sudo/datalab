@@ -281,14 +281,14 @@ function applyLearningFormat(format) {
   if (materials) document.documentElement.dataset.learningFormat = "materials";
   else delete document.documentElement.dataset.learningFormat;
   try {
-    if (materials) localStorage.setItem(NAV_FORMAT_CACHE_KEY, "materials");
-    else localStorage.removeItem(NAV_FORMAT_CACHE_KEY);
+    if (materials) window.DataLabStorage.local.setItem(NAV_FORMAT_CACHE_KEY, "materials");
+    else window.DataLabStorage.local.removeItem(NAV_FORMAT_CACHE_KEY);
   } catch (error) {
     /* ignore */
   }
 }
 try {
-  if (localStorage.getItem(NAV_FORMAT_CACHE_KEY) === "materials")
+  if ((window.DataLabStorage?.local || localStorage).getItem(NAV_FORMAT_CACHE_KEY) === "materials")
     document.documentElement.dataset.learningFormat = "materials";
 } catch (error) {
   /* ignore */
@@ -305,7 +305,7 @@ function isCuratorNavigationRole(role) {
 
 function readCachedNavigationRole() {
   try {
-    const raw = localStorage.getItem(NAV_ROLE_CACHE_KEY);
+    const raw = (window.DataLabStorage?.local || localStorage).getItem(NAV_ROLE_CACHE_KEY);
     if (!raw) return null;
     const cached = JSON.parse(raw);
     if (!cached || !cached.uid || !cached.role || !cached.updatedAt)
@@ -320,7 +320,7 @@ function readCachedNavigationRole() {
 function writeCachedNavigationRole(uid, role) {
   try {
     if (!uid || !role) return;
-    localStorage.setItem(
+    window.DataLabStorage.local.setItem(
       NAV_ROLE_CACHE_KEY,
       JSON.stringify({
         uid,
@@ -335,7 +335,7 @@ function writeCachedNavigationRole(uid, role) {
 
 function clearCachedNavigationRole() {
   try {
-    localStorage.removeItem(NAV_ROLE_CACHE_KEY);
+    window.DataLabStorage.local.removeItem(NAV_ROLE_CACHE_KEY);
   } catch (error) {
     /* ignore */
   }
@@ -613,6 +613,7 @@ function createAccountMenu(activePage) {
     avatar,
     [
       { href: "/profile.html", text: t("Профиль"), id: "profile" },
+      { href: "/storage-recovery.html", text: t("Резервная копия и восстановление"), id: "storage-recovery" },
       { href: "/news.html", text: t("Новости"), id: "news" },
       { href: "/suggestions.html", text: t("Предложения"), id: "suggestions" },
       { element: appearance },
@@ -773,7 +774,7 @@ let languageSync = null; // { db, uid } после входа
 
 function readStoredLanguage() {
   try {
-    const value = localStorage.getItem("lang");
+    const value = (window.DataLabStorage?.local || localStorage).getItem("lang");
     return value === "en" || value === "ru" ? value : null;
   } catch (error) {
     return null;
@@ -796,7 +797,9 @@ function isEnglishMaterialPath(pathname) {
 }
 
 async function switchLanguage(next) {
-  window.i18n?.remember(next);
+  if (window.__datalabStorageReady) await window.__datalabStorageReady;
+  if (window.DataLabStorage) await window.DataLabStorage.setKV("lang", next === "en" ? "en" : "ru");
+  else await window.i18n?.remember(next);
   if (languageSync) {
     try {
       await languageSync.db.ref(`users/${languageSync.uid}/lang`).set(next);
@@ -855,7 +858,9 @@ function createLanguageToggle() {
   button.lang = next;
   button.title = next === "en" ? "Switch to English" : "Переключить на русский";
   button.setAttribute("aria-label", button.title);
-  button.addEventListener("click", () => switchLanguage(next));
+  button.addEventListener("click", () => switchLanguage(next).catch((error) => {
+    console.error("Не удалось сохранить язык:", error);
+  }));
   return button;
 }
 
@@ -1337,17 +1342,17 @@ function insertNavigation() {
 }
 
 function getStoredAppearance() {
-  const raw = localStorage.getItem("palette");
+  const raw = (window.DataLabStorage?.local || localStorage).getItem("palette");
   const palette = window.__normalizePalette(raw || "vibecode");
   if (raw === "classic") {
     try {
-      localStorage.setItem("palette", "vibecode");
+      window.DataLabStorage.local.setItem("palette", "vibecode");
     } catch (e) {
       /* ignore */
     }
   }
   return {
-    theme: localStorage.getItem("theme") || "light",
+    theme: (window.DataLabStorage?.local || localStorage).getItem("theme") || "light",
     palette,
   };
 }
@@ -1355,13 +1360,28 @@ function getStoredAppearance() {
 /* Модалка оформления — единственное место, откуда тему меняют руками.
    Само применение делегировано сниппету theme-boot: он владеет и атрибутом
    html[data-theme], и зеркальным классом на body. */
-function applyAppearance({ theme, palette }) {
+async function applyAppearance({ theme, palette }) {
   const nextTheme = theme || "light";
   const nextPalette = window.__applyPaletteClasses(palette);
   window.__applyTheme(window.__resolveTheme(nextTheme));
 
-  localStorage.setItem("theme", nextTheme);
-  localStorage.setItem("palette", nextPalette);
+  try {
+    if (window.DataLabStorage) {
+      await window.DataLabStorage.mutate((state) => {
+        state.kv.theme = nextTheme;
+        state.kv.palette = nextPalette;
+      });
+    } else {
+      window.DataLabStorage.local.setItem("theme", nextTheme);
+      window.DataLabStorage.local.setItem("palette", nextPalette);
+    }
+  } catch (error) {
+    const actual = getStoredAppearance();
+    window.__applyTheme(window.__resolveTheme(actual.theme));
+    window.__applyPaletteClasses(actual.palette);
+    console.error("Не удалось сохранить оформление:", error);
+    return false;
+  }
 
   updateThemeIcon();
   updateAppearanceModalState();
@@ -1374,7 +1394,7 @@ function applyAppearance({ theme, palette }) {
 function updateThemeIcon() {
   const isDark = document.body.classList.contains("dark");
   const palette = window.__normalizePalette(
-    localStorage.getItem("palette") || "vibecode",
+    (window.DataLabStorage?.local || localStorage).getItem("palette") || "vibecode",
   );
   const PALETTE_NAV_LABEL = {
     vibecode: "DataLab",
@@ -1601,7 +1621,25 @@ function updateAppearanceModalState() {
 })();
 
 // Инициализация при загрузке страницы
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    if (window.__datalabStorageReady) await window.__datalabStorageReady;
+    if (window.DataLabStorage) {
+      const storage = window.DataLabStorage;
+      if (window.i18n) window.i18n.remember = (value) => storage.setKV("lang", value === "en" ? "en" : "ru");
+      const appearance = getStoredAppearance();
+      window.__applyTheme?.(window.__resolveTheme?.(appearance.theme) || appearance.theme);
+      window.__applyPaletteClasses?.(appearance.palette);
+      storage.subscribe(() => {
+        const next = getStoredAppearance();
+        window.__applyTheme?.(window.__resolveTheme?.(next.theme) || next.theme);
+        window.__applyPaletteClasses?.(next.palette);
+        updateThemeIcon();
+      });
+    }
+  } catch (error) {
+    console.error("Не удалось загрузить сохранённые настройки:", error);
+  }
   // Тему здесь больше не восстанавливаем: к этому моменту страница уже
   // отрисована, а сниппет theme-boot применил её ещё в <head>. Осталось
   // подписать переключатель.

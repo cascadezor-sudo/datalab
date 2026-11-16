@@ -62,7 +62,7 @@
 
   function loadDraft(key) {
     try {
-      return JSON.parse(localStorage.getItem(draftKey(key)) || "null");
+      return JSON.parse((window.DataLabStorage?.local || localStorage).getItem(draftKey(key)) || "null");
     } catch (_) {
       return null;
     }
@@ -70,7 +70,7 @@
 
   function saveDraft(key, value) {
     try {
-      localStorage.setItem(draftKey(key), JSON.stringify(value));
+      window.DataLabStorage.local.setItem(draftKey(key), JSON.stringify(value));
     } catch (_) {
       /* приватное окно — живём без черновика */
     }
@@ -422,12 +422,16 @@
         }
         const unparsed = paint(root, fields, verdict);
         if (verdict.correct) {
-          root.classList.add("mans--solved");
-          setStatus(t("Верно! Задача отмечена решённой."), "ok");
-          window.questionProgressTracker?.markQuestionCompleted(
+          const saved = await window.questionProgressTracker?.markQuestionCompleted(
             progressId(li),
             true,
           );
+          if (saved === false) {
+            setStatus(t("Ответ верный, но сохранить отметку не удалось. Проверьте хранилище и повторите действие."), "warn");
+          } else {
+            root.classList.add("mans--solved");
+            setStatus(t("Верно! Задача отмечена решённой."), "ok");
+          }
         } else if (unparsed) {
           setStatus(
             t(
@@ -490,7 +494,10 @@
       .forEach(initQuestion);
   }
 
-  function start() {
+  async function start() {
+    try {
+      if (window.__datalabStorageReady) await window.__datalabStorageReady;
+    } catch (_) { return; }
     initAll();
     // Вопросы подгружаются лениво (lazy-questions.js) — ловим новые.
     new MutationObserver(initAll).observe(document.body, {

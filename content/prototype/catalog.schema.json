@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datalab:content-prototype:1",
+  "$ref": "#/$defs/catalog",
+  "$defs": {
+    "sourceRef": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "pointer"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "html",
+            "json",
+            "javascript"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "format",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "legacyId": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "entity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^dl_[0-9a-f]{32}$"
+        },
+        "type": {
+          "enum": [
+            "LegacyPage",
+            "Section",
+            "ContentBlock",
+            "Exercise",
+            "SourceDataset",
+            "Achievement",
+            "SourceRecord",
+            "LearningPath",
+            "Milestone",
+            "PathTrack",
+            "SourceCategory",
+            "Definition",
+            "QuestionIndexEntry",
+            "Quiz",
+            "Question",
+            "Flashcard",
+            "QuestionReference",
+            "CardBlockAssignment",
+            "NavigationRegistry",
+            "NavigationEntry",
+            "KanbanConfiguration",
+            "KanbanValue",
+            "QuestionBankConfiguration",
+            "QuestionBankTopic"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "sourceKey": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/sourceRef"
+        },
+        "legacyIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/legacyId"
+          }
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "sourceKey",
+        "source",
+        "legacyIds",
+        "metadata"
+      ],
+      "additionalProperties": false
+    },
+    "relationship": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "contains",
+            "references",
+            "reviews",
+            "categorizes",
+            "roadmap",
+            "quiz-definition",
+            "offers-quiz",
+            "navigates-to",
+            "assigns-block"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/sourceRef"
+        },
+        "status": {
+          "const": "observed"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "type",
+        "evidence",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "issue": {
+      "type": "object",
+      "required": [
+        "code",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "mode": {
+          "const": "offline-prototype"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entity"
+          }
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relationship"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "mode",
+        "sources",
+        "entities",
+        "relationships",
+        "issues"
+      ],
+      "additionalProperties": false
+    },
+    "historicalSource": {
+      "type": "object",
+      "properties": {
+        "sourceKey": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "legacyIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/legacyId"
+          }
+        }
+      },
+      "required": [
+        "sourceKey",
+        "source",
+        "legacyIds"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "canonicalId": {
+          "type": "string",
+          "pattern": "^dl_[0-9a-f]{32}$"
+        },
+        "objectType": {
+          "enum": [
+            "LegacyPage",
+            "Section",
+            "ContentBlock",
+            "Exercise",
+            "SourceDataset",
+            "Achievement",
+            "SourceRecord",
+            "LearningPath",
+            "Milestone",
+            "PathTrack",
+            "SourceCategory",
+            "Definition",
+            "QuestionIndexEntry",
+            "Quiz",
+            "Question",
+            "Flashcard",
+            "QuestionReference",
+            "CardBlockAssignment",
+            "NavigationRegistry",
+            "NavigationEntry",
+            "KanbanConfiguration",
+            "KanbanValue",
+            "QuestionBankConfiguration",
+            "QuestionBankTopic"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "retired"
+          ]
+        },
+        "legacyIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/legacyId"
+          }
+        },
+        "historicalSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/historicalSource"
+          }
+        }
+      },
+      "required": [
+        "canonicalId",
+        "objectType",
+        "source",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "bindingAlias": {
+      "type": "object",
+      "properties": {
+        "targetKey": {
+          "type": "string"
+        },
+        "canonicalId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "targetKey",
+        "canonicalId"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/binding"
+          }
+        },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/bindingAlias"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "bindings",
+        "aliases"
+      ],
+      "additionalProperties": false
+    },
+    "occurrence": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "sourceKey": {
+          "type": "string"
+        },
+        "canonicalId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sourceKey",
+        "canonicalId"
+      ],
+      "additionalProperties": false
+    },
+    "mappingRow": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "legacyId": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "objectType": {
+          "type": "string"
+        },
+        "canonicalId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "ambiguous",
+            "deprecated",
+            "orphaned",
+            "pending_review"
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 0,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "occurrences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        }
+      },
+      "required": [
+        "namespace",
+        "legacyId",
+        "source",
+        "objectType",
+        "canonicalId",
+        "status",
+        "candidates",
+        "aliases",
+        "occurrences"
+      ],
+      "additionalProperties": false
+    },
+    "mapping": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mappingRow"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "mappings"
+      ],
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "reviewer",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "resolutionDecision": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "legacyId": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "ambiguous",
+            "deprecated",
+            "orphaned",
+            "pending_review"
+          ]
+        },
+        "canonicalId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review": {
+          "$ref": "#/$defs/review"
+        }
+      },
+      "required": [
+        "namespace",
+        "legacyId",
+        "source",
+        "status",
+        "canonicalId",
+        "review"
+      ],
+      "additionalProperties": false
+    },
+    "resolutions": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resolutionDecision"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "decisions"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

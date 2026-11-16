@@ -717,11 +717,12 @@ class DifficultyRating {
             questionId,
             newState,
           );
+          const savedState = window.questionProgressTracker.isQuestionCompleted(questionId);
           window.questionProgressTracker.updateQuestionVisualState(
             questionElement,
-            newState,
+            savedState,
           );
-          this.updateProgressButtonState(progressBtn, newState);
+          this.updateProgressButtonState(progressBtn, savedState);
           window.questionProgressTracker.updateUI();
         }
       });

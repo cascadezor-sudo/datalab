@@ -8,6 +8,7 @@ class QuestionProgressTracker {
     this.firebaseConfig = null;
     this.db = null;
     this.pageQuestions = [];
+    this.progressWriteVersions = Object.create(null);
   }
 
   /**
@@ -89,11 +90,23 @@ class QuestionProgressTracker {
       const dbProgress = progressSnap.val() || {};
       let anonProgress = {};
       try {
-        anonProgress = JSON.parse(localStorage.getItem("anonymous_progress") || "{}");
+        anonProgress = JSON.parse((window.DataLabStorage?.local || localStorage).getItem("anonymous_progress") || "{}");
       } catch (e) {}
-      this.progressData = { ...anonProgress, ...dbProgress };
+      // The offline database owns the migrated progress. Re-merging the old
+      // anonymous mirror here would resurrect marks removed from that database.
+      this.progressData = window.__datalabOffline && this.currentUser.uid === "offline_user"
+        ? dbProgress
+        : { ...anonProgress, ...dbProgress };
       this.userRole = roleSnap.val() || null;
       this.updateUI();
+      if (window.__datalabOffline && window.DataLabStorage && !this.storageUnsubscribe) {
+        this.storageUnsubscribe = window.DataLabStorage.subscribe((state) => {
+          const user = state.db.users?.[this.currentUser?.uid];
+          if (!user) return;
+          this.progressData = user.progress || {};
+          this.updateUI();
+        });
+      }
     } catch (error) {
       console.error("Failed to load user progress:", error);
       this.progressData = {};
@@ -105,7 +118,7 @@ class QuestionProgressTracker {
    */
   loadAnonymousProgress() {
     try {
-      const stored = localStorage.getItem("anonymous_progress");
+      const stored = (window.DataLabStorage?.local || localStorage).getItem("anonymous_progress");
       this.progressData = stored ? JSON.parse(stored) : {};
       this.updateUI();
     } catch (error) {
@@ -122,17 +135,19 @@ class QuestionProgressTracker {
       if (this.currentUser) {
         if (window.achievementApi) {
           await window.achievementApi.setQuestionProgressBatch(this.progressData);
+          if (window.__datalabOffline && this.currentUser.uid === "offline_user") return;
         }
         if (this.db) {
           await this.db.ref(`users/${this.currentUser.uid}/progress`).set(this.progressData);
         }
       }
-      localStorage.setItem(
+      await window.DataLabStorage.local.setItem(
         "anonymous_progress",
         JSON.stringify(this.progressData),
       );
     } catch (error) {
       console.error("Failed to save progress:", error);
+      throw error;
     }
   }
 
@@ -148,6 +163,7 @@ class QuestionProgressTracker {
             data?.completed !== false,
           );
           window.autoUnlock?.showUnlocks(result?.unlockedLabels);
+          if (window.__datalabOffline && this.currentUser.uid === "offline_user") return;
         }
         if (this.db) {
           if (data?.completed !== false) {
@@ -157,16 +173,17 @@ class QuestionProgressTracker {
           }
         }
       }
-      const existingData = localStorage.getItem("anonymous_progress");
+      const existingData = (window.DataLabStorage?.local || localStorage).getItem("anonymous_progress");
       const currentData = existingData ? JSON.parse(existingData) : {};
       if (data?.completed !== false) {
         currentData[questionId] = data;
       } else {
         delete currentData[questionId];
       }
-      localStorage.setItem("anonymous_progress", JSON.stringify(currentData));
+      await window.DataLabStorage.local.setItem("anonymous_progress", JSON.stringify(currentData));
     } catch (error) {
       console.error("Failed to save single progress:", error);
+      throw error;
     }
   }
 
@@ -184,13 +201,14 @@ class QuestionProgressTracker {
         window.autoUnlock?.showUnlocks(result?.unlockedLabels);
       } else {
         // For localStorage, we still need to merge with existing data
-        const existingData = localStorage.getItem("anonymous_progress");
+        const existingData = (window.DataLabStorage?.local || localStorage).getItem("anonymous_progress");
         const currentData = existingData ? JSON.parse(existingData) : {};
         const mergedData = { ...currentData, ...bulkUpdate };
-        localStorage.setItem("anonymous_progress", JSON.stringify(mergedData));
+        await window.DataLabStorage.local.setItem("anonymous_progress", JSON.stringify(mergedData));
       }
     } catch (error) {
       console.error("Failed to save bulk progress:", error);
+      throw error;
     }
   }
 
@@ -210,15 +228,16 @@ class QuestionProgressTracker {
         );
       } else {
         // Remove from localStorage for anonymous users
-        const existingData = localStorage.getItem("anonymous_progress");
+        const existingData = (window.DataLabStorage?.local || localStorage).getItem("anonymous_progress");
         const currentData = existingData ? JSON.parse(existingData) : {};
         questionIds.forEach((questionId) => {
           delete currentData[questionId];
         });
-        localStorage.setItem("anonymous_progress", JSON.stringify(currentData));
+        await window.DataLabStorage.local.setItem("anonymous_progress", JSON.stringify(currentData));
       }
     } catch (error) {
       console.error("Failed to remove questions from progress:", error);
+      throw error;
     }
   }
 
@@ -230,17 +249,19 @@ class QuestionProgressTracker {
       if (this.currentUser) {
         if (window.achievementApi) {
           await window.achievementApi.setQuestionProgress(questionId, false);
+          if (window.__datalabOffline && this.currentUser.uid === "offline_user") return;
         }
         if (this.db) {
           await this.db.ref(`users/${this.currentUser.uid}/progress/${questionId}`).remove();
         }
       }
-      const existingData = localStorage.getItem("anonymous_progress");
+      const existingData = (window.DataLabStorage?.local || localStorage).getItem("anonymous_progress");
       const currentData = existingData ? JSON.parse(existingData) : {};
       delete currentData[questionId];
-      localStorage.setItem("anonymous_progress", JSON.stringify(currentData));
+      await window.DataLabStorage.local.setItem("anonymous_progress", JSON.stringify(currentData));
     } catch (error) {
       console.error("Failed to remove single question from progress:", error);
+      throw error;
     }
   }
 
@@ -259,6 +280,10 @@ class QuestionProgressTracker {
   async markQuestionCompleted(questionId, completed) {
     if (this.currentUser && this.userRole === "curator") return;
 
+    const previous = this.progressData[questionId];
+    const version = this.progressWriteVersions[questionId] = (this.progressWriteVersions[questionId] || 0) + 1;
+    let pending;
+
     if (completed) {
       // Mark as completed - add to progress data (optimistic UI)
       const entry = {
@@ -268,12 +293,35 @@ class QuestionProgressTracker {
       };
       this.progressData[questionId] = entry;
       // Save in background using targeted update
-      this.saveSingleProgressUpdate(questionId, entry).catch(() => {});
+      pending = this.saveSingleProgressUpdate(questionId, entry);
     } else {
       // Mark as incomplete - remove from progress data (optimistic UI)
       delete this.progressData[questionId];
       // Remove in background using targeted remove
-      this.removeSingleQuestionFromProgress(questionId).catch(() => {});
+      pending = this.removeSingleQuestionFromProgress(questionId);
+    }
+
+    this.updateUI();
+    try {
+      await pending;
+    } catch (error) {
+      // A DB write can succeed before a mirror write fails. Re-read the
+      // authoritative value when possible; otherwise restore the prior view.
+      let actual = previous;
+      try {
+        if (this.db && this.currentUser) {
+          const snapshot = await this.db.ref(`users/${this.currentUser.uid}/progress/${questionId}`).once("value");
+          actual = snapshot.val();
+        }
+      } catch (readError) {
+        console.error("Failed to reload question progress:", readError);
+      }
+      if (this.progressWriteVersions[questionId] === version) {
+        if (actual == null) delete this.progressData[questionId];
+        else this.progressData[questionId] = actual;
+        this.updateUI();
+      }
+      return false;
     }
 
     // Проверяем достижения после изменения прогресса
@@ -284,8 +332,7 @@ class QuestionProgressTracker {
         .catch((error) => console.error("Error checking achievements:", error));
     }
 
-    // Immediate UI update (optimistic)
-    this.updateUI();
+    return true;
   }
 
   /**
@@ -294,8 +341,7 @@ class QuestionProgressTracker {
    * @returns {boolean} - Whether the question is completed
    */
   isQuestionCompleted(questionId) {
-    const isCompleted = this.progressData[questionId]?.completed || false;
-    return isCompleted;
+    return window.DataLabProgress?.isCompleted(this.progressData[questionId]) ?? false;
   }
 
   /**
@@ -514,11 +560,14 @@ class QuestionProgressTracker {
       };
     });
 
-    // Update progress data in memory
-    Object.assign(this.progressData, bulkUpdate);
-
     // Save to storage in one operation
-    await this.saveBulkProgress(bulkUpdate);
+    try {
+      await this.saveBulkProgress(bulkUpdate);
+    } catch (error) {
+      if (this.currentUser) await this.loadUserProgress();
+      return false;
+    }
+    Object.assign(this.progressData, bulkUpdate);
 
     // Update UI
     this.updateUI();
@@ -538,13 +587,14 @@ class QuestionProgressTracker {
     // Также сканируем DOM напрямую для полноты
     this._collectAllPageQuestionIds();
 
-    // Remove all questions from progress data
-    this.pageQuestions.forEach((questionId) => {
-      delete this.progressData[questionId];
-    });
-
     // Remove from storage in one operation
-    await this.removeQuestionsFromProgress(this.pageQuestions);
+    try {
+      await this.removeQuestionsFromProgress(this.pageQuestions);
+    } catch (error) {
+      if (this.currentUser) await this.loadUserProgress();
+      return false;
+    }
+    this.pageQuestions.forEach((questionId) => { delete this.progressData[questionId]; });
 
     // Update UI
     this.updateUI();

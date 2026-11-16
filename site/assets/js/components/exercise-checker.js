@@ -18,9 +18,12 @@
     ((text, params) =>
       text.replace(/\{(\w+)\}/g, (match, key) => params?.[key] ?? match));
 
-  // В проде /api/* проксирует Caddy на контейнер code-runner, локально —
-  // live-server из server.js на раннер, поднятый `npm run runner:dev`.
+  // Локальные серверы доступны только на loopback; остальные окружения
+  // используют свой API и авторизацию. На GitHub Pages API отсутствует.
   const API_URL = "/api/run";
+  const isLocalRunner = location.protocol === "http:" &&
+    ["localhost", "127.0.0.1"].includes(location.hostname);
+  const isGithubPages = location.hostname.toLowerCase().endsWith(".github.io");
 
   // ── Утилиты ────────────────────────────────────────────────────────────────
 
@@ -723,7 +726,7 @@
     };
   }
 
-  function saveAttempt(qid, passed, total, error) {
+  function saveAttempt(qid, passed, total, error, code) {
     const u = fbUser();
     if (!u) return;
     const db = fbDb();
@@ -733,6 +736,7 @@
         ts: Date.now(),
         passed,
         total,
+        code,
         ...(error ? { error: String(error).slice(0, 500) } : {}),
       })
       .catch(() => {});
@@ -841,12 +845,14 @@
 
     // Обращение к localStorage в приватном окне может бросить — отсюда геттер.
     const draft = draftStore(
-      () => localStorage,
+      () => window.DataLabStorage.local,
       () => fbUser()?.uid,
       qid,
     );
+    let editorVersion = 0;
 
     textarea.addEventListener("input", () => {
+      editorVersion += 1;
       refresh();
       draft.save(textarea.value);
     });
@@ -880,6 +886,7 @@
         e.shiftKey,
       );
       if (!edit) return;
+      editorVersion += 1;
       e.preventDefault();
       replaceRange(textarea, edit);
       refresh();
@@ -889,6 +896,7 @@
     // ── Кнопки ───────────────────────────────────────────────────────────────
 
     resetBtn.addEventListener("click", () => {
+      editorVersion += 1;
       draft.clear();
       setCode(starterCode);
       resultsEl.hidden = true;
@@ -901,24 +909,40 @@
     // ── Загрузка сохранённого кода ────────────────────────────────────────────
 
     // Ждём authGuard: без пользователя не найти ни черновик, ни lastCode.
-    Promise.resolve(window.authReady)
-      .catch(() => {})
-      .then(() => draft.load() || loadCode(qid))
-      .then((saved) => setCode(saved || starterCode));
+    const restoreVersion = editorVersion;
+    Promise.resolve(window.__datalabStorageReady)
+      .then(() => window.authReady)
+      .then(() => {
+        const raw = draft.load();
+        return raw === null ? loadCode(qid) : raw;
+      })
+      .then((saved) => {
+        if (editorVersion === restoreVersion) setCode(saved === null ? starterCode : saved);
+      })
+      .catch((error) => console.error("Не удалось загрузить черновик:", error));
 
     // ── Проверка ──────────────────────────────────────────────────────────────
 
     async function runCheck() {
-      const code = textarea.value.trim();
-      if (!code) return;
+      // Снимок до любого await: тот же код отправляется, сохраняется и
+      // привязывается к результату, даже если редактор изменили во время запроса.
+      const sent = textarea.value;
+      if (!sent.trim()) return;
 
       submitBtn.disabled = true;
       statusEl.textContent = t("Выполняется…");
       statusEl.className = "exc-status";
       resultsEl.hidden = true;
 
-      const token = await fbToken().catch(() => null);
-      if (!token) {
+      if (isGithubPages) {
+        statusEl.textContent = t("Локальная проверка недоступна на GitHub Pages. Запусти сайт локально.");
+        statusEl.className = "exc-status exc-status--err";
+        submitBtn.disabled = false;
+        return;
+      }
+
+      const token = isLocalRunner ? null : await fbToken().catch(() => null);
+      if (!isLocalRunner && !token) {
         statusEl.textContent = t("Необходима авторизация");
         statusEl.className = "exc-status exc-status--err";
         submitBtn.disabled = false;
@@ -931,10 +955,10 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: "Bearer " + token,
+            ...(isLocalRunner ? { "X-DataLab-Local": "1" } : { Authorization: "Bearer " + token }),
           },
           body: JSON.stringify({
-            code: textarea.value,
+            code: sent,
             tests,
             question_id: qid,
           }),
@@ -973,12 +997,17 @@
       const total = (data.tests || []).length;
       // Черновик снимаем, только когда код доехал до базы: иначе он —
       // единственная копия.
-      const sent = textarea.value;
       saveCode(qid, sent).then((ok) => {
         if (ok && textarea.value === sent) draft.clear();
       });
-      saveAttempt(qid, passed, total, data.error || null);
+      saveAttempt(qid, passed, total, data.error || null, sent);
       renderResults(data, passed, total);
+      if (textarea.value !== sent) {
+        const note = document.createElement("p");
+        note.className = "exc-submitted-version";
+        note.textContent = t("Результат относится к отправленной версии кода, а не к текущему тексту редактора.");
+        resultsEl.prepend(note);
+      }
       submitBtn.disabled = false;
     }
 
@@ -1093,7 +1122,10 @@
     (li.querySelector(".content") || li).appendChild(checker);
   }
 
-  function initAll() {
+  async function initAll() {
+    try {
+      if (window.__datalabStorageReady) await window.__datalabStorageReady;
+    } catch (_) { return; }
     document.querySelectorAll("li.question[data-tests]").forEach(initQuestion);
   }
 

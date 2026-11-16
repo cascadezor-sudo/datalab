@@ -544,7 +544,7 @@ class QuizSystem {
    * @param {string} quizId - ID квиза
    * @param {number} totalQuestions - Количество вопросов на странице
    */
-  savePageCompletion(quizId, totalQuestions) {
+  async savePageCompletion(quizId, totalQuestions) {
     // Сохраняем в Firebase и localStorage
     const completionData = {
       completed: true,
@@ -552,10 +552,24 @@ class QuizSystem {
       timestamp: Date.now(),
     };
 
+    const storageKey = this.currentUser
+      ? `page_completion_${this.currentUser.uid}`
+      : "page_completion_anonymous";
+    if (window.__datalabOffline && window.DataLabStorage) {
+      await window.DataLabStorage.mutate((state) => {
+        const uid = this.currentUser?.uid || "offline_user";
+        const user = state.db.users[uid];
+        user.pageCompletion = { ...user.pageCompletion, [quizId]: completionData };
+        const previous = JSON.parse(state.kv[storageKey] || "{}");
+        state.kv[storageKey] = JSON.stringify({ ...previous, [quizId]: completionData });
+      });
+      return;
+    }
+
     // Сохраняем в Firebase для авторизованных пользователей
     if (this.currentUser && this.db) {
       try {
-        this.db
+        await this.db
           .ref(`users/${this.currentUser.uid}/pageCompletion/${quizId}`)
           .set(completionData);
       } catch (error) {
@@ -565,15 +579,11 @@ class QuizSystem {
 
     // Также сохраняем в localStorage для быстрого доступа
     try {
-      const storageKey = this.currentUser
-        ? `page_completion_${this.currentUser.uid}`
-        : "page_completion_anonymous";
-
-      const stored = localStorage.getItem(storageKey);
+      const stored = (window.DataLabStorage?.local || localStorage).getItem(storageKey);
       const pageCompletionData = stored ? JSON.parse(stored) : {};
 
       pageCompletionData[quizId] = completionData;
-      localStorage.setItem(storageKey, JSON.stringify(pageCompletionData));
+      await window.DataLabStorage.local.setItem(storageKey, JSON.stringify(pageCompletionData));
     } catch (error) {
       console.error("Failed to save page completion to localStorage:", error);
     }
@@ -594,7 +604,7 @@ class QuizSystem {
         ? `page_completion_${this.currentUser.uid}`
         : "page_completion_anonymous";
 
-      const stored = localStorage.getItem(storageKey);
+      const stored = (window.DataLabStorage?.local || localStorage).getItem(storageKey);
       pageCompletionData = stored ? JSON.parse(stored) : {};
     } catch (error) {
       console.error("Failed to load page completion from localStorage:", error);
@@ -899,7 +909,7 @@ class QuizSystem {
       const existingCompletion = this.getPageProgressForQuiz(quizId);
       if (!existingCompletion) {
         // Если завершение еще не сохранено, сохраняем его
-        this.savePageCompletion(quizId, total);
+        await this.savePageCompletion(quizId, total);
       }
     }
 
@@ -1854,7 +1864,7 @@ class QuizSystem {
       // Сразу сохраняем данные из Firebase в localStorage для быстрого доступа
       if (pageCompletionData && Object.keys(pageCompletionData).length > 0) {
         const storageKey = `page_completion_${this.currentUser.uid}`;
-        localStorage.setItem(storageKey, JSON.stringify(pageCompletionData));
+        await window.DataLabStorage.local.setItem(storageKey, JSON.stringify(pageCompletionData));
       }
 
       // Загружаем прогресс по вопросам для автоматического определения завершенных страниц
@@ -1893,7 +1903,7 @@ class QuizSystem {
 
         // Проверяем, какие из этих вопросов завершены в прогрессе
         const completedQuestions = relatedQuestions.filter(
-          (qId) => progressData[qId] && progressData[qId].completed,
+          (qId) => window.DataLabProgress?.isCompleted(progressData[qId]) ?? false,
         );
 
         // Если все вопросы завершены и их достаточно (минимум 5), считаем страницу завершенной
@@ -1917,7 +1927,7 @@ class QuizSystem {
 
       // Сохраняем в localStorage для быстрого доступа
       const storageKey = `page_completion_${this.currentUser.uid}`;
-      localStorage.setItem(storageKey, JSON.stringify(pageCompletionData));
+      await window.DataLabStorage.local.setItem(storageKey, JSON.stringify(pageCompletionData));
     } catch (error) {
       console.error("Failed to load page completions from Firebase:", error);
     }

@@ -276,12 +276,12 @@ class NewsPanel {
       isVisible: this.isVisible,
       timestamp: Date.now(),
     };
-    localStorage.setItem(this.storageKey, JSON.stringify(state));
+    window.DataLabStorage.local.setItem(this.storageKey, JSON.stringify(state));
   }
 
   loadState() {
     try {
-      const saved = localStorage.getItem(this.storageKey);
+      const saved = (window.DataLabStorage?.local || localStorage).getItem(this.storageKey);
       if (saved) {
         const state = JSON.parse(saved);
         this.isExpanded = state.isExpanded || false;
@@ -326,7 +326,7 @@ if (typeof window !== "undefined") {
 
   // Add function to completely reset news panel state
   window.resetNewsPanel = () => {
-    localStorage.removeItem("newsPanelState");
+    window.DataLabStorage.local.removeItem("newsPanelState");
     location.reload();
   };
 }

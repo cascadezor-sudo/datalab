@@ -743,13 +743,13 @@
       if (collapsed) toc.classList.add("collapsed");
       else toc.classList.remove("collapsed");
       try {
-        localStorage.setItem("questionsTocCollapsed", collapsed ? "1" : "0");
+        window.DataLabStorage.local.setItem("questionsTocCollapsed", collapsed ? "1" : "0");
       } catch (_) {}
     };
 
     let saved = null;
     try {
-      saved = localStorage.getItem("questionsTocCollapsed");
+      saved = (window.DataLabStorage?.local || localStorage).getItem("questionsTocCollapsed");
     } catch (_) {
       saved = null;
     }

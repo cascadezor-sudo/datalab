@@ -793,9 +793,10 @@
                 questionId,
                 newState,
               );
+              const savedState = window.questionProgressTracker.isQuestionCompleted(questionId);
               window.questionProgressTracker.updateQuestionVisualState(
                 questionElement,
-                newState,
+                savedState,
               );
               if (
                 window.difficultyRating &&
@@ -804,12 +805,12 @@
               ) {
                 window.difficultyRating.updateProgressButtonState(
                   progressBtn,
-                  newState,
+                  savedState,
                 );
               }
               window.questionProgressTracker.updateUI();
               // Update the button in modal
-              updateProgressButtonInModal(progressBtn, newState);
+              updateProgressButtonInModal(progressBtn, savedState);
             });
           }
 

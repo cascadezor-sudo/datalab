@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Резервная копия и восстановление — DataLab</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <style>
+    main { max-width: 850px; margin: 2rem auto; padding: 0 1rem; }
+    section { margin: 1.5rem 0; padding: 1rem; border: 1px solid currentColor; border-radius: 8px; }
+    button, input { margin: .35rem .35rem .35rem 0; max-width: 100%; }
+    button { padding: .6rem .8rem; cursor: pointer; }
+    #status, pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    label { display: block; margin: .8rem 0; }
+    #history { overflow-wrap: anywhere; }
+    #offline-storage-error { position: static !important; margin: 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <a href="main.html">← DataLab</a>
+  <h1>Резервная копия и восстановление</h1>
+  <p>Файл создаётся и читается только на этом устройстве. Он содержит личные учебные данные, не зашифрован и не удостоверяет автора. Храните его в безопасном месте. Максимальный размер — 20 МиБ.</p>
+  <p>Перед переходом со старой версии закройте остальные вкладки DataLab. Старый JavaScript не соблюдает новый протокол. Изменение legacy-хранилища останавливает новые записи до осознанного разрешения конфликта.</p>
+  <p id="status" role="status" aria-live="polite">Подготовка сервиса хранения…</p>
+  <section>
+    <h2>Сохранить копию</h2>
+    <p>Включены основная база, черновики, результаты, повторения, настройки, неизвестные поля и архив исходных legacy-ключей с маркерами миграции. Сессии и неаудированные ключи не включаются. Найденные потенциальные секреты блокируют экспорт целиком.</p>
+    <button id="export" disabled>Скачать текущую копию</button>
+  </section>
+  <section>
+    <h2>Восстановить файл</h2>
+    <input id="file" type="file" accept="application/json,.json" disabled aria-label="Файл резервной копии">
+    <pre id="preview">Выберите файл для проверки. Ничего не применяется автоматически.</pre>
+    <p>Восстановление заменяет DB и KV целиком: отсутствующие в файле записи будут удалены. Исходный legacy-архив файла сохраняется в самой копии для анализа; он не записывается поверх localStorage и не заменяет локальный архив миграции. Старая отметка anonymous import не запускает повторный импорт.</p>
+    <label><input id="confirm" type="checkbox">Я проверил изменения и принимаю замену, удаления и возможный перенос между origin.</label>
+    <button id="restore" disabled>Применить проверенную копию</button>
+    <p>Непосредственно перед заменой сервис атомарно сохраняет текущее состояние для отмены. Если после предпросмотра другая вкладка записала данные, применение отклоняется: выберите файл повторно.</p>
+  </section>
+  <section>
+    <h2>Отмена и предыдущие состояния</h2>
+    <p>Отмена доступна только пока после импорта не было новых записей. При конфликте сначала сохраните новую копию и сравните версии; автоматическая отмена не уничтожает свежие изменения.</p>
+    <button id="undo" disabled>Отменить последний импорт этой страницы</button>
+    <button id="refresh-history" disabled>Показать сохранённые состояния</button>
+    <ul id="history"></ul>
+  </section>
+  <section>
+    <h2>Изменения от старой вкладки</h2>
+    <p>Если старый клиент изменил localStorage, сервис блокирует новые записи. Закройте все старые вкладки и сохраните копию текущего состояния. Принять legacy означает явно заменить состояние содержимым legacy-ключей, сохранив предыдущее состояние в архиве. Новые изменения DB могут отличаться от legacy: прочитайте обе версии перед заменой.</p>
+    <button id="legacy-download" disabled>Скачать текущие legacy-значения</button>
+    <button id="legacy-preview" disabled>Проверить изменения legacy</button>
+    <pre id="legacy-preview-text">Сначала проверьте изменения. При смене ревизии или legacy-значений потребуется повторная проверка.</pre>
+    <label><input id="legacy-confirm" type="checkbox">Все старые вкладки закрыты, я сохранил текущую копию и принимаю замену данными legacy.</label>
+    <button id="adopt" disabled>Принять изменения legacy</button>
+  </section>
+</main>
+<script src="assets/js/storage-service.js"></script>
+<script src="assets/js/firebase-mock.js"></script>
+<script src="assets/js/storage-recovery.js"></script>
+<script src="assets/js/storage-recovery-page.js"></script>
+</body>
+</html>

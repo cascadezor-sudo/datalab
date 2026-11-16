@@ -64,8 +64,25 @@
     return root + path + query + hash;
   };
 
-  // 3. Persistent LocalStorage Database Mock
-  var DB_STORAGE_KEY = "datalab_offline_db";
+  // 3. Transactional IndexedDB adapter; the existing v1 JSON tree is preserved.
+  // Interpret legacy progress without changing stored values.
+  window.DataLabProgress = window.DataLabProgress || {};
+  window.DataLabProgress.isCompleted = function (value) {
+    if (value === true) return true;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    if (Object.prototype.hasOwnProperty.call(value, "completed")) return value.completed === true;
+    if (Object.prototype.hasOwnProperty.call(value, "status")) return value.status === "completed";
+    return true;
+  };
+  var transactionState = null, committedDb = null, storageReady, legacyConflict = false;
+  function withDbLock(operation) {
+    return storageReady.then(function () {
+      return window.DataLabStorage.mutate(function (state) {
+        transactionState = state;
+        try { return operation(); } finally { transactionState = null; }
+      });
+    }).catch(function (e) { throw reportStorageFailure(e, false); });
+  }
 
   function getInitialDb() {
     return {
@@ -112,7 +129,9 @@
   document.addEventListener("DOMContentLoaded", renderStorageNotice);
 
   function reportStorageFailure(error, reading) {
-    storageNoticeMessage = reading
+    storageNoticeMessage = error && error.code === "LEGACY_CLIENT_CONFLICT"
+      ? "Обнаружена старая вкладка DataLab с другим состоянием. Новые записи приостановлены; обе версии сохранены. Закройте старые вкладки и откройте «Резервная копия и восстановление» в меню аккаунта."
+      : reading
       ? "Не удалось прочитать сохранённый прогресс. Старые данные не заменены. Проверьте доступ к хранилищу браузера."
       : "Не удалось подтвердить сохранение изменений. Часть изменений могла сохраниться. Не закрывайте страницу и повторите действие после проверки хранилища браузера.";
     renderStorageNotice();
@@ -123,116 +142,84 @@
     return failure;
   }
 
-  function readStoredDatabase() {
-    var current = localStorage.getItem(DB_STORAGE_KEY);
-    if (current !== null) return { raw: current, migrated: false };
-    var candidates = [];
-    for (var i = 0; i < localStorage.length; i++) {
-      var key = localStorage.key(i);
-      if (!key || key === DB_STORAGE_KEY || !key.endsWith("_offline_db")) continue;
-      var raw = localStorage.getItem(key);
-      var parsed = JSON.parse(raw);
-      if (parsed && parsed.users && parsed.users.offline_user &&
-          parsed.users.offline_user.uid === "offline_user") {
-        candidates.push(raw);
-      }
-    }
-    if (candidates.length > 1) {
-      throw new Error("Several compatible offline databases found; automatic import is ambiguous");
-    }
-    return { raw: candidates.length ? candidates[0] : null, migrated: candidates.length === 1 };
-  }
-
   function loadDb() {
-    try {
-      var stored = readStoredDatabase();
-      var raw = stored.raw;
-      if (raw !== null) {
-        var parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
-            !parsed.users || typeof parsed.users !== "object" || Array.isArray(parsed.users)) {
-          throw new Error("Invalid offline database");
-        }
-        if (!parsed.users.offline_user) parsed.users.offline_user = getInitialDb().users.offline_user;
-        if (parsed.users.offline_user.introShown === undefined) parsed.users.offline_user.introShown = true;
-        parsed.users.offline_user.role = "student";
-        if (!parsed.users.offline_user.progress) parsed.users.offline_user.progress = {};
-        if (!parsed.kanbanTasks) parsed.kanbanTasks = {};
-        if (!parsed.user_achievements) parsed.user_achievements = { offline_user: {} };
-        var legacyReports = parsed.users.offline_user.reports || {};
-        var migrated = stored.migrated;
-        if (Object.prototype.hasOwnProperty.call(parsed.users.offline_user, "wallet")) {
-          delete parsed.users.offline_user.wallet;
-          migrated = true;
-        }
-        if (/^offline@[^@\s]+\.local$/.test(parsed.users.offline_user.email || "") &&
-            parsed.users.offline_user.email !== "offline@datalab.local") {
-          parsed.users.offline_user.email = "offline@datalab.local";
-          migrated = true;
-        }
-        Object.keys(legacyReports).forEach(function (id) {
-          var entry = legacyReports[id];
-          if (!entry || !entry.report || typeof entry.report !== "object") return;
-          if (!parsed.daily_reports) parsed.daily_reports = {};
-          if (!parsed.daily_reports.offline_user) parsed.daily_reports.offline_user = {};
-          if (Object.prototype.hasOwnProperty.call(parsed.daily_reports.offline_user, id)) return;
-          parsed.daily_reports.offline_user[id] = Object.assign({}, entry.report, {
-            uid: "offline_user", reportId: id,
-            timestamp: entry.timestamp || entry.report.timestamp || Date.now()
-          });
-          migrated = true;
-        });
-        if (migrated) saveDb(parsed);
-        return parsed;
-      }
-    } catch (e) {
-      throw reportStorageFailure(e, true);
-    }
-    var initial = getInitialDb();
-    initial.kanbanTasks = initial.kanbanTasks || {};
-    initial.user_achievements = initial.user_achievements || { offline_user: {} };
-    saveDb(initial);
-    return initial;
+    if (transactionState) return transactionState.db;
+    if (!committedDb) throw new Error("Storage is not ready");
+    return JSON.parse(JSON.stringify(committedDb));
   }
-
-  function writeStorageConfirmed(key, data) {
-    try {
-      var serialized = JSON.stringify(data);
-      localStorage.setItem(key, serialized);
-      if (localStorage.getItem(key) !== serialized) {
-        throw new Error("Storage read-back did not match the write");
-      }
-    } catch (e) {
-      throw reportStorageFailure(e, false);
-    }
-  }
-
   function saveDb(data) {
-    writeStorageConfirmed(DB_STORAGE_KEY, data);
+    if (!transactionState) throw new Error("Database writes require an IndexedDB transaction");
+    transactionState.db = data;
   }
-
-  function clearStorageFailure() {
-    storageNoticeMessage = "";
-    renderStorageNotice();
+  function writeStorageConfirmed(key, data) {
+    if (!transactionState) throw new Error("Key writes require an IndexedDB transaction");
+    transactionState.kv[key] = JSON.stringify(data);
   }
-
-  // Sync with anonymous_progress if exists
-  try {
-    var anonRaw = localStorage.getItem("anonymous_progress");
-    if (anonRaw) {
-      var anonObj = JSON.parse(anonRaw);
-      var currentDb = loadDb();
-      Object.assign(currentDb.users.offline_user.progress, anonObj);
-      saveDb(currentDb);
+  function clearStorageFailure() { if (!legacyConflict) storageNoticeMessage = ""; renderStorageNotice(); }
+  var migrationFailure = null;
+  function migrateDatabase(db, kv) {
+    if (!db || !db.users || typeof db.users !== "object") throw new Error("Invalid legacy database");
+    if (!db.users.offline_user) db.users.offline_user = getInitialDb().users.offline_user;
+    var user = db.users.offline_user;
+    if (!user.progress) user.progress = {};
+    if (/^offline@[^@\s]+\.local$/.test(user.email || "") && user.email !== "offline@datalab.local") user.email="offline@datalab.local";
+    if (!db.datalab_migrations || !db.datalab_migrations.anonymous_progress_v1) {
+      if (kv.datalab_anonymous_import_v1 !== "true") {
+        var anon = kv.anonymous_progress ? JSON.parse(kv.anonymous_progress) : {};
+        if (!anon || typeof anon !== "object" || Array.isArray(anon)) throw new Error("Invalid anonymous progress");
+        user.progress = Object.assign({}, anon, user.progress);
+      }
+      db.datalab_migrations = Object.assign({}, db.datalab_migrations, {anonymous_progress_v1: true});
     }
-  } catch (e) {
-    if (e.code !== "OFFLINE_STORAGE_FAILED") reportStorageFailure(e, true);
+    kv.datalab_anonymous_import_v1 = "true";
+    if (user.introShown === undefined) user.introShown = true;
+    if (!db.kanbanTasks) db.kanbanTasks = {};
+    if (!db.user_achievements) db.user_achievements = {offline_user: {}};
+    var reports = user.reports || {};
+    Object.keys(reports).forEach(function (id) {
+      var entry = reports[id];
+      if (!entry || !entry.report || typeof entry.report !== "object") return;
+      db.daily_reports = db.daily_reports || {};
+      db.daily_reports.offline_user = db.daily_reports.offline_user || {};
+      if (!Object.prototype.hasOwnProperty.call(db.daily_reports.offline_user,id)) db.daily_reports.offline_user[id] = Object.assign({}, entry.report, {uid:"offline_user",reportId:id,timestamp:entry.timestamp || entry.report.timestamp || Date.now()});
+    });
   }
+  function startStorage() {
+    window.DataLabStorage.subscribe(function (state) { committedDb = state.db; legacyConflict = !!state.legacyConflict; dispatch(""); });
+    return window.DataLabStorage.configure({initialDb:getInitialDb,migrate:migrateDatabase}).then(function () {
+      return window.DataLabStorage.read();
+    }).then(function (state) { committedDb = state.db; });
+  }
+  var mockScript = document.currentScript;
+  var existingService = window.DataLabStorage;
+  storageReady = window.DataLabStorage ? startStorage() : new Promise(function (resolve,reject) {
+    var script = document.createElement("script");
+    if (mockScript && mockScript.src) {
+      var serviceUrl = new URL("storage-service.js", mockScript.src);
+      serviceUrl.search = new URL(mockScript.src).search;
+      script.src = serviceUrl.href;
+    } else {
+      script.src = window.normalizeSiteUrl("/assets/js/storage-service.js");
+    }
+    script.onload = function () { startStorage().then(resolve,reject); };
+    script.onerror = function () { reject(new Error("Storage service could not be loaded")); };
+    document.head.appendChild(script);
+  });
+  window.__datalabStorageReady = storageReady;
+  if (!existingService) window.DataLabStorage = {__pending:true,ready:storageReady,local:{
+    getItem:function(key){return localStorage.getItem(key);},
+    setItem:function(key,value){var pending=storageReady.then(function(){return window.DataLabStorage.setKV(key,value);});pending.catch(function(e){reportStorageFailure(e,false);});return pending;},
+    removeItem:function(key){var pending=storageReady.then(function(){return window.DataLabStorage.removeKV(key);});pending.catch(function(e){reportStorageFailure(e,false);});return pending;},
+    updateJSON:function(key,fn){return storageReady.then(function(){return window.DataLabStorage.local.updateJSON(key,fn);});}
+  }};
+  storageReady.catch(function (e) { migrationFailure=e; reportStorageFailure(e,true); });
+  window.addEventListener("datalab_storage_error",function(e) { reportStorageFailure(e.detail,false); });
 
   function toSegments(path) {
     if (!path) return [];
-    if (Array.isArray(path)) return path;
-    return String(path).split("/").map(function (s) { return s.trim(); }).filter(Boolean);
+    var segments = Array.isArray(path) ? path : String(path).split("/").map(function (s) { return s.trim(); }).filter(Boolean);
+    if (segments.some(function (key) { return ["__proto__","prototype","constructor"].includes(key); })) throw new Error("Unsafe database path");
+    return segments;
   }
 
   function getValueAt(tree, segments) {
@@ -339,9 +326,9 @@
     });
   }
 
-  function makeSnapshot(pathStr) {
+  function makeSnapshot(pathStr, snapshotDb) {
     var segs = toSegments(pathStr);
-    var db = loadDb();
+    var db = snapshotDb || loadDb();
     var raw = getValueAt(db, segs);
     var val = raw === undefined ? null : JSON.parse(JSON.stringify(raw));
     var lastKey = segs.length > 0 ? segs[segs.length - 1] : null;
@@ -362,17 +349,17 @@
         var keys = Object.keys(val);
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
-          var childSnap = makeSnapshot(segs.concat(k).join("/"));
+          var childSnap = makeSnapshot(segs.concat(k).join("/"), db);
           if (cb(childSnap) === true) return true;
         }
         return false;
       },
       child: function (childPath) {
-        return makeSnapshot(segs.concat(toSegments(childPath)).join("/"));
+        return makeSnapshot(segs.concat(toSegments(childPath)).join("/"), db);
       },
       hasChild: function (childPath) {
         var childSegs = segs.concat(toSegments(childPath));
-        return getValueAt(loadDb(), childSegs) !== undefined;
+        return getValueAt(db, childSegs) !== undefined;
       }
     };
   }
@@ -403,16 +390,20 @@
         return childRef;
       },
       set: async function (data) {
-        var db = loadDb();
-        setValueAt(db, segs, data);
-        saveDb(db);
+        await withDbLock(function () {
+          var db = loadDb();
+          db = setValueAt(db, segs, data);
+          saveDb(db);
+        });
         dispatch(norm);
         return Promise.resolve();
       },
       update: async function (updates) {
-        var db = loadDb();
-        updateValueAt(db, segs, updates);
-        saveDb(db);
+        await withDbLock(function () {
+          var db = loadDb();
+          updateValueAt(db, segs, updates);
+          saveDb(db);
+        });
         dispatch(norm);
         if (updates && typeof updates === "object") {
           for (var k in updates) {
@@ -422,23 +413,25 @@
         return Promise.resolve();
       },
       remove: async function () {
-        var db = loadDb();
-        removeValueAt(db, segs);
-        saveDb(db);
+        await withDbLock(function () {
+          var db = loadDb();
+          db = removeValueAt(db, segs);
+          saveDb(db);
+        });
         dispatch(norm);
         return Promise.resolve();
       },
-      once: function (evt, cb) {
-        var snap = makeSnapshot(norm);
+      once: async function (evt, cb) {
+        var state;
+        try { await storageReady; state = await window.DataLabStorage.read(); } catch(e) { throw reportStorageFailure(e,true); }
+        var snap = makeSnapshot(norm, state.db);
         if (typeof cb === "function") cb(snap);
         return Promise.resolve(snap);
       },
       on: function (evt, cb) {
         if (typeof cb === "function") {
           subscribe(norm, cb);
-          setTimeout(function () {
-            cb(makeSnapshot(norm));
-          }, 0);
+          storageReady.then(function () { return window.DataLabStorage.read(); }).then(function (state) { if (pathListeners.has(norm) && pathListeners.get(norm).has(cb)) cb(makeSnapshot(norm,state.db)); }).catch(function(e) { reportStorageFailure(e,true); });
         }
         return cb;
       },
@@ -459,16 +452,13 @@
   }
 
   var dummyAuth = {
+    ready: storageReady,
     onAuthStateChanged: function (cb) {
-      setTimeout(function () {
-        var db = loadDb();
-        var user = db.users && db.users.offline_user ? db.users.offline_user : {
-          uid: "offline_user",
-          email: "offline@datalab.local",
-          displayName: "Student"
-        };
+      storageReady.then(function () { return window.DataLabStorage.read(); }).then(function (state) {
+        var user = state.db.users.offline_user;
+        dummyAuth.currentUser = user;
         cb(user);
-      }, 0);
+      }).catch(function (e) { reportStorageFailure(e,true); });
       return function () {};
     },
     currentUser: {
@@ -538,6 +528,29 @@
 
   async function evaluateAchievementsOffline() {
     try {
+      var catalog = [];
+      try {
+        var catRes = await fetch("/assets/data/achievements/catalog.json");
+        if (catRes.ok) {
+          var catJson = await catRes.json();
+          catalog = catJson.achievements || [];
+        }
+      } catch (e) {}
+
+      if (!catalog.length) {
+        catalog = [
+          { id: "onboarding_complete", title: "Знакомство", category: "special", tier: "bronze", rule: { type: "onboarding" } },
+          { id: "first_question", title: "Первый шаг", category: "volume", tier: "bronze", rule: { type: "questions", min: 1 } },
+          { id: "ten_questions", title: "Разогрев", category: "volume", tier: "bronze", rule: { type: "questions", min: 10 } },
+          { id: "fifty_questions", title: "В ритме", category: "volume", tier: "silver", rule: { type: "questions", min: 50 } },
+          { id: "first_report", title: "Дорогой дневник..", category: "volume", tier: "bronze", rule: { type: "reports", min: 1 } },
+          { id: "first_quiz", title: "Проба пера", category: "quiz", tier: "bronze", rule: { type: "quizzes", min: 1 } },
+          { id: "three_day_streak", title: "Три дня подряд", category: "consistency", tier: "silver", rule: { type: "streak", min: 3 } }
+        ];
+      }
+
+      var awardedAt;
+      var evaluation = await withDbLock(function () {
       var db = loadDb();
       var user = db.users && db.users.offline_user ? db.users.offline_user : {};
       var progress = user.progress || {};
@@ -556,7 +569,7 @@
       var completedQuestions = 0;
       var distinctTopicSet = new Set();
       for (var qId in progress) {
-        if (progress[qId] === true || (progress[qId] && progress[qId].completed !== false)) {
+        if (window.DataLabProgress.isCompleted(progress[qId])) {
           completedQuestions++;
           var prefix = qId.split("_")[0];
           if (prefix) distinctTopicSet.add(prefix);
@@ -600,29 +613,9 @@
         if (repQId) repCategories.add(repQId);
       }
 
-      var catalog = [];
-      try {
-        var catRes = await fetch("/assets/data/achievements/catalog.json");
-        if (catRes.ok) {
-          var catJson = await catRes.json();
-          catalog = catJson.achievements || [];
-        }
-      } catch (e) {}
-
-      if (!catalog.length) {
-        catalog = [
-          { id: "onboarding_complete", title: "Знакомство", category: "special", tier: "bronze", rule: { type: "onboarding" } },
-          { id: "first_question", title: "Первый шаг", category: "volume", tier: "bronze", rule: { type: "questions", min: 1 } },
-          { id: "ten_questions", title: "Разогрев", category: "volume", tier: "bronze", rule: { type: "questions", min: 10 } },
-          { id: "fifty_questions", title: "В ритме", category: "volume", tier: "silver", rule: { type: "questions", min: 50 } },
-          { id: "first_report", title: "Дорогой дневник..", category: "volume", tier: "bronze", rule: { type: "reports", min: 1 } },
-          { id: "first_quiz", title: "Проба пера", category: "quiz", tier: "bronze", rule: { type: "quizzes", min: 1 } },
-          { id: "three_day_streak", title: "Три дня подряд", category: "consistency", tier: "silver", rule: { type: "streak", min: 3 } }
-        ];
-      }
-
       var newlyUnlocked = [];
       var now = Date.now();
+      awardedAt = now;
 
       catalog.forEach(function (ach) {
         if (currentUnlocked[ach.id]) return;
@@ -674,17 +667,7 @@
 
       if (newlyUnlocked.length > 0) {
         saveDb(db);
-        dispatch("user_achievements/offline_user");
-        dispatch("achievement_events/offline_user");
-        if (window.globalAchievementNotifications) {
-          newlyUnlocked.forEach(function (ach) {
-            window.globalAchievementNotifications.enqueue({
-              id: ach.id,
-              eventId: "evt_" + now + "_" + ach.id
-            });
-          });
-        }
-        window.dispatchEvent(new CustomEvent("datalab_achievements_updated", { detail: { newlyUnlocked: newlyUnlocked } }));
+
       }
 
       var totalCount = Object.keys(currentUnlocked).length;
@@ -693,10 +676,18 @@
         newlyUnlocked: newlyUnlocked,
         unlockedLabels: []
       };
+      });
+      if (evaluation.newlyUnlocked.length) {
+        if (window.globalAchievementNotifications) evaluation.newlyUnlocked.forEach(function (ach) {
+          window.globalAchievementNotifications.enqueue({id:ach.id,eventId:"evt_"+awardedAt+"_"+ach.id});
+        });
+        window.dispatchEvent(new CustomEvent("datalab_achievements_updated",{detail:{newlyUnlocked:evaluation.newlyUnlocked}}));
+      }
+      return evaluation;
     } catch (err) {
       if (err.code === "OFFLINE_STORAGE_FAILED") throw err;
       console.warn("evaluateAchievementsOffline error:", err);
-      return { success: true };
+      throw err;
     }
   }
 
@@ -944,10 +935,10 @@
 
   var offlineApi = {
     call: async function (name, data) {
-      if (typeof offlineApi[name] === "function") {
+      if (name !== "call" && Object.prototype.hasOwnProperty.call(offlineApi, name) && typeof offlineApi[name] === "function") {
         return await offlineApi[name](data);
       }
-      return { success: true };
+      throw new Error("Unsupported offline API method: " + String(name));
     },
     checkPracticeAnswers: async function (params) { return checkMathPracticeAnswers(params); },
     getStaffDirectory: async function () { return [OFFLINE_STUDENT]; },
@@ -955,35 +946,30 @@
 
     completeOnboarding: async function () {
       await makeRef("users/offline_user").update({ introShown: true, introShownAt: Date.now() });
-      try { localStorage.setItem("introShown", "true"); } catch (e) {}
+      await window.DataLabStorage.setKV("introShown", "true");
       await evaluateAchievementsOffline();
       return { success: true };
     },
 
     setQuestionProgress: async function (questionId, completed = true) {
-      if (completed) {
-        await makeRef("users/offline_user/progress/" + questionId).set({
-          completed: true,
-          timestamp: Date.now(),
-          userId: "offline_user"
-        });
-      } else {
-        await makeRef("users/offline_user/progress/" + questionId).remove();
-      }
-
-      try {
-        var anon = JSON.parse(localStorage.getItem("anonymous_progress") || "{}");
+      await withDbLock(function () {
+        var db = loadDb();
+        var path = ["users", "offline_user", "progress", questionId];
+        var anon;
+        try { anon = JSON.parse(transactionState.kv.anonymous_progress || "{}"); }
+        catch (e) { throw reportStorageFailure(e, true); }
         if (completed) {
+          setValueAt(db, path, { completed: true, timestamp: Date.now(), userId: "offline_user" });
           anon[questionId] = { completed: true, timestamp: Date.now() };
         } else {
+          removeValueAt(db, path);
           delete anon[questionId];
         }
+        // The DB and compatibility projection commit in one IndexedDB transaction.
+        saveDb(db);
         writeStorageConfirmed("anonymous_progress", anon);
-      } catch (e) {
-        if (e.code === "OFFLINE_STORAGE_FAILED") throw e;
-        throw reportStorageFailure(e, true);
-      }
-
+      });
+      dispatch("users/offline_user/progress/" + questionId);
       var result = await evaluateAchievementsOffline();
       clearStorageFailure();
       return result;
@@ -991,24 +977,25 @@
 
     setQuestionProgressBatch: async function (params) {
       var updates = params && params.updates ? params.updates : (params || {});
-      var dbUpdates = {};
-      var anon = JSON.parse(localStorage.getItem("anonymous_progress") || "{}");
-      for (var qId in updates) {
-        var val = updates[qId];
-        if (val === true || (val && val.completed !== false)) {
-          dbUpdates["users/offline_user/progress/" + qId] = {
-            completed: true,
-            timestamp: Date.now(),
-            userId: "offline_user"
-          };
-          anon[qId] = { completed: true, timestamp: Date.now() };
-        } else {
-          dbUpdates["users/offline_user/progress/" + qId] = null;
-          delete anon[qId];
-        }
-      }
-      await makeRef().update(dbUpdates);
-      writeStorageConfirmed("anonymous_progress", anon);
+      await withDbLock(function () {
+        var db = loadDb();
+        var anon;
+        try { anon = JSON.parse(transactionState.kv.anonymous_progress || "{}"); }
+        catch (e) { throw reportStorageFailure(e, true); }
+        Object.keys(updates).forEach(function (qId) {
+          var path = ["users", "offline_user", "progress", qId];
+          if (window.DataLabProgress.isCompleted(updates[qId])) {
+            setValueAt(db, path, { completed: true, timestamp: Date.now(), userId: "offline_user" });
+            anon[qId] = { completed: true, timestamp: Date.now() };
+          } else {
+            removeValueAt(db, path);
+            delete anon[qId];
+          }
+        });
+        saveDb(db);
+        writeStorageConfirmed("anonymous_progress", anon);
+      });
+      dispatch("users/offline_user/progress");
       var result = await evaluateAchievementsOffline();
       clearStorageFailure();
       return result;
@@ -1071,7 +1058,8 @@
     },
 
     repairOfflineQuizResults: async function () {
-      var db = loadDb();
+      await storageReady;
+      var db = (await window.DataLabStorage.read()).db;
       var source = db.users.offline_user.quizResults || {};
       var grouped = {};
       var changed = false;
@@ -1088,8 +1076,23 @@
         }
       }
       if (changed) {
-        db.users.offline_user.quizResults = grouped;
-        saveDb(db);
+        await withDbLock(function () {
+          var latest = loadDb();
+          var current = latest.users.offline_user.quizResults || {};
+          Object.keys(source).forEach(function (id) {
+            var entry = source[id];
+            if (!entry || typeof entry.quizId !== "string" || !entry.answers) return;
+            if (JSON.stringify(current[id]) !== JSON.stringify(entry)) return;
+            // Ambiguous flat/group collisions cannot be repaired without losing data.
+            if (id === entry.quizId || (current[entry.quizId] && current[entry.quizId].quizId && current[entry.quizId].answers)) return;
+            if (current[entry.quizId] && typeof current[entry.quizId] !== "object") return;
+            if (!current[entry.quizId]) current[entry.quizId] = {};
+            if (!Object.prototype.hasOwnProperty.call(current[entry.quizId], id)) current[entry.quizId][id] = grouped[entry.quizId][id];
+            delete current[id];
+          });
+          latest.users.offline_user.quizResults = current;
+          saveDb(latest);
+        });
       }
     },
 
@@ -1130,10 +1133,12 @@
         throw new Error("Invalid report ID");
       }
       if (reportId) {
-        var db = loadDb();
-        removeValueAt(db, ["daily_reports", "offline_user", reportId]);
-        removeValueAt(db, ["users", "offline_user", "reports", reportId]);
-        saveDb(db);
+        await withDbLock(function () {
+          var db = loadDb();
+          removeValueAt(db, ["daily_reports", "offline_user", reportId]);
+          removeValueAt(db, ["users", "offline_user", "reports", reportId]);
+          saveDb(db);
+        });
         dispatch("daily_reports/offline_user");
         dispatch("users/offline_user/reports");
         clearStorageFailure();
@@ -1817,7 +1822,7 @@
   }
 
   function ensureInterviewBanksSeeded() {
-    try {
+    return withDbLock(function () {
       var db = loadDb();
       var changed = false;
       if (!db.interviewQuestionIndex || !db.interviewQuestionIndex.questions || !Object.keys(db.interviewQuestionIndex.questions).length) {
@@ -1845,15 +1850,14 @@
         changed = true;
       }
       if (changed) saveDb(db);
-    } catch (e) {
-      console.warn("[DataLab offline] Could not seed interview banks:", e);
-    }
+    });
   }
-  ensureInterviewBanksSeeded();
+  storageReady.then(ensureInterviewBanksSeeded).catch(function(e) { reportStorageFailure(e,false); });
 
   var extraStaffMethods = {
     listEnglishClub: async function () {
-      var db = loadDb();
+      await storageReady;
+      var db = (await window.DataLabStorage.read()).db;
       return {
         records: db.englishClubRecords || DEFAULT_ENGLISH_CLUB_RECORDS,
         glossary: db.englishClubGlossary || DEFAULT_ENGLISH_CLUB_GLOSSARY,
@@ -1866,6 +1870,7 @@
       return { mistakes: mistakes };
     },
     saveEnglishClubRecord: async function (params) {
+      return await withDbLock(function () {
       var db = loadDb();
       var list = (db.englishClubRecords || DEFAULT_ENGLISH_CLUB_RECORDS).slice();
       var id = (params && params.id) || ("esc_" + Date.now());
@@ -1883,8 +1888,10 @@
       }
       saveDb(db);
       return { success: true, id: id };
+      });
     },
     deleteEnglishClubRecord: async function (params) {
+      return await withDbLock(function () {
       var db = loadDb();
       var id = params && params.id;
       db.englishClubRecords = (db.englishClubRecords || DEFAULT_ENGLISH_CLUB_RECORDS).filter(function (r) {
@@ -1892,8 +1899,10 @@
       });
       saveDb(db);
       return { success: true };
+      });
     },
     deleteEnglishClubTerm: async function (params) {
+      return await withDbLock(function () {
       var db = loadDb();
       var key = params && params.key;
       db.englishClubGlossary = (db.englishClubGlossary || DEFAULT_ENGLISH_CLUB_GLOSSARY).filter(function (t) {
@@ -1901,9 +1910,11 @@
       });
       saveDb(db);
       return { success: true };
+      });
     },
     listInterviewRecruiters: async function (params) {
-      var db = loadDb();
+      await storageReady;
+      var db = (await window.DataLabStorage.read()).db;
       var all = db.interviewRecruiters || DEFAULT_RECRUITERS;
       var offset = Number((params && params.offset) || 0);
       return {
@@ -1913,6 +1924,7 @@
       };
     },
     saveInterviewRecruiter: async function (params) {
+      return await withDbLock(function () {
       var db = loadDb();
       var list = (db.interviewRecruiters || DEFAULT_RECRUITERS).slice();
       var id = (params && params.id) || ("rec_" + Date.now());
@@ -1923,8 +1935,10 @@
       db.interviewRecruiters = list;
       saveDb(db);
       return { success: true, id: id };
+      });
     },
     deleteInterviewRecruiter: async function (params) {
+      return await withDbLock(function () {
       var db = loadDb();
       var id = params && params.id;
       db.interviewRecruiters = (db.interviewRecruiters || DEFAULT_RECRUITERS).filter(function (r) {
@@ -1932,6 +1946,7 @@
       });
       saveDb(db);
       return { success: true };
+      });
     },
     listCompanyLogos: async function () {
       return { logos: {} };

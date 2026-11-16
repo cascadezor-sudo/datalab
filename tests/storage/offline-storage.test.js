@@ -19,7 +19,7 @@ function fixture(progress = { algebra: { completed: true } }) {
   };
 }
 
-function boot(entries = {}, { blocked = false } = {}) {
+function boot(entries = {}, { blocked = false, identity = {} } = {}) {
   const values = new Map(Object.entries(entries));
   let blockWrites = blocked;
   const storage = {
@@ -46,11 +46,11 @@ function boot(entries = {}, { blocked = false } = {}) {
     fetch: async () => { throw new Error('Network must not be used'); },
     CustomEvent: class {},
   };
-  context.window = context;
-  vm.createContext(context);
+  storage.fail=blocked;
+  require("../helpers/storage-context.cjs").prepare(context,storage,identity);
   vm.runInContext(mockSource, context);
   const readUser = () => context.firebase.database().ref('users/offline_user').once('value');
-  return { context, storage, values, readUser, setBlocked: value => { blockWrites = value; } };
+  return { context, storage, values, readUser, setBlocked: value => { blockWrites = value; storage.fail=value; }, reBoot: () => boot(entries,{identity}) };
 }
 
 test('compatible earlier progress is copied with all related state; original is preserved', async () => {
@@ -61,7 +61,7 @@ test('compatible earlier progress is copied with all related state; original is 
   assert.equal(user.difficultyRatings.algebra, 4);
   assert.equal(user.spaced_repetition.algebra__1.repetitions, 3);
   assert.equal(user.email, 'offline@datalab.local');
-  const imported = JSON.parse(app.storage.getItem('datalab_offline_db'));
+  const imported = (await app.context.DataLabStorage.read()).db;
   assert.equal(imported.kanbanTasks.task1.title, 'Keep this task');
   assert.equal(imported.daily_reports.offline_user.report1.text, 'Keep this report');
   assert.equal(app.storage.getItem('previous_offline_db'), original);
@@ -77,38 +77,39 @@ test('current database takes precedence over earlier databases', async () => {
   assert.equal(user.progress.earlier, undefined);
 });
 
-test('corrupt earlier data is preserved and is not replaced by an empty database', () => {
+test('corrupt earlier data is preserved and is not replaced by an empty database', async () => {
   const app = boot({ previous_offline_db: '{broken' });
-  assert.throws(app.readUser, error => error.code === 'OFFLINE_STORAGE_FAILED');
+  await assert.rejects(app.readUser(), error => error.code === "OFFLINE_STORAGE_FAILED");
   assert.equal(app.storage.getItem('previous_offline_db'), '{broken');
   assert.equal(app.storage.getItem('datalab_offline_db'), null);
 });
 
-test('multiple compatible earlier stores require a deliberate choice', () => {
+test('multiple compatible earlier stores require a deliberate choice', async () => {
   const app = boot({
     first_offline_db: JSON.stringify(fixture({ first: true })),
     second_offline_db: JSON.stringify(fixture({ second: true })),
   });
-  assert.throws(app.readUser, error => error.code === 'OFFLINE_STORAGE_FAILED');
+  await assert.rejects(app.readUser(), error => error.code === "OFFLINE_STORAGE_FAILED");
   assert.equal(app.storage.getItem('datalab_offline_db'), null);
 });
 
 test('failed migration retains the original and can be retried', async () => {
   const original = JSON.stringify(fixture());
   const app = boot({ previous_offline_db: original }, { blocked: true });
-  assert.throws(app.readUser, error => error.code === 'OFFLINE_STORAGE_FAILED');
+  await assert.rejects(app.readUser(), error => error.code === "OFFLINE_STORAGE_FAILED");
   assert.equal(app.storage.getItem('previous_offline_db'), original);
   assert.equal(app.storage.getItem('datalab_offline_db'), null);
   app.setBlocked(false);
-  assert.equal((await app.readUser()).val().progress.algebra.completed, true);
+  const retried=app.reBoot();
+  assert.equal((await retried.readUser()).val().progress.algebra.completed, true);
 });
 
-test('corrupt current data is never silently replaced by an earlier version', () => {
+test('corrupt current data is never silently replaced by an earlier version', async () => {
   const app = boot({
     datalab_offline_db: '{broken',
     previous_offline_db: JSON.stringify(fixture()),
   });
-  assert.throws(app.readUser, error => error.code === 'OFFLINE_STORAGE_FAILED');
+  await assert.rejects(app.readUser(), error => error.code === "OFFLINE_STORAGE_FAILED");
   assert.equal(app.storage.getItem('datalab_offline_db'), '{broken');
 });
 

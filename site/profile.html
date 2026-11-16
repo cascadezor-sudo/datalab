@@ -366,6 +366,33 @@
           grid-column: 1 / -1 !important;
         }
       }
+
+      .profile-export-llm-btn {
+        margin-top: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color, rgba(148, 163, 184, 0.35));
+        background: var(--bg-secondary, rgba(148, 163, 184, 0.12));
+        color: inherit;
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+
+      .profile-export-llm-btn:hover {
+        background: rgba(59, 130, 246, 0.14);
+        border-color: rgba(59, 130, 246, 0.45);
+      }
+
+      .profile-export-llm-btn:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
     </style>
 
     <script src="assets/js/components/navigation.js"></script>
@@ -512,6 +539,13 @@
             <p class="card-description" style="margin-top: 8px">
               <a href="roadmap/index.html">Прогресс по разделам</a>
             </p>
+            <button
+              type="button"
+              id="exportLlmProgressBtn"
+              class="profile-export-llm-btn"
+            >
+              Экспорт тем для LLM (.md)
+            </button>
           </div>
         </div>
 
@@ -768,6 +802,123 @@
           } catch (e) {
             console.warn("Profile progress widget:", e);
           }
+        }
+
+        async function exportProgressForLlm() {
+          const btn = document.getElementById("exportLlmProgressBtn");
+          if (!btn || !currentUser || !db) return;
+          const originalText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "Формирую файл...";
+          try {
+            const toUrl = (p) =>
+              typeof window.normalizeSiteUrl === "function"
+                ? window.normalizeSiteUrl(p)
+                : p;
+            const [listRes, catRes, progressSnap] = await Promise.all([
+              fetch(toUrl("/assets/js/config/questions-list.json")),
+              fetch(toUrl("/assets/js/config/categories-config.json")),
+              db.ref("users/" + currentUser.uid + "/progress").once("value"),
+            ]);
+            const listData = listRes.ok
+              ? await listRes.json()
+              : { categories: {} };
+            const catData = catRes.ok
+              ? await catRes.json()
+              : { categories: {} };
+            const progress = (progressSnap && progressSnap.val()) || {};
+            const categories = listData.categories || {};
+            const catMeta = catData.categories || {};
+
+            const completedSet = new Set(
+              Object.keys(progress).filter(
+                (qId) => progress[qId] && progress[qId].completed === true,
+              ),
+            );
+            const allCourseIds = new Set();
+            Object.entries(categories).forEach(([catName, ids]) => {
+              if (catName === "interviews" || !Array.isArray(ids)) return;
+              ids.forEach((id) => allCourseIds.add(id));
+            });
+
+            const today = new Date().toISOString().slice(0, 10);
+            const total = allCourseIds.size;
+            const completedCourseCount = [...allCourseIds].filter((id) =>
+              completedSet.has(id),
+            ).length;
+            const pct =
+              total > 0 ? Math.round((completedCourseCount / total) * 100) : 0;
+
+            const lines = [
+              "# DataLab — Прогресс обучения",
+              "",
+              "> Контекст для LLM: ниже перечислены темы платформы DataLab, которые я уже прошёл и которые ещё не прошёл. Учитывай это при объяснении материала и подборе задач.",
+              "",
+              `- Дата выгрузки: ${today}`,
+              `- Пройдено по основной программе: ${completedCourseCount} из ${total} (${pct}%)`,
+              "",
+            ];
+
+            Object.entries(categories).forEach(([catKey, ids]) => {
+              if (!Array.isArray(ids) || ids.length === 0) return;
+              const meta = catMeta[catKey] || {};
+              const title =
+                meta.displayNameRu || meta.displayName || catKey;
+              const done = ids.filter((id) => completedSet.has(id));
+              const todo = ids.filter((id) => !completedSet.has(id));
+
+              lines.push(`## ${title} (\`${catKey}\`) — ${done.length}/${ids.length}`);
+              lines.push("");
+              lines.push(
+                done.length
+                  ? `**Пройдено:** ${done.map((id) => `\`${id}\``).join(", ")}`
+                  : "**Пройдено:** —",
+              );
+              lines.push(
+                todo.length
+                  ? `**Не пройдено:** ${todo.map((id) => `\`${id}\``).join(", ")}`
+                  : "**Не пройдено:** всё пройдено",
+              );
+              lines.push("");
+            });
+
+            const knownIds = new Set();
+            Object.values(categories).forEach((ids) => {
+              if (Array.isArray(ids)) ids.forEach((id) => knownIds.add(id));
+            });
+            const extraDone = [...completedSet].filter(
+              (id) => !knownIds.has(id),
+            );
+            if (extraDone.length > 0) {
+              lines.push("## Дополнительно пройдено");
+              lines.push("");
+              lines.push(extraDone.map((id) => `- \`${id}\``).join("\n"));
+              lines.push("");
+            }
+
+            const blob = new Blob([lines.join("\n")], {
+              type: "text/markdown;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `datalab-progress-${today}.md`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch (e) {
+            console.error("Export LLM progress failed:", e);
+            alert("Не удалось выгрузить прогресс: " + (e.message || e));
+          } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        }
+
+        const exportLlmBtn = document.getElementById("exportLlmProgressBtn");
+        if (exportLlmBtn) {
+          exportLlmBtn.addEventListener("click", exportProgressForLlm);
         }
 
         async function loadProfileActivityGrid() {

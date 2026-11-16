@@ -259,7 +259,7 @@ window.platformDayKey =
 
   function getDemoStore() {
     try {
-      return JSON.parse(localStorage.getItem(DEMO_KEY) || "{}");
+      return JSON.parse((window.DataLabStorage?.local || localStorage).getItem(DEMO_KEY) || "{}");
     } catch (error) {
       return {};
     }
@@ -267,7 +267,7 @@ window.platformDayKey =
 
   function setDemoStore(nextStore) {
     try {
-      localStorage.setItem(DEMO_KEY, JSON.stringify(nextStore));
+      window.DataLabStorage.local.setItem(DEMO_KEY, JSON.stringify(nextStore));
     } catch (error) {}
   }
 
@@ -728,6 +728,11 @@ window.platformDayKey =
   }
 
   function saveDemoStudent() {
+    if (window.DataLabStorage) {
+      const studentId = state.selectedStudentId;
+      const student = { progress: state.progress, tasksByMilestone: state.tasksByMilestone };
+      return window.DataLabStorage.local.updateJSON(DEMO_KEY, (current) => ({ ...current, [studentId]: student }));
+    }
     const store = getDemoStore();
     store[state.selectedStudentId] = {
       progress: state.progress,
@@ -1042,7 +1047,10 @@ window.platformDayKey =
         status: "assigned",
         assignedAt: state.progress[milestoneId]?.assignedAt || now,
       };
-      saveDemoStudent();
+      try { await saveDemoStudent(); } catch (error) {
+        showToast(t("Не удалось сохранить изменения. Проверьте сообщение хранилища."));
+        return;
+      }
       render();
       showToast(t("Демо: milestone отмечен как поставленный на доску."));
       return;
@@ -1113,7 +1121,10 @@ window.platformDayKey =
         completedAt: now,
         completedSprint: getSprintId(now),
       }));
-      saveDemoStudent();
+      try { await saveDemoStudent(); } catch (error) {
+        showToast(t("Не удалось сохранить изменения. Проверьте сообщение хранилища."));
+        return;
+      }
       render();
       showToast(
         t("Демо: milestone закрыт, связанные карточки отмечены выполненными."),

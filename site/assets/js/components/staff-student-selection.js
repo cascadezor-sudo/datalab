@@ -33,7 +33,7 @@
 
   function readSelectedStudent(staffUid) {
     try {
-      return localStorage.getItem(keyFor(staffUid)) || "";
+      return (window.DataLabStorage?.local || localStorage).getItem(keyFor(staffUid)) || "";
     } catch (error) {
       return "";
     }
@@ -41,8 +41,8 @@
 
   function rememberSelectedStudent(staffUid, studentId) {
     try {
-      if (studentId) localStorage.setItem(keyFor(staffUid), studentId);
-      else localStorage.removeItem(keyFor(staffUid));
+      if (studentId) window.DataLabStorage.local.setItem(keyFor(staffUid), studentId);
+      else window.DataLabStorage.local.removeItem(keyFor(staffUid));
     } catch (error) {}
     try {
       const url = new URL(location.href);

@@ -21,7 +21,7 @@ class DailyFact {
   }
 
   updateTimer() {
-    const lastTime = localStorage.getItem(this.storageKey);
+    const lastTime = (window.DataLabStorage?.local || localStorage).getItem(this.storageKey);
     if (!lastTime) return;
 
     const now = Date.now();
@@ -99,7 +99,7 @@ class DailyFact {
   }
 
   shouldShowFactToday() {
-    const lastTime = localStorage.getItem(this.storageKey);
+    const lastTime = (window.DataLabStorage?.local || localStorage).getItem(this.storageKey);
 
     if (!lastTime) {
       return true;
@@ -146,7 +146,7 @@ class DailyFact {
 
   readSeenFacts() {
     try {
-      const stored = JSON.parse(localStorage.getItem(this.seenFactsKey));
+      const stored = JSON.parse((window.DataLabStorage?.local || localStorage).getItem(this.seenFactsKey));
       return Array.isArray(stored) ? stored.map(String) : [];
     } catch {
       return [];
@@ -257,8 +257,8 @@ class DailyFact {
       });
 
       // Save current timestamp and the deck of already shown facts
-      localStorage.setItem(this.storageKey, Date.now().toString());
-      localStorage.setItem(this.seenFactsKey, JSON.stringify(seen));
+      window.DataLabStorage.local.setItem(this.storageKey, Date.now().toString());
+      window.DataLabStorage.local.setItem(this.seenFactsKey, JSON.stringify(seen));
 
       // Add animation class after a small delay
       setTimeout(() => {
@@ -389,6 +389,6 @@ window.showDailyFact = () => {
 
 // DEBUG: Add function to reset fact timer
 window.resetDailyFact = () => {
-  localStorage.removeItem("lastFactDate");
+  window.DataLabStorage.local.removeItem("lastFactDate");
   location.reload();
 };
